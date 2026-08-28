@@ -34,33 +34,19 @@ with the `-race` skip in `nwc_test.go` removed. Every khatru race disappeared.
 The only report left was the go-nostr one below, which this patch does not
 touch.
 
-### Applying it
+### Applied, without a fork
 
-Upstream cannot take it: `github.com/fiatjaf/khatru` is archived, and the same
-missing lock is in every tag from v0.7.6 through v0.19.1 and on master. So a
-fork it is.
+It is already in effect. `third_party/khatru` holds a patched copy of v0.7.6 and
+`go.mod` replaces the dependency with that directory. See
+[`../third_party/khatru/WHY.md`](../third_party/khatru/WHY.md) for why a
+directory rather than a fork, and what the Dockerfile needed.
 
-```bash
-# fork fiatjaf/khatru, then, at tag v0.7.6:
-git apply patches/khatru-listener-race.patch
-git commit -am "Lock rl.listeners on the read side"
-git push
-```
+The patch is kept here as a standalone file so it can be re-applied if the copy
+is ever refreshed, and so the change is readable without diffing 2000 lines of
+vendored code.
 
-Then in `relay/go.mod`:
-
-```
-replace github.com/fiatjaf/khatru => github.com/<account>/khatru <pseudo-version>
-```
-
-Pin the pseudo-version to the commit. A `replace` pointing at a local directory
-would break the Docker build, which copies only `go.mod`, `go.sum` and `*.go`.
-
-Afterwards, delete `relay/raceflag_race_test.go` and
-`relay/raceflag_norace_test.go` and drop the `raceDetectorEnabled` skip at the
-top of `startTestRelay` in `relay/nwc_test.go`. That skip exists only because of
-this bug, and the point of fixing it is getting `-race` back over the payment
-path.
+`-race` now covers the payment path, which was the point. The
+`raceflag_*_test.go` files and the skip in `startTestRelay` are gone.
 
 ## The other one, still open: go-nostr's client
 
@@ -74,7 +60,15 @@ Failure mode is a nil dereference inside the write loop, which is a panic with
 nothing to catch it. It matters because the NWC watcher closes and reopens its
 connection on every reconnect.
 
-No patch here yet. Two ways out worth weighing: a second fork, or stopping
-calling `Close()` in this repo and cancelling the per-attempt context instead,
-since go-nostr already tears down cleanly on `connectionContext.Done()`
-(relay.go:168-178) without the racy nil writes.
+No fix here yet, and one obvious idea does not work. Cancelling the per-attempt
+context instead of calling `Close()` looks appealing, because the cleanup
+goroutine at relay.go:167-179 runs on `connectionContext.Done()` without any of
+the racy nil writes. But that goroutine closes the notices channel, stops the
+ticker and unsubscribes, and never touches `r.Connection`. Only `Close()` closes
+the socket. Swapping one for the other trades a race for a connection leak on
+every reconnect, which is worse.
+
+What is left: the same in-tree copy treatment, or an upgrade. Unlike khatru,
+go-nostr is not archived, so checking whether a later release synchronises
+`Close()` is the first thing to try, bearing in mind the in-tree khatru requires
+go-nostr v0.34.x and would need adjusting alongside.

@@ -60,10 +60,6 @@ func (s *testStore) query(ctx context.Context, filter nostr.Filter) (chan *nostr
 func startTestRelay(t *testing.T) string {
 	t.Helper()
 
-	if raceDetectorEnabled {
-		t.Skip("skipping: khatru v0.7.6 races on its own listener list, see raceflag_norace_test.go")
-	}
-
 	rl := khatru.NewRelay()
 	store := &testStore{}
 	rl.StoreEvent = append(rl.StoreEvent, store.store)
