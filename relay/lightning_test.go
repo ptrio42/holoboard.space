@@ -121,7 +121,7 @@ func TestReconcilerBooksSettledInvoices(t *testing.T) {
 	// for. The reconciler must ignore it and book what we actually asked for.
 	backend.paid[settled.PaymentHash] = 999_999_999
 
-	manager := NewInvoiceManager(backend, storage, NewPaymentMonitor(storage, "relay", NewPostFetcher(nil)), 1000)
+	manager := NewInvoiceManager(backend, storage, NewPaymentMonitor(storage, "relay", NewPostFetcher(nil), NewLNURLResolver()), 1000)
 	manager.reconcilePendingInvoices(context.Background())
 
 	post, exists := storage.GetPost(postID)
@@ -164,7 +164,7 @@ func TestReconcilerSkipsFailedChecks(t *testing.T) {
 	backend := newStubBackend()
 	backend.err = fmt.Errorf("wallet unreachable")
 
-	manager := NewInvoiceManager(backend, storage, NewPaymentMonitor(storage, "relay", NewPostFetcher(nil)), 1000)
+	manager := NewInvoiceManager(backend, storage, NewPaymentMonitor(storage, "relay", NewPostFetcher(nil), NewLNURLResolver()), 1000)
 	manager.reconcilePendingInvoices(context.Background())
 
 	if _, stillPending := storage.GetPendingInvoice(invoice.PaymentHash); !stillPending {
@@ -202,7 +202,7 @@ func TestReconcilerRunsOnStartAndOnTicker(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	manager := NewInvoiceManager(backend, storage, NewPaymentMonitor(storage, "relay", NewPostFetcher(nil)), 1000)
+	manager := NewInvoiceManager(backend, storage, NewPaymentMonitor(storage, "relay", NewPostFetcher(nil), NewLNURLResolver()), 1000)
 	manager.StartInvoiceReconciler(ctx, 50*time.Millisecond)
 
 	deadline := time.Now().Add(5 * time.Second)
@@ -235,7 +235,7 @@ func TestReconcilerStopsWithContext(t *testing.T) {
 	backend := newStubBackend()
 	ctx, cancel := context.WithCancel(context.Background())
 
-	manager := NewInvoiceManager(backend, storage, NewPaymentMonitor(storage, "relay", NewPostFetcher(nil)), 1000)
+	manager := NewInvoiceManager(backend, storage, NewPaymentMonitor(storage, "relay", NewPostFetcher(nil), NewLNURLResolver()), 1000)
 	manager.StartInvoiceReconciler(ctx, 20*time.Millisecond)
 
 	time.Sleep(100 * time.Millisecond)

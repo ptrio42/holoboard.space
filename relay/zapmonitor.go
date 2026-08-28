@@ -88,12 +88,8 @@ func (zm *ZapMonitor) monitorRelay(ctx context.Context, relayURL string, filter 
 
 				log.Printf("Received zap receipt from %s: %s", relayURL, event.ID)
 
-				// Validate and process the zap
-				if err := ValidateZapEvent(event); err != nil {
-					log.Printf("Invalid zap event from %s: %v", relayURL, err)
-					continue
-				}
-
+				// ProcessZap validates the receipt itself now, since the
+				// checks need the relay pubkey and the resolved zapper keys.
 				if err := zm.paymentMonitor.ProcessZap(ctx, event); err != nil {
 					log.Printf("Failed to process zap from %s: %v", relayURL, err)
 				} else {

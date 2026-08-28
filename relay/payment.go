@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"regexp"
@@ -20,14 +19,18 @@ type PaymentMonitor struct {
 	storage     *Storage
 	relayPubkey string
 	fetcher     *PostFetcher
+	// zapValidator holds the nostr keys this relay's LNURL servers sign
+	// receipts with. Without one, no zap can be believed.
+	zapValidator *LNURLResolver
 }
 
 // NewPaymentMonitor creates a new payment monitor
-func NewPaymentMonitor(storage *Storage, relayPubkey string, fetcher *PostFetcher) *PaymentMonitor {
+func NewPaymentMonitor(storage *Storage, relayPubkey string, fetcher *PostFetcher, zapValidator *LNURLResolver) *PaymentMonitor {
 	return &PaymentMonitor{
-		storage:     storage,
-		relayPubkey: relayPubkey,
-		fetcher:     fetcher,
+		storage:      storage,
+		relayPubkey:  relayPubkey,
+		fetcher:      fetcher,
+		zapValidator: zapValidator,
 	}
 }
 
@@ -44,60 +47,21 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 		return nil
 	}
 
-	// Verify this zap is directed to our relay
-	zapRecipient := ""
-	for _, tag := range zapEvent.Tags {
-		if len(tag) >= 2 && tag[0] == "p" {
-			zapRecipient = tag[1]
-			break
-		}
+	// Everything that makes this receipt mean anything is checked here: that
+	// this relay's own LNURL server signed it, that the bolt11 decodes as a
+	// real mainnet invoice, and that the invoice's description hash ties it to
+	// the zap request it carries. Before this, a stranger's keypair and an
+	// invented string bought whatever rank they felt like.
+	details, err := ValidateZapReceipt(zapEvent, pm.relayPubkey, pm.zapValidator)
+	if err != nil {
+		return fmt.Errorf("rejected zap %s: %w", short(zapEvent.ID, 8), err)
 	}
 
-	if zapRecipient != pm.relayPubkey {
-		return fmt.Errorf("zap not directed to relay pubkey")
-	}
+	zapRequest := *details.Request
+	amountSats := details.AmountSats
+	bolt11 := firstTag(zapEvent, "bolt11")
 
-	// Extract the zap request from the description tag
-	var description string
-	for _, tag := range zapEvent.Tags {
-		if len(tag) >= 2 && tag[0] == "description" {
-			description = tag[1]
-			break
-		}
-	}
-
-	if description == "" {
-		return fmt.Errorf("zap missing description tag")
-	}
-
-	// Parse the zap request (kind 9734 event embedded in description)
-	var zapRequest nostr.Event
-	if err := json.Unmarshal([]byte(description), &zapRequest); err != nil {
-		return fmt.Errorf("failed to parse zap request: %w", err)
-	}
-
-	// Extract the amount from the bolt11 tag
-	var bolt11 string
-	for _, tag := range zapEvent.Tags {
-		if len(tag) >= 2 && tag[0] == "bolt11" {
-			bolt11 = tag[1]
-			break
-		}
-	}
-
-	if bolt11 == "" {
-		return fmt.Errorf("zap missing bolt11 tag")
-	}
-
-	amountMsat := extractAmountFromBolt11(bolt11)
-	amountSats := amountMsat / 1000
-
-	log.Printf("Extracted amount from bolt11: %d millisats = %d sats (bolt11: %s...)", amountMsat, amountSats, short(bolt11, 20))
-
-	if amountSats <= 0 {
-		log.Printf("Ignoring zap with zero amount (< 1 sat)")
-		return nil
-	}
+	log.Printf("Zap %s verified: %d sats", short(zapEvent.ID, 8), amountSats)
 
 	// Extract the post ID from multiple possible sources, with priority order:
 	// 1. HIGHEST PRIORITY: Check if zapped event is a promotional reply (from mention flow)
@@ -105,7 +69,11 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 	//    - Ignore any note ID in zap content/description for this flow
 	// 2. Check if this bolt11 matches a pending invoice from PROMOTE command (DM flow)
 	// 3. Extract from the zap comment (zapRequest.Content)
-	// 4. Extract from the bolt11 invoice description field (wallet label/description)
+	//
+	// There used to be a fourth, reading the bolt11's own description field. A
+	// zap invoice carries a description hash instead of a description, and
+	// zpay32 treats the two as mutually exclusive, so that branch could never
+	// fire for a receipt that now passes validation.
 
 	var postID string
 
@@ -156,20 +124,8 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 		}
 	}
 
-	// PRIORITY 4: Try the bolt11 description field (wallet label/description)
-	if postID == "" && bolt11 != "" {
-		bolt11Description := extractDescriptionFromBolt11(bolt11)
-		if bolt11Description != "" {
-			log.Printf("Checking bolt11 description for post ID: %s", bolt11Description)
-			postID = extractEventIDFromText(bolt11Description)
-			if postID != "" {
-				log.Printf("Extracted post ID from bolt11 description: %s", short(postID, 8))
-			}
-		}
-	}
-
 	if postID == "" {
-		return fmt.Errorf("zap request missing post ID (checked: promotional replies, DM invoices, zap content, bolt11 description)")
+		return fmt.Errorf("zap request missing post ID (checked: promotional replies, DM invoices, zap content)")
 	}
 
 	// Normalize the post ID (handle nevent/note formats)
@@ -526,78 +482,6 @@ func ParsePromoteCommand(content string) (postID string, amountSats int64, ok bo
 	return postID, amountSats, true
 }
 
-// extractAmountFromBolt11 extracts the amount in millisats from a bolt11 invoice
-// This is a simplified parser that looks for the amount in the bolt11 string
-func extractAmountFromBolt11(bolt11 string) int64 {
-	if len(bolt11) < 10 {
-		return 0
-	}
-
-	// BOLT11 format: ln{prefix}{amount}{suffix}
-	// Amount can be: empty (any amount), or number followed by multiplier (m=milli, u=micro, n=nano, p=pico)
-	// Multipliers are in units of Bitcoin:
-	//   m = milli-bitcoin = 0.001 BTC = 100,000 sats = 100,000,000 millisats
-	//   u = micro-bitcoin = 0.000001 BTC = 100 sats = 100,000 millisats
-	//   n = nano-bitcoin = 0.000000001 BTC = 0.1 sats = 100 millisats
-	//   p = pico-bitcoin = 0.000000000001 BTC = 0.0001 sats = 0.1 millisats
-	// Example: lnbc10n = 10 nano-bitcoin = 10 * 100 millisats = 1000 millisats = 1 sat
-
-	// Remove the 'ln' prefix and get the network+amount part
-	if !strings.HasPrefix(bolt11, "ln") {
-		return 0
-	}
-
-	// Extract just the amount portion (after 'lnbc'/'lnbt'/etc)
-	var amountStr string
-	re := regexp.MustCompile(`^ln[a-z0-9]+?(\d+[munp]?)`)
-	matches := re.FindStringSubmatch(bolt11)
-
-	if len(matches) < 2 {
-		return 0
-	}
-
-	amountStr = matches[1]
-	if amountStr == "" {
-		return 0
-	}
-
-	// Parse the multiplier (in millisats per unit)
-	multiplier := int64(100_000_000_000) // Default: 1 bitcoin = 100,000,000,000 millisats
-	lastChar := amountStr[len(amountStr)-1]
-
-	var numStr string
-	switch lastChar {
-	case 'm': // milli-bitcoin = 100,000,000 millisats
-		multiplier = 100_000_000
-		numStr = amountStr[:len(amountStr)-1]
-	case 'u': // micro-bitcoin = 100,000 millisats
-		multiplier = 100_000
-		numStr = amountStr[:len(amountStr)-1]
-	case 'n': // nano-bitcoin = 100 millisats
-		multiplier = 100
-		numStr = amountStr[:len(amountStr)-1]
-	case 'p': // pico-bitcoin = 0.1 millisats (round down to 0)
-		multiplier = 0
-		numStr = amountStr[:len(amountStr)-1]
-	default:
-		// No multiplier = bitcoin
-		numStr = amountStr
-	}
-
-	num, err := strconv.ParseInt(numStr, 10, 64)
-	if err != nil {
-		return 0
-	}
-
-	return num * multiplier
-}
-
-// ExtractAmountFromInvoice extracts the amount in sats from a bolt11 invoice
-func ExtractAmountFromInvoice(bolt11 string) int64 {
-	amountMsat := extractAmountFromBolt11(bolt11)
-	return amountMsat / 1000
-}
-
 // extractDescriptionFromBolt11 extracts the description field from a bolt11 invoice
 func extractDescriptionFromBolt11(bolt11 string) string {
 	// Decode the invoice using zpay32
@@ -617,41 +501,4 @@ func extractDescriptionFromBolt11(bolt11 string) string {
 	}
 
 	return ""
-}
-
-// ValidateZapEvent performs additional validation on a zap event
-func ValidateZapEvent(zapEvent *nostr.Event) error {
-	if zapEvent.Kind != 9735 {
-		return fmt.Errorf("event is not a zap (kind 9735)")
-	}
-
-	// Check for required tags
-	hasP := false
-	hasBolt11 := false
-	hasDescription := false
-
-	for _, tag := range zapEvent.Tags {
-		if len(tag) >= 1 {
-			switch tag[0] {
-			case "p":
-				hasP = true
-			case "bolt11":
-				hasBolt11 = true
-			case "description":
-				hasDescription = true
-			}
-		}
-	}
-
-	if !hasP {
-		return fmt.Errorf("missing 'p' tag")
-	}
-	if !hasBolt11 {
-		return fmt.Errorf("missing 'bolt11' tag")
-	}
-	if !hasDescription {
-		return fmt.Errorf("missing 'description' tag")
-	}
-
-	return nil
 }

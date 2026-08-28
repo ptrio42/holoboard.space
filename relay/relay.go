@@ -99,11 +99,6 @@ func SetupRelay(relay *khatru.Relay, storage *Storage, monitor *PaymentMonitor, 
 	relay.OnEventSaved = append(relay.OnEventSaved, func(ctx context.Context, event *nostr.Event) {
 		// Process zaps directed to our relay
 		if event.Kind == 9735 { // Zap receipt
-			if err := ValidateZapEvent(event); err != nil {
-				log.Printf("Invalid zap event: %v", err)
-				return
-			}
-
 			if err := monitor.ProcessZap(ctx, event); err != nil {
 				log.Printf("Failed to process zap: %v", err)
 			}

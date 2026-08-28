@@ -19,7 +19,7 @@ func newTestMonitor(t *testing.T, relayPubkey string) *PaymentMonitor {
 		t.Fatalf("failed to create storage: %v", err)
 	}
 
-	return NewPaymentMonitor(storage, relayPubkey, NewPostFetcher(nil))
+	return NewPaymentMonitor(storage, relayPubkey, NewPostFetcher(nil), NewLNURLResolver())
 }
 
 // TestProcessZapSurvivesShortEventID covers the crash that a forged zap used to

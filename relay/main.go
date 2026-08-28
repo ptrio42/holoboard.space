@@ -57,6 +57,18 @@ func loadEnvFile(filename string) error {
 	return scanner.Err()
 }
 
+// splitAndTrim splits a comma separated setting into its non-empty parts.
+func splitAndTrim(value string) []string {
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
 // getEnv retrieves an environment variable or returns a default value
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
@@ -132,8 +144,13 @@ func main() {
 	// Initialize post fetcher
 	fetcher := NewPostFetcher(fetchRelays)
 
+	// Which LNURL servers are allowed to say this relay was paid. The
+	// addresses are handed over at Start, once the profile and the Lightning
+	// backend have been read.
+	zapValidator := NewLNURLResolver()
+
 	// Initialize payment monitor
-	monitor := NewPaymentMonitor(storage, relayPubkey, fetcher)
+	monitor := NewPaymentMonitor(storage, relayPubkey, fetcher, zapValidator)
 
 	// Initialize Lightning backend based on configuration
 	lightningBackend := getEnv("LIGHTNING_BACKEND", "mock")
@@ -271,6 +288,22 @@ func main() {
 	if name == "" {
 		name = "Nostr Promotion Board"
 	}
+
+	// Now that both the profile and the Lightning backend are known, tell the
+	// zap validator which LNURL servers are allowed to say this relay was paid.
+	//
+	// The default is the address on the relay's own kind:0, because that is the
+	// one a zapping client resolves and pays. The NWC wallet's address is added
+	// when it differs, which here it does: the profile advertises one wallet
+	// and the connection string points at another.
+	zapAddresses := splitAndTrim(getEnv("ZAP_LNURL_ADDRESSES", ""))
+	if len(zapAddresses) == 0 && profile != nil {
+		zapAddresses = splitAndTrim(profile.Lud16)
+	}
+	if nwc, ok := lnBackend.(*NWCBackend); ok {
+		zapAddresses = append(zapAddresses, nwc.LightningAddress())
+	}
+	zapValidator.Start(ctx, zapAddresses)
 
 	if profile != nil {
 		log.Printf("Relay profile loaded from nostr: name %q, lud16 %q", profile.Name, profile.Lud16)
