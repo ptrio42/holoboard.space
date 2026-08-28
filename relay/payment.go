@@ -17,9 +17,9 @@ import (
 
 // PaymentMonitor handles zap events and payment verification
 type PaymentMonitor struct {
-	storage      *Storage
-	relayPubkey  string
-	fetcher      *PostFetcher
+	storage     *Storage
+	relayPubkey string
+	fetcher     *PostFetcher
 }
 
 // NewPaymentMonitor creates a new payment monitor

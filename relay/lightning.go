@@ -102,9 +102,9 @@ func (m *MockLightningBackend) CheckInvoice(ctx context.Context, paymentHash str
 
 // InvoiceManager handles invoice generation and payment tracking
 type InvoiceManager struct {
-	backend         LightningBackend
-	storage         *Storage
-	paymentMonitor  *PaymentMonitor
+	backend           LightningBackend
+	storage           *Storage
+	paymentMonitor    *PaymentMonitor
 	defaultAmountSats int64
 }
 

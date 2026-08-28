@@ -37,11 +37,11 @@ func NewLNbitsBackend(apiKey, readKey, baseURL string) *LNbitsBackend {
 // LNbits API Types
 
 type lnbitsCreateInvoiceRequest struct {
-	Out         bool   `json:"out"`         // false for incoming payment
-	Amount      int64  `json:"amount"`      // Amount in satoshis
-	Memo        string `json:"memo"`        // Invoice description
-	Webhook     string `json:"webhook,omitempty"` // Optional webhook URL
-	InternalID  string `json:"internal,omitempty"` // Optional internal ID
+	Out        bool   `json:"out"`                // false for incoming payment
+	Amount     int64  `json:"amount"`             // Amount in satoshis
+	Memo       string `json:"memo"`               // Invoice description
+	Webhook    string `json:"webhook,omitempty"`  // Optional webhook URL
+	InternalID string `json:"internal,omitempty"` // Optional internal ID
 }
 
 type lnbitsCreateInvoiceResponse struct {
@@ -50,8 +50,8 @@ type lnbitsCreateInvoiceResponse struct {
 }
 
 type lnbitsCheckInvoiceResponse struct {
-	Paid   bool   `json:"paid"`
-	Amount int64  `json:"amount"` // millisatoshis
+	Paid   bool  `json:"paid"`
+	Amount int64 `json:"amount"` // millisatoshis
 }
 
 // GenerateInvoice creates a new Lightning invoice via LNbits

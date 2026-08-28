@@ -32,23 +32,23 @@ func NewZebedeeBackend(apiKey string) *ZebedeeBackend {
 // ZBD API Types
 
 type zbdCreateChargeRequest struct {
-	Amount      string `json:"amount"`           // Amount in millisatoshis
-	Description string `json:"description"`      // Invoice description/memo
-	ExpiresIn   int    `json:"expiresIn"`       // Expiration in seconds
-	InternalID  string `json:"internalId"`      // Optional internal reference ID
+	Amount      string `json:"amount"`      // Amount in millisatoshis
+	Description string `json:"description"` // Invoice description/memo
+	ExpiresIn   int    `json:"expiresIn"`   // Expiration in seconds
+	InternalID  string `json:"internalId"`  // Optional internal reference ID
 }
 
 type zbdCreateChargeResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 	Data    struct {
-		ID      string `json:"id"`      // Zebedee charge ID
+		ID      string `json:"id"` // Zebedee charge ID
 		Invoice struct {
-			Request     string `json:"request"`     // BOLT11 payment request
-			ExpiresAt   string `json:"expiresAt"`   // ISO 8601 timestamp
+			Request   string `json:"request"`   // BOLT11 payment request
+			ExpiresAt string `json:"expiresAt"` // ISO 8601 timestamp
 		} `json:"invoice"`
-		Amount      string `json:"amount"`      // Amount in millisatoshis
-		Status      string `json:"status"`      // pending, completed, expired
+		Amount      string `json:"amount"` // Amount in millisatoshis
+		Status      string `json:"status"` // pending, completed, expired
 		Description string `json:"description"`
 		CreatedAt   string `json:"createdAt"`   // ISO 8601 timestamp
 		CallbackURL string `json:"callbackUrl"` // Webhook URL for payment notifications
