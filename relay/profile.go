@@ -10,8 +10,12 @@ import (
 )
 
 // profileFetchTimeout bounds the boot-time profile lookup. Nothing here is
-// worth delaying startup over.
-const profileFetchTimeout = 8 * time.Second
+// worth delaying startup over, and delaying startup is exactly what it did:
+// on the first Fly deploy this took 32 seconds against an 8 second budget,
+// because ranging the pool's channel waits for the channel to close rather
+// than for the context, and two of the four relays were hanging. Fly checked
+// for a listening socket long before the relay reached its own Start.
+const profileFetchTimeout = 5 * time.Second
 
 // relayProfile is the part of a kind:0 this relay cares about.
 type relayProfile struct {
@@ -45,13 +49,25 @@ func fetchRelayProfile(ctx context.Context, relays []string, pubkey string) *rel
 		Limit:   1,
 	}})
 
+	// Select on the context rather than ranging the channel. SimplePool closes
+	// it only once every relay has answered or given up, and a relay that hangs
+	// is not a reason to hold up the whole boot.
 	var newest *nostr.Event
-	for event := range events {
-		if event.Event == nil {
-			continue
-		}
-		if newest == nil || event.CreatedAt > newest.CreatedAt {
-			newest = event.Event
+collect:
+	for {
+		select {
+		case <-ctx.Done():
+			break collect
+		case event, ok := <-events:
+			if !ok {
+				break collect
+			}
+			if event.Event == nil {
+				continue
+			}
+			if newest == nil || event.CreatedAt > newest.CreatedAt {
+				newest = event.Event
+			}
 		}
 	}
 

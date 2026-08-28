@@ -4,10 +4,16 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip04"
 )
+
+// maxDMBacklog caps how far back a restart looks for DMs it may have missed.
+// Shorter than the mention backlog on purpose: answering a stale mention costs
+// a reply, answering a stale PROMOTE costs a Lightning invoice.
+const maxDMBacklog = 1 * time.Hour
 
 // DMMonitor monitors external relays for DMs sent to the relay
 type DMMonitor struct {
@@ -33,16 +39,25 @@ func NewDMMonitor(relays []string, relayPubkey, relayPrivkey string, invoiceMana
 func (dm *DMMonitor) Start(ctx context.Context) error {
 	log.Printf("Starting DM monitor on %d relays", len(dm.relays))
 
-	// Subscribe to DMs (kind 4) sent to our relay pubkey
+	// Subscribe to DMs (kind 4) sent to our relay pubkey.
+	//
+	// Since matters more here than anywhere else in the relay. Without it the
+	// Limit below means "the last hundred DMs ever", and every one of them gets
+	// answered with a freshly minted Lightning invoice. On the first Fly deploy
+	// that re-invoiced PROMOTE requests from six months earlier, because a new
+	// volume starts with processed_dms empty and dedup had nothing to work with.
+	since := nostr.Timestamp(resumePoint(dm.storage.DMWatermark(), time.Now(), maxDMBacklog))
 	filters := []nostr.Filter{
 		{
 			Kinds: []int{4}, // Encrypted DMs
 			Tags: nostr.TagMap{
 				"p": []string{dm.relayPubkey}, // DMs to our relay
 			},
-			Limit: 100, // Get recent DMs
+			Since: &since,
+			Limit: 100,
 		},
 	}
+	log.Printf("DM monitor resuming from %s", time.Unix(int64(since), 0).Format(time.RFC3339))
 
 	// Connect to relays and subscribe
 	pool := nostr.NewSimplePool(ctx)
@@ -68,6 +83,10 @@ func (dm *DMMonitor) Start(ctx context.Context) error {
 			// Mark as processed in persistent storage
 			if err := dm.storage.MarkDMProcessed(event.ID); err != nil {
 				log.Printf("Failed to mark DM as processed: %v", err)
+			}
+			// And move the watermark, so a fresh volume does not start over.
+			if err := dm.storage.AdvanceDMWatermark(int64(event.CreatedAt)); err != nil {
+				log.Printf("Failed to advance DM watermark: %v", err)
 			}
 		}
 	}()

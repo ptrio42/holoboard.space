@@ -41,6 +41,7 @@ type Storage struct {
 	promotionalReplies map[string]string          // promotional_reply_id -> note_to_promote_id
 	processedMentions  map[string]bool            // mention_event_id -> processed (to reply only once)
 	mentionWatermark   int64                      // newest mention seen, so a restart does not skip the gap
+	dmWatermark        int64                      // same, for DMs
 	dataFile           string
 }
 
@@ -320,6 +321,7 @@ func (s *Storage) save() error {
 		PromotionalReplies map[string]string          `json:"promotional_replies"`
 		ProcessedMentions  map[string]bool            `json:"processed_mentions"`
 		MentionWatermark   int64                      `json:"mention_watermark"`
+		DMWatermark        int64                      `json:"dm_watermark"`
 	}{
 		Posts:              s.posts,
 		PendingInvoices:    s.pendingInvoices,
@@ -328,6 +330,7 @@ func (s *Storage) save() error {
 		PromotionalReplies: s.promotionalReplies,
 		ProcessedMentions:  s.processedMentions,
 		MentionWatermark:   s.mentionWatermark,
+		DMWatermark:        s.dmWatermark,
 	}
 
 	bytes, err := json.MarshalIndent(data, "", "  ")
@@ -359,6 +362,7 @@ func (s *Storage) load() error {
 		PromotionalReplies map[string]string          `json:"promotional_replies"`
 		ProcessedMentions  map[string]bool            `json:"processed_mentions"`
 		MentionWatermark   int64                      `json:"mention_watermark"`
+		DMWatermark        int64                      `json:"dm_watermark"`
 	}
 
 	if err := json.Unmarshal(bytes, &data); err != nil {
@@ -396,6 +400,7 @@ func (s *Storage) load() error {
 	}
 
 	s.mentionWatermark = data.MentionWatermark
+	s.dmWatermark = data.DMWatermark
 
 	return nil
 }
@@ -422,6 +427,31 @@ func (s *Storage) AdvanceMentionWatermark(createdAt int64) error {
 		return nil
 	}
 	s.mentionWatermark = createdAt
+	return s.save()
+}
+
+// DMWatermark is the timestamp of the newest DM already handled.
+//
+// The DM monitor subscribed with a Limit and no Since, so on a fresh volume it
+// pulled the last hundred DMs ever sent to the relay and answered every one of
+// them with a new Lightning invoice. That is not hypothetical: the first deploy
+// re-invoiced months-old PROMOTE requests. processed_dms alone was never enough,
+// because a new volume starts with it empty.
+func (s *Storage) DMWatermark() int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.dmWatermark
+}
+
+// AdvanceDMWatermark moves the DM watermark forward, never back.
+func (s *Storage) AdvanceDMWatermark(createdAt int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if createdAt <= s.dmWatermark {
+		return nil
+	}
+	s.dmWatermark = createdAt
 	return s.save()
 }
 

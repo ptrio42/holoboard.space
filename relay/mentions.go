@@ -279,12 +279,21 @@ func mustEncodeBech32NProfile(pubkey string) string {
 // maxMentionBacklog caps how far back a restart will look for missed mentions.
 const maxMentionBacklog = 24 * time.Hour
 
-// mentionResumePoint picks the subscription start: the stored watermark, unless
-// it is missing or so old that resuming from it would replay a flood.
-func mentionResumePoint(watermark int64, now time.Time) int64 {
-	floor := now.Add(-maxMentionBacklog).Unix()
+// resumePoint picks where a subscription should start: the stored watermark,
+// unless it is missing or so old that resuming from it would replay a flood.
+//
+// Every monitor that answers people needs this. Subscribing from now silently
+// drops whatever arrived during a restart; subscribing from the beginning
+// answers months of history all over again, which is exactly what the DM
+// monitor did on its first deploy.
+func resumePoint(watermark int64, now time.Time, maxBacklog time.Duration) int64 {
+	floor := now.Add(-maxBacklog).Unix()
 	if watermark <= 0 || watermark < floor {
 		return floor
 	}
 	return watermark
+}
+
+func mentionResumePoint(watermark int64, now time.Time) int64 {
+	return resumePoint(watermark, now, maxMentionBacklog)
 }

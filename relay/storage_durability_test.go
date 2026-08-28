@@ -180,3 +180,60 @@ func TestQuiesceReturnsWhenSavesAreDone(t *testing.T) {
 		t.Fatal("Quiesce did not return on an idle storage")
 	}
 }
+
+// TestDMWatermarkSurvivesRestart pins the fix for the worst thing this relay
+// has actually done: on its first Fly deploy the DM monitor subscribed with a
+// Limit and no Since, so it pulled months-old PROMOTE requests off a fresh
+// volume and answered each one with a newly minted Lightning invoice.
+func TestDMWatermarkSurvivesRestart(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "relay_data.json")
+
+	storage, err := NewStorage(path)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	if storage.DMWatermark() != 0 {
+		t.Errorf("a fresh board should have no DM watermark, got %d", storage.DMWatermark())
+	}
+
+	if err := storage.AdvanceDMWatermark(1_700_000_000); err != nil {
+		t.Fatalf("failed to advance: %v", err)
+	}
+	if err := storage.AdvanceDMWatermark(1_600_000_000); err != nil {
+		t.Fatalf("failed on a backwards advance: %v", err)
+	}
+	if got := storage.DMWatermark(); got != 1_700_000_000 {
+		t.Errorf("watermark = %d, want it to hold", got)
+	}
+
+	reloaded, err := NewStorage(path)
+	if err != nil {
+		t.Fatalf("failed to reload: %v", err)
+	}
+	if got := reloaded.DMWatermark(); got != 1_700_000_000 {
+		t.Errorf("watermark after restart = %d, want 1700000000", got)
+	}
+	// The two watermarks must not share storage.
+	if reloaded.MentionWatermark() != 0 {
+		t.Errorf("mention watermark = %d, want 0; the two got crossed",
+			reloaded.MentionWatermark())
+	}
+}
+
+// TestDMBacklogIsShorterThanMentions: answering a stale mention costs a reply,
+// answering a stale PROMOTE costs an invoice, so DMs look back less far.
+func TestDMBacklogIsShorterThanMentions(t *testing.T) {
+	if maxDMBacklog >= maxMentionBacklog {
+		t.Errorf("DM backlog %s should be shorter than the mention backlog %s",
+			maxDMBacklog, maxMentionBacklog)
+	}
+
+	now := time.Unix(1_800_000_000, 0)
+	// A watermark older than the DM backlog must be clamped, not honoured.
+	ancient := now.Add(-30 * 24 * time.Hour).Unix()
+	got := resumePoint(ancient, now, maxDMBacklog)
+	if got != now.Add(-maxDMBacklog).Unix() {
+		t.Errorf("resumePoint clamped to %d, want %d", got, now.Add(-maxDMBacklog).Unix())
+	}
+}

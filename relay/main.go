@@ -263,7 +263,9 @@ func main() {
 	// The relay already has an identity on nostr, so read it from there rather
 	// than keeping a second copy in configuration that drifts. Both fields stay
 	// overridable for anyone running their own instance.
+	profileStart := time.Now()
 	profile := fetchRelayProfile(ctx, fetchRelays, relayPubkey)
+	log.Printf("Relay profile lookup took %s", time.Since(profileStart).Round(time.Millisecond))
 
 	// Contact is the relay's own npub. An email address here was never real,
 	// and the npub is derived, so it cannot go stale.
