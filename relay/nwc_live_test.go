@@ -122,9 +122,8 @@ func TestNWCLiveWallet(t *testing.T) {
 	t.Log("lookup_invoice agrees the invoice is unpaid, which is the whole round trip working")
 }
 
-// TestNWCLiveWalletSettlement mints an invoice and waits for a human to pay it,
-// watching both detection paths at once so we learn which one this wallet
-// actually delivers on.
+// TestNWCLiveWalletSettlement mints an invoice, waits for a human to pay it,
+// and reports what each of the two detection paths did.
 //
 //	cd relay && NWC_LIVE=1 NWC_WAIT_FOR_PAYMENT=1 go test -run TestNWCLiveWalletSettlement -v -timeout 15m
 //
@@ -142,6 +141,7 @@ func TestNWCLiveWalletSettlement(t *testing.T) {
 	if err := backend.LoadInfo(ctx); err != nil {
 		t.Fatalf("LoadInfo failed: %v", err)
 	}
+	t.Logf("wallet advertises notifications: %v", backend.SupportsNotifications())
 
 	// Start watching before minting, so a very fast payment cannot slip past.
 	paidCh, err := backend.WatchInvoices(ctx)
@@ -157,37 +157,92 @@ func TestNWCLiveWalletSettlement(t *testing.T) {
 	t.Logf("pay this %d sat invoice within 10 minutes:", invoice.AmountSats)
 	t.Logf("%s", invoice.PaymentRequest)
 
-	poll := time.NewTicker(5 * time.Second)
+	// Drop the bolt11 somewhere readable straight away. The test then blocks
+	// for as long as it takes someone to pay, and Go holds test output until
+	// the test ends, so without this there is no way to get at the invoice
+	// while it still matters.
+	if out := os.Getenv("NWC_INVOICE_OUT"); out != "" {
+		if err := os.WriteFile(out, []byte(invoice.PaymentRequest+"\n"), 0o600); err != nil {
+			t.Logf("could not write the invoice to %s: %v", out, err)
+		} else {
+			t.Logf("invoice also written to %s", out)
+		}
+	}
+
+	// Do not stop at the first detection. Both paths are meant to work, and
+	// returning on whichever fires first cannot tell "the notification never
+	// arrived" apart from "polling happened to win the race". Once one path
+	// reports, give the other a grace window, then say what each of them did.
+	const grace = 45 * time.Second
+
+	poll := time.NewTicker(3 * time.Second)
 	defer poll.Stop()
 
-	for {
+	var (
+		notified, polled bool
+		graceCh          <-chan time.Time // stays nil until something reports
+	)
+
+wait:
+	for !notified || !polled {
 		select {
 		case <-ctx.Done():
-			t.Fatal("nothing detected the payment before the deadline")
+			t.Fatal("neither path detected the payment before the deadline")
+
+		case <-graceCh:
+			t.Log("grace window closed with only one path reporting")
+			break wait
 
 		case paid, ok := <-paidCh:
 			if !ok {
-				paidCh = nil // notifications gone, keep polling
+				paidCh = nil // notification stream gone, polling carries on
 				continue
 			}
-			if paid.PaymentHash != invoice.PaymentHash {
-				continue // some other invoice on the same wallet
+			if paid.PaymentHash != invoice.PaymentHash || notified {
+				continue // a different invoice on the same wallet, or a repeat
 			}
-			t.Logf("NOTIFICATION path detected it: %d sats at %s",
+			notified = true
+			t.Logf("NOTIFICATION path: %d sats at %s",
 				paid.AmountSats, paid.PaidAt.Format(time.RFC3339))
-			return
+			if graceCh == nil {
+				graceCh = time.After(grace)
+			}
 
 		case <-poll.C:
+			if polled {
+				continue
+			}
 			settled, amount, err := backend.CheckInvoice(ctx, invoice.PaymentHash)
 			if err != nil {
 				t.Logf("lookup_invoice failed, will retry: %v", err)
 				continue
 			}
-			if settled {
-				t.Logf("POLLING path detected it: %d sats", amount)
-				return
+			if !settled {
+				continue
+			}
+			polled = true
+			t.Logf("POLLING path: settled, amount reported as %d sats", amount)
+			if graceCh == nil {
+				graceCh = time.After(grace)
 			}
 		}
+	}
+
+	switch {
+	case notified && polled:
+		t.Log("RESULT: both paths work. Settlement is instant through notifications, " +
+			"with the reconciler's polling behind it as a backstop.")
+	case notified:
+		t.Log("RESULT: notifications work. Polling did not confirm inside the grace " +
+			"window, which is odd but not harmful, since settlement is already instant.")
+	case polled:
+		t.Error("RESULT: only polling saw the payment. The wallet advertises " +
+			"payment_received but nothing arrived, so in production settlement lags by " +
+			"up to INVOICE_CHECK_SECONDS instead of landing instantly. Either the wallet " +
+			"does not really send notifications on this connection, or the subscription " +
+			"in watchOnce is wrong.")
+	default:
+		t.Fatal("neither path detected the payment")
 	}
 }
 
