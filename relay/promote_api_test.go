@@ -256,3 +256,64 @@ func TestPromoteStatusNeedsAHash(t *testing.T) {
 		t.Errorf("status %d, want 400", rec.Code)
 	}
 }
+
+// TestPromoteAcceptsPastedLinks covers what people actually do: copy the link
+// from njump rather than the bare id.
+func TestPromoteAcceptsPastedLinks(t *testing.T) {
+	handler, _, postID := promoteFixture(t)
+
+	encoded, err := nip19.EncodeNote(postID)
+	if err != nil {
+		t.Fatalf("failed to encode: %v", err)
+	}
+
+	for _, pasted := range []string{
+		"https://njump.me/" + encoded,
+		"https://njump.me/" + encoded + "?x=1",
+		"look at this " + encoded + " please",
+		"nostr:" + encoded,
+		"  " + postID + "  ",
+	} {
+		rec := postPromote(t, handler, promoteRequest{Note: pasted}, "9.9.9.9")
+		if rec.Code != http.StatusOK {
+			t.Errorf("%.40s returned %d, body %s", pasted, rec.Code, rec.Body.String())
+			continue
+		}
+		var out promoteResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("failed to decode: %v", err)
+		}
+		if out.NoteID != postID {
+			t.Errorf("%.40s resolved to %s", pasted, short(out.NoteID, 8))
+		}
+	}
+}
+
+// TestPromoteRateLimitIgnoresRejections is the fix for a mistyped reference
+// eating the quota. The limit exists to stop somebody minting invoices in a
+// loop; a request the wallet never sees is not what it guards against.
+func TestPromoteRateLimitIgnoresRejections(t *testing.T) {
+	handler, _, postID := promoteFixture(t)
+
+	// Ten malformed attempts, well past the burst.
+	for i := 0; i < 10; i++ {
+		rec := postPromote(t, handler, promoteRequest{Note: "not a note"}, "10.10.10.10")
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("attempt %d returned %d, want 400", i+1, rec.Code)
+		}
+	}
+
+	// The quota should be untouched.
+	for i := 0; i < promoteBurst; i++ {
+		rec := postPromote(t, handler, promoteRequest{Note: postID}, "10.10.10.10")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("a good request after typos returned %d, body %s", rec.Code, rec.Body.String())
+		}
+	}
+
+	// And the limit still bites once invoices are actually being minted.
+	rec := postPromote(t, handler, promoteRequest{Note: postID}, "10.10.10.10")
+	if rec.Code != http.StatusTooManyRequests {
+		t.Errorf("past the burst returned %d, want 429", rec.Code)
+	}
+}

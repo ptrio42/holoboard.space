@@ -37,7 +37,9 @@ const (
 	promoteBurst  = 5
 	promoteWindow = 10 * time.Minute
 
-	promoteFetchTimeout = 15 * time.Second
+	// Short on purpose. A note nobody can find should say so quickly; hanging
+	// for fifteen seconds looks like a broken page rather than a wrong note.
+	promoteFetchTimeout = 6 * time.Second
 )
 
 type promoteRequest struct {
@@ -163,22 +165,23 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 			return
 		}
 
-		if !limiter.allow(clientAddress(r), time.Now()) {
-			writeError(w, http.StatusTooManyRequests,
-				"too many invoices requested, try again in a few minutes")
-			return
-		}
-
 		var req promoteRequest
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "body must be JSON with a note field")
 			return
 		}
 
+		// Take the reference out of whatever was pasted. People copy the link
+		// from njump rather than the bare id, and a URL is a perfectly clear
+		// way of saying which note you mean.
 		noteID := normalizeEventID(req.Note)
 		if len(noteID) != 64 || !isHex64(noteID) {
+			noteID = normalizeEventID(extractEventIDFromText(req.Note))
+		}
+		if len(noteID) != 64 || !isHex64(noteID) {
 			writeError(w, http.StatusBadRequest,
-				"note must be a note1, nevent1 or 64 character hex id")
+				"could not find a note reference in that. Paste a note1, nevent1, "+
+					"a 64 character id, or a link containing one.")
 			return
 		}
 
@@ -216,6 +219,17 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 				writeError(w, http.StatusBadRequest, "only text notes can be promoted")
 				return
 			}
+		}
+
+		// The limit is checked here rather than at the top, so a mistyped
+		// reference costs nothing. It guards the wallet against somebody
+		// minting invoices in a loop, and a request that never reaches the
+		// wallet is not what it is for. Getting the format wrong three times
+		// should not use up your quota.
+		if !limiter.allow(clientAddress(r), time.Now()) {
+			writeError(w, http.StatusTooManyRequests,
+				"too many invoices requested, try again in a few minutes")
+			return
 		}
 
 		invoice, err := invoices.GeneratePromotionInvoice(r.Context(), noteID, amount)

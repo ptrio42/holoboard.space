@@ -3,7 +3,12 @@ import { PixelButton } from "../ui/PixelButton";
 import { CopyButton } from "../ui/CopyButton";
 import { QrCode } from "../ui/QrCode";
 import { Spinner } from "../ui/Spinner";
-import { checkProgress, requestInvoice, type PromoteInvoice } from "../../lib/promote";
+import {
+    checkProgress,
+    describeFailure,
+    requestInvoice,
+    type PromoteInvoice,
+} from "../../lib/promote";
 import { formatSats } from "../../lib/nostr";
 import { ZAP_PRESETS } from "../../config";
 
@@ -66,10 +71,7 @@ export function DirectPromote() {
             }
             setPhase({ kind: "waiting", invoice, satsBefore });
         } catch (error) {
-            setPhase({
-                kind: "failed",
-                message: error instanceof Error ? error.message : "something went wrong",
-            });
+            setPhase({ kind: "failed", message: describeFailure(error) });
         }
     }, [reference, amount]);
 
@@ -154,8 +156,9 @@ export function DirectPromote() {
     return (
         <div className="space-y-4">
             <p className="text-xs leading-relaxed text-cyan-100/70">
-                Paste the note you want promoted and pay the invoice. No extension, no signing in,
-                and it works for anyone's note rather than only your own.
+                Paste the note you want promoted and pay the invoice. A link from njump or any
+                other client is fine. No extension, no signing in, and it works for anyone's note
+                rather than only your own.
             </p>
 
             <label className="block space-y-1">
@@ -165,7 +168,7 @@ export function DirectPromote() {
                 <input
                     value={reference}
                     onChange={(event) => setReference(event.target.value)}
-                    placeholder="note1... or nevent1... or a 64 character id"
+                    placeholder="note1..., nevent1..., or a link to the note"
                     spellCheck={false}
                     className="focus-pixel w-full border-2 border-cyan-400/30 bg-void p-2 text-xs
                         text-cyan-100 placeholder:text-cyan-300/25"

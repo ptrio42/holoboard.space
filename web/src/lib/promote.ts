@@ -27,6 +27,21 @@ export interface PromoteProgress {
 const isObject = (value: unknown): value is Record<string, unknown> =>
     typeof value === "object" && value !== null;
 
+/**
+ * Turns whatever fetch threw into something worth reading. A failed request
+ * rejects with a bare TypeError whose message is "Failed to fetch", which tells
+ * somebody staring at the dialog nothing at all about what to do next.
+ */
+export function describeFailure(error: unknown): string {
+    if (error instanceof DOMException && error.name === "AbortError") {
+        return "cancelled";
+    }
+    if (error instanceof TypeError) {
+        return "could not reach the relay. It may be restarting; try again in a moment.";
+    }
+    return error instanceof Error ? error.message : "something went wrong";
+}
+
 /** Pulls the relay's error message out, so the user sees why rather than a code. */
 async function readError(response: Response): Promise<string> {
     try {
