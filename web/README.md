@@ -1,73 +1,86 @@
-# React + TypeScript + Vite
+# holoboard web
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The frontend of [holoboard.space](https://holoboard.space): a bulletin board on Nostr where
+rank is total sats paid and nothing else.
 
-Currently, two official plugins are available:
+The relay does the ranking. It serves the board already ordered, so this app renders the notes
+in the order they arrive and adds no sorting of its own. If the relay is unreachable there is
+no board, and the page says so rather than showing an empty list.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Running it
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Defaults point at the production relay, so a fresh clone works with no setup. Copy `.env.example`
+to `.env.local` to point somewhere else.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run build   # tsc -b && vite build; this is what typechecks
+npm run lint
 ```
+
+`npm run dev` does not typecheck. Run the build before calling anything done.
+
+## Configuration
+
+| Variable | What it is |
+| --- | --- |
+| `VITE_RELAY_URL` | The board relay. Serves the ranked list. |
+| `VITE_RELAY_PUBKEY` | The relay's identity. Promotions are mentions of, and zaps to, this key. |
+| `VITE_PUBLIC_RELAYS` | Where profiles, promotion mentions, the relay's replies and zap receipts travel. |
+| `VITE_BOARD_LIMIT` | How many ranked notes to ask for. |
+
+Both relay sets sit in the same NDK pool, because the board relay stores only what has been paid
+for and cannot carry the rest. The board subscription pins itself to `VITE_RELAY_URL` with
+`exclusiveRelay`, so notes seen on public relays never drift into the ranking.
+
+## Promoting a note
+
+`PROMOTE A NOTE` walks the mention flow, which is the one with real usage:
+
+1. Sign in with a NIP-07 extension.
+2. Paste any note reference. `note1`, `nevent1`, a bare 64-character id, or a client URL
+   containing one.
+3. The app publishes a kind:1 mentioning the relay and quoting that note, to the public relays.
+4. The relay answers with a promotional reply carrying a `promoted_note` tag.
+5. Zapping that reply is what buys the ranking. The invoice appears as a QR, a copyable bolt11
+   and a `lightning:` link; WebLN pays it directly when a wallet is present.
+
+Payment is confirmed by watching for the zap receipt, not by trusting the wallet, so paying from
+a phone in another room still closes the loop.
+
+The direct-zap and `PROMOTE` DM routes are behind **Other ways to promote** in the same dialog.
+
+## Layout
+
+```
+src/
+  components/
+    ui/            buttons, panels, modal, avatar, QR, spinner
+    BoardRow/      one ranked note
+    PromoteModal/  the promotion flow and its state machine
+    LoginButton/   NIP-07 sign-in
+    Ndk.tsx        headless NDK session wiring
+  hooks/           relay connection status
+  lib/             the NDK singleton, nostr encoding helpers, time formatting
+  pages/           the board
+```
+
+## Look
+
+Pixel art, PressStart2P, neon cyan and pink on near-black. Two rules keep it legible:
+
+- **PressStart2P is for display only.** Headings, buttons, labels, rank numbers. Note bodies use a
+  system mono, because notes are long and arrive in every script.
+- **Colour carries rank, not decoration.** Gold, cyan and pink for the top three, a dim cyan for
+  everything below.
+
+The corner notch comes from one `--pixel-notch` clip-path shared by every framed surface. Because
+`clip-path` cuts a `border` into disconnected pieces at the corners, framed things are built as two
+stacked layers: an outer one in the border colour, an inner one in the panel fill.
+
+Press Start 2P is by CodeMan38, under the SIL Open Font License 1.1
+([source](https://fonts.google.com/specimen/Press+Start+2P)), shipped here as WOFF2.

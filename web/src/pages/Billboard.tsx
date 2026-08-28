@@ -1,82 +1,196 @@
-import {PixelCard} from "../components/PixelCard/PixelCard";
-import {PixelButton} from "../components/PixelButton/PixelButton";
-import {useSubscribe} from "@nostr-dev-kit/react";
-import {NDKKind} from "@nostr-dev-kit/ndk";
-import TextRenderer from "../components/TextRenderer/TextRenderer";
-import {UserProfileInline} from "../components/UserProfileInline/UserProfileInline";
-import {AddAdModal} from "../components/AddAdModal/AddAdModal";
-import {useState} from "react";
-
-const ads = [
-    { id: 1, title: "Learn Spanish Fast", description: "Interactive lessons from native speakers 🌎", icon: "🗣️" },
-    { id: 2, title: "E-Book Sale", description: "Top 100 bestsellers at 50% off this week 📚 Grab your favorites now before the sale ends!", icon: "📖" },
-    { id: 3, title: "Virtual Yoga", description: "Join live classes from home 🧘‍♀️", icon: "🖥️" },
-    { id: 4, title: "Online Guitar Lessons", description: "Play your first song in a week 🎸 Beginner-friendly, step-by-step guidance, and personalized feedback included.", icon: "🎶" },
-    { id: 5, title: "Freelance Jobs", description: "Remote gigs for designers, writers & coders 💻 Check daily for new opportunities that match your skills.", icon: "📝" },
-    { id: 6, title: "Digital Art Workshop", description: "Create stunning illustrations online 🎨 Learn techniques from professional artists and share your work with a global community.", icon: "🖌️" },
-    { id: 7, title: "Fitness at Home", description: "Quick workouts for busy schedules 🏋️‍♂️ No equipment needed, perfect for beginners and advanced users alike.", icon: "🔥" },
-    { id: 8, title: "Virtual Escape Room", description: "Solve puzzles with friends online 🕵️‍♀️ Test your logic, teamwork, and creativity in an immersive virtual environment.", icon: "🗝️" },
-    { id: 9, title: "Recipe Sharing", description: "Discover & share delicious online recipes 🍲 From quick weeknight dinners to gourmet meals, find something for every taste.", icon: "🍴" },
-    { id: 10, title: "Meditation App", description: "Daily guided sessions for stress relief 🌸 Short meditations to fit your day or longer sessions for deep relaxation.", icon: "🧘" },
-    { id: 11, title: "Online Book Club", description: "Monthly virtual discussions & author Q&A 📚 Connect with fellow readers, share thoughts, and explore new genres.", icon: "💬" },
-    { id: 12, title: "Gaming Tournaments", description: "Compete online for prizes 🎮 Join a variety of games and test your skills against players worldwide.", icon: "🏆" },
-    { id: 13, title: "Language Exchange", description: "Practice new languages with people worldwide 🌐 Short chats, long conversations, and fun activities included.", icon: "🗺️" },
-    { id: 14, title: "Online Music Jam", description: "Collaborate with musicians from everywhere 🎵 Record, mix, and share your music with a global community.", icon: "🎧" },
-    { id: 15, title: "Photography Workshop", description: "Improve your photography skills with hands-on lessons and field trips 📸 Learn composition, lighting, and editing techniques.", icon: "📷" }
-];
-
-// ==================== MAIN PAGE ====================
+import { useState } from "react";
+import { NDKKind, NDKSubscriptionCacheUsage } from "@nostr-dev-kit/ndk";
+import { useSubscribe } from "@nostr-dev-kit/react";
+import { BoardRow } from "../components/BoardRow/BoardRow";
+import { PromoteModal } from "../components/PromoteModal/PromoteModal";
+import { LoginButton } from "../components/LoginButton/LoginButton";
+import { PixelButton } from "../components/ui/PixelButton";
+import { PixelPanel } from "../components/ui/PixelPanel";
+import { useRelayStatus } from "../hooks/useRelayStatus";
+import { BOARD_LIMIT, RELAY_URL } from "../config";
 
 export default function Billboard() {
-    const {events} = useSubscribe([{kinds: [NDKKind.Text]}]);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const { status: relayStatus, retry: retryRelay } = useRelayStatus(RELAY_URL);
+
+    /*
+     * The relay does the ranking and returns the board already ordered, so the
+     * only correct thing to do here is render it in the order it arrives.
+     *
+     * The three flags below are what keep that true. NDK fans every event it
+     * sees out to every subscription whose filter matches, so without
+     * `exclusiveRelay` a kind:1 pulled from a public relay for the promotion
+     * flow lands on the board with a rank nobody paid for, and without
+     * `skipOptimisticPublishEvent` so does the mention this app publishes
+     * itself. ONLY_RELAY covers the third route: cached events come back in
+     * whatever order IndexedDB feels like, which reshuffles the ranking.
+     */
+    const { events, eose } = useSubscribe(
+        [{ kinds: [NDKKind.Text], limit: BOARD_LIMIT }],
+        {
+            subId: "board",
+            relayUrls: [RELAY_URL],
+            exclusiveRelay: true,
+            skipOptimisticPublishEvent: true,
+            cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY,
+            dontSaveToCache: true,
+            closeOnEose: false,
+        },
+    );
+
+    const isOffline = relayStatus === "offline";
+    const isLoading = !isOffline && !eose && events.length === 0;
+    const isEmpty = !isOffline && eose && events.length === 0;
 
     return (
-        <div className="w-full md:max-w-[90%] lg:max-w-[78%] m-auto min-h-screen bg-[#05010d] text-cyan-300 font-mono px-4 md:px-6 py-10">
-            {/* HEADER */}
-            <header className="text-center mb-12">
-                <h1 className="text-3xl sm:text-4xl md:text-5xl text-pink-500 tracking-widest">
-                    HOLOBOARD.SPACE
-                </h1>
-                <div className="flex justify-center gap-2 sm:gap-4 mt-8">
-                    <PixelButton label="ADD AD" onClick={() => setIsModalOpen(true)} />
-                    {/* Temporarily hidden - not yet functional */}
-                    {/* <PixelButton label="CATEGORIES" /> */}
-                    {/* <PixelButton label="FILTER" /> */}
+        <div className="mx-auto min-h-dvh w-full max-w-5xl px-4 pt-6 pb-20 sm:px-6">
+            <a href="#board" className="skip-link pixel-frame focus-pixel border-2 border-neon-gold
+                bg-void px-4 py-2 font-pixel text-[10px] text-neon-gold">
+                Skip to the board
+            </a>
+
+            <header className="mb-10 space-y-6">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                    <RelayBadge status={relayStatus} />
+                    <LoginButton />
+                </div>
+
+                <div className="space-y-4 text-center">
+                    <h1 className="font-pixel text-2xl leading-tight tracking-widest text-neon-pink
+                        [text-shadow:0_0_18px_rgba(236,72,153,0.55)] sm:text-4xl md:text-5xl">
+                        HOLOBOARD
+                    </h1>
+                    <p className="mx-auto max-w-xl text-xs leading-relaxed text-cyan-200/70 sm:text-sm">
+                        A bulletin board where the only ranking signal is sats. Pay to push any note
+                        up the list. Pay more, sit higher. That is the whole rule.
+                    </p>
+                    <div className="flex justify-center">
+                        <PixelButton size="lg" variant="accent" onClick={() => setIsModalOpen(true)}>
+                            Promote a note
+                        </PixelButton>
+                    </div>
                 </div>
             </header>
 
-            <main className="overflow-y-auto flex-1 space-y-4 pr-1">
-                {events.map((ad, index) => {
-                    // Kolory tła i tekstu losowo lub na podstawie indexu
-                    const bgColors = ["bg-pink-900/30", "bg-cyan-900/30", "bg-purple-900/30", "bg-green-900/30"];
-                    const textColors = ["text-pink-400", "text-cyan-300", "text-purple-400", "text-green-300"];
-                    const bgColor = bgColors[index % bgColors.length];
-                    const textColor = textColors[index % textColors.length];
+            <main id="board" tabIndex={-1}>
+                <h2 className="sr-only">The board, ranked by total sats paid</h2>
 
-                    return (
-                        <PixelCard key={ad.id} className={`flex items-center p-4 rounded-lg ${bgColor} hover:scale-105 transition-transform`}>
-                            <div className="text-6xl mr-4 flex-shrink-0">{ads[index]?.icon}</div>
-                            <div className="flex-1 min-w-0">
-                                <h2 className={`text-xl font-bold mb-1 tracking-wider ${textColor}`}>
-                                    <UserProfileInline pubkey={ad.pubkey}/>
-                                </h2>
-                                <div className="text-sm text-white/80 break-words overflow-hidden">
-                                    <TextRenderer text={ad.content}/>
-                                </div>
-                            </div>
-                        </PixelCard>
-                    );
-                })}
+                {isOffline && <RelayDown onRetry={retryRelay} />}
+                {isLoading && <LoadingRows />}
+                {isEmpty && <EmptyBoard onPromote={() => setIsModalOpen(true)} />}
+
+                {events.length > 0 && (
+                    <ul className="space-y-4">
+                        {events.map((event, index) => (
+                            <BoardRow key={event.id} event={event} rank={index + 1} />
+                        ))}
+                    </ul>
+                )}
+
+                {events.length > 0 && (
+                    <div className="mt-6">
+                        <OpenSlot rank={events.length + 1} onPromote={() => setIsModalOpen(true)} />
+                    </div>
+                )}
             </main>
 
-            {/* FOOTER ACTION */}
-            <div className="flex justify-center mt-16">
-                <PixelButton label="ADD AD" onClick={() => setIsModalOpen(true)} />
-            </div>
+            <footer className="mt-16 border-t-2 border-cyan-400/15 pt-6 text-center">
+                <p className="font-pixel text-[9px] leading-relaxed tracking-widest text-cyan-300/35">
+                    Served by {RELAY_URL.replace(/^wss?:\/\//, "")}
+                </p>
+            </footer>
 
-            {/* ADD AD MODAL */}
-            <AddAdModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
+            {isModalOpen && <PromoteModal onClose={() => setIsModalOpen(false)} />}
         </div>
+    );
+}
+
+function RelayBadge({ status }: { status: "connecting" | "connected" | "offline" }) {
+    const tone =
+        status === "connected"
+            ? { dot: "bg-neon-cyan", text: "text-cyan-300/70", label: "Relay online" }
+            : status === "connecting"
+              ? { dot: "bg-neon-gold animate-flicker", text: "text-amber-300/70", label: "Connecting" }
+              : { dot: "bg-neon-pink", text: "text-pink-300/80", label: "Relay offline" };
+
+    return (
+        <p className="flex items-center gap-2 font-pixel text-[9px] tracking-widest">
+            <span className={`block h-2 w-2 ${tone.dot}`} aria-hidden="true" />
+            <span className={tone.text}>{tone.label}</span>
+        </p>
+    );
+}
+
+function LoadingRows() {
+    return (
+        <ul className="space-y-4" aria-busy="true" aria-label="Loading the board">
+            {[0, 1, 2].map((row) => (
+                <li key={row}>
+                    <PixelPanel accent="rgba(34,211,238,0.2)">
+                        <div className="flex animate-pulse gap-5 p-5">
+                            <div className="h-6 w-6 bg-cyan-400/20" />
+                            <div className="flex-1 space-y-3">
+                                <div className="h-4 w-40 bg-cyan-400/20" />
+                                <div className="h-3 w-full bg-cyan-400/10" />
+                                <div className="h-3 w-4/5 bg-cyan-400/10" />
+                            </div>
+                        </div>
+                    </PixelPanel>
+                </li>
+            ))}
+        </ul>
+    );
+}
+
+function RelayDown({ onRetry }: { onRetry: () => void }) {
+    return (
+        <PixelPanel accent="#ec4899" glow="rgba(236,72,153,0.3)">
+            <div className="space-y-4 p-6 text-center" role="alert">
+                <p className="font-pixel text-xs leading-relaxed text-neon-pink">Cannot reach the relay</p>
+                <p className="text-sm leading-relaxed text-cyan-100/70">
+                    <code className="text-cyan-200">{RELAY_URL}</code> is not answering, so there is
+                    no board to show. This page cannot rank anything on its own.
+                </p>
+                <p className="text-xs text-cyan-300/50">Retrying every 15 seconds.</p>
+                <PixelButton size="sm" onClick={onRetry}>
+                    Try again now
+                </PixelButton>
+            </div>
+        </PixelPanel>
+    );
+}
+
+function EmptyBoard({ onPromote }: { onPromote: () => void }) {
+    return (
+        <PixelPanel accent="rgba(34,211,238,0.4)">
+            <div className="space-y-4 p-8 text-center">
+                <p className="font-pixel text-xs leading-relaxed text-neon-gold">The board is empty</p>
+                <p className="mx-auto max-w-md text-sm leading-relaxed text-cyan-100/70">
+                    Nothing has been paid for yet. The relay stores only what somebody bought, so an
+                    empty board means an empty ledger. First zap takes rank one.
+                </p>
+                <PixelButton variant="accent" onClick={onPromote}>
+                    Take rank 1
+                </PixelButton>
+            </div>
+        </PixelPanel>
+    );
+}
+
+function OpenSlot({ rank, onPromote }: { rank: number; onPromote: () => void }) {
+    return (
+        <PixelPanel accent="rgba(34,211,238,0.22)">
+            <div className="flex flex-wrap items-center justify-between gap-4 p-5">
+                <div className="flex items-center gap-5">
+                    <span className="font-pixel text-lg text-cyan-300/30" aria-hidden="true">
+                        {rank}
+                    </span>
+                    <p className="text-sm text-cyan-200/60">This slot is open. Any note, any sats.</p>
+                </div>
+                <PixelButton size="sm" onClick={onPromote}>
+                    Promote a note
+                </PixelButton>
+            </div>
+        </PixelPanel>
     );
 }

@@ -1,5 +1,5 @@
-import React, {useMemo} from 'react';
-import {processText} from "../../utils/textProcessing/processText";
+import React, { useMemo } from 'react';
+import { processText } from "../../utils/textProcessing/processText";
 import DOMPurify from 'dompurify';
 
 type Props = {
@@ -11,14 +11,15 @@ const TextRenderer: React.FC<Props> = ({ text }) => {
         const html = processText(text);
 
         return DOMPurify.sanitize(html, {
-            ALLOWED_TAGS: ['br', 'img'],
-            ALLOWED_ATTR: ['src', 'alt', 'loading'],
+            ALLOWED_TAGS: ['br', 'img', 'a'],
+            ALLOWED_ATTR: ['src', 'alt', 'loading', 'decoding', 'href', 'target', 'rel'],
+            ALLOWED_URI_REGEXP: /^https?:\/\//i,
         });
     }, [text]);
 
     return (
         <div
-            className="text-content"
+            className="note-body"
             dangerouslySetInnerHTML={{ __html: safeHtml }}
         />
     );

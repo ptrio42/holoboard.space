@@ -2,12 +2,28 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#05010d" />
+    <meta
+      name="description"
+      content="A pay-to-promote bulletin board on Nostr. Rank is total sats paid, nothing else."
+    />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta property="og:title" content="holoboard.space" />
+    <meta
+      property="og:description"
+      content="A pay-to-promote bulletin board on Nostr. Rank is total sats paid, nothing else."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary" />
     <title>holoboard.space</title>
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      holoboard renders a live Nostr relay feed, so it needs JavaScript. The board itself is
+      readable from any Nostr client that can query wss://relay.holoboard.space.
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

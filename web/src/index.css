@@ -1,68 +1,256 @@
+@import "tailwindcss";
+
+@font-face {
+    font-family: 'PressStart2P';
+    src: url('./assets/fonts/PressStart2P-Regular.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+@theme {
+    /* Display face. Unreadable below ~10px, so it is for labels and numbers only. */
+    --font-pixel: 'PressStart2P', 'Courier New', monospace;
+    /* Body face. Carries note content, which can be any length in any script. */
+    --font-body: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+    --color-void: #05010d;
+    --color-panel: #0a0518;
+    --color-neon-cyan: #22d3ee;
+    --color-neon-pink: #ec4899;
+    --color-neon-gold: #fbbf24;
+
+    --animate-flicker: flicker 4s ease-in-out infinite;
+    --animate-pixel-pulse: pixel-pulse 1.1s steps(2, end) infinite;
+}
+
+/* Spinner blocks: a hard on/off step, the way a loading bar would have done it. */
+@keyframes pixel-pulse {
+    0%, 100% { opacity: 0.2; }
+    50% { opacity: 1; }
+}
+
+@keyframes flicker {
+    0%, 100% { opacity: 1; }
+    92% { opacity: 1; }
+    94% { opacity: 0.72; }
+    96% { opacity: 1; }
+}
+
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+    color-scheme: dark;
+    background-color: var(--color-void);
+    color: #a5f3fc;
+    font-family: var(--font-body);
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+    /*
+     * Two-step corner notch. Every framed surface shares it, which is what makes
+     * buttons, cards and the modal read as one object rather than three.
+     */
+    --pixel-notch: polygon(
+            0 8px, 4px 8px, 4px 4px, 8px 4px, 8px 0,
+            calc(100% - 8px) 0, calc(100% - 8px) 4px, calc(100% - 4px) 4px,
+            calc(100% - 4px) 8px, 100% 8px,
+            100% calc(100% - 8px), calc(100% - 4px) calc(100% - 8px),
+            calc(100% - 4px) calc(100% - 4px), calc(100% - 8px) calc(100% - 4px),
+            calc(100% - 8px) 100%,
+            8px 100%, 8px calc(100% - 4px), 4px calc(100% - 4px),
+            4px calc(100% - 8px), 0 calc(100% - 8px)
+    );
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+/*
+ * The void colour lives on html, not body. A background set on body propagates
+ * to the canvas and paints over anything at a negative z-index, which is where
+ * the city has to sit.
+ */
+html {
+    background-color: var(--color-void);
 }
 
 body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
+    margin: 0;
+    min-height: 100dvh;
+    background-color: transparent;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+/* The city sits behind everything, dimmed so neon type stays the brightest thing on screen. */
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image:
+            linear-gradient(to bottom, rgba(5, 1, 13, 0.86) 0%, rgba(5, 1, 13, 0.9) 55%, var(--color-void) 100%),
+            radial-gradient(130% 80% at 50% 12%, rgba(56, 12, 74, 0.35) 0%, transparent 65%),
+            url('./assets/bg.webp');
+    background-size: cover, cover, cover;
+    background-position: center, center, center bottom;
+    background-repeat: no-repeat;
+    z-index: -1;
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+/* CRT scanlines. Cheap, and it ties the pixel type to a screen rather than a page. */
+body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+            to bottom,
+            rgba(0, 0, 0, 0.28) 0 1px,
+            transparent 1px 3px
+    );
+    opacity: 0.5;
+    pointer-events: none;
+    z-index: 50;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+.pixel-frame {
+    clip-path: var(--pixel-notch);
+}
+
+/*
+ * Buttons and button-shaped links. The notch is cut out of two stacked layers:
+ * the outer one is the border colour, the inner one the panel fill. Drawing the
+ * border with `border` instead leaves gaps where the clip crosses it.
+ */
+.pixel-btn {
+    --edge: var(--color-neon-cyan);
+    --ink: var(--color-neon-cyan);
+    display: inline-block;
+    padding: 3px;
+    background-color: var(--edge);
+    clip-path: var(--pixel-notch);
+    box-shadow: 0 0 14px color-mix(in srgb, var(--edge) 45%, transparent);
+    transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.pixel-btn:hover:not(:disabled) {
+    --edge: var(--color-neon-pink);
+    --ink: var(--color-neon-pink);
+    transform: translateY(-2px);
+}
+
+.pixel-btn:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.pixel-btn--accent {
+    --edge: var(--color-neon-pink);
+    --ink: var(--color-neon-pink);
+}
+
+.pixel-btn--accent:hover:not(:disabled) {
+    --edge: var(--color-neon-gold);
+    --ink: var(--color-neon-gold);
+}
+
+.pixel-btn--ghost {
+    --edge: rgba(34, 211, 238, 0.3);
+    --ink: rgba(165, 243, 252, 0.75);
+    box-shadow: none;
+}
+
+.pixel-btn--ghost:hover:not(:disabled) {
+    --edge: rgba(34, 211, 238, 0.75);
+    --ink: var(--color-neon-cyan);
+}
+
+.pixel-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.pixel-btn__face {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5em;
+    background-color: var(--color-void);
+    color: var(--ink);
+    clip-path: var(--pixel-notch);
+    font-family: var(--font-pixel);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    line-height: 1;
+    transition: color 0.15s ease;
+}
+
+.pixel-btn:focus-visible {
+    outline: none;
+}
+
+.pixel-btn:focus-visible .pixel-btn__face {
+    box-shadow: inset 0 0 0 3px var(--color-neon-gold);
+}
+
+/* Focus has to survive the clip-path, so it is drawn inside the element. */
+.focus-pixel:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 3px var(--color-neon-gold), 0 0 18px rgba(251, 191, 36, 0.55);
+}
+
+/* Disclosure arrow, drawn in type rather than the browser's triangle. */
+.disclosure > summary {
+    list-style: none;
+}
+.disclosure > summary::-webkit-details-marker {
+    display: none;
+}
+.disclosure > summary::before {
+    content: "[+] ";
+}
+.disclosure[open] > summary::before {
+    content: "[-] ";
+}
+
+/* Skip link: off-screen until focused. */
+.skip-link {
+    position: absolute;
+    left: 1rem;
+    top: -4rem;
+    z-index: 60;
+    transition: top 0.15s ease;
+}
+.skip-link:focus {
+    top: 1rem;
+}
+
+/* Rendered note bodies. Anything in here came from a stranger's kind:1. */
+.note-body {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.65;
+}
+
+.note-body img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    max-height: 22rem;
+    margin: 0.75rem 0;
+    object-fit: contain;
+    border: 2px solid rgba(34, 211, 238, 0.35);
+}
+
+.note-body a {
+    color: var(--color-neon-cyan);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.note-body a:hover {
+    color: var(--color-neon-pink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
 }

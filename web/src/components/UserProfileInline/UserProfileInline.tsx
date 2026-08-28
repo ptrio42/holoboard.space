@@ -1,62 +1,40 @@
-import { useState } from "react";
-// import { UserHoverCard } from "./UserHoverCard";
 import { useProfileValue } from "@nostr-dev-kit/react";
-import {UserHoverCard} from "../UserHoverCard/UserHoverCard";
-
-export interface User {
-    id: string;
-    username: string;
-    fullName?: string;
-    avatarUrl: string;
-    bio?: string;
-    followersCount?: number;
-    postsCount?: number;
-    isVerified?: boolean;
-}
-
+import { Avatar } from "../ui/Avatar";
+import { njumpUrl, shortNpub } from "../../lib/nostr";
 
 interface Props {
     pubkey: string;
     size?: "sm" | "md";
-    showHoverCard?: boolean;
 }
 
-export const UserProfileInline = ({
-                                      pubkey,
-                                      size = "sm",
-                                      showHoverCard = true,
-                                  }: Props) => {
-    const [isHovered, setIsHovered] = useState(false);
+/**
+ * An author, always renderable. A pubkey alone is enough to draw a name and a
+ * colour, so there is no loading state to flash: the npub shows first and the
+ * profile fills in over it when it arrives.
+ */
+export const UserProfileInline = ({ pubkey, size = "sm" }: Props) => {
     const profile = useProfileValue(pubkey);
-
-    if (!profile) {
-        return <div>Loading profile for {pubkey}...</div>;
-    }
+    const name = profile?.displayName?.trim() || profile?.name?.trim() || shortNpub(pubkey);
+    const px = size === "sm" ? 28 : 36;
 
     return (
-        <div
-            className="relative inline-flex items-center gap-2"
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
+        <a
+            href={njumpUrl(pubkey)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="focus-pixel group inline-flex max-w-full items-center gap-2 no-underline"
         >
-            <img
-                src={profile.picture}
-                alt={profile.name}
-                className={`rounded-full object-cover ${
-                    size === "sm" ? "w-8 h-8" : "w-10 h-10"
-                    }`}
-            />
-
-            <span className="font-medium text-sm hover:underline cursor-pointer">
-        {profile.displayName || profile.name || 'Anonymous'}
-                {/*{user.isVerified && (*/}
-                    {/*<span className="ml-1 text-blue-500">✔</span>*/}
-                {/*)}*/}
-      </span>
-
-            {showHoverCard && isHovered && (
-                <UserHoverCard user={profile} />
+            <Avatar pubkey={pubkey} src={profile?.picture} name={name} size={px} />
+            <span className="min-w-0 truncate font-pixel text-[10px] tracking-wide text-cyan-200
+                group-hover:text-neon-pink sm:text-[11px]">
+                {name}
+            </span>
+            {profile?.nip05 && (
+                <span aria-label="Has a verified nostr address" title={profile.nip05}
+                    className="font-pixel text-[9px] text-neon-cyan/70">
+                    +
+                </span>
             )}
-        </div>
+        </a>
     );
 };
