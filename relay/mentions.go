@@ -76,8 +76,11 @@ func (mm *MentionMonitor) ProcessMention(ctx context.Context, mentionEvent *nost
 
 	log.Printf("Processing mention from %s: %s", short(mentionEvent.PubKey, 8), short(mentionEvent.Content, 50))
 
-	// Extract note ID from content
+	// Extract note ID from content, then from a quote tag.
 	noteID := extractEventIDFromText(mentionEvent.Content)
+	if noteID == "" {
+		noteID = quotedEventID(mentionEvent)
+	}
 
 	if noteID == "" {
 		// No valid note ID found, send usage instructions
@@ -296,4 +299,23 @@ func resumePoint(watermark int64, now time.Time, maxBacklog time.Duration) int64
 
 func mentionResumePoint(watermark int64, now time.Time) int64 {
 	return resumePoint(watermark, now, maxMentionBacklog)
+}
+
+// quotedEventID reads the NIP-18 quote tag.
+//
+// Quoting a note and tagging the relay is the obvious way to ask for a
+// promotion, and most clients also drop a nostr:nevent1 into the text, which
+// the content scan already catches. Some do not, and set only the q tag. Those
+// used to get usage instructions back instead of a promotion.
+//
+// Deliberately not falling back to e tags. On a reply the e tag is the parent
+// being replied to, not the note being pointed at, so promoting it would charge
+// somebody for the wrong note. The q tag means "quoted" and nothing else.
+func quotedEventID(event *nostr.Event) string {
+	for _, tag := range event.Tags {
+		if len(tag) >= 2 && tag[0] == "q" && len(tag[1]) == 64 {
+			return tag[1]
+		}
+	}
+	return ""
 }
