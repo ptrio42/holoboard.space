@@ -2,12 +2,18 @@ import type { NDKEvent } from "@nostr-dev-kit/ndk";
 import { PixelPanel } from "../ui/PixelPanel";
 import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
 import TextRenderer from "../TextRenderer/TextRenderer";
-import { njumpUrl } from "../../lib/nostr";
+import { formatSats, njumpUrl } from "../../lib/nostr";
 import { isoDate, timeAgo } from "../../lib/time";
 
 interface BoardRowProps {
     event: NDKEvent;
     rank: number;
+    /**
+     * What this note has been paid. Undefined means the ledger has not answered
+     * yet, which is not the same as zero and must not render as zero: every
+     * note on this board was paid for, that is how it got here.
+     */
+    sats?: number;
 }
 
 /**
@@ -22,7 +28,12 @@ const TIERS = [
 ];
 const DEFAULT_TIER = { accent: "rgba(34,211,238,0.32)", glow: undefined, text: "text-cyan-300/60" };
 
-export function BoardRow({ event, rank }: BoardRowProps) {
+/** "1 sat", but "2 sats" and "2.1k sats". */
+function satsLabel(sats: number): string {
+    return `${formatSats(sats)} ${sats === 1 ? "sat" : "sats"}`;
+}
+
+export function BoardRow({ event, rank, sats }: BoardRowProps) {
     const tier = TIERS[rank - 1] ?? DEFAULT_TIER;
     const created = event.created_at ?? 0;
 
@@ -46,17 +57,31 @@ export function BoardRow({ event, rank }: BoardRowProps) {
                     <div className="min-w-0 flex-1 space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                             <h2 className="min-w-0 text-base font-normal">
-                                <span className="sr-only">Rank {rank}, posted by </span>
+                                <span className="sr-only">
+                                    Rank {rank}
+                                    {typeof sats === "number" && `, paid ${satsLabel(sats)}`}, posted by{" "}
+                                </span>
                                 <UserProfileInline pubkey={event.pubkey} />
                             </h2>
-                            {created > 0 && (
-                                <time
-                                    dateTime={isoDate(created)}
-                                    className="font-pixel text-[9px] text-cyan-300/35"
-                                >
-                                    {timeAgo(created)}
-                                </time>
-                            )}
+                            <div className="flex shrink-0 items-center gap-3">
+                                {typeof sats === "number" && (
+                                    <span
+                                        className={`font-pixel text-[9px] tracking-wider ${tier.text}`}
+                                        title={`${sats.toLocaleString()} sats paid`}
+                                        aria-hidden="true"
+                                    >
+                                        {satsLabel(sats)}
+                                    </span>
+                                )}
+                                {created > 0 && (
+                                    <time
+                                        dateTime={isoDate(created)}
+                                        className="font-pixel text-[9px] text-cyan-300/35"
+                                    >
+                                        {timeAgo(created)}
+                                    </time>
+                                )}
+                            </div>
                         </div>
 
                         <div className="text-[13px] text-cyan-50/80 sm:text-sm">

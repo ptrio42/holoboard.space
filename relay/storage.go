@@ -115,6 +115,59 @@ func (s *Storage) HasPost(postID string) bool {
 	return exists
 }
 
+// rankLess is the board's running order: most sats first, then whoever paid
+// most recently, then the older note. It lives in one place because the events
+// served over the websocket and the ledger served over HTTP have to agree about
+// who is first, and two copies of a three-level comparison would not stay in
+// step.
+func rankLess(a, b *PromotedPost) bool {
+	if a.TotalSatsPaid != b.TotalSatsPaid {
+		return a.TotalSatsPaid > b.TotalSatsPaid
+	}
+	if !a.LastPaymentTimestamp.Equal(b.LastPaymentTimestamp) {
+		return a.LastPaymentTimestamp.After(b.LastPaymentTimestamp)
+	}
+	return a.Event.CreatedAt > b.Event.CreatedAt
+}
+
+// LedgerEntry is what one note has been paid, as served to clients.
+type LedgerEntry struct {
+	ID         string `json:"id"`
+	SatsPaid   int64  `json:"sats_paid"`
+	LastPaidAt int64  `json:"last_paid_at"` // unix seconds, 0 if never
+	Rank       int    `json:"rank"`         // 1-based, matching the served order
+}
+
+// Ledger returns every promoted note with what it has been paid, in board
+// order. A nostr event is signed, so its tags cannot carry the sats total
+// without invalidating the signature; this is how the figure reaches clients
+// instead.
+func (s *Storage) Ledger() []LedgerEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	posts := make([]*PromotedPost, 0, len(s.posts))
+	for _, post := range s.posts {
+		posts = append(posts, post)
+	}
+	sort.Slice(posts, func(i, j int) bool { return rankLess(posts[i], posts[j]) })
+
+	entries := make([]LedgerEntry, 0, len(posts))
+	for i, post := range posts {
+		var lastPaid int64
+		if !post.LastPaymentTimestamp.IsZero() {
+			lastPaid = post.LastPaymentTimestamp.Unix()
+		}
+		entries = append(entries, LedgerEntry{
+			ID:         post.PostID,
+			SatsPaid:   post.TotalSatsPaid,
+			LastPaidAt: lastPaid,
+			Rank:       i + 1,
+		})
+	}
+	return entries
+}
+
 // QueryPosts returns posts matching the filter, sorted by payment ranking
 func (s *Storage) QueryPosts(ctx context.Context, filter nostr.Filter) []*nostr.Event {
 	s.mu.RLock()
@@ -126,16 +179,7 @@ func (s *Storage) QueryPosts(ctx context.Context, filter nostr.Filter) []*nostr.
 		posts = append(posts, post)
 	}
 
-	// Sort by: total_sats DESC, last_payment_timestamp DESC, created_at DESC
-	sort.Slice(posts, func(i, j int) bool {
-		if posts[i].TotalSatsPaid != posts[j].TotalSatsPaid {
-			return posts[i].TotalSatsPaid > posts[j].TotalSatsPaid
-		}
-		if !posts[i].LastPaymentTimestamp.Equal(posts[j].LastPaymentTimestamp) {
-			return posts[i].LastPaymentTimestamp.After(posts[j].LastPaymentTimestamp)
-		}
-		return posts[i].Event.CreatedAt > posts[j].Event.CreatedAt
-	})
+	sort.Slice(posts, func(i, j int) bool { return rankLess(posts[i], posts[j]) })
 
 	// Apply filter and collect matching events
 	var results []*nostr.Event

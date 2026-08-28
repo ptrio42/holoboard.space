@@ -36,6 +36,18 @@ export const PUBLIC_RELAYS = trimmed(
     .map((url) => url.trim())
     .filter(Boolean);
 
+/**
+ * Where the relay serves its payment ledger.
+ *
+ * Derived from RELAY_URL rather than configured separately: it is the same host
+ * over plain HTTP, and two URLs that have to be kept in step is one more thing
+ * to get wrong. Override only if the ledger ever moves somewhere else.
+ */
+export const SATS_ENDPOINT = trimmed(
+    import.meta.env.VITE_SATS_ENDPOINT,
+    `${RELAY_URL.replace(/^ws/, "http").replace(/\/+$/, "")}/api/board`,
+);
+
 /** How many ranked notes to ask the board for. */
 export const BOARD_LIMIT = Number(import.meta.env.VITE_BOARD_LIMIT ?? 50);
 

@@ -7,11 +7,13 @@ import { LoginButton } from "../components/LoginButton/LoginButton";
 import { PixelButton } from "../components/ui/PixelButton";
 import { PixelPanel } from "../components/ui/PixelPanel";
 import { useRelayStatus } from "../hooks/useRelayStatus";
-import { BOARD_LIMIT, RELAY_URL } from "../config";
+import { useSatsMap } from "../hooks/useSatsMap";
+import { BOARD_LIMIT, RELAY_URL, SATS_ENDPOINT } from "../config";
 
 export default function Billboard() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const { status: relayStatus, retry: retryRelay } = useRelayStatus(RELAY_URL);
+    const { sats } = useSatsMap(SATS_ENDPOINT);
 
     /*
      * The relay does the ranking and returns the board already ordered, so the
@@ -82,7 +84,12 @@ export default function Billboard() {
                 {events.length > 0 && (
                     <ul className="space-y-4">
                         {events.map((event, index) => (
-                            <BoardRow key={event.id} event={event} rank={index + 1} />
+                            <BoardRow
+                                key={event.id}
+                                event={event}
+                                rank={index + 1}
+                                sats={sats.get(event.id)}
+                            />
                         ))}
                     </ul>
                 )}

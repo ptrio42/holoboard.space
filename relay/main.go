@@ -254,6 +254,14 @@ func main() {
 
 	SetupRelay(relay, storage, monitor, invoiceManager, config)
 
+	// The ledger the board is ranked by. Events are signed over their tags, so
+	// the sats total cannot ride along on the notes themselves; this is how it
+	// reaches clients. khatru dispatches on headers, never on path, so a plain
+	// JSON route cannot collide with the websocket or the NIP-11 document, and
+	// Start() already wraps everything in permissive CORS for GET.
+	relay.Router().HandleFunc("/api/board", BoardHandler(storage))
+	log.Printf("Board ledger served at /api/board")
+
 	// Create and store the info event explaining how to use the relay (only once)
 	// Check if we already have an info event from this relay
 	hasInfoEvent := false
