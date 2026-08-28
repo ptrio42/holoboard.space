@@ -43,13 +43,3 @@ Runtime state is a single JSON file (`relay_data.json`, path configurable via `D
 1. **Zap a promotional reply.** Mention the relay's pubkey in a note containing a note ID. The relay fetches that note, replies with a preview, and records the reply-to-note mapping. Zapping the reply promotes the note.
 2. **Zap the relay directly** with the note reference in the zap comment, or in the bolt11 description.
 3. **DM `PROMOTE <note_id>`** to the relay and it answers with a Lightning invoice.
-
-## Status
-
-Dormant since February 2026. Before picking it back up:
-
-- Nothing is deployed. The Fly.io app `nostr-promotion-relay` no longer exists, and `relay.holoboard.space` still points a CNAME at a hostname that does not resolve.
-- Flow 3 works on the `nwc` backend and is untested against live LNbits or Zebedee. `WatchInvoices` on those two is still a stub that emits nothing, but the reconciler now calls their `CheckInvoice`, so settlement should be detected there too. `EnableWebhooks` remains dead code; it registers on `http.DefaultServeMux` while khatru serves its own handler, so it would need moving to `relay.Router()` to do anything.
-- The 36 entries in `pending_invoices` predate all of this and carry no `expires_at`, which reads as long expired. The hourly cleanup will drop them the first time the relay runs. Copy `relay_data.json` before starting it if that matters.
-- Zap receipts are not authenticated. `ValidateZapEvent` checks that the `p`, `bolt11` and `description` tags exist and stops there, so a forged kind:9735 event buys arbitrary ranking for free. NIP-57 Appendix F describes the check that is missing.
-- The relay never publishes its own kind:0. The profile carrying `lud16` was posted by hand, and nothing in the relay keeps it in step with `LIGHTNING_BACKEND`. Point `NWC_URI` at a different wallet and every zap still goes to the old address.
