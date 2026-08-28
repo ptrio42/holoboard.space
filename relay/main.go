@@ -337,6 +337,13 @@ func main() {
 	relay.Router().HandleFunc("/api/board", BoardHandler(storage))
 	log.Printf("Board ledger served at /api/board")
 
+	// Promoting without an identity. The relay never cared who mentioned it, so
+	// requiring a signer on the website was never a product requirement, only a
+	// consequence of the website automating the mention flow.
+	relay.Router().HandleFunc("/api/promote", PromoteHandler(storage, invoiceManager, fetcher))
+	relay.Router().HandleFunc("/api/promote/status", PromoteStatusHandler(storage))
+	log.Printf("No-login promotion served at /api/promote")
+
 	// Create and store the info event explaining how to use the relay (only once)
 	// Check if we already have an info event from this relay
 	hasInfoEvent := false
