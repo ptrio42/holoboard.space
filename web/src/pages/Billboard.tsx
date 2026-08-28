@@ -3,7 +3,6 @@ import { NDKKind, NDKSubscriptionCacheUsage } from "@nostr-dev-kit/ndk";
 import { useSubscribe } from "@nostr-dev-kit/react";
 import { BoardRow } from "../components/BoardRow/BoardRow";
 import { PromoteModal } from "../components/PromoteModal/PromoteModal";
-import { LoginButton } from "../components/LoginButton/LoginButton";
 import { PixelButton } from "../components/ui/PixelButton";
 import { PixelPanel } from "../components/ui/PixelPanel";
 import { useRelayStatus } from "../hooks/useRelayStatus";
@@ -79,10 +78,12 @@ export default function Billboard() {
             </a>
 
             <header className="mb-10 space-y-6">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                    <RelayBadge status={relayStatus} />
-                    <LoginButton />
-                </div>
+                {/* No sign-in here on purpose. Reading the board needs no key,
+                    and neither does paying to promote; the only route that
+                    wants a signer is the "Use my nostr key" tab, which asks for
+                    one itself. A connect button on the way in advertised a
+                    requirement that does not exist. */}
+                <RelayBadge status={relayStatus} />
 
                 <div className="space-y-4 text-center">
                     <h1 className="font-pixel text-2xl leading-tight tracking-widest text-neon-pink

@@ -320,3 +320,85 @@ func TestBroadcastIsOptional(t *testing.T) {
 		t.Fatalf("ProcessInvoicePayment failed with no broadcaster: %v", err)
 	}
 }
+
+// TestFreshInvoicesPicksTheNewest covers the set a fast pass looks at: recent
+// invoices only, newest first, and never more than the cap.
+func TestFreshInvoicesPicksTheNewest(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+
+	stale := &PendingInvoice{PaymentHash: "stale", CreatedAt: now.Add(-time.Hour)}
+	recent := &PendingInvoice{PaymentHash: "recent", CreatedAt: now.Add(-time.Minute)}
+	newest := &PendingInvoice{PaymentHash: "newest", CreatedAt: now.Add(-time.Second)}
+
+	got := freshInvoices([]*PendingInvoice{stale, recent, newest}, now)
+	if len(got) != 2 {
+		t.Fatalf("kept %d invoices, want the 2 inside the window", len(got))
+	}
+	if got[0].PaymentHash != "newest" || got[1].PaymentHash != "recent" {
+		t.Errorf("order was %s then %s, want newest first", got[0].PaymentHash, got[1].PaymentHash)
+	}
+
+	many := make([]*PendingInvoice, 0, reconcileFastMax+10)
+	for i := 0; i < reconcileFastMax+10; i++ {
+		many = append(many, &PendingInvoice{
+			PaymentHash: fmt.Sprintf("h%d", i),
+			CreatedAt:   now.Add(-time.Duration(i) * time.Second),
+		})
+	}
+	if capped := freshInvoices(many, now); len(capped) != reconcileFastMax {
+		t.Errorf("a fast pass would check %d invoices, want the %d cap", len(capped), reconcileFastMax)
+	}
+}
+
+// TestReconcilerSettlesFreshInvoicesQuickly is the fix for "I paid and waited".
+// Coinos advertises payment_received and never sends one, so polling is what
+// closes the loop, and at the slow interval that took up to a minute.
+func TestReconcilerSettlesFreshInvoicesQuickly(t *testing.T) {
+	storage := newTestStorage(t)
+	postID := seedPromotedPost(t, storage, nostr.GeneratePrivateKey())
+
+	invoice := &PendingInvoice{
+		PostID:      postID,
+		PaymentHash: "8888888888888888",
+		AmountSats:  69,
+		CreatedAt:   time.Now(),
+		ExpiresAt:   time.Now().Add(time.Hour),
+	}
+	if err := storage.AddPendingInvoice(invoice); err != nil {
+		t.Fatalf("failed to store pending invoice: %v", err)
+	}
+
+	backend := newStubBackend()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	manager := NewInvoiceManager(backend, storage,
+		NewPaymentMonitor(storage, "relay", NewPostFetcher(nil), NewLNURLResolver()), 1000)
+
+	// A slow interval far longer than the test. Anything that settles here had
+	// to come from a fast pass.
+	manager.StartInvoiceReconciler(ctx, time.Hour)
+
+	// The invoice is paid a moment after the reconciler starts, so the boot
+	// pass cannot be what catches it.
+	time.Sleep(50 * time.Millisecond)
+	backend.mu.Lock()
+	backend.paid[invoice.PaymentHash] = 69
+	backend.mu.Unlock()
+
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if _, stillPending := storage.GetPendingInvoice(invoice.PaymentHash); !stillPending {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("a fresh invoice was still pending, so no fast pass ran")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	post, _ := storage.GetPost(postID)
+	if post.TotalSatsPaid != 70 {
+		t.Errorf("post total = %d sats, want 70 (the seeded 1 plus 69)", post.TotalSatsPaid)
+	}
+}
