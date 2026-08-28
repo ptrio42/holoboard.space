@@ -5,7 +5,9 @@ go 1.22.6
 toolchain go1.23.1
 
 require (
+	github.com/btcsuite/btcd v0.24.3-0.20240921052913-67b8efd3ba53
 	github.com/fiatjaf/khatru v0.7.6
+	github.com/lightningnetwork/lnd v0.18.4-beta
 	github.com/nbd-wtf/go-nostr v0.34.5
 )
 
@@ -13,7 +15,6 @@ require (
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/aead/siphash v1.0.1 // indirect
 	github.com/andybalholm/brotli v1.0.5 // indirect
-	github.com/btcsuite/btcd v0.24.3-0.20240921052913-67b8efd3ba53 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.3.4 // indirect
 	github.com/btcsuite/btcd/btcutil v1.1.5 // indirect
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.8 // indirect
@@ -48,7 +49,6 @@ require (
 	github.com/lightninglabs/neutrino v0.16.1-0.20240425105051-602843d34ffd // indirect
 	github.com/lightninglabs/neutrino/cache v1.1.2 // indirect
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240712235311-98bd56499dfb // indirect
-	github.com/lightningnetwork/lnd v0.18.4-beta // indirect
 	github.com/lightningnetwork/lnd/clock v1.1.1 // indirect
 	github.com/lightningnetwork/lnd/fn v1.2.3 // indirect
 	github.com/lightningnetwork/lnd/queue v1.1.1 // indirect
