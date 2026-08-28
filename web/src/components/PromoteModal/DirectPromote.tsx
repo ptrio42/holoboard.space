@@ -19,6 +19,14 @@ import { ZAP_PRESETS } from "../../config";
 /** How often to ask whether the invoice has been paid. */
 const POLL_MS = 3_000;
 
+/** Matches the bounds the relay enforces, so a refusal never comes as a surprise. */
+const MAX_SATS = 10_000_000;
+
+const clampSats = (value: number): number => {
+    if (!Number.isFinite(value)) return 1;
+    return Math.min(MAX_SATS, Math.max(1, Math.floor(value)));
+};
+
 type Phase =
     | { kind: "idle" }
     | { kind: "requesting" }
@@ -166,11 +174,12 @@ export function DirectPromote() {
 
             <div className="space-y-1">
                 <span className="font-pixel text-[9px] tracking-widest text-cyan-300/50">Amount</span>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     {ZAP_PRESETS.map((preset) => (
                         <button
                             key={preset}
                             type="button"
+                            aria-pressed={amount === preset}
                             onClick={() => setAmount(preset)}
                             className={`focus-pixel border-2 px-3 py-1 font-pixel text-[10px]
                                 ${
@@ -182,6 +191,24 @@ export function DirectPromote() {
                             {formatSats(preset)}
                         </button>
                     ))}
+                    {/* The presets are shortcuts, not the choice. The relay takes
+                        anything from 1 sat upwards. */}
+                    <label className="flex items-center gap-2">
+                        <span className="sr-only">Custom amount in sats</span>
+                        <input
+                            type="number"
+                            min={1}
+                            max={MAX_SATS}
+                            step={1}
+                            value={amount}
+                            onChange={(event) =>
+                                setAmount(clampSats(Number(event.target.value)))
+                            }
+                            className="focus-pixel w-28 border-2 border-cyan-400/40 bg-void px-2 py-1
+                                text-right text-xs text-cyan-100"
+                        />
+                        <span className="font-pixel text-[9px] text-cyan-300/60">sats</span>
+                    </label>
                 </div>
             </div>
 
@@ -196,7 +223,9 @@ export function DirectPromote() {
                 onClick={() => void start()}
                 disabled={phase.kind === "requesting"}
             >
-                {phase.kind === "requesting" ? "Asking the relay" : "Get an invoice"}
+                {phase.kind === "requesting"
+                    ? "Asking the relay"
+                    : `Get invoice, ${formatSats(amount)} sats`}
             </PixelButton>
         </div>
     );
