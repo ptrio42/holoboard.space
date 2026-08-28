@@ -14,8 +14,11 @@ relay_data.json
 .env
 .env.*
 
-# Build artifacts
+# Build artifacts. The module is named after the host, so a plain `go build`
+# drops a 13MB binary called relay.holoboard.space next to the source.
 relay
+promotion-relay
+relay.holoboard.space
 *.exe
 
 # IDE
