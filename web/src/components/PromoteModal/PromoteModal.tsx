@@ -6,6 +6,7 @@ import { CopyButton } from "../ui/CopyButton";
 import { QrCode } from "../ui/QrCode";
 import { Spinner } from "../ui/Spinner";
 import { LoginButton } from "../LoginButton/LoginButton";
+import { DirectPromote } from "./DirectPromote";
 import { usePromotionFlow, type Stage } from "./usePromotionFlow";
 import { RELAY_PUBKEY, RELAY_URL, ZAP_PRESETS } from "../../config";
 import { formatSats, toNpub } from "../../lib/nostr";
@@ -27,6 +28,12 @@ export function PromoteModal({ onClose }: PromoteModalProps) {
     const [reference, setReference] = useState("");
     const [amount, setAmount] = useState<number>(ZAP_PRESETS[1]);
     const inputId = useId();
+    /*
+     * Two ways in, and the one that needs no key is the default. The other
+     * route publishes a mention as you, which is the only reason a signer is
+     * involved at all; nothing about the board requires knowing who you are.
+     */
+    const [mode, setMode] = useState<"direct" | "signed">("direct");
 
     const busy = state.stage === "publishing" || state.stage === "awaiting-reply";
     const activeStep = STEPS.findIndex((step) => step.stages.includes(state.stage));
@@ -34,6 +41,32 @@ export function PromoteModal({ onClose }: PromoteModalProps) {
     return (
         <Modal isOpen onClose={onClose} title="Promote a note">
             <div className="space-y-6 text-sm text-cyan-100/85">
+                <div className="flex gap-2 font-pixel text-[9px] tracking-widest" role="tablist">
+                    {([
+                        ["direct", "Just pay"],
+                        ["signed", "Use my nostr key"],
+                    ] as const).map(([key, label]) => (
+                        <button
+                            key={key}
+                            type="button"
+                            role="tab"
+                            aria-selected={mode === key}
+                            onClick={() => setMode(key)}
+                            className={`focus-pixel border-2 px-3 py-1 ${
+                                mode === key
+                                    ? "border-neon-gold text-neon-gold"
+                                    : "border-cyan-400/25 text-cyan-300/50 hover:text-neon-cyan"
+                            }`}
+                        >
+                            {label}
+                        </button>
+                    ))}
+                </div>
+
+                {mode === "direct" && <DirectPromote />}
+
+                {mode === "signed" && (
+                <div className="space-y-6">
                 <ol className="flex items-center gap-2 font-pixel text-[9px] tracking-widest">
                     {STEPS.map((step, index) => (
                         <li key={step.key} className="flex items-center gap-2">
@@ -221,6 +254,9 @@ export function PromoteModal({ onClose }: PromoteModalProps) {
                         </p>
                         <PixelButton onClick={onClose}>Back to the board</PixelButton>
                     </section>
+                )}
+
+                </div>
                 )}
 
                 <details className="disclosure border-t-2 border-cyan-400/20 pt-4">

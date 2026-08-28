@@ -48,6 +48,12 @@ export const PUBLIC_RELAYS = trimmed(
     .filter(Boolean);
 
 /**
+ * The relay's plain HTTP origin. The relay serves its websocket and its JSON on
+ * the same host, so this is derived rather than configured twice.
+ */
+export const RELAY_HTTP = RELAY_URL.replace(/^ws/, "http").replace(/\/+$/, "");
+
+/**
  * Where the relay serves its payment ledger.
  *
  * Derived from RELAY_URL rather than configured separately: it is the same host
@@ -56,7 +62,7 @@ export const PUBLIC_RELAYS = trimmed(
  */
 export const SATS_ENDPOINT = trimmed(
     import.meta.env.VITE_SATS_ENDPOINT,
-    `${RELAY_URL.replace(/^ws/, "http").replace(/\/+$/, "")}/api/board`,
+    `${RELAY_HTTP}/api/board`,
 );
 
 /** How many ranked notes to ask the board for. */
