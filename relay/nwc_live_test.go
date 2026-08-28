@@ -22,6 +22,13 @@ const liveWalletAmountSats = 21
 func liveWalletBackend(t *testing.T) *NWCBackend {
 	t.Helper()
 
+	// Gated deliberately. Once NWC_URI sits in relay/.env, an ungated test
+	// would reach a real wallet and mint a real invoice on every plain
+	// `go test ./...`, which is not something a default test run should do.
+	if os.Getenv("NWC_LIVE") == "" {
+		t.Skip("set NWC_LIVE=1 to run against the real wallet configured in relay/.env")
+	}
+
 	uri := os.Getenv("NWC_URI")
 	if uri == "" {
 		// Same loader main.go uses, so putting the URI in relay/.env is enough.
@@ -44,7 +51,7 @@ func liveWalletBackend(t *testing.T) *NWCBackend {
 // TestNWCLiveWallet exercises the backend against a real wallet: reads its
 // capabilities, mints an invoice, and looks that invoice back up.
 //
-//	cd relay && go test -run TestNWCLiveWallet -v
+//	cd relay && NWC_LIVE=1 go test -run TestNWCLiveWallet -v
 func TestNWCLiveWallet(t *testing.T) {
 	backend := liveWalletBackend(t)
 
@@ -100,8 +107,16 @@ func TestNWCLiveWallet(t *testing.T) {
 	if paid {
 		t.Error("a freshly minted invoice reports as already settled")
 	}
-	if amount != liveWalletAmountSats {
-		t.Errorf("lookup_invoice amount = %d sats, want %d", amount, liveWalletAmountSats)
+	// The amount is advisory here. Coinos leaves it out of a lookup on a
+	// pending invoice, so 0 is a legitimate answer and not a failure.
+	switch amount {
+	case 0:
+		t.Log("lookup_invoice reports no amount for a pending invoice, which is fine; " +
+			"the reconciler books the amount from storage")
+	case liveWalletAmountSats:
+		t.Log("lookup_invoice echoes the invoice amount back")
+	default:
+		t.Errorf("lookup_invoice amount = %d sats, want 0 or %d", amount, liveWalletAmountSats)
 	}
 
 	t.Log("lookup_invoice agrees the invoice is unpaid, which is the whole round trip working")
@@ -111,7 +126,7 @@ func TestNWCLiveWallet(t *testing.T) {
 // watching both detection paths at once so we learn which one this wallet
 // actually delivers on.
 //
-//	cd relay && go test -run TestNWCLiveWalletSettlement -v -timeout 15m
+//	cd relay && NWC_LIVE=1 NWC_WAIT_FOR_PAYMENT=1 go test -run TestNWCLiveWalletSettlement -v -timeout 15m
 //
 // Skipped unless NWC_WAIT_FOR_PAYMENT is set, since it needs someone to pay.
 func TestNWCLiveWalletSettlement(t *testing.T) {

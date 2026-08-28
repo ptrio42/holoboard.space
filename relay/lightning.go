@@ -17,7 +17,11 @@ type LightningBackend interface {
 	// WatchInvoices monitors for paid invoices
 	WatchInvoices(ctx context.Context) (<-chan PaidInvoice, error)
 
-	// CheckInvoice checks if a specific invoice has been paid
+	// CheckInvoice checks if a specific invoice has been paid.
+	//
+	// The returned amount is advisory. Wallets are inconsistent about it and
+	// some omit it entirely for a pending invoice, so callers must credit the
+	// amount recorded in storage instead of this one.
 	CheckInvoice(ctx context.Context, paymentHash string) (bool, int64, error)
 }
 

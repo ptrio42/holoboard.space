@@ -657,3 +657,77 @@ func TestNWCWatchInvoicesWithoutNotificationSupport(t *testing.T) {
 func TestNWCBackendSatisfiesInterface(t *testing.T) {
 	var _ LightningBackend = (*NWCBackend)(nil)
 }
+
+// TestNWCCoinosPayloads pins the shapes a real wallet actually sends, captured
+// from Coinos on 2026-08-28. The bolt11 strings are trimmed; nothing here
+// asserts on their contents.
+//
+// Two details caught the implementation out and are worth keeping pinned.
+// lookup_invoice carries no amount field at all while an invoice is pending,
+// which is why CheckInvoice's amount is advisory and the reconciler credits the
+// figure in storage instead. And settled_at arrives as JSON null, which has to
+// unmarshal into the zero value rather than blowing up.
+func TestNWCCoinosPayloads(t *testing.T) {
+	t.Run("make_invoice", func(t *testing.T) {
+		const payload = `{"type":"incoming","invoice":"lnbc210n1p4fz736sp586ps","description":"probe",` +
+			`"amount":21000,"created_at":1787918906,"expires_at":1787919506,"fees_paid":0,` +
+			`"payment_hash":"2e82b365c535bd602af8ce1fad86c8e70669c24e52d396be8e6e64cfac0e5591","metadata":{}}`
+
+		var tx nwcTransaction
+		if err := json.Unmarshal([]byte(payload), &tx); err != nil {
+			t.Fatalf("failed to parse: %v", err)
+		}
+		if tx.Amount != 21000 {
+			t.Errorf("amount = %d msat, want 21000", tx.Amount)
+		}
+		if tx.Amount/1000 != 21 {
+			t.Errorf("amount = %d sats, want 21", tx.Amount/1000)
+		}
+		if tx.ExpiresAt != 1787919506 {
+			t.Errorf("expires_at = %d", tx.ExpiresAt)
+		}
+		if tx.PaymentHash == "" || tx.Invoice == "" {
+			t.Error("payment hash and invoice should both be set")
+		}
+		// No state field at all on this one, and it is certainly not paid.
+		if tx.settled() {
+			t.Error("a freshly minted invoice must not read as settled")
+		}
+	})
+
+	t.Run("lookup_invoice pending", func(t *testing.T) {
+		const payload = `{"type":"incoming","invoice":"lnbc210n1p4fz736sp586ps","description":"probe",` +
+			`"payment_hash":"2e82b365c535bd602af8ce1fad86c8e70669c24e52d396be8e6e64cfac0e5591",` +
+			`"fees_paid":0,"created_at":1787314706,"expires_at":1787919506,` +
+			`"settled_at":null,"state":"pending","status":"pending"}`
+
+		var tx nwcTransaction
+		if err := json.Unmarshal([]byte(payload), &tx); err != nil {
+			t.Fatalf("failed to parse: %v", err)
+		}
+		if tx.settled() {
+			t.Error("a pending invoice must not read as settled")
+		}
+		if tx.SettledAt != 0 {
+			t.Errorf("settled_at = %d, want 0 for JSON null", tx.SettledAt)
+		}
+		// The field is simply absent, so this is 0 and callers must not trust it.
+		if tx.Amount != 0 {
+			t.Errorf("amount = %d, want 0 since Coinos omits it while pending", tx.Amount)
+		}
+	})
+
+	t.Run("settled by status alone", func(t *testing.T) {
+		// Coinos fills state and status together, so a wallet that sends only
+		// status still has to register as paid.
+		const payload = `{"type":"incoming","payment_hash":"aa","amount":21000,"status":"settled"}`
+
+		var tx nwcTransaction
+		if err := json.Unmarshal([]byte(payload), &tx); err != nil {
+			t.Fatalf("failed to parse: %v", err)
+		}
+		if !tx.settled() {
+			t.Error("status settled must count as paid")
+		}
+	})
+}

@@ -316,12 +316,16 @@ type nwcTransaction struct {
 	CreatedAt   int64  `json:"created_at"`
 	ExpiresAt   int64  `json:"expires_at"`
 	SettledAt   int64  `json:"settled_at"`
+
+	// Status is not in the spec, but Coinos fills it in alongside State, so
+	// take it as a third signal rather than depending on any one field.
+	Status string `json:"status"`
 }
 
 // settled reports whether this transaction has actually been paid. Wallets
-// disagree about which field to fill in, so accept either signal.
+// disagree about which field carries that, so accept any of the three.
 func (t *nwcTransaction) settled() bool {
-	return t.SettledAt > 0 || t.State == "settled"
+	return t.SettledAt > 0 || t.State == "settled" || t.Status == "settled"
 }
 
 // nwcNotification is the envelope notifications arrive in (NWC-02).
@@ -497,6 +501,12 @@ func (b *NWCBackend) GenerateInvoice(ctx context.Context, amountSats int64, memo
 // CheckInvoice asks the wallet whether one invoice has been paid. This is what
 // lets the relay reconcile invoices it slept through, which is the scenario
 // DESIGN.md called Case 6.
+//
+// Treat the returned amount as advisory and never book payment on it. Coinos,
+// for one, omits the amount field entirely from a lookup_invoice reply while
+// the invoice is still pending, so this returns 0 for it. The amount an invoice
+// was issued for is the one already in storage, and that is what
+// InvoiceManager.reconcilePendingInvoices credits.
 func (b *NWCBackend) CheckInvoice(ctx context.Context, paymentHash string) (bool, int64, error) {
 	if paymentHash == "" {
 		return false, 0, fmt.Errorf("payment hash is empty")
