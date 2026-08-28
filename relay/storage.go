@@ -77,7 +77,7 @@ func (s *Storage) AddPayment(postID string, amountSats int64, event *nostr.Event
 		post.TotalSatsPaid += amountSats
 		post.LastPaymentTimestamp = time.Now()
 		fmt.Printf("📈 Updated post %s: +%d sats (total: %d sats)\n",
-			postID[:8], amountSats, post.TotalSatsPaid)
+			short(postID, 8), amountSats, post.TotalSatsPaid)
 	} else {
 		// Create new post entry
 		if event == nil {
@@ -90,7 +90,7 @@ func (s *Storage) AddPayment(postID string, amountSats int64, event *nostr.Event
 			LastPaymentTimestamp: time.Now(),
 		}
 		s.posts[postID] = post
-		fmt.Printf("🆕 New post promoted: %s with %d sats\n", postID[:8], amountSats)
+		fmt.Printf("🆕 New post promoted: %s with %d sats\n", short(postID, 8), amountSats)
 	}
 
 	if err := s.save(); err != nil {

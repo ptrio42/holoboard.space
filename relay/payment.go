@@ -92,7 +92,7 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 	amountMsat := extractAmountFromBolt11(bolt11)
 	amountSats := amountMsat / 1000
 
-	log.Printf("Extracted amount from bolt11: %d millisats = %d sats (bolt11: %s...)", amountMsat, amountSats, bolt11[:min(20, len(bolt11))])
+	log.Printf("Extracted amount from bolt11: %d millisats = %d sats (bolt11: %s...)", amountMsat, amountSats, short(bolt11, 20))
 
 	if amountSats <= 0 {
 		log.Printf("Ignoring zap with zero amount (< 1 sat)")
@@ -124,9 +124,9 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 		promotedNoteID, err := pm.getPromotedNoteFromChain(zappedEventID)
 		if err == nil && promotedNoteID != "" {
 			postID = promotedNoteID
-			log.Printf("Zap to promotional reply %s -> promoting note %s (via chain)", zappedEventID[:8], postID[:8])
+			log.Printf("Zap to promotional reply %s -> promoting note %s (via chain)", short(zappedEventID, 8), short(postID, 8))
 		} else if err != nil {
-			log.Printf("Chain-chasing failed for %s: %v, trying storage fallback", zappedEventID[:8], err)
+			log.Printf("Chain-chasing failed for %s: %v, trying storage fallback", short(zappedEventID, 8), err)
 		}
 
 		// Fallback to storage mapping (for older promotional replies)
@@ -134,7 +134,7 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 			promotedNoteIDFromStorage, isPromotionalReply := pm.storage.GetPromotedNoteID(zappedEventID)
 			if isPromotionalReply {
 				postID = promotedNoteIDFromStorage
-				log.Printf("Zap to promotional reply %s -> promoting note %s (via storage)", zappedEventID[:8], postID[:8])
+				log.Printf("Zap to promotional reply %s -> promoting note %s (via storage)", short(zappedEventID, 8), short(postID, 8))
 			}
 		}
 	}
@@ -144,7 +144,7 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 		pendingInvoice, exists := pm.storage.GetPendingInvoiceByBolt11(bolt11)
 		if exists {
 			postID = pendingInvoice.PostID
-			log.Printf("Matched bolt11 to DM invoice for post %s", postID[:8])
+			log.Printf("Matched bolt11 to DM invoice for post %s", short(postID, 8))
 		}
 	}
 
@@ -152,7 +152,7 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 	if postID == "" && zapRequest.Content != "" {
 		postID = extractEventIDFromText(zapRequest.Content)
 		if postID != "" {
-			log.Printf("Extracted post ID from zap comment: %s", postID[:8])
+			log.Printf("Extracted post ID from zap comment: %s", short(postID, 8))
 		}
 	}
 
@@ -163,7 +163,7 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 			log.Printf("Checking bolt11 description for post ID: %s", bolt11Description)
 			postID = extractEventIDFromText(bolt11Description)
 			if postID != "" {
-				log.Printf("Extracted post ID from bolt11 description: %s", postID[:8])
+				log.Printf("Extracted post ID from bolt11 description: %s", short(postID, 8))
 			}
 		}
 	}
@@ -283,7 +283,7 @@ func (pm *PaymentMonitor) getPromotedNoteFromChain(promotionalReplyID string) (s
 		return "", fmt.Errorf("promotional reply has no 'e' tag (no parent mention)")
 	}
 
-	log.Printf("Found mention ID %s from promotional reply %s", mentionID[:8], promotionalReplyID[:8])
+	log.Printf("Found mention ID %s from promotional reply %s", short(mentionID, 8), short(promotionalReplyID, 8))
 
 	// Step 3: Fetch the original mention
 	mention, err := pm.fetchEvent(ctx, mentionID, []int{1}) // kind:1 notes
@@ -297,7 +297,7 @@ func (pm *PaymentMonitor) getPromotedNoteFromChain(promotionalReplyID string) (s
 		return "", fmt.Errorf("no note ID found in mention content")
 	}
 
-	log.Printf("Extracted note ID %s from mention content", noteID[:8])
+	log.Printf("Extracted note ID %s from mention content", short(noteID, 8))
 	return noteID, nil
 }
 
@@ -341,15 +341,15 @@ func (pm *PaymentMonitor) fetchEvent(ctx context.Context, eventID string, kinds 
 		select {
 		case event := <-sub.Events:
 			if event != nil {
-				log.Printf("Fetched event %s from %s", eventID[:8], relayURL)
+				log.Printf("Fetched event %s from %s", short(eventID, 8), relayURL)
 				return event, nil
 			}
 		case <-sub.EndOfStoredEvents:
-			log.Printf("Event %s not found on %s", eventID[:8], relayURL)
+			log.Printf("Event %s not found on %s", short(eventID, 8), relayURL)
 		}
 	}
 
-	return nil, fmt.Errorf("event %s not found on any relay", eventID[:8])
+	return nil, fmt.Errorf("event %s not found on any relay", short(eventID, 8))
 }
 
 // PostFetcher fetches posts from other Nostr relays

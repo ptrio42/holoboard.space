@@ -63,7 +63,7 @@ func (mm *MentionMonitor) ProcessMention(ctx context.Context, mentionEvent *nost
 		return nil
 	}
 
-	log.Printf("Processing mention from %s: %s", mentionEvent.PubKey[:8], mentionEvent.Content[:min(50, len(mentionEvent.Content))])
+	log.Printf("Processing mention from %s: %s", short(mentionEvent.PubKey, 8), short(mentionEvent.Content, 50))
 
 	// Extract note ID from content
 	noteID := extractEventIDFromText(mentionEvent.Content)
@@ -84,11 +84,11 @@ func (mm *MentionMonitor) ProcessMention(ctx context.Context, mentionEvent *nost
 	}
 
 	// Fetch the note to validate it exists
-	log.Printf("Fetching note %s to validate...", noteID[:8])
+	log.Printf("Fetching note %s to validate...", short(noteID, 8))
 	noteToPromote, err := mm.fetcher.FetchPost(ctx, noteID)
 	if err != nil {
 		log.Printf("Failed to fetch note %s: %v", noteID, err)
-		return mm.SendErrorReply(ctx, mentionEvent, fmt.Sprintf("Could not find note %s. Please check the note ID.", noteID[:16]))
+		return mm.SendErrorReply(ctx, mentionEvent, fmt.Sprintf("Could not find note %s. Please check the note ID.", short(noteID, 16)))
 	}
 
 	// Verify it's a kind:1 event
@@ -152,7 +152,7 @@ The more sats you zap, the higher it will rank. Anyone can add more sats to boos
 
 	// Publish to relays
 	relays := mm.fetcher.Relays()
-	log.Printf("Publishing promotional reply %s for note %s", replyEvent.ID[:8], noteToPromote.ID[:8])
+	log.Printf("Publishing promotional reply %s for note %s", short(replyEvent.ID, 8), short(noteToPromote.ID, 8))
 
 	for _, relay := range relays {
 		pub, err := mm.pool.EnsureRelay(relay)
@@ -173,7 +173,7 @@ The more sats you zap, the higher it will rank. Anyone can add more sats to boos
 		return fmt.Errorf("failed to store promotional reply mapping: %w", err)
 	}
 
-	log.Printf("Created promotional reply %s for note %s", replyEvent.ID[:8], noteToPromote.ID[:8])
+	log.Printf("Created promotional reply %s for note %s", short(replyEvent.ID, 8), short(noteToPromote.ID, 8))
 	return nil
 }
 
@@ -263,11 +263,4 @@ func mustEncodeBech32NProfile(pubkey string) string {
 		return pubkey
 	}
 	return npub
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
