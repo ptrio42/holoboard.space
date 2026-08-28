@@ -231,6 +231,19 @@ export function PromoteModal({ onClose }: PromoteModalProps) {
                     <div className="mt-4 space-y-4 text-xs leading-relaxed">
                         <div>
                             <p className="mb-1 font-pixel text-[9px] tracking-widest text-neon-pink">
+                                Mention the relay from any client
+                            </p>
+                            <p className="text-cyan-100/70">
+                                This is the flow above, done by hand. Write a note that tags the
+                                relay's npub, below, and contains the note you want promoted. The
+                                relay answers with a promotional reply; zap that reply to put the
+                                note on the board. No keyword is needed, only the reference, and
+                                every client lets you tag someone in a note, which is not true of
+                                zap comments.
+                            </p>
+                        </div>
+                        <div>
+                            <p className="mb-1 font-pixel text-[9px] tracking-widest text-neon-pink">
                                 Zap the relay directly
                             </p>
                             <p className="text-cyan-100/70">

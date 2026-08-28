@@ -14,7 +14,10 @@ primary_region = 'fra'
 [env]
   DATA_FILE = '/root/data/relay_data.json'
   DEFAULT_PAYMENT_SATS = '1000'
-  FETCH_RELAYS = 'wss://relay.damus.io,wss://nos.lol,wss://relay.nostr.band,wss://nostr.wine'
+  # Must accept writes from any pubkey, and must match VITE_PUBLIC_RELAYS in
+  # web/src/config.ts, or mentions published by the frontend land somewhere
+  # this relay is not listening.
+  FETCH_RELAYS = 'wss://nos.lol,wss://relay.damus.io,wss://relay.primal.net,wss://nostr.mom,wss://offchain.pub'
   # Nostr Wallet Connect. Needs an NWC_URI secret; see relay/.env.example.
   LIGHTNING_BACKEND = 'nwc'
   # How often to re-check invoices still waiting. Coinos pushes

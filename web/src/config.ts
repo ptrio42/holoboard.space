@@ -26,11 +26,22 @@ export const RELAY_PUBKEY = trimmed(
 /**
  * Public relays. The holoboard relay only accepts notes that were already paid
  * for, so mentions, its replies, profiles and zap receipts all travel over
- * these instead. Keep them in sync with the relay's own FETCH_RELAYS.
+ * these instead.
+ *
+ * These have to be relays that accept WRITES from any pubkey, which is not the
+ * same list as one for reading. The original list was inherited from the
+ * relay's FETCH_RELAYS and three of its four entries refused to be written to:
+ * nostr.wine charges an 18,888 sat admission, relay.nostr.band is a search
+ * aggregator that serves no NIP-11 at all, and damus.io was answering 503. That
+ * left one relay, and publishing a mention failed with "0 published, 1 required".
+ *
+ * Keep this in step with FETCH_RELAYS in relay/fly.toml. If the frontend
+ * publishes a mention somewhere the relay is not listening, the mention is
+ * simply never seen and nothing says so.
  */
 export const PUBLIC_RELAYS = trimmed(
     import.meta.env.VITE_PUBLIC_RELAYS,
-    "wss://relay.damus.io,wss://nos.lol,wss://relay.nostr.band,wss://nostr.wine",
+    "wss://nos.lol,wss://relay.damus.io,wss://relay.primal.net,wss://nostr.mom,wss://offchain.pub",
 )
     .split(",")
     .map((url) => url.trim())
