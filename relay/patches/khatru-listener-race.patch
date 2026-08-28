@@ -1,0 +1,34 @@
+--- a/listener.go	2026-08-28 13:03:24
++++ b/listener.go	2026-08-28 18:08:28
+@@ -24,6 +24,9 @@
+ }
+ 
+ func (rl *Relay) GetListeningFilters() []nostr.Filter {
++	rl.clientsMutex.Lock()
++	defer rl.clientsMutex.Unlock()
++
+ 	respfilters := make([]nostr.Filter, len(rl.listeners))
+ 	for i, l := range rl.listeners {
+ 		respfilters[i] = l.filter
+@@ -133,7 +136,20 @@
+ }
+ 
+ func (rl *Relay) notifyListeners(event *nostr.Event) {
+-	for _, listener := range rl.listeners {
++	// Snapshot under the same mutex that every writer of rl.listeners already
++	// holds. Reading it unlocked raced with addListener and, worse, with the
++	// swap-delete in removeListenerId, which can briefly pair one listener's id
++	// with another listener's socket.
++	//
++	// The copy is taken rather than holding the lock across the loop, because
++	// the loop calls WriteJSON, which blocks on a slow client and would then
++	// stall every subscribe and unsubscribe on the relay.
++	rl.clientsMutex.Lock()
++	listeners := make([]listener, len(rl.listeners))
++	copy(listeners, rl.listeners)
++	rl.clientsMutex.Unlock()
++
++	for _, listener := range listeners {
+ 		if listener.filter.Matches(event) {
+ 			for _, pb := range rl.PreventBroadcast {
+ 				if pb(listener.ws, event) {
