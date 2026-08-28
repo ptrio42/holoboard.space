@@ -79,7 +79,11 @@ func ParseNWCURI(uri string) (*NWCBackend, error) {
 
 	parsed, err := url.Parse(trimmed)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse NWC URI: %w", err)
+		// Deliberately not wrapping err. url.Parse puts the whole input in its
+		// error message, and the input carries the wallet secret, so wrapping
+		// it would print the secret through main.go's log.Fatalf and straight
+		// into the host's log stream.
+		return nil, fmt.Errorf("NWC connection string is not a valid URI")
 	}
 
 	if scheme := strings.ToLower(parsed.Scheme); scheme != "nostr+walletconnect" {
