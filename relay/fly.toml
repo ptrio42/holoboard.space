@@ -33,7 +33,10 @@ primary_region = 'fra'
   internal_port = 8080
   force_https = true
   auto_stop_machines = 'off'
-  auto_start_machines = false
+  # Nothing stops this machine on purpose, but when something does, false
+  # leaves it down until a human notices. The frontend opens a websocket, which
+  # is an HTTP upgrade, so a visitor is enough to bring it back.
+  auto_start_machines = true
   min_machines_running = 1
   processes = ['app']
 
