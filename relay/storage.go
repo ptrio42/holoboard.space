@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
@@ -39,6 +40,7 @@ type Storage struct {
 	processedDMs       map[string]bool            // dm_event_id -> processed (to prevent duplicate invoice sends)
 	promotionalReplies map[string]string          // promotional_reply_id -> note_to_promote_id
 	processedMentions  map[string]bool            // mention_event_id -> processed (to reply only once)
+	mentionWatermark   int64                      // newest mention seen, so a restart does not skip the gap
 	dataFile           string
 }
 
@@ -251,6 +253,63 @@ func (s *Storage) RemovePendingInvoice(paymentHash string) error {
 	return s.save()
 }
 
+// writeFileAtomic writes to a sibling file, flushes it, and renames it over the
+// target, so a reader only ever sees a whole file.
+//
+// Writing straight onto the live ledger meant a process that died mid-write
+// left truncated JSON behind, and load() has no fallback for that: NewStorage
+// returns an error and main.go turns it into log.Fatalf. The relay would refuse
+// to boot with its entire payment history gone. This is not a remote
+// possibility either, since save() runs on every single payment and fly deploy
+// shuts the old machine down with SIGTERM.
+func writeFileAtomic(path string, data []byte) error {
+	tmp := path + ".tmp"
+
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to create temp file %s: %w", tmp, err)
+	}
+
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return fmt.Errorf("failed to write temp file %s: %w", tmp, err)
+	}
+	// Rename is atomic, but only for content the kernel has actually taken.
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return fmt.Errorf("failed to flush temp file %s: %w", tmp, err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("failed to close temp file %s: %w", tmp, err)
+	}
+
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("failed to replace %s: %w", path, err)
+	}
+
+	// The rename itself needs flushing, or a power loss can leave the directory
+	// entry pointing at neither file. Best effort: a filesystem that will not
+	// open its own directory is not a reason to fail a save that succeeded.
+	if dir, err := os.Open(filepath.Dir(path)); err == nil {
+		dir.Sync()
+		dir.Close()
+	}
+
+	return nil
+}
+
+// Quiesce blocks until any save in flight has finished. Shutdown waits on it so
+// the process cannot exit in the gap between a payment being recorded in memory
+// and it reaching disk.
+func (s *Storage) Quiesce() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+}
+
 // save persists the storage to disk
 func (s *Storage) save() error {
 	data := struct {
@@ -260,6 +319,7 @@ func (s *Storage) save() error {
 		ProcessedDMs       map[string]bool            `json:"processed_dms"`
 		PromotionalReplies map[string]string          `json:"promotional_replies"`
 		ProcessedMentions  map[string]bool            `json:"processed_mentions"`
+		MentionWatermark   int64                      `json:"mention_watermark"`
 	}{
 		Posts:              s.posts,
 		PendingInvoices:    s.pendingInvoices,
@@ -267,6 +327,7 @@ func (s *Storage) save() error {
 		ProcessedDMs:       s.processedDMs,
 		PromotionalReplies: s.promotionalReplies,
 		ProcessedMentions:  s.processedMentions,
+		MentionWatermark:   s.mentionWatermark,
 	}
 
 	bytes, err := json.MarshalIndent(data, "", "  ")
@@ -274,8 +335,8 @@ func (s *Storage) save() error {
 		return fmt.Errorf("failed to marshal data: %w", err)
 	}
 
-	if err := os.WriteFile(s.dataFile, bytes, 0644); err != nil {
-		return fmt.Errorf("failed to write data file %s: %w", s.dataFile, err)
+	if err := writeFileAtomic(s.dataFile, bytes); err != nil {
+		return err
 	}
 
 	fmt.Printf("✅ Saved data to %s (%d posts, %d pending invoices)\n",
@@ -297,6 +358,7 @@ func (s *Storage) load() error {
 		ProcessedDMs       map[string]bool            `json:"processed_dms"`
 		PromotionalReplies map[string]string          `json:"promotional_replies"`
 		ProcessedMentions  map[string]bool            `json:"processed_mentions"`
+		MentionWatermark   int64                      `json:"mention_watermark"`
 	}
 
 	if err := json.Unmarshal(bytes, &data); err != nil {
@@ -333,7 +395,34 @@ func (s *Storage) load() error {
 		s.processedMentions = make(map[string]bool)
 	}
 
+	s.mentionWatermark = data.MentionWatermark
+
 	return nil
+}
+
+// MentionWatermark is the timestamp of the newest mention already seen.
+//
+// The mention monitor used to subscribe from time.Now(), which meant every
+// mention sent while the relay was restarting or redeploying was never seen at
+// all: no reply, no promotion, and no trace that anything was missed. Persisting
+// where it got to lets it pick the thread back up.
+func (s *Storage) MentionWatermark() int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.mentionWatermark
+}
+
+// AdvanceMentionWatermark moves the watermark forward. It never moves back, so
+// events arriving out of order cannot rewind it.
+func (s *Storage) AdvanceMentionWatermark(createdAt int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if createdAt <= s.mentionWatermark {
+		return nil
+	}
+	s.mentionWatermark = createdAt
+	return s.save()
 }
 
 // AddPromotionalReply stores a mapping from promotional reply ID to the note it promotes

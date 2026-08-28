@@ -34,13 +34,17 @@ func NewMentionMonitor(relayPubkey, relaySeckey string, storage *Storage, fetche
 func (mm *MentionMonitor) Start(ctx context.Context, relays []string) {
 	log.Printf("Starting mention monitor for pubkey %s", mm.relayPubkey)
 
-	// Subscribe to kind:1 events that mention our relay
-	since := nostr.Timestamp(time.Now().Unix())
+	// Resume from where the last run got to, so mentions sent during a restart
+	// or a deploy are not silently dropped. Bounded, because a relay that was
+	// off for a month should not wake up and replay a month of mentions at
+	// everyone who wrote to it.
+	since := nostr.Timestamp(mentionResumePoint(mm.storage.MentionWatermark(), time.Now()))
 	filter := nostr.Filter{
 		Kinds: []int{1},
 		Tags:  nostr.TagMap{"p": []string{mm.relayPubkey}},
 		Since: &since,
 	}
+	log.Printf("Mention monitor resuming from %s", time.Unix(int64(since), 0).Format(time.RFC3339))
 
 	sub := mm.pool.SubMany(ctx, relays, []nostr.Filter{filter})
 
@@ -49,6 +53,13 @@ func (mm *MentionMonitor) Start(ctx context.Context, relays []string) {
 			// Process mention
 			if err := mm.ProcessMention(ctx, event.Event); err != nil {
 				log.Printf("Failed to process mention from %s: %v", event.PubKey, err)
+			}
+			// Move the watermark even when handling failed. A mention that
+			// cannot be processed now will not process any better on the next
+			// restart, and leaving the watermark behind would replay it
+			// forever.
+			if err := mm.storage.AdvanceMentionWatermark(int64(event.CreatedAt)); err != nil {
+				log.Printf("Failed to advance mention watermark: %v", err)
 			}
 		}
 	}()
@@ -263,4 +274,17 @@ func mustEncodeBech32NProfile(pubkey string) string {
 		return pubkey
 	}
 	return npub
+}
+
+// maxMentionBacklog caps how far back a restart will look for missed mentions.
+const maxMentionBacklog = 24 * time.Hour
+
+// mentionResumePoint picks the subscription start: the stored watermark, unless
+// it is missing or so old that resuming from it would replay a flood.
+func mentionResumePoint(watermark int64, now time.Time) int64 {
+	floor := now.Add(-maxMentionBacklog).Unix()
+	if watermark <= 0 || watermark < floor {
+		return floor
+	}
+	return watermark
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/fiatjaf/khatru"
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
 // loadEnvFile loads environment variables from a .env file if it exists
@@ -243,13 +244,48 @@ func main() {
 	// Create khatru relay
 	relay := khatru.NewRelay()
 
+	// The relay already has an identity on nostr, so read it from there rather
+	// than keeping a second copy in configuration that drifts. Both fields stay
+	// overridable for anyone running their own instance.
+	profile := fetchRelayProfile(ctx, fetchRelays, relayPubkey)
+
+	// Contact is the relay's own npub. An email address here was never real,
+	// and the npub is derived, so it cannot go stale.
+	contact := getEnv("RELAY_CONTACT", "")
+	if contact == "" {
+		if npub, err := nip19.EncodePublicKey(relayPubkey); err == nil {
+			contact = npub
+		} else {
+			log.Printf("Could not encode relay npub for NIP-11 contact: %v", err)
+		}
+	}
+
+	icon := getEnv("RELAY_ICON", "")
+	if icon == "" && profile != nil {
+		icon = profile.Picture
+	}
+
+	name := getEnv("RELAY_NAME", "")
+	if name == "" && profile != nil {
+		name = profile.Name
+	}
+	if name == "" {
+		name = "Nostr Promotion Board"
+	}
+
+	if profile != nil {
+		log.Printf("Relay profile loaded from nostr: name %q, lud16 %q", profile.Name, profile.Lud16)
+	} else {
+		log.Printf("No kind:0 profile found for this relay; NIP-11 icon will be empty")
+	}
+
 	// Setup relay handlers
 	config := RelayConfig{
-		Name:        "Nostr Promotion Board",
-		Description: "A paid promotion relay where posts are ranked by total sats received",
+		Name:        name,
+		Description: getEnv("RELAY_DESCRIPTION", "A paid promotion relay where posts are ranked by total sats received"),
 		RelayPubkey: relayPubkey,
-		Contact:     "relay@example.com",
-		Icon:        "https://example.com/icon.png",
+		Contact:     contact,
+		Icon:        icon,
 	}
 
 	SetupRelay(relay, storage, monitor, invoiceManager, config)
@@ -310,7 +346,21 @@ func main() {
 	go func() {
 		<-sigChan
 		log.Printf("Shutting down relay...")
+
+		// Stop the monitors first, so nothing new lands in storage while we
+		// are trying to leave the ledger in a settled state.
 		cancel()
+
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelShutdown()
+		relay.Shutdown(shutdownCtx)
+
+		// Wait out any save already in flight. Writes are atomic, so the file
+		// on disk is never torn, but exiting here without waiting could still
+		// drop a payment recorded a moment ago.
+		storage.Quiesce()
+
+		log.Printf("Shutdown complete")
 		os.Exit(0)
 	}()
 
