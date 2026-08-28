@@ -1,15 +1,23 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { fetchLedger, toSatsMap, type SatsMap } from "../lib/sats";
 
 const REFRESH_MS = 15_000;
 
 const EMPTY: SatsMap = new Map();
+const EMPTY_RANKS: ReadonlyMap<string, number> = new Map();
 
 interface SatsState {
     /** Event id to sats paid. Missing means "not known yet", not "zero". */
     sats: SatsMap;
+    /** Event id to the relay's own 1-based rank for it. */
+    ranks: ReadonlyMap<string, number>;
     /** Everything the board has taken, or null before the first answer. */
     totalSats: number | null;
+}
+
+interface SatsResult extends SatsState {
+    /** Ask again now, without waiting for the interval. */
+    refresh: () => void;
 }
 
 /**
@@ -24,8 +32,16 @@ interface SatsState {
  * A failed fetch keeps the last good numbers rather than blanking the board.
  * Sats missing for a moment is a smaller lie than sats claiming to be zero.
  */
-export function useSatsMap(endpoint: string): SatsState {
-    const [state, setState] = useState<SatsState>({ sats: EMPTY, totalSats: null });
+export function useSatsMap(endpoint: string): SatsResult {
+    const [state, setState] = useState<SatsState>({
+        sats: EMPTY,
+        ranks: EMPTY_RANKS,
+        totalSats: null,
+    });
+    // Bumped to ask again out of band, when a note arrives that the ledger has
+    // not caught up with yet.
+    const [nudge, setNudge] = useState(0);
+    const refresh = useCallback(() => setNudge((n) => n + 1), []);
 
     useEffect(() => {
         let cancelled = false;
@@ -38,7 +54,11 @@ export function useSatsMap(endpoint: string): SatsState {
             try {
                 const ledger = await fetchLedger(endpoint, controller.signal);
                 if (cancelled) return;
-                setState({ sats: toSatsMap(ledger), totalSats: ledger.totalSats });
+                setState({
+                    sats: toSatsMap(ledger),
+                    ranks: new Map(ledger.entries.map((e) => [e.id, e.rank])),
+                    totalSats: ledger.totalSats,
+                });
             } catch {
                 // Keep whatever was already on screen.
             }
@@ -58,7 +78,7 @@ export function useSatsMap(endpoint: string): SatsState {
             window.clearInterval(timer);
             document.removeEventListener("visibilitychange", onVisible);
         };
-    }, [endpoint]);
+    }, [endpoint, nudge]);
 
-    return state;
+    return { ...state, refresh };
 }

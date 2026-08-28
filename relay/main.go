@@ -324,6 +324,11 @@ func main() {
 
 	SetupRelay(relay, storage, monitor, invoiceManager, config)
 
+	// Push newly promoted notes to whoever is already subscribed. khatru has
+	// BroadcastEvent for exactly this and nothing was calling it, so a note only
+	// showed up after the page was reloaded.
+	monitor.SetBroadcaster(relay.BroadcastEvent)
+
 	// The ledger the board is ranked by. Events are signed over their tags, so
 	// the sats total cannot ride along on the notes themselves; this is how it
 	// reaches clients. khatru dispatches on headers, never on path, so a plain

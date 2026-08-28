@@ -249,3 +249,74 @@ func TestReconcilerStopsWithContext(t *testing.T) {
 		t.Errorf("reconciler kept polling after cancellation: %d checks became %d", before, after)
 	}
 }
+
+// TestPromotionIsBroadcast pins the fix for "I paid and had to reload the page
+// to see my note". khatru has BroadcastEvent for pushing to open subscriptions
+// and nothing was calling it, so a promoted note only reached a client on its
+// next REQ.
+func TestPromotionIsBroadcast(t *testing.T) {
+	storage := newTestStorage(t)
+	seckey := nostr.GeneratePrivateKey()
+	postID := seedPromotedPost(t, storage, seckey)
+
+	invoice := &PendingInvoice{
+		PostID:      postID,
+		Invoice:     "lnbc10u1settled",
+		PaymentHash: "6666666666666666",
+		AmountSats:  2100,
+		CreatedAt:   time.Now(),
+		ExpiresAt:   time.Now().Add(time.Hour),
+	}
+	if err := storage.AddPendingInvoice(invoice); err != nil {
+		t.Fatalf("failed to store pending invoice: %v", err)
+	}
+
+	monitor := NewPaymentMonitor(storage, "relay", NewPostFetcher(nil), NewLNURLResolver())
+
+	var mu sync.Mutex
+	var broadcast []string
+	monitor.SetBroadcaster(func(e *nostr.Event) {
+		mu.Lock()
+		defer mu.Unlock()
+		if e != nil {
+			broadcast = append(broadcast, e.ID)
+		}
+	})
+
+	if err := monitor.ProcessInvoicePayment(invoice.PaymentHash, invoice.AmountSats); err != nil {
+		t.Fatalf("ProcessInvoicePayment failed: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(broadcast) != 1 {
+		t.Fatalf("broadcast %d events, want exactly 1", len(broadcast))
+	}
+	if broadcast[0] != postID {
+		t.Errorf("broadcast %s, want the promoted note %s", short(broadcast[0], 8), short(postID, 8))
+	}
+}
+
+// TestBroadcastIsOptional: nothing should blow up when no relay is wired in,
+// which is the case in every test that does not care about broadcasting.
+func TestBroadcastIsOptional(t *testing.T) {
+	storage := newTestStorage(t)
+	seckey := nostr.GeneratePrivateKey()
+	postID := seedPromotedPost(t, storage, seckey)
+
+	invoice := &PendingInvoice{
+		PostID:      postID,
+		PaymentHash: "7777777777777777",
+		AmountSats:  100,
+		CreatedAt:   time.Now(),
+		ExpiresAt:   time.Now().Add(time.Hour),
+	}
+	if err := storage.AddPendingInvoice(invoice); err != nil {
+		t.Fatalf("failed to store pending invoice: %v", err)
+	}
+
+	monitor := NewPaymentMonitor(storage, "relay", NewPostFetcher(nil), NewLNURLResolver())
+	if err := monitor.ProcessInvoicePayment(invoice.PaymentHash, invoice.AmountSats); err != nil {
+		t.Fatalf("ProcessInvoicePayment failed with no broadcaster: %v", err)
+	}
+}

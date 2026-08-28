@@ -22,6 +22,26 @@ type PaymentMonitor struct {
 	// zapValidator holds the nostr keys this relay's LNURL servers sign
 	// receipts with. Without one, no zap can be believed.
 	zapValidator *LNURLResolver
+
+	// broadcast pushes a freshly promoted note to whoever is subscribed right
+	// now. Without it a note only appears on a client's next REQ, which for the
+	// board means the page has to be reloaded before you can see the promotion
+	// you just paid for.
+	broadcast func(*nostr.Event)
+}
+
+// SetBroadcaster wires the relay's own broadcast in. It is set after
+// construction because the khatru relay does not exist yet when the payment
+// monitor is built.
+func (pm *PaymentMonitor) SetBroadcaster(broadcast func(*nostr.Event)) {
+	pm.broadcast = broadcast
+}
+
+// announce pushes an event to live subscriptions, if anything is wired up.
+func (pm *PaymentMonitor) announce(event *nostr.Event) {
+	if pm.broadcast != nil && event != nil {
+		pm.broadcast(event)
+	}
 }
 
 // NewPaymentMonitor creates a new payment monitor
@@ -160,6 +180,7 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 			return fmt.Errorf("failed to store post: %w", err)
 		}
 
+		pm.announce(fetchedEvent)
 		log.Printf("Fetched and stored post %s with %d sats", postID, amountSats)
 	} else {
 		// Update existing post
@@ -167,6 +188,7 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 			return fmt.Errorf("failed to update post payment: %w", err)
 		}
 
+		pm.announce(post.Event)
 		log.Printf("Updated post %s, total sats: %d", postID, post.TotalSatsPaid+amountSats)
 	}
 
@@ -200,11 +222,13 @@ func (pm *PaymentMonitor) ProcessInvoicePayment(paymentHash string, amountSats i
 		if err := pm.storage.AddPayment(invoice.PostID, amountSats, fetchedEvent); err != nil {
 			return fmt.Errorf("failed to store post: %w", err)
 		}
+		pm.announce(fetchedEvent)
 	} else {
 		// Update existing post
 		if err := pm.storage.AddPayment(invoice.PostID, amountSats, post.Event); err != nil {
 			return fmt.Errorf("failed to update post: %w", err)
 		}
+		pm.announce(post.Event)
 	}
 
 	// Remove the pending invoice

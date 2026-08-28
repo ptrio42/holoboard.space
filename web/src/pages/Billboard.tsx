@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { NDKKind, NDKSubscriptionCacheUsage } from "@nostr-dev-kit/ndk";
 import { useSubscribe } from "@nostr-dev-kit/react";
 import { BoardRow } from "../components/BoardRow/BoardRow";
@@ -13,7 +13,7 @@ import { BOARD_LIMIT, RELAY_URL, SATS_ENDPOINT } from "../config";
 export default function Billboard() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const { status: relayStatus, retry: retryRelay } = useRelayStatus(RELAY_URL);
-    const { sats } = useSatsMap(SATS_ENDPOINT);
+    const { sats, ranks, refresh: refreshSats } = useSatsMap(SATS_ENDPOINT);
 
     /*
      * The relay does the ranking and returns the board already ordered, so the
@@ -39,6 +39,33 @@ export default function Billboard() {
             closeOnEose: false,
         },
     );
+
+    /*
+     * The relay serves the board already ranked, so arrival order is right on
+     * first load. It stops being right the moment somebody pays: the relay now
+     * broadcasts the promoted note to open subscriptions, but a broadcast
+     * arrives at the end of the stream regardless of where it belongs, and a
+     * note that merely gained sats does not arrive again at all.
+     *
+     * So order by the rank the ledger reports, falling back to arrival order
+     * for anything the ledger has not caught up with yet.
+     */
+    const ordered = useMemo(() => {
+        if (ranks.size === 0) return events;
+        const arrival = new Map(events.map((event, index) => [event.id, index]));
+        return [...events].sort((a, b) => {
+            const ra = ranks.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+            const rb = ranks.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+            if (ra !== rb) return ra - rb;
+            return (arrival.get(a.id) ?? 0) - (arrival.get(b.id) ?? 0);
+        });
+    }, [events, ranks]);
+
+    // A note that just arrived is not in the ledger yet, and waiting out the
+    // poll would leave it sitting at the bottom with no sats beside it.
+    useEffect(() => {
+        if (events.length > 0) refreshSats();
+    }, [events.length, refreshSats]);
 
     const isOffline = relayStatus === "offline";
     const isLoading = !isOffline && !eose && events.length === 0;
@@ -83,7 +110,7 @@ export default function Billboard() {
 
                 {events.length > 0 && (
                     <ul className="space-y-4">
-                        {events.map((event, index) => (
+                        {ordered.map((event, index) => (
                             <BoardRow
                                 key={event.id}
                                 event={event}
