@@ -23,6 +23,9 @@ primary_region = 'fra'
   # How often to re-check invoices still waiting. Coinos pushes
   # payment_received, so this is the backstop rather than the main path.
   INVOICE_CHECK_SECONDS = '60'
+  # Shown to people, not just to developers reading a relay document: clients
+  # like Jumble put this on the relay's card above the feed.
+  RELAY_DESCRIPTION = 'A bulletin board where the order is decided by sats and nothing else. Every note was paid for, and anyone can pay to push any note higher.'
   PORT = '8080'
 
 [[mounts]]
