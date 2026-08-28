@@ -30,7 +30,11 @@ make run                # or: go run .
 make test
 ```
 
-`LIGHTNING_BACKEND` picks between `mock`, `lnbits` and `zebedee`. Without it the relay boots on the mock backend and generates fake invoices.
+`LIGHTNING_BACKEND` picks between `mock`, `nwc`, `lnbits` and `zebedee`. Without it the relay boots on the mock backend and generates fake invoices.
+
+`nwc` is the one to reach for. It speaks [NIP-47](https://github.com/nostr-protocol/nips/blob/master/47.md) plus the [NWC-02](https://github.com/nostr-wallet-connect/nwc/blob/master/02.md) notification extension, so the same three calls work against any NWC wallet and changing provider means changing `NWC_URI` rather than changing code. NWC sits between the relay and its own wallet; whoever pays still just pays an ordinary bolt11 and never touches Nostr.
+
+Settlement is picked up two ways. A wallet that advertises `payment_received` pushes notifications the moment an invoice is paid. Everything else is caught by the reconciler, which walks the pending invoices on boot and then on `INVOICE_CHECK_SECONDS`, so invoices paid while the relay was down still get booked.
 
 Runtime state is a single JSON file (`relay_data.json`, path configurable via `DATA_FILE`). It is gitignored, as is `.env`.
 
@@ -45,6 +49,7 @@ Runtime state is a single JSON file (`relay_data.json`, path configurable via `D
 Dormant since February 2026. Before picking it back up:
 
 - Nothing is deployed. The Fly.io app `nostr-promotion-relay` no longer exists, and `relay.holoboard.space` still points a CNAME at a hostname that does not resolve.
-- Flow 3 never completes. `WatchInvoices` is a stub in both the LNbits and Zebedee backends, `CheckInvoice` has no callers, and `EnableWebhooks` is never called from `main.go`, so a paid invoice is never noticed. The 36 entries in `pending_invoices` are the evidence.
+- Flow 3 works on the `nwc` backend and is untested against live LNbits or Zebedee. `WatchInvoices` on those two is still a stub that emits nothing, but the reconciler now calls their `CheckInvoice`, so settlement should be detected there too. `EnableWebhooks` remains dead code; it registers on `http.DefaultServeMux` while khatru serves its own handler, so it would need moving to `relay.Router()` to do anything.
+- The 36 entries in `pending_invoices` predate all of this and carry no `expires_at`, which reads as long expired. The hourly cleanup will drop them the first time the relay runs. Copy `relay_data.json` before starting it if that matters.
 - Zap receipts are not authenticated. `ValidateZapEvent` checks that the `p`, `bolt11` and `description` tags exist and stops there, so a forged kind:9735 event buys arbitrary ranking for free. NIP-57 Appendix F describes the check that is missing.
 - The frontend has no way to pay. "ADD AD" opens instructions telling the reader to go zap from another client. There is no NIP-07 login and no zap button.

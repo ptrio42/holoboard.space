@@ -184,6 +184,20 @@ func (s *Storage) GetPendingInvoiceByBolt11(bolt11 string) (*PendingInvoice, boo
 	return nil, false
 }
 
+// ListPendingInvoices returns a snapshot of every pending invoice. Handing back
+// a copy lets callers take their time hitting the network per invoice without
+// holding the storage lock while they do it.
+func (s *Storage) ListPendingInvoices() []*PendingInvoice {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	invoices := make([]*PendingInvoice, 0, len(s.pendingInvoices))
+	for _, invoice := range s.pendingInvoices {
+		invoices = append(invoices, invoice)
+	}
+	return invoices
+}
+
 // RemovePendingInvoice removes a pending invoice after payment
 func (s *Storage) RemovePendingInvoice(paymentHash string) error {
 	s.mu.Lock()

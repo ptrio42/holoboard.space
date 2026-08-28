@@ -88,6 +88,13 @@ func main() {
 		log.Fatalf("Invalid DEFAULT_PAYMENT_SATS value: %v", err)
 	}
 
+	// How often to re-check invoices we are still waiting on
+	invoiceCheckSeconds, err := strconv.Atoi(getEnv("INVOICE_CHECK_SECONDS", "60"))
+	if err != nil || invoiceCheckSeconds <= 0 {
+		log.Fatalf("Invalid INVOICE_CHECK_SECONDS value: %s", getEnv("INVOICE_CHECK_SECONDS", "60"))
+	}
+	invoiceCheckInterval := time.Duration(invoiceCheckSeconds) * time.Second
+
 	// Relay identity
 	// In production, load these from environment variables or config file
 	relayPrivkey := os.Getenv("RELAY_PRIVKEY")
@@ -149,11 +156,34 @@ func main() {
 		lnbitsBaseURL := getEnv("LNBITS_BASE_URL", "https://legend.lnbits.com")
 		lnBackend = NewLNbitsBackend(lnbitsAPIKey, lnbitsReadKey, lnbitsBaseURL)
 		log.Printf("Using LNbits Lightning backend at %s", lnbitsBaseURL)
+	case "nwc":
+		nwcURI := os.Getenv("NWC_URI")
+		if nwcURI == "" {
+			log.Fatalf("NWC_URI environment variable required when LIGHTNING_BACKEND=nwc")
+		}
+		nwcBackend, err := ParseNWCURI(nwcURI)
+		if err != nil {
+			log.Fatalf("Invalid NWC_URI: %v", err)
+		}
+		// Ask the wallet what it supports before anything requests an invoice.
+		// A wallet that publishes no info event still works; it just means
+		// NIP-04 encryption and no notifications, so settlement gets picked up
+		// by the reconciler below instead.
+		infoCtx, cancelInfo := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := nwcBackend.LoadInfo(infoCtx); err != nil {
+			log.Printf("Could not read NWC wallet info, continuing with defaults: %v", err)
+		}
+		cancelInfo()
+		lnBackend = nwcBackend
+		log.Printf("Using NWC Lightning backend via %s", nwcBackend.relayURL)
+		if addr := nwcBackend.LightningAddress(); addr != "" {
+			log.Printf("Wallet Lightning address (for zaps): %s", addr)
+		}
 	case "mock":
 		lnBackend = NewMockLightningBackend()
 		log.Printf("Using mock Lightning backend (for testing only)")
 	default:
-		log.Fatalf("Unknown LIGHTNING_BACKEND: %s (supported: mock, zebedee, lnbits)", lightningBackend)
+		log.Fatalf("Unknown LIGHTNING_BACKEND: %s (supported: mock, nwc, lnbits, zebedee)", lightningBackend)
 	}
 
 	// Initialize invoice manager
@@ -169,6 +199,11 @@ func main() {
 	if err := invoiceManager.StartPaymentWatcher(ctx); err != nil {
 		log.Fatalf("Failed to start payment watcher: %v", err)
 	}
+
+	// The watcher above only fires when the backend pushes settlements at us.
+	// The reconciler covers the rest: invoices paid while the relay was down,
+	// and backends that never push anything at all.
+	invoiceManager.StartInvoiceReconciler(ctx, invoiceCheckInterval)
 
 	// Start zap monitor to listen for zaps on external relays
 	zapMonitor := NewZapMonitor(fetchRelays, relayPubkey, monitor)

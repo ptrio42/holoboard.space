@@ -185,6 +185,74 @@ func (im *InvoiceManager) StartPaymentWatcher(ctx context.Context) error {
 	return nil
 }
 
+// StartInvoiceReconciler asks the wallet about invoices we are still waiting on.
+//
+// It does two jobs. On boot it settles anything that was paid while the relay
+// was down, which is the restart case DESIGN.md sketched out and nobody ever
+// implemented. After that it keeps running on a ticker as a backstop for
+// wallets that publish no payment notifications, so the payment loop closes
+// even when WatchInvoices never emits anything.
+//
+// Without this, a backend whose WatchInvoices stays quiet leaves every invoice
+// pending forever, which is exactly how the LNbits and Zebedee backends behaved.
+func (im *InvoiceManager) StartInvoiceReconciler(ctx context.Context, interval time.Duration) {
+	go func() {
+		im.reconcilePendingInvoices(ctx)
+
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				im.reconcilePendingInvoices(ctx)
+			}
+		}
+	}()
+
+	log.Printf("Invoice reconciler started (checks pending invoices every %s)", interval)
+}
+
+// reconcilePendingInvoices walks the pending invoices once and books the paid ones.
+func (im *InvoiceManager) reconcilePendingInvoices(ctx context.Context) {
+	pending := im.storage.ListPendingInvoices()
+	if len(pending) == 0 {
+		return
+	}
+
+	settled := 0
+	for _, invoice := range pending {
+		if ctx.Err() != nil {
+			return
+		}
+
+		paid, _, err := im.backend.CheckInvoice(ctx, invoice.PaymentHash)
+		if err != nil {
+			log.Printf("Failed to check invoice %s: %v", short(invoice.PaymentHash, 12), err)
+			continue
+		}
+		if !paid {
+			continue
+		}
+
+		// Book the amount we asked for rather than one read back off the wire.
+		// A fixed-amount invoice cannot settle for more than it was issued for,
+		// so the stored figure is the safer of the two and keeps the ranking
+		// independent of whatever a reply happens to claim.
+		if err := im.paymentMonitor.ProcessInvoicePayment(invoice.PaymentHash, invoice.AmountSats); err != nil {
+			log.Printf("Failed to book settled invoice %s: %v", short(invoice.PaymentHash, 12), err)
+			continue
+		}
+		settled++
+	}
+
+	if settled > 0 {
+		log.Printf("Reconciled %d of %d pending invoices", settled, len(pending))
+	}
+}
+
 // LND Integration Example (commented out - requires actual LND connection)
 /*
 import (
