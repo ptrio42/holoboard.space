@@ -1,0 +1,56 @@
+# fly.toml app configuration file generated for nostr-promotion-relay on 2026-02-08T15:03:16+01:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'nostr-promotion-relay'
+primary_region = 'iad'
+
+[build]
+
+[env]
+  DATA_FILE = '/root/data/relay_data.json'
+  DEFAULT_PAYMENT_SATS = '1000'
+  FETCH_RELAYS = 'wss://relay.damus.io,wss://nos.lol,wss://relay.nostr.band,wss://nostr.wine'
+  LIGHTNING_BACKEND = 'lnbits'
+  PORT = '8080'
+
+[[mounts]]
+  source = 'relay_data'
+  destination = '/root/data'
+
+[http_service]
+  internal_port = 8080
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ['app']
+
+  [http_service.concurrency]
+    type = 'connections'
+    hard_limit = 1000
+    soft_limit = 500
+
+[[services]]
+  protocol = 'tcp'
+  internal_port = 8080
+  processes = ['app']
+
+  [[services.ports]]
+    port = 80
+    handlers = ['http']
+
+  [[services.ports]]
+    port = 443
+    handlers = ['tls', 'http']
+
+  [services.concurrency]
+    type = 'connections'
+    hard_limit = 1000
+    soft_limit = 500
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 1024

@@ -1,0 +1,26 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+LICENSE
+
+# Data files
+relay_data.json
+*.json
+
+# Environment files
+.env
+.env.*
+
+# Build artifacts
+relay
+*.exe
+
+# IDE
+.vscode
+.idea
+
+# Testing
+*_test.go
