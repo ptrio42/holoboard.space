@@ -85,20 +85,51 @@ There is no other copy. The volume is the only place this state lives.
 
 ## Custom domain
 
+DNS for holoboard.space is at Namecheap (`dns1.registrar-servers.com`). Two
+names matter, and they point at different things:
+
+| Name | Serves | Record |
+| --- | --- | --- |
+| `relay.holoboard.space` | the Go relay, on Fly | CNAME to whatever `fly certs add` prints |
+| `holoboard.space` | the static frontend | whatever the static host asks for |
+
+### The relay
+
 ```bash
 fly certs add relay.holoboard.space
 ```
 
-It prints the DNS record to create. Point the CNAME at the target it gives you,
-which changes if the app is ever recreated or moved to another account, then:
+It prints the record to create. The target changes whenever the app is
+recreated or moved to another account, so read it rather than reusing an old
+one, then:
 
 ```bash
 fly certs check relay.holoboard.space
 ```
 
 A CNAME left pointing at an app that no longer exists resolves to nothing, and
-the frontend shows "relay is down" with no other clue. That is what happened
-between February and August 2026.
+the frontend then shows "relay is down" with no other clue. That is exactly what
+happened between February and August 2026.
+
+### The frontend, and why the apex is not optional
+
+`web/` is a static Vite build, so any static host does: Cloudflare Pages or
+Netlify from the GitHub repo, root directory `web`, build `npm ci && npm run
+build`, output `dist`. Fly is the wrong tool for it; its `[[statics]]` will not
+serve `index.html` from the root.
+
+The apex has to be the frontend rather than a redirect, because
+`web/public/.well-known/nostr.json` is the NIP-05 document for `_@holoboard.space`.
+Clients fetch `https://holoboard.space/.well-known/nostr.json?name=_` directly,
+so a redirect or a www-only setup breaks the identifier.
+
+`web/public/_headers` sets `Access-Control-Allow-Origin: *` on `/.well-known/*`,
+which both Cloudflare Pages and Netlify honour. Without it the lookup is a
+cross-origin fetch the browser blocks, and the identifier fails to verify with
+no visible error.
+
+Namecheap cannot CNAME an apex. Use its ALIAS record type, or the host's own
+nameservers if you move DNS there.
 
 ## Do not scale out
 

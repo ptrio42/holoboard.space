@@ -1,0 +1,10 @@
+{
+  "names": {
+    "_": "30bd172fc5295108b93de95516c811fabcfba0ec891e251645023329113d7643"
+  },
+  "relays": {
+    "30bd172fc5295108b93de95516c811fabcfba0ec891e251645023329113d7643": [
+      "wss://relay.holoboard.space"
+    ]
+  }
+}

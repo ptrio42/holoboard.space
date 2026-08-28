@@ -1,0 +1,7 @@
+# NIP-05 lookups are cross-origin: a nostr client on any domain fetches
+# /.well-known/nostr.json to check an identifier. Without this header the
+# browser blocks the response and the identifier silently fails to verify.
+# Cloudflare Pages and Netlify both read this file.
+/.well-known/*
+  Access-Control-Allow-Origin: *
+  Content-Type: application/json; charset=utf-8
