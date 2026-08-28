@@ -160,52 +160,53 @@ The relay will:
 
 ### Production Deployment
 
-Deploy to Fly.io:
+Fly.io, one machine, one volume. See [DEPLOYMENT.md](DEPLOYMENT.md), which
+covers the secrets, restoring the board onto a fresh volume, the custom domain,
+and why this machine cannot scale to zero or out to two.
 
-**Quick Start:**
-```bash
-./deploy.sh
-```
+### Lightning backend
 
-**Guides:**
-- [FLY_QUICKSTART.md](FLY_QUICKSTART.md) - 5-minute quick start guide
-- [DEPLOYMENT.md](DEPLOYMENT.md) - Complete deployment documentation
+`LIGHTNING_BACKEND` picks how the relay mints invoices and learns they were
+paid. Only the DM promotion flow needs one; zaps arrive as receipts the relay
+merely observes, and need a Lightning address rather than an API.
 
-### Production (Real Lightning)
+#### nwc (use this)
 
-Choose your Lightning backend by setting the `LIGHTNING_BACKEND` environment variable:
-
-#### Option 1: LNbits (Recommended for Quick Start)
-
-LNbits is a free, open-source Lightning wallet that requires no KYC:
-
-1. Create a wallet at [legend.lnbits.com](https://legend.lnbits.com) or host your own instance
-2. Get your API keys from the wallet's API Info section
-3. Configure your .env file:
+Nostr Wallet Connect, [NIP-47](https://github.com/nostr-protocol/nips/blob/master/47.md)
+plus the [NWC-02](https://github.com/nostr-wallet-connect/nwc/blob/master/02.md)
+notification extension. The same three calls work against every NWC wallet, so
+changing provider is a change of connection string rather than a change of code.
+NWC sits between the relay and its own wallet; whoever pays still just pays an
+ordinary bolt11 and never touches nostr.
 
 ```bash
-LIGHTNING_BACKEND=lnbits
-LNBITS_API_KEY=your_invoice_key_here
-LNBITS_READ_KEY=your_read_key_here
-LNBITS_BASE_URL=https://legend.lnbits.com  # Optional, defaults to legend.lnbits.com
+LIGHTNING_BACKEND=nwc
+NWC_URI=nostr+walletconnect://<wallet-pubkey>?relay=<wss url>&secret=<hex>&lud16=<address>
 ```
 
-#### Option 2: Zebedee
+Any NWC wallet works. Coinos is free and asks for nothing but a username.
 
-For developers wanting a managed solution:
+Settlement arrives two ways. A wallet advertising `payment_received` pushes a
+notification the moment an invoice is paid; everything else is caught by the
+reconciler, which walks the pending invoices at boot and then every
+`INVOICE_CHECK_SECONDS`. The boot log says which one you got.
 
-```bash
-LIGHTNING_BACKEND=zebedee
-ZEBEDEE_API_KEY=your_zebedee_api_key_here
-```
+#### mock
 
-#### Option 3: LND (Self-Hosted Node)
+Fake invoices, never paid. The default, and what `go run .` uses if you
+configure nothing.
 
-For production use with your own Lightning node:
+#### lnbits, zebedee
 
-1. Set up LND with proper TLS and macaroon configuration
-2. Configure connection parameters in .env
-3. See commented example in [lightning.go](lightning.go)
+Both are implemented and neither is maintained. Their `WatchInvoices` returns a
+channel that never emits, so before the reconciler existed a paid invoice was
+never noticed at all. They now settle through polling like any other backend,
+but nothing here has been run against either service since February 2026.
+
+#### lnd
+
+Not implemented. `lightning.go` carries a commented-out sketch and nothing in
+the backend switch refers to it.
 
 ## Usage Examples
 

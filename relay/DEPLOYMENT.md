@@ -1,369 +1,178 @@
-# Deploying to Fly.io
+# Deploying the relay
 
-This guide will help you deploy the Nostr Promotion Relay to Fly.io.
+Fly.io, one machine, one volume. The frontend is not deployed from here; see
+the root README for that half.
 
-## Prerequisites
+## What you need first
 
-1. Install the Fly CLI:
-   ```bash
-   # macOS
-   brew install flyctl
+- `flyctl`, and `fly auth login` on the account that will own the app
+- A wallet connection string for `NWC_URI` (any NWC wallet; Coinos is free and
+  needs no ID)
+- The relay's nostr private key for `RELAY_PRIVKEY`
 
-   # Linux
-   curl -L https://fly.io/install.sh | sh
+That key is the board's identity. Its pubkey is baked into the frontend as the
+default `RELAY_PUBKEY` in `web/src/config.ts`, and it is the key the relay's
+nostr profile and its `lud16` hang off. Deploy without setting it and the relay
+generates a fresh one at boot, logs a warning, and quietly becomes a different
+relay: every zap and mention aimed at the old pubkey stops being heard.
 
-   # Windows
-   iwr https://fly.io/install.ps1 -useb | iex
-   ```
+## Why this machine never sleeps
 
-2. Sign up and login:
-   ```bash
-   fly auth signup
-   # or
-   fly auth login
-   ```
+`fly.toml` sets `auto_stop_machines = 'off'` and `min_machines_running = 1`, so
+it runs around the clock and is billed around the clock. That is deliberate.
 
-## Initial Setup
+The relay's real work is outbound. It holds subscriptions to public relays,
+watching for zap receipts, DMs and mentions. Fly wakes a sleeping machine on an
+incoming request, and nobody sends this relay a request when someone zaps it on
+nos.lol. Scale-to-zero would cut the bill to nearly nothing and break the
+product.
 
-### 1. Create the App
+## First deploy
 
-First, customize the app name in `fly.toml`:
-```toml
-app = "your-unique-relay-name"  # Change this to your preferred name
-```
-
-Then launch the app:
 ```bash
-fly launch --no-deploy
-```
+cd relay
 
-This will create the app without deploying yet.
+fly apps create holoboard-relay          # or edit `app` in fly.toml first
+fly volumes create relay_data --size 1 --region fra
 
-### 2. Create Persistent Storage
+fly secrets set RELAY_PRIVKEY=... NWC_URI=...   # one command, one restart
 
-Create a volume for storing relay data:
-```bash
-fly volumes create relay_data --size 1
-```
-
-### 3. Set Secrets
-
-Set your sensitive environment variables as secrets:
-
-#### For LNbits (Recommended):
-```bash
-# Generate a relay private key if you don't have one
-# You can use: openssl rand -hex 32
-
-fly secrets set RELAY_PRIVKEY=your_relay_private_key_hex
-fly secrets set LNBITS_API_KEY=your_lnbits_invoice_key
-fly secrets set LNBITS_READ_KEY=your_lnbits_read_key
-```
-
-Optional LNbits base URL (if using your own instance):
-```bash
-fly secrets set LNBITS_BASE_URL=https://your-lnbits-instance.com
-```
-
-#### For Zebedee:
-```bash
-fly secrets set RELAY_PRIVKEY=your_relay_private_key_hex
-fly secrets set ZEBEDEE_API_KEY=your_zebedee_api_key
-```
-
-Then update the `LIGHTNING_BACKEND` in `fly.toml`:
-```toml
-[env]
-  LIGHTNING_BACKEND = "zebedee"  # Change from "lnbits"
-```
-
-### 4. Deploy
-
-Deploy your relay:
-```bash
 fly deploy
-```
-
-### 5. Verify Deployment
-
-Check the logs:
-```bash
 fly logs
 ```
 
-You should see output like:
+Set both secrets in a single `fly secrets set`. Each invocation restarts the
+app, and setting them one at a time means the relay boots once with half its
+configuration and exits.
+
+In the logs you are looking for:
+
 ```
-Starting Nostr Promotion Relay
-Relay pubkey: npub1...
-Using LNbits Lightning backend at https://legend.lnbits.com
-Starting relay on port 8080
-WebSocket URL: ws://localhost:8080
-```
-
-## Accessing Your Relay
-
-Your relay will be available at:
-- WebSocket: `wss://your-app-name.fly.dev`
-- HTTPS: `https://your-app-name.fly.dev`
-
-Get your app URL:
-```bash
-fly info
+Relay pubkey: 30bd172f...          <- must match web/src/config.ts
+Using NWC Lightning backend via wss://relay.coinos.io
+NWC: wallet supports methods [...], notifications [payment_received ...]
+Board ledger served at /api/board
+Relay is listening on port 8080
 ```
 
-## Getting Your Relay Pubkey
+If the pubkey line does not match what the frontend expects, stop: the wrong
+`RELAY_PRIVKEY` went in.
 
-View the logs to see your relay's public key:
-```bash
-fly logs
-```
+## Restoring the board
 
-Look for the line:
-```
-Relay pubkey: npub1...
-```
-
-Share this pubkey with users who want to promote posts via zaps.
-
-## Configuration
-
-### Update Environment Variables
-
-To update non-sensitive environment variables, edit `fly.toml` and redeploy:
-```bash
-fly deploy
-```
-
-### Update Secrets
-
-To update secrets:
-```bash
-fly secrets set KEY=new_value
-```
-
-This will automatically restart your app.
-
-### List Current Secrets
+A fresh volume is an empty board. The relay will notice it has no info event
+and publish a new one, so upload the existing state before letting it settle:
 
 ```bash
-fly secrets list
+fly ssh sftp shell
+put relay_data.json /root/data/relay_data.json
+fly apps restart holoboard-relay
 ```
 
-## Monitoring
+**Empty `pending_invoices` to `{}` in the copy you upload.** The 36 entries in
+the current file were written by an older build and carry no `expires_at`. The
+reconciler asks the wallet about every pending invoice on boot and then on
+`INVOICE_CHECK_SECONDS`, so those 36 become 36 lookups a minute for invoices no
+wallet has ever heard of, until the hourly cleanup drops them.
 
-### View Logs
+Back it up the same way, in reverse:
+
 ```bash
-# Tail logs
-fly logs
-
-# Last 200 lines
-fly logs --lines 200
+fly ssh sftp get /root/data/relay_data.json ./relay_data.backup.json
 ```
 
-### Check Status
+There is no other copy. The volume is the only place this state lives.
+
+## Custom domain
+
 ```bash
-fly status
+fly certs add relay.holoboard.space
 ```
 
-### SSH into Container
+It prints the DNS record to create. Point the CNAME at the target it gives you,
+which changes if the app is ever recreated or moved to another account, then:
+
 ```bash
-fly ssh console
+fly certs check relay.holoboard.space
 ```
 
-## Scaling
+A CNAME left pointing at an app that no longer exists resolves to nothing, and
+the frontend shows "relay is down" with no other clue. That is what happened
+between February and August 2026.
 
-### Horizontal Scaling (Multiple Instances)
-```bash
-# Scale to 2 instances
-fly scale count 2
+## Do not scale out
 
-# Scale to specific regions
-fly scale count 2 --region iad,lhr
-```
+`fly scale count 2` will corrupt the payment ledger.
 
-### Vertical Scaling (More Resources)
-```bash
-# List available VM sizes
-fly platform vm-sizes
+State lives in one JSON file on one volume, held in memory behind one mutex. A
+second machine gets its own volume and its own copy, both accept payments, and
+neither ever learns about the other's. Whichever writes last wins, and the sats
+in between are gone. Growing past one machine means moving storage out of the
+process first.
 
-# Scale to larger VM
-fly scale vm shared-cpu-2x --memory 1024
-```
+Vertical scaling is fine:
 
-## Storage Management
-
-### Check Volume Status
-```bash
-fly volumes list
-```
-
-### Extend Volume Size
-```bash
-fly volumes extend <volume-id> --size 5
-```
-
-### Backup Data
-
-SSH into the container and copy the data file:
-```bash
-fly ssh console
-cat /root/data/relay_data.json
-```
-
-Or use sftp:
-```bash
-fly ssh sftp get /root/data/relay_data.json ./backup-relay-data.json
-```
-
-## Troubleshooting
-
-### App Won't Start
-
-1. Check logs:
-   ```bash
-   fly logs
-   ```
-
-2. Verify secrets are set:
-   ```bash
-   fly secrets list
-   ```
-
-3. Check if volume is mounted:
-   ```bash
-   fly ssh console
-   ls -la /root/data
-   ```
-
-### WebSocket Connection Issues
-
-1. Verify the app is running:
-   ```bash
-   fly status
-   ```
-
-2. Test WebSocket connection:
-   ```bash
-   # Using websocat (install: brew install websocat)
-   websocat wss://your-app-name.fly.dev
-   ```
-
-3. Check if port 8080 is exposed in Dockerfile
-
-### Out of Memory
-
-Increase memory allocation:
 ```bash
 fly scale vm shared-cpu-1x --memory 512
 ```
 
-### Checking Invoice Generation
+## Configuration
 
-View logs when a user sends a PROMOTE command:
-```bash
-fly logs -a your-app-name
-```
+Non-secret settings live in `[env]` in `fly.toml` and take effect on the next
+`fly deploy`:
 
-Look for:
-```
-Generated invoice for post abc123...: xyz789... (1000 sats)
-```
+| Variable | What it does |
+| --- | --- |
+| `DATA_FILE` | Ledger path. Must sit under the mounted volume, `/root/data`. |
+| `PORT` | Must match `internal_port`. |
+| `LIGHTNING_BACKEND` | `nwc`, `mock`, `lnbits` or `zebedee`. Only `nwc` and `mock` are exercised. |
+| `INVOICE_CHECK_SECONDS` | How often to re-check invoices still waiting. |
+| `DEFAULT_PAYMENT_SATS` | Invoice amount when a `PROMOTE` DM names none. |
+| `FETCH_RELAYS` | Public relays watched for zaps, DMs and mentions. |
 
-## Security Best Practices
+Secrets go through `fly secrets set` and never into `fly.toml`: `RELAY_PRIVKEY`
+and `NWC_URI`. `fly secrets list` shows names and digests, never values.
 
-1. **Never commit secrets**: Use `fly secrets set` for sensitive data
-2. **Rotate keys regularly**: Update RELAY_PRIVKEY and API keys periodically
-3. **Monitor logs**: Watch for suspicious activity
-4. **Backup data**: Regularly backup relay_data.json
-5. **Use HTTPS**: Fly.io provides automatic TLS certificates
+Watch `DATA_FILE`. Its fallback when unset is a bare `relay_data.json`, which
+lands in the image at `/root/` rather than on the volume, so every deploy would
+silently start from an empty board. Only the `[env]` line keeps it on the
+volume.
 
-## Costs
+## Cost
 
-Fly.io pricing (as of 2024):
-- Free tier includes: 3 shared-cpu-1x VMs with 256MB RAM
-- Volumes: ~$0.15/GB/month
-- Additional resources billed per hour
+Roughly 2 to 3 USD a month: a `shared-cpu-1x` at 256MB running continuously,
+plus about 0.15 for a 1GB volume, plus 2 more if you allocate a dedicated IPv4
+that a CNAME does not need. Treat those as estimates from
+<https://fly.io/docs/about/pricing/> rather than quotes, and check the current
+page. Fly no longer has the free allowance older guides describe.
 
-Check current pricing: https://fly.io/docs/about/pricing/
+The previous deploy ran at 1GB for a board holding eleven posts, which was
+roughly triple the machine cost for nothing.
 
-## Custom Domain
+## Troubleshooting
 
-To use your own domain:
+**Exits at boot.** Almost always a missing secret: `NWC_URI` unset with
+`LIGHTNING_BACKEND=nwc` is a `log.Fatalf`. Check `fly secrets list`.
 
-1. Add the certificate:
-   ```bash
-   fly certs add relay.yourdomain.com
-   ```
-
-2. Add DNS records as instructed by Fly.io
-
-3. Verify:
-   ```bash
-   fly certs show relay.yourdomain.com
-   ```
-
-## Updating the Relay
-
-To deploy updates:
-
-1. Pull the latest code
-2. Deploy:
-   ```bash
-   fly deploy
-   ```
-
-Fly.io will perform a rolling restart with zero downtime.
-
-## Destroying the App
-
-To completely remove the app:
+**Board is empty after a deploy.** Look for `Storage initialized: 0 promoted
+posts`. Either the volume did not mount or `DATA_FILE` is pointing off it:
 
 ```bash
-# Delete the app
-fly apps destroy your-app-name
-
-# Delete volumes manually if needed
-fly volumes list
-fly volumes delete <volume-id>
+fly ssh console
+ls -la /root/data
 ```
 
-## Getting Help
+**Invoices never settle.** Check whether the wallet advertises notifications in
+the boot log. If it does not, everything falls to the reconciler's polling and
+settles within `INVOICE_CHECK_SECONDS`. If it does and payments still hang, the
+notification subscription is the thing to look at.
 
-- Fly.io Docs: https://fly.io/docs/
-- Community Forum: https://community.fly.io/
-- Check relay logs: `fly logs`
+**Websocket will not connect.** `fly status` first, then `websocat
+wss://holoboard-relay.fly.dev`. A working relay answers a REQ; nothing else on
+the path does.
 
-## Example: Complete Deployment
+## Do not run deploy.sh
 
-```bash
-# 1. Install flyctl
-brew install flyctl
-
-# 2. Login
-fly auth login
-
-# 3. Edit fly.toml - change app name
-# app = "my-nostr-relay"
-
-# 4. Launch (don't deploy yet)
-fly launch --no-deploy
-
-# 5. Create volume
-fly volumes create relay_data --size 1
-
-# 6. Set secrets
-fly secrets set RELAY_PRIVKEY=$(openssl rand -hex 32)
-fly secrets set LNBITS_API_KEY=your_lnbits_invoice_key
-fly secrets set LNBITS_READ_KEY=your_lnbits_read_key
-
-# 7. Deploy
-fly deploy
-
-# 8. Check logs
-fly logs
-
-# 9. Get your relay URL
-fly info
-
-# Your relay is now live at wss://my-nostr-relay.fly.dev
-```
+It was deleted. It predated the NWC backend, so it prompted for LNbits and
+Zebedee keys, and it rewrote `fly.toml` with a `sed` that did not survive the
+quoting. The steps above are what it was trying to do.
