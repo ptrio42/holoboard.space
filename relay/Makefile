@@ -55,11 +55,6 @@ install: build
 	@cp promotion-relay $$GOPATH/bin/
 	@echo "Installed: $$GOPATH/bin/promotion-relay"
 
-# Generate a new relay keypair
-keygen:
-	@echo "Generating new relay keypair..."
-	@go run -tags keygen keygen.go
-
 # Show help
 help:
 	@echo "Nostr Promotion Relay - Makefile commands:"

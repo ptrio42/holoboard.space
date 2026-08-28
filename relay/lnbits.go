@@ -168,48 +168,6 @@ func (l *LNbitsBackend) WatchInvoices(ctx context.Context) (<-chan PaidInvoice, 
 	}()
 
 	log.Printf("LNbits payment watcher started (no-op polling mode)")
-	log.Printf("IMPORTANT: Use webhooks for production - see lnbits_webhook.go")
 
 	return ch, nil
-}
-
-// LNbitsWebhookPayload represents the webhook payload from LNbits
-// LNbits sends this to your webhook URL when an invoice is paid
-type LNbitsWebhookPayload struct {
-	PaymentHash string `json:"payment_hash"`
-	Amount      int64  `json:"amount"` // millisatoshis
-	Pending     bool   `json:"pending"`
-}
-
-// HandleWebhook processes LNbits webhook callbacks
-// This should be called from an HTTP handler
-func (l *LNbitsBackend) HandleWebhook(ctx context.Context, payload []byte) (*PaidInvoice, error) {
-	var webhook LNbitsWebhookPayload
-	if err := json.Unmarshal(payload, &webhook); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal webhook: %w", err)
-	}
-
-	// Only process completed payments
-	if webhook.Pending {
-		return nil, nil // Not completed yet
-	}
-
-	// Convert millisats to sats
-	amountSats := webhook.Amount / 1000
-
-	return &PaidInvoice{
-		PaymentHash: webhook.PaymentHash,
-		AmountSats:  amountSats,
-		PaidAt:      time.Now(),
-	}, nil
-}
-
-// SetupLNbitsWebhook is a helper to document webhook setup
-func SetupLNbitsWebhook(baseURL, callbackURL string) {
-	log.Printf("To use LNbits webhooks:")
-	log.Printf("1. Set up an HTTP endpoint at: %s", callbackURL)
-	log.Printf("2. When creating invoices, add the webhook parameter:")
-	log.Printf("   {\"webhook\": \"%s\"}", callbackURL)
-	log.Printf("3. Handle POST requests with HandleWebhook()")
-	log.Printf("4. LNbits will send payment notifications to your webhook URL")
 }

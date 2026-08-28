@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -369,55 +368,4 @@ func main() {
 	if err := relay.Start("0.0.0.0", port); err != nil {
 		log.Fatalf("Failed to start relay: %v", err)
 	}
-}
-
-// Example usage functions for testing
-
-// ExampleZapWorkflow demonstrates the zap payment flow
-func ExampleZapWorkflow() {
-	// 1. User finds a post they want to promote (post_id = "abc123...")
-	postID := "abc1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab"
-
-	// 2. User creates a zap request (kind:9734)
-	_ = &nostr.Event{
-		Kind:      9734,
-		CreatedAt: nostr.Now(),
-		Tags: nostr.Tags{
-			{"p", "relay_pubkey"},                    // Relay's pubkey
-			{"e", postID},                            // Post to promote
-			{"amount", "1000000"},                    // 1000 sats in millisats
-			{"relays", "wss://relay.example.com"},    // Where to send zap
-		},
-		Content: "Promoting this post!",
-	}
-
-	// 3. User signs the zap request and sends to their Lightning wallet
-	// 4. Wallet generates invoice and user pays
-	// 5. Wallet/LNURL server publishes zap receipt (kind:9735)
-	// 6. Relay receives the zap receipt, validates it, and promotes the post
-
-	fmt.Printf("Zap workflow for post: %s\n", postID)
-}
-
-// ExamplePromoteWorkflow demonstrates the PROMOTE command flow
-func ExamplePromoteWorkflow() {
-	// 1. User sends DM to relay
-	postID := "abc1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab"
-	dmContent := fmt.Sprintf("PROMOTE %s", postID)
-
-	dm := &nostr.Event{
-		Kind:      4,
-		CreatedAt: nostr.Now(),
-		Tags: nostr.Tags{
-			{"p", "relay_pubkey"}, // Relay's pubkey
-		},
-		Content: dmContent, // In real impl, this would be encrypted
-	}
-
-	// 2. Relay receives DM, parses command, generates invoice
-	// 3. Relay replies with invoice
-	// 4. User pays invoice
-	// 5. Relay detects payment and promotes the post
-
-	fmt.Printf("PROMOTE workflow: %s\n", dm.Content)
 }

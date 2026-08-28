@@ -467,21 +467,6 @@ func (s *Storage) CountPosts() int {
 	return len(s.posts)
 }
 
-// HasProcessedZap checks if a zap has already been processed
-func (s *Storage) HasProcessedZap(zapEventID string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.processedZaps[zapEventID]
-}
-
-// MarkZapProcessed marks a zap as processed to prevent duplicate processing
-func (s *Storage) MarkZapProcessed(zapEventID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.processedZaps[zapEventID] = true
-	return s.save()
-}
-
 // IsDMProcessed checks if a DM has already been processed
 func (s *Storage) IsDMProcessed(dmEventID string) bool {
 	s.mu.RLock()

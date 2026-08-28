@@ -28,7 +28,10 @@ func SetupRelay(relay *khatru.Relay, storage *Storage, monitor *PaymentMonitor, 
 	relay.Info.Icon = config.Icon
 
 	// Supported NIPs
-	relay.Info.SupportedNIPs = []int{1, 9, 11, 57} // Basic protocol, EVENT, relay info, zaps
+	// khatru appends 9 itself whenever a DeleteEvent hook is registered
+	// (nip11.go:13), and it does not deduplicate, so listing it here served the
+	// document with 9 in it twice.
+	relay.Info.SupportedNIPs = []int{1, 11, 57}
 
 	// RejectEvent: Accept kind:1 (posts) and kind:9735 (zap receipts)
 	relay.RejectEvent = append(relay.RejectEvent, func(ctx context.Context, event *nostr.Event) (bool, string) {
@@ -47,12 +50,6 @@ func SetupRelay(relay *khatru.Relay, storage *Storage, monitor *PaymentMonitor, 
 			return true, "event must be paid for before submission (send zap with 'e' tag or use PROMOTE flow)"
 		}
 
-		return false, ""
-	})
-
-	// RejectFilter: Allow all filters, but we'll only return paid posts in QueryEvents
-	relay.RejectFilter = append(relay.RejectFilter, func(ctx context.Context, filter nostr.Filter) (bool, string) {
-		// We could add filter restrictions here if needed
 		return false, ""
 	})
 
@@ -112,58 +109,11 @@ func SetupRelay(relay *khatru.Relay, storage *Storage, monitor *PaymentMonitor, 
 			}
 		}
 
-		// Process PROMOTE commands (kind:4 encrypted DMs)
-		if event.Kind == 4 {
-			// Check if it's directed to our relay
-			var recipient string
-			for _, tag := range event.Tags {
-				if len(tag) >= 2 && tag[0] == "p" {
-					recipient = tag[1]
-					break
-				}
-			}
-
-			if recipient == config.RelayPubkey {
-				// This is a DM to us, handle PROMOTE commands
-				// Note: In a real implementation, you'd decrypt the content
-				// For now, we'll assume plaintext for simplicity
-				handlePromoteCommand(ctx, event, storage, invoiceManager, config.RelayPubkey)
-			}
-		}
 	})
 
 	log.Printf("Relay configured: %s", config.Name)
 	log.Printf("Relay pubkey: %s", config.RelayPubkey)
 	log.Printf("Total promoted posts: %d", storage.CountPosts())
-}
-
-// handlePromoteCommand processes PROMOTE commands from DMs
-func handlePromoteCommand(ctx context.Context, dmEvent *nostr.Event, storage *Storage, invoiceManager *InvoiceManager, relayPubkey string) {
-	// Parse the command
-	postID, amountSats, ok := ParsePromoteCommand(dmEvent.Content)
-	if !ok {
-		log.Printf("Invalid PROMOTE command from %s: %s", dmEvent.PubKey, dmEvent.Content)
-		// Could send an error response here
-		return
-	}
-
-	// Use specified amount or default
-	amount := amountSats
-	if amount == 0 {
-		amount = invoiceManager.defaultAmountSats
-	}
-
-	log.Printf("PROMOTE request from %s for post %s (amount: %d sats)", dmEvent.PubKey, postID, amount)
-
-	// Generate a Lightning invoice
-	invoice, err := invoiceManager.GeneratePromotionInvoice(ctx, postID, amount)
-	if err != nil {
-		log.Printf("Failed to generate invoice: %v", err)
-		return
-	}
-
-	// TODO: Send reply DM with invoice
-	log.Printf("Generated invoice for post %s (payment_hash: %s, amount: %d sats)", postID, invoice.PaymentHash, invoice.AmountSats)
 }
 
 // CreateInfoEvent creates an informational event explaining how to use the relay
