@@ -121,7 +121,7 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 		if postID == "" {
 			promotedNoteIDFromStorage, isPromotionalReply := pm.storage.GetPromotedNoteID(zappedEventID)
 			if isPromotionalReply {
-				postID = promotedNoteIDFromStorage
+				postID = normalizeEventID(promotedNoteIDFromStorage)
 				log.Printf("Zap to promotional reply %s -> promoting note %s (via storage)", short(zappedEventID, 8), short(postID, 8))
 			}
 		}
@@ -277,6 +277,10 @@ func (pm *PaymentMonitor) getPromotedNoteFromChain(promotionalReplyID string) (s
 		return "", fmt.Errorf("no note ID found in mention content")
 	}
 
+	// Normalise before returning, so callers and their log lines see a hex id
+	// rather than a bech32 prefix. Logs used to read "promoting note nevent1q",
+	// which is the same eight useless characters for every note.
+	noteID = normalizeEventID(noteID)
 	log.Printf("Extracted note ID %s from mention content", short(noteID, 8))
 	return noteID, nil
 }
