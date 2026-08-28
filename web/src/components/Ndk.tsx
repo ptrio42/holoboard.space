@@ -2,7 +2,7 @@
 'use client';
 
 // Here we will initialize NDK and configure it to be available throughout the application
-import NDK, { NDKNip07Signer, NDKPrivateKeySigner } from "@nostr-dev-kit/ndk";
+import NDK from "@nostr-dev-kit/ndk";
 
 // An optional in-browser cache adapter
 import NDKCacheAdapterDexie from "@nostr-dev-kit/cache-dexie";
