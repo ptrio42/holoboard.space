@@ -1,28 +1,9 @@
-// components/ndk.tsx
+// components/Ndk.tsx
 'use client';
 
-// Here we will initialize NDK and configure it to be available throughout the application
-import NDK from "@nostr-dev-kit/ndk";
-
-// An optional in-browser cache adapter
-import NDKCacheAdapterDexie from "@nostr-dev-kit/cache-dexie";
 import { NDKSessionLocalStorage, useNDKInit, useNDKSessionMonitor } from "@nostr-dev-kit/react";
 import { useEffect } from "react";
-
-// Define explicit relays or use defaults
-const explicitRelayUrls = ["wss://relay.holoboard.space"];
-
-// Setup Dexie cache adapter (Client-side only)
-let cacheAdapter: NDKCacheAdapterDexie | undefined;
-if (typeof window !== "undefined") {
-    cacheAdapter = new NDKCacheAdapterDexie({ dbName: "holoboard" });
-}
-
-// Create the singleton NDK instance
-const ndk = new NDK({ explicitRelayUrls, cacheAdapter });
-
-// Connect to relays on initialization (client-side)
-if (typeof window !== "undefined") ndk.connect();
+import { ndk } from "../lib/ndk";
 
 // Use the browser's localStorage for session storage
 const sessionStorage = new NDKSessionLocalStorage();

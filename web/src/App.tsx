@@ -1,6 +1,5 @@
-import './App.css'
-import Billboard from "./pages/Billboard";
 import React from "react";
+import Billboard from "./pages/Billboard";
 import NDKHeadless from "./components/Ndk";
 
 function App() {

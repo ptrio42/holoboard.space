@@ -11,13 +11,13 @@ relay/   Go relay built on khatru (relay.holoboard.space)
 
 ## web
 
-React 19, Vite 7, Tailwind 4, NDK for Nostr. Subscribes to the relay and renders whatever the relay decides to serve, so the ranking logic stays entirely server side.
+React 19, Vite 7, Tailwind 4, NDK for Nostr. Subscribes to the relay and renders whatever the relay decides to serve, so the ranking logic stays entirely server side. Sign in with a NIP-07 extension and it walks flow 1 for you: it publishes the mention, waits for the relay's reply and zaps it, showing the invoice as a QR and watching for the receipt.
 
 ```bash
 cd web && npm install && npm run dev
 ```
 
-The relay URL is hardcoded in `src/components/Ndk.tsx`.
+Relay URL, relay pubkey and the public relay list all come from `VITE_`-prefixed environment variables; see `web/.env.example`. The defaults are this deployment, so a fresh clone needs no setup.
 
 ## relay
 
@@ -52,4 +52,4 @@ Dormant since February 2026. Before picking it back up:
 - Flow 3 works on the `nwc` backend and is untested against live LNbits or Zebedee. `WatchInvoices` on those two is still a stub that emits nothing, but the reconciler now calls their `CheckInvoice`, so settlement should be detected there too. `EnableWebhooks` remains dead code; it registers on `http.DefaultServeMux` while khatru serves its own handler, so it would need moving to `relay.Router()` to do anything.
 - The 36 entries in `pending_invoices` predate all of this and carry no `expires_at`, which reads as long expired. The hourly cleanup will drop them the first time the relay runs. Copy `relay_data.json` before starting it if that matters.
 - Zap receipts are not authenticated. `ValidateZapEvent` checks that the `p`, `bolt11` and `description` tags exist and stops there, so a forged kind:9735 event buys arbitrary ranking for free. NIP-57 Appendix F describes the check that is missing.
-- The frontend has no way to pay. "ADD AD" opens instructions telling the reader to go zap from another client. There is no NIP-07 login and no zap button.
+- The relay never publishes its own kind:0. The profile carrying `lud16` was posted by hand, and nothing in the relay keeps it in step with `LIGHTNING_BACKEND`. Point `NWC_URI` at a different wallet and every zap still goes to the old address.
