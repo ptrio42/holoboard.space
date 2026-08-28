@@ -40,6 +40,7 @@ Runtime state is a single JSON file (`relay_data.json`, path configurable via `D
 
 ## Promotion flows
 
-1. **Zap a promotional reply.** Mention the relay's pubkey in a note containing a note ID. The relay fetches that note, replies with a preview, and records the reply-to-note mapping. Zapping the reply promotes the note.
-2. **Zap the relay directly** with the note reference in the zap comment, or in the bolt11 description.
-3. **DM `PROMOTE <note_id>`** to the relay and it answers with a Lightning invoice.
+1. **Pay an invoice, no key needed.** `POST /api/promote` with a note reference and an optional `amount_sats`; the relay answers with a bolt11. `GET /api/promote/status` says whether that invoice is still outstanding and what the note has collected, which is how a caller tells settlement from expiry: both leave storage the same way. The reference can be a `note1`, an `nevent1`, a bare 64-character id, or a link containing one. Crediting comes from the payment rather than from whoever asked, so nothing here needs a signer. This is what the website's promote dialog uses by default.
+2. **Zap a promotional reply.** Mention the relay's pubkey in a note containing a note ID. The relay fetches that note, replies with a preview, and records the reply-to-note mapping. Zapping the reply promotes the note.
+3. **Zap the relay directly** with the note reference in the zap comment, or in the bolt11 description.
+4. **DM `PROMOTE <note_id>`** to the relay and it answers with a Lightning invoice.
