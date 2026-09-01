@@ -63,6 +63,24 @@ export function PromoteModal({ onClose }: PromoteModalProps) {
                     ))}
                 </div>
 
+                {/*
+                 * Shown on both routes, above either of them, because the point
+                 * is to be read before the money moves rather than found
+                 * afterwards. It names what comes down without promising that
+                 * everything will be looked at: a claim to review every note
+                 * would make each one left standing a broken promise.
+                 */}
+                <section className="border-2 border-cyan-400/25 bg-void/50 p-3">
+                    <h3 className="mb-1 font-pixel text-[9px] tracking-widest text-neon-gold">
+                        Before you pay
+                    </h3>
+                    <p className="text-xs leading-relaxed text-cyan-100/70">
+                        Nobody vets what goes up, and rank is sats alone. Spam, scams and anything
+                        illegal come down when we see them. There is no refund, and paying again
+                        will not put a note back.
+                    </p>
+                </section>
+
                 {mode === "direct" && <DirectPromote />}
 
                 {mode === "signed" && (
