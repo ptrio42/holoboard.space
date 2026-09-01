@@ -40,6 +40,7 @@ type Storage struct {
 	processedDMs       map[string]bool            // dm_event_id -> processed (to prevent duplicate invoice sends)
 	promotionalReplies map[string]string          // promotional_reply_id -> note_to_promote_id
 	processedMentions  map[string]bool            // mention_event_id -> processed (to reply only once)
+	removed            map[string]bool            // post_id -> taken off the board by the operator, and kept off
 	mentionWatermark   int64                      // newest mention seen, so a restart does not skip the gap
 	dmWatermark        int64                      // same, for DMs
 	dataFile           string
@@ -54,6 +55,7 @@ func NewStorage(dataFile string) (*Storage, error) {
 		processedDMs:       make(map[string]bool),
 		promotionalReplies: make(map[string]string),
 		processedMentions:  make(map[string]bool),
+		removed:            make(map[string]bool),
 		dataFile:           dataFile,
 	}
 
@@ -72,6 +74,12 @@ func (s *Storage) AddPayment(postID string, amountSats int64, event *nostr.Event
 
 	if amountSats <= 0 {
 		return fmt.Errorf("invalid payment amount: %d", amountSats)
+	}
+
+	// A removal that a payment can undo is not a removal. Whoever had the note
+	// taken down would otherwise put it back for a single sat.
+	if s.removed[postID] {
+		return fmt.Errorf("post %s was removed by the operator", short(postID, 8))
 	}
 
 	post, exists := s.posts[postID]
@@ -100,6 +108,60 @@ func (s *Storage) AddPayment(postID string, amountSats int64, event *nostr.Event
 		return fmt.Errorf("failed to save after adding payment: %w", err)
 	}
 	return nil
+}
+
+// RemovePost takes a note off the board and keeps it off.
+//
+// The relay is deliberately indifferent to what it ranks: pay and you are
+// ranked. That works right up against content the operator cannot host, and
+// until this existed the only way out was hand-editing the data file on the
+// volume and restarting. Sats already paid are not refunded, and this does not
+// pretend to be a moderation system; it is the ability to take one thing down.
+//
+// It returns what the note had collected, so the operator can see what was
+// removed rather than being told "done".
+func (s *Storage) RemovePost(postID string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var sats int64
+	if post, exists := s.posts[postID]; exists {
+		sats = post.TotalSatsPaid
+		delete(s.posts, postID)
+	}
+	s.removed[postID] = true
+
+	if err := s.save(); err != nil {
+		return sats, fmt.Errorf("failed to save after removing post: %w", err)
+	}
+	fmt.Printf("🚫 Removed post %s from the board (%d sats, not refunded)\n", short(postID, 8), sats)
+	return sats, nil
+}
+
+// RestorePost lifts a removal, so the note can be paid onto the board again.
+// It does not put back what was there: the sats it had collected are gone with
+// the entry, and the note has to earn its rank over.
+func (s *Storage) RestorePost(postID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.removed[postID] {
+		return fmt.Errorf("post %s is not removed", short(postID, 8))
+	}
+	delete(s.removed, postID)
+
+	if err := s.save(); err != nil {
+		return fmt.Errorf("failed to save after restoring post: %w", err)
+	}
+	fmt.Printf("↩️  Restored post %s; it can be promoted again\n", short(postID, 8))
+	return nil
+}
+
+// IsRemoved reports whether the operator has taken this note off the board.
+func (s *Storage) IsRemoved(postID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.removed[postID]
 }
 
 // GetPost retrieves a promoted post by ID
@@ -320,6 +382,7 @@ func (s *Storage) save() error {
 		ProcessedDMs       map[string]bool            `json:"processed_dms"`
 		PromotionalReplies map[string]string          `json:"promotional_replies"`
 		ProcessedMentions  map[string]bool            `json:"processed_mentions"`
+		Removed            map[string]bool            `json:"removed"`
 		MentionWatermark   int64                      `json:"mention_watermark"`
 		DMWatermark        int64                      `json:"dm_watermark"`
 	}{
@@ -329,6 +392,7 @@ func (s *Storage) save() error {
 		ProcessedDMs:       s.processedDMs,
 		PromotionalReplies: s.promotionalReplies,
 		ProcessedMentions:  s.processedMentions,
+		Removed:            s.removed,
 		MentionWatermark:   s.mentionWatermark,
 		DMWatermark:        s.dmWatermark,
 	}
@@ -361,6 +425,7 @@ func (s *Storage) load() error {
 		ProcessedDMs       map[string]bool            `json:"processed_dms"`
 		PromotionalReplies map[string]string          `json:"promotional_replies"`
 		ProcessedMentions  map[string]bool            `json:"processed_mentions"`
+		Removed            map[string]bool            `json:"removed"`
 		MentionWatermark   int64                      `json:"mention_watermark"`
 		DMWatermark        int64                      `json:"dm_watermark"`
 	}
@@ -397,6 +462,11 @@ func (s *Storage) load() error {
 	s.processedMentions = data.ProcessedMentions
 	if s.processedMentions == nil {
 		s.processedMentions = make(map[string]bool)
+	}
+
+	s.removed = data.Removed
+	if s.removed == nil {
+		s.removed = make(map[string]bool)
 	}
 
 	s.mentionWatermark = data.MentionWatermark

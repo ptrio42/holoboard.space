@@ -344,6 +344,16 @@ func main() {
 	relay.Router().HandleFunc("/api/promote/status", PromoteStatusHandler(storage, invoiceManager))
 	log.Printf("No-login promotion served at /api/promote")
 
+	// Taking a note down. Registered only when a token exists, so a relay run
+	// without one has no such endpoint at all rather than one guarded by an
+	// empty string.
+	if adminToken := getEnv("ADMIN_TOKEN", ""); adminToken != "" {
+		relay.Router().HandleFunc("/api/admin/note", AdminHandler(storage, adminToken))
+		log.Printf("Operator note removal served at /api/admin/note")
+	} else {
+		log.Printf("ADMIN_TOKEN is unset, so there is no way to take a note off the board")
+	}
+
 	// Create and store the info event explaining how to use the relay (only once)
 	// Check if we already have an info event from this relay
 	hasInfoEvent := false

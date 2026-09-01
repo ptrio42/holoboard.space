@@ -2,6 +2,7 @@ import type { NDKEvent } from "@nostr-dev-kit/ndk";
 import { PixelPanel } from "../ui/PixelPanel";
 import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
 import TextRenderer from "../TextRenderer/TextRenderer";
+import { Expandable } from "../ui/Expandable";
 import { formatSats, njumpUrl } from "../../lib/nostr";
 import { isoDate, timeAgo } from "../../lib/time";
 
@@ -85,7 +86,9 @@ export function BoardRow({ event, rank, sats }: BoardRowProps) {
                         </div>
 
                         <div className="text-[13px] text-cyan-50/80 sm:text-sm">
-                            <TextRenderer text={event.content} />
+                            <Expandable label={`note at rank ${rank}`}>
+                                <TextRenderer text={event.content} />
+                            </Expandable>
                         </div>
 
                         <a
