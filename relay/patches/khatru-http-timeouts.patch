@@ -1,0 +1,31 @@
+--- a/get-started.go
++++ b/get-started.go
+@@ -24,12 +24,23 @@
+ 	}
+ 
+ 	rl.Addr = ln.Addr().String()
++	// PATCH: khatru shipped two second Read and Write timeouts here.
++	//
++	// They leave websockets alone, which clear their deadlines on upgrade, but
++	// they cut off every ordinary HTTP handler mid-response. Minting a Lightning
++	// invoice is a round trip to a wallet over nostr and takes seconds, so the
++	// reply was killed at two of them and the caller got a 502 from the proxy
++	// for an invoice that had in fact been created and stored.
++	//
++	// ReadHeaderTimeout is the part worth keeping short, since that is what
++	// guards against a client dribbling out headers forever.
+ 	rl.httpServer = &http.Server{
+-		Handler:      cors.Default().Handler(rl),
+-		Addr:         addr,
+-		WriteTimeout: 2 * time.Second,
+-		ReadTimeout:  2 * time.Second,
+-		IdleTimeout:  30 * time.Second,
++		Handler:           cors.Default().Handler(rl),
++		Addr:              addr,
++		ReadHeaderTimeout: 10 * time.Second,
++		ReadTimeout:       45 * time.Second,
++		WriteTimeout:      45 * time.Second,
++		IdleTimeout:       120 * time.Second,
+ 	}
+ 
+ 	// notify caller that we're starting

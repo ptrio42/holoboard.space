@@ -1,8 +1,9 @@
 # Upstream patches
 
-Two data races live in this relay's dependencies, not in its own code. Both were
-found by running `go test -race`, both are reproducible, and neither is fixed
-upstream. This directory holds what to do about the first one.
+This directory holds changes that belong to dependencies rather than to this
+relay's own code: two data races found by running `go test -race`, and one
+hardcoded timeout that made the payment endpoint unusable in production. All
+three are reproducible and none is fixed upstream.
 
 ## khatru-listener-race.patch
 
@@ -47,6 +48,30 @@ vendored code.
 
 `-race` now covers the payment path, which was the point. The
 `raceflag_*_test.go` files and the skip in `startTestRelay` are gone.
+
+## khatru-http-timeouts.patch
+
+`Relay.Start` builds its `http.Server` with `WriteTimeout: 2 * time.Second`.
+Websockets do not care, because `fasthttp/websocket` clears the connection's
+deadlines when it hijacks. Every other handler does.
+
+Minting a Lightning invoice is a round trip to a wallet over nostr, and against
+Coinos that runs four to twenty seconds. The server cut the connection at two,
+by which point the invoice had been created and written to storage, so the
+caller got a 502 from the Fly proxy reading `connection closed before message
+completed` for an invoice that existed. Retrying minted another one: the logs
+for 31 August show three invoices against a single note, each answered with a
+502. Users reported it as "502 when trying to get invoice".
+
+The patch keeps `ReadHeaderTimeout` short, since guarding against a client
+dribbling out headers forever is the part worth bounding tightly, and leaves the
+request itself room to finish. `promoteMintTimeout` in `promote_api.go` bounds
+the wallet call from the handler side, so a slow wallet produces a readable
+error instead of racing the server and losing.
+
+`TestSlowHandlerResponseSurvives` drives a real khatru server rather than
+`httptest`, which never applies the timeout that caused this. Putting the two
+seconds back makes it fail with `EOF`.
 
 ## The other one, still open: go-nostr's client
 

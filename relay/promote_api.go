@@ -40,6 +40,11 @@ const (
 	// Short on purpose. A note nobody can find should say so quickly; hanging
 	// for fifteen seconds looks like a broken page rather than a wrong note.
 	promoteFetchTimeout = 6 * time.Second
+
+	// Bounds the wallet call. Without it a slow wallet races the server's write
+	// timeout, and losing that race looks like a 502 with no explanation rather
+	// than an error the caller can read.
+	promoteMintTimeout = 20 * time.Second
 )
 
 type promoteRequest struct {
@@ -232,7 +237,10 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 			return
 		}
 
-		invoice, err := invoices.GeneratePromotionInvoice(r.Context(), noteID, amount)
+		mintCtx, cancelMint := context.WithTimeout(r.Context(), promoteMintTimeout)
+		defer cancelMint()
+
+		invoice, err := invoices.GeneratePromotionInvoice(mintCtx, noteID, amount)
 		if err != nil {
 			log.Printf("Failed to mint a promotion invoice for %s: %v", short(noteID, 8), err)
 			writeError(w, http.StatusBadGateway, "the wallet would not issue an invoice")
