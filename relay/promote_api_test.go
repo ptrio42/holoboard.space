@@ -208,7 +208,7 @@ func TestPromoteStatus(t *testing.T) {
 		t.Fatalf("failed to decode: %v", err)
 	}
 
-	status := PromoteStatusHandler(storage)
+	status := PromoteStatusHandler(storage, nil)
 	ask := func() promoteStatus {
 		req := httptest.NewRequest(http.MethodGet,
 			fmt.Sprintf("/api/promote/status?payment_hash=%s&note=%s", out.PaymentHash, postID), nil)
@@ -251,7 +251,7 @@ func TestPromoteStatusNeedsAHash(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/promote/status", nil)
 	rec := httptest.NewRecorder()
-	PromoteStatusHandler(storage)(rec, req)
+	PromoteStatusHandler(storage, nil)(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status %d, want 400", rec.Code)
 	}

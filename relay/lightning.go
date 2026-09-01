@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
-	"sort"
+	"sync"
 	"time"
 )
 
@@ -107,6 +107,9 @@ type InvoiceManager struct {
 	storage           *Storage
 	paymentMonitor    *PaymentMonitor
 	defaultAmountSats int64
+
+	checkMu     sync.Mutex
+	lastChecked map[string]time.Time
 }
 
 // NewInvoiceManager creates a new invoice manager
@@ -116,6 +119,7 @@ func NewInvoiceManager(backend LightningBackend, storage *Storage, monitor *Paym
 		storage:           storage,
 		paymentMonitor:    monitor,
 		defaultAmountSats: defaultAmount,
+		lastChecked:       make(map[string]time.Time),
 	}
 }
 
@@ -176,33 +180,12 @@ func (im *InvoiceManager) StartPaymentWatcher(ctx context.Context) error {
 	return nil
 }
 
-const (
-	// How often a just-minted invoice is checked, and for how long it counts as
-	// worth checking that often.
-	reconcileFastInterval = 4 * time.Second
-	reconcileFastWindow   = 10 * time.Minute
-	// An upper bound on how many invoices one fast pass may ask the wallet
-	// about, so a backlog cannot turn into a flood.
-	reconcileFastMax = 20
-)
+// checkCooldown bounds how often the wallet is asked about one invoice.
+const checkCooldown = 3 * time.Second
 
-// freshInvoices picks the newest invoices minted inside the fast window, which
-// are the ones somebody is plausibly sitting in front of.
-func freshInvoices(pending []*PendingInvoice, now time.Time) []*PendingInvoice {
-	fresh := make([]*PendingInvoice, 0, len(pending))
-	for _, invoice := range pending {
-		if now.Sub(invoice.CreatedAt) <= reconcileFastWindow {
-			fresh = append(fresh, invoice)
-		}
-	}
-	sort.Slice(fresh, func(i, j int) bool {
-		return fresh[i].CreatedAt.After(fresh[j].CreatedAt)
-	})
-	if len(fresh) > reconcileFastMax {
-		fresh = fresh[:reconcileFastMax]
-	}
-	return fresh
-}
+// reconcileErrorBudget stops a pass once the wallet keeps refusing. Walking a
+// long backlog while the wallet's relay is rate-limiting us only digs deeper.
+const reconcileErrorBudget = 3
 
 // StartInvoiceReconciler asks the wallet about invoices we are still waiting on.
 //
@@ -215,63 +198,91 @@ func freshInvoices(pending []*PendingInvoice, now time.Time) []*PendingInvoice {
 // Without this, a backend whose WatchInvoices stays quiet leaves every invoice
 // pending forever, which is exactly how the LNbits and Zebedee backends behaved.
 func (im *InvoiceManager) StartInvoiceReconciler(ctx context.Context, interval time.Duration) {
-	// Somebody watching a QR code should not have to wait out a full slow pass.
-	// Coinos advertises payment_received in its info event and then never sends
-	// one, so polling is the only thing that closes the loop, and at a minute a
-	// paid invoice could sit unbooked long enough to look broken.
-	//
-	// Fresh invoices are therefore checked often and everything else keeps the
-	// slow interval, which is what catches invoices paid while the relay was
-	// down. Fast passes are capped so a pile of outstanding invoices cannot
-	// turn into a request flood against the wallet.
-	fast := reconcileFastInterval
-	if interval < fast {
-		fast = interval
-	}
-
 	go func() {
 		im.reconcilePendingInvoices(ctx)
 
-		ticker := time.NewTicker(fast)
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
-		lastFull := time.Now()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case now := <-ticker.C:
-				if now.Sub(lastFull) >= interval {
-					lastFull = now
-					im.reconcilePendingInvoices(ctx)
-					continue
-				}
-				im.reconcile(ctx, true)
+			case <-ticker.C:
+				im.reconcilePendingInvoices(ctx)
 			}
 		}
 	}()
 
-	log.Printf("Invoice reconciler started (fresh invoices every %s, everything else every %s)",
-		fast, interval)
+	log.Printf("Invoice reconciler started (checks pending invoices every %s)", interval)
+}
+
+// CheckNow asks the wallet about one invoice and books it if it has been paid.
+//
+// Noticing a payment quickly and polling hard are not the same thing. An
+// earlier version ran the whole pending list on a four second ticker, which
+// against a pile of abandoned invoices meant more than one request a second to
+// the wallet's relay; it started answering "rate-limited" to everything,
+// including the requests that mint new invoices. Users saw that as the wallet
+// refusing to issue them one.
+//
+// So the person waiting drives it instead. The page showing a QR code polls the
+// status endpoint, and that is the signal that this particular invoice is worth
+// asking about. Nothing else is. The cooldown keeps a reloading tab or several
+// viewers of the same invoice from turning into the same flood.
+func (im *InvoiceManager) CheckNow(ctx context.Context, paymentHash string) {
+	invoice, waiting := im.storage.GetPendingInvoice(paymentHash)
+	if !waiting || !im.claimCheck(paymentHash, time.Now()) {
+		return
+	}
+
+	paid, _, err := im.backend.CheckInvoice(ctx, paymentHash)
+	if err != nil {
+		log.Printf("Failed to check invoice %s: %v", short(paymentHash, 12), err)
+		return
+	}
+	if !paid {
+		return
+	}
+
+	if err := im.paymentMonitor.ProcessInvoicePayment(paymentHash, invoice.AmountSats); err != nil {
+		log.Printf("Failed to book settled invoice %s: %v", short(paymentHash, 12), err)
+	}
+}
+
+// claimCheck reports whether this invoice is due another look at the wallet,
+// and records the attempt when it is.
+func (im *InvoiceManager) claimCheck(paymentHash string, now time.Time) bool {
+	im.checkMu.Lock()
+	defer im.checkMu.Unlock()
+
+	if last, seen := im.lastChecked[paymentHash]; seen && now.Sub(last) < checkCooldown {
+		return false
+	}
+
+	// Invoices come and go, so drop entries nothing is waiting on any more
+	// rather than growing a map for the life of the process.
+	if len(im.lastChecked) > 256 {
+		for hash, last := range im.lastChecked {
+			if now.Sub(last) > time.Hour {
+				delete(im.lastChecked, hash)
+			}
+		}
+	}
+
+	im.lastChecked[paymentHash] = now
+	return true
 }
 
 // reconcilePendingInvoices walks the pending invoices once and books the paid ones.
 func (im *InvoiceManager) reconcilePendingInvoices(ctx context.Context) {
-	im.reconcile(ctx, false)
-}
-
-// reconcile books the paid invoices. With freshOnly it looks at just the newest
-// handful, which is the set somebody is actively waiting on.
-func (im *InvoiceManager) reconcile(ctx context.Context, freshOnly bool) {
 	pending := im.storage.ListPendingInvoices()
-	if freshOnly {
-		pending = freshInvoices(pending, time.Now())
-	}
 	if len(pending) == 0 {
 		return
 	}
 
 	settled := 0
+	failures := 0
 	for _, invoice := range pending {
 		if ctx.Err() != nil {
 			return
@@ -280,8 +291,15 @@ func (im *InvoiceManager) reconcile(ctx context.Context, freshOnly bool) {
 		paid, _, err := im.backend.CheckInvoice(ctx, invoice.PaymentHash)
 		if err != nil {
 			log.Printf("Failed to check invoice %s: %v", short(invoice.PaymentHash, 12), err)
+			failures++
+			if failures >= reconcileErrorBudget {
+				log.Printf("Giving up this pass after %d failed checks; %d invoices unchecked",
+					failures, len(pending)-settled-failures)
+				return
+			}
 			continue
 		}
+		failures = 0
 		if !paid {
 			continue
 		}

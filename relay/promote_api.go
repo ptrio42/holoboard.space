@@ -34,7 +34,10 @@ const (
 	promoteMaxPending = 200
 
 	// One address gets promoteBurst requests, refilling over promoteWindow.
-	promoteBurst  = 5
+	// Generous on purpose: the limit is here to stop somebody minting invoices
+	// in a loop, and five was tight enough to catch people simply trying a few
+	// amounts. Only requests that actually reach the wallet count against it.
+	promoteBurst  = 20
 	promoteWindow = 10 * time.Minute
 
 	// Short on purpose. A note nobody can find should say so quickly; hanging
@@ -45,6 +48,10 @@ const (
 	// timeout, and losing that race looks like a 502 with no explanation rather
 	// than an error the caller can read.
 	promoteMintTimeout = 20 * time.Second
+
+	// Bounds the wallet check the status endpoint triggers. It is on the path of
+	// a request a browser is waiting on, so it cannot take as long as minting.
+	promoteStatusCheckTimeout = 8 * time.Second
 )
 
 type promoteRequest struct {
@@ -266,7 +273,7 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 // both removed from storage, so their absence proves nothing on its own. The
 // caller knows what the note had before it paid; the two figures together are
 // what settle the question.
-func PromoteStatusHandler(storage *Storage) http.HandlerFunc {
+func PromoteStatusHandler(storage *Storage, invoices *InvoiceManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
@@ -279,6 +286,16 @@ func PromoteStatusHandler(storage *Storage) http.HandlerFunc {
 		if hash == "" {
 			writeError(w, http.StatusBadRequest, "payment_hash is required")
 			return
+		}
+
+		// Ask the wallet about this one invoice while somebody is waiting on it.
+		// This is what makes a payment show up in seconds. The relay used to
+		// poll every pending invoice on a timer instead, which flooded the
+		// wallet's relay until it refused everything, new invoices included.
+		if _, waiting := storage.GetPendingInvoice(hash); waiting && invoices != nil {
+			checkCtx, cancel := context.WithTimeout(r.Context(), promoteStatusCheckTimeout)
+			invoices.CheckNow(checkCtx, hash)
+			cancel()
 		}
 
 		status := promoteStatus{NoteID: note}

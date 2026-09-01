@@ -321,39 +321,12 @@ func TestBroadcastIsOptional(t *testing.T) {
 	}
 }
 
-// TestFreshInvoicesPicksTheNewest covers the set a fast pass looks at: recent
-// invoices only, newest first, and never more than the cap.
-func TestFreshInvoicesPicksTheNewest(t *testing.T) {
-	now := time.Unix(1_800_000_000, 0)
-
-	stale := &PendingInvoice{PaymentHash: "stale", CreatedAt: now.Add(-time.Hour)}
-	recent := &PendingInvoice{PaymentHash: "recent", CreatedAt: now.Add(-time.Minute)}
-	newest := &PendingInvoice{PaymentHash: "newest", CreatedAt: now.Add(-time.Second)}
-
-	got := freshInvoices([]*PendingInvoice{stale, recent, newest}, now)
-	if len(got) != 2 {
-		t.Fatalf("kept %d invoices, want the 2 inside the window", len(got))
-	}
-	if got[0].PaymentHash != "newest" || got[1].PaymentHash != "recent" {
-		t.Errorf("order was %s then %s, want newest first", got[0].PaymentHash, got[1].PaymentHash)
-	}
-
-	many := make([]*PendingInvoice, 0, reconcileFastMax+10)
-	for i := 0; i < reconcileFastMax+10; i++ {
-		many = append(many, &PendingInvoice{
-			PaymentHash: fmt.Sprintf("h%d", i),
-			CreatedAt:   now.Add(-time.Duration(i) * time.Second),
-		})
-	}
-	if capped := freshInvoices(many, now); len(capped) != reconcileFastMax {
-		t.Errorf("a fast pass would check %d invoices, want the %d cap", len(capped), reconcileFastMax)
-	}
-}
-
-// TestReconcilerSettlesFreshInvoicesQuickly is the fix for "I paid and waited".
-// Coinos advertises payment_received and never sends one, so polling is what
-// closes the loop, and at the slow interval that took up to a minute.
-func TestReconcilerSettlesFreshInvoicesQuickly(t *testing.T) {
+// TestCheckNowBooksAndThrottles covers the replacement for timer-driven
+// polling. The wallet is asked about one invoice, driven by whoever is watching
+// it, and asked again no faster than the cooldown allows. Polling the whole
+// pending list on a fast ticker is what got the relay rate-limited by the
+// wallet's own relay, which then refused to mint anything at all.
+func TestCheckNowBooksAndThrottles(t *testing.T) {
 	storage := newTestStorage(t)
 	postID := seedPromotedPost(t, storage, nostr.GeneratePrivateKey())
 
@@ -369,36 +342,79 @@ func TestReconcilerSettlesFreshInvoicesQuickly(t *testing.T) {
 	}
 
 	backend := newStubBackend()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	manager := NewInvoiceManager(backend, storage,
 		NewPaymentMonitor(storage, "relay", NewPostFetcher(nil), NewLNURLResolver()), 1000)
 
-	// A slow interval far longer than the test. Anything that settles here had
-	// to come from a fast pass.
-	manager.StartInvoiceReconciler(ctx, time.Hour)
+	// Not paid yet. Several rapid polls must reach the wallet only once.
+	for i := 0; i < 5; i++ {
+		manager.CheckNow(context.Background(), invoice.PaymentHash)
+	}
+	if got := backend.checkCount(invoice.PaymentHash); got != 1 {
+		t.Errorf("five polls made %d wallet calls, want 1", got)
+	}
 
-	// The invoice is paid a moment after the reconciler starts, so the boot
-	// pass cannot be what catches it.
-	time.Sleep(50 * time.Millisecond)
+	// Once the cooldown has passed, and now settled.
+	manager.checkMu.Lock()
+	manager.lastChecked[invoice.PaymentHash] = time.Now().Add(-checkCooldown - time.Second)
+	manager.checkMu.Unlock()
+
 	backend.mu.Lock()
 	backend.paid[invoice.PaymentHash] = 69
 	backend.mu.Unlock()
 
-	deadline := time.Now().Add(30 * time.Second)
-	for {
-		if _, stillPending := storage.GetPendingInvoice(invoice.PaymentHash); !stillPending {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("a fresh invoice was still pending, so no fast pass ran")
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+	manager.CheckNow(context.Background(), invoice.PaymentHash)
 
+	if _, stillPending := storage.GetPendingInvoice(invoice.PaymentHash); stillPending {
+		t.Error("a paid invoice should have been booked and removed from pending")
+	}
 	post, _ := storage.GetPost(postID)
 	if post.TotalSatsPaid != 70 {
 		t.Errorf("post total = %d sats, want 70 (the seeded 1 plus 69)", post.TotalSatsPaid)
+	}
+
+	// An invoice that is no longer pending must not be asked about at all.
+	before := backend.checkCount(invoice.PaymentHash)
+	manager.CheckNow(context.Background(), invoice.PaymentHash)
+	if after := backend.checkCount(invoice.PaymentHash); after != before {
+		t.Errorf("a settled invoice was checked again: %d became %d", before, after)
+	}
+}
+
+// TestReconcilerStopsAfterRepeatedFailures pins the other half of the same
+// lesson: when the wallet keeps refusing, walking the rest of the backlog only
+// digs deeper.
+func TestReconcilerStopsAfterRepeatedFailures(t *testing.T) {
+	storage := newTestStorage(t)
+	postID := seedPromotedPost(t, storage, nostr.GeneratePrivateKey())
+
+	for i := 0; i < 12; i++ {
+		if err := storage.AddPendingInvoice(&PendingInvoice{
+			PostID:      postID,
+			PaymentHash: fmt.Sprintf("hash%02d", i),
+			AmountSats:  10,
+			CreatedAt:   time.Now(),
+			ExpiresAt:   time.Now().Add(time.Hour),
+		}); err != nil {
+			t.Fatalf("failed to store pending invoice: %v", err)
+		}
+	}
+
+	backend := newStubBackend()
+	backend.err = fmt.Errorf("msg: rate-limited")
+
+	manager := NewInvoiceManager(backend, storage,
+		NewPaymentMonitor(storage, "relay", NewPostFetcher(nil), NewLNURLResolver()), 1000)
+	manager.reconcilePendingInvoices(context.Background())
+
+	total := 0
+	backend.mu.Lock()
+	for _, n := range backend.checks {
+		total += n
+	}
+	backend.mu.Unlock()
+
+	if total > reconcileErrorBudget {
+		t.Errorf("the pass made %d wallet calls against a refusing wallet, want at most %d",
+			total, reconcileErrorBudget)
 	}
 }

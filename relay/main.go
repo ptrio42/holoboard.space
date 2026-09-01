@@ -341,7 +341,7 @@ func main() {
 	// requiring a signer on the website was never a product requirement, only a
 	// consequence of the website automating the mention flow.
 	relay.Router().HandleFunc("/api/promote", PromoteHandler(storage, invoiceManager, fetcher))
-	relay.Router().HandleFunc("/api/promote/status", PromoteStatusHandler(storage))
+	relay.Router().HandleFunc("/api/promote/status", PromoteStatusHandler(storage, invoiceManager))
 	log.Printf("No-login promotion served at /api/promote")
 
 	// Create and store the info event explaining how to use the relay (only once)
