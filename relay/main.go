@@ -229,10 +229,29 @@ func main() {
 	}
 
 	// Start DM monitor to listen for PROMOTE commands via DM
-	dmMonitor := NewDMMonitor(fetchRelays, relayPubkey, relayPrivkey, invoiceManager, storage)
+	// One pubkey may take a note off the board, by DM. Accepts an npub or hex;
+	// an unparseable value is fatal rather than silently leaving nobody in
+	// charge, because that failure would only show up when it mattered.
+	adminPubkey := ""
+	if configured := getEnv("ADMIN_PUBKEY", ""); configured != "" {
+		resolved, err := normalizePubkey(configured)
+		if err != nil {
+			log.Fatalf("Invalid ADMIN_PUBKEY: %v", err)
+		}
+		adminPubkey = resolved
+		log.Printf("Admin pubkey: %s", short(adminPubkey, 8))
+	}
+
+	dmMonitor := NewDMMonitor(fetchRelays, relayPubkey, relayPrivkey, invoiceManager, storage).
+		WithAdmin(adminPubkey)
 	if err := dmMonitor.Start(ctx); err != nil {
 		log.Fatalf("Failed to start DM monitor: %v", err)
 	}
+
+	// Tell clients where to deliver a gift wrap. Without a kind:10050 a NIP-17
+	// client has to guess, and the usual guess is the recipient's write relays,
+	// which for a relay that publishes almost nothing is nowhere useful.
+	go publishDMRelayList(ctx, relayPrivkey, fetchRelays)
 
 	// Start mention monitor to watch for relay pubkey tags (promotional flow)
 	mentionMonitor := NewMentionMonitor(relayPubkey, relayPrivkey, storage, fetcher, pool)
