@@ -31,13 +31,19 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
  * Turns whatever fetch threw into something worth reading. A failed request
  * rejects with a bare TypeError whose message is "Failed to fetch", which tells
  * somebody staring at the dialog nothing at all about what to do next.
+ *
+ * That TypeError does not mean the relay was unreachable, and saying so sent us
+ * chasing a connectivity problem that did not exist. A 502 from the Fly proxy
+ * carries no CORS headers, because the proxy rather than the app produced it, so
+ * the browser refuses to let the response be read and the rejection looks
+ * identical to a dead network. Name the symptom, not a cause we cannot see.
  */
 export function describeFailure(error: unknown): string {
     if (error instanceof DOMException && error.name === "AbortError") {
         return "cancelled";
     }
     if (error instanceof TypeError) {
-        return "could not reach the relay. It may be restarting; try again in a moment.";
+        return "the request to the relay did not get through. Try again in a moment.";
     }
     return error instanceof Error ? error.message : "something went wrong";
 }
