@@ -237,6 +237,15 @@ body::after {
     border: 2px solid rgba(34, 211, 238, 0.35);
 }
 
+.note-body video {
+    display: block;
+    max-width: 100%;
+    max-height: 22rem;
+    margin: 0.75rem 0;
+    background: #000;
+    border: 2px solid rgba(34, 211, 238, 0.35);
+}
+
 .note-body a {
     color: var(--color-neon-cyan);
     text-decoration: underline;
