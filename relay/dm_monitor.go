@@ -419,12 +419,17 @@ Pay this invoice to promote your post. Once paid, your post will be added to the
 func (dm *DMMonitor) reply(ctx context.Context, recipientPubkey, message string, wrapped bool) error {
 	var event *nostr.Event
 
+	targets := dm.relays
+
 	if wrapped {
 		wrap, err := wrapMessage(message, recipientPubkey, dm.relayPrivkey)
 		if err != nil {
 			return fmt.Errorf("failed to wrap the reply: %w", err)
 		}
 		event = wrap
+		// NIP-17 delivers to the recipient's inbox, not the sender's. Publishing
+		// where this relay happens to read only works when the two sets overlap.
+		targets = recipientInbox(ctx, recipientPubkey, dm.relays)
 	} else {
 		sharedSecret, err := nip04.ComputeSharedSecret(recipientPubkey, dm.relayPrivkey)
 		if err != nil {
@@ -446,7 +451,7 @@ func (dm *DMMonitor) reply(ctx context.Context, recipientPubkey, message string,
 		}
 	}
 
-	return dm.publish(ctx, event, recipientPubkey)
+	return dm.publish(ctx, event, recipientPubkey, targets)
 }
 
 // signAuth answers a relay's NIP-42 challenge as the relay's own key, which is
@@ -455,11 +460,11 @@ func (dm *DMMonitor) signAuth(authEvent *nostr.Event) error {
 	return authEvent.Sign(dm.relayPrivkey)
 }
 
-func (dm *DMMonitor) publish(ctx context.Context, event *nostr.Event, recipientPubkey string) error {
+func (dm *DMMonitor) publish(ctx context.Context, event *nostr.Event, recipientPubkey string, targets []string) error {
 	pool := nostr.NewSimplePool(ctx, nostr.WithAuthHandler(dm.signAuth))
 
 	successes := 0
-	for _, relayURL := range dm.relays {
+	for _, relayURL := range targets {
 		relay, err := pool.EnsureRelay(relayURL)
 		if err != nil {
 			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
@@ -476,6 +481,7 @@ func (dm *DMMonitor) publish(ctx context.Context, event *nostr.Event, recipientP
 		return fmt.Errorf("failed to publish the reply to any relay")
 	}
 
-	log.Printf("Reply sent to %s (%d/%d relays)", short(recipientPubkey, 8), successes, len(dm.relays))
+	log.Printf("Reply sent to %s (%d/%d of their inbox relays)",
+		short(recipientPubkey, 8), successes, len(targets))
 	return nil
 }

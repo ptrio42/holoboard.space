@@ -8,6 +8,7 @@ import (
 	"log"
 	"math/big"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -376,4 +377,68 @@ func normalizePubkey(input string) (string, error) {
 		return "", fmt.Errorf("the npub did not decode to a pubkey")
 	}
 	return pubkey, nil
+}
+
+// recipientInbox finds where somebody has asked to have direct messages
+// delivered, per NIP-17.
+//
+// Replying to a gift wrap on the relays this one reads works only when the two
+// sets happen to overlap, which is luck rather than design: the sender's client
+// is watching their own inbox, not ours. It fires a query per relay rather than
+// using the pool, because SimplePool tears the whole subscription down as soon
+// as any one relay gives up.
+//
+// Falls back to the given set, since a reply somewhere plausible beats no reply.
+func recipientInbox(ctx context.Context, pubkey string, fallback []string) []string {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	sources := dedupe(append(append([]string{}, discoveryRelays...), fallback...))
+
+	var mu sync.Mutex
+	var newest *nostr.Event
+
+	var wg sync.WaitGroup
+	for _, url := range sources {
+		wg.Add(1)
+		go func(url string) {
+			defer wg.Done()
+
+			relay, err := nostr.RelayConnect(ctx, url)
+			if err != nil {
+				return
+			}
+			defer relay.Close()
+
+			found, err := relay.QuerySync(ctx, nostr.Filter{
+				Kinds: []int{kindDMRelayList}, Authors: []string{pubkey}, Limit: 1,
+			})
+			if err != nil || len(found) == 0 {
+				return
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			if newest == nil || found[0].CreatedAt > newest.CreatedAt {
+				newest = found[0]
+			}
+		}(url)
+	}
+	wg.Wait()
+
+	if newest == nil {
+		log.Printf("No inbox published by %s; replying where this relay reads instead", short(pubkey, 8))
+		return fallback
+	}
+
+	inbox := make([]string, 0, len(newest.Tags))
+	for _, tag := range newest.Tags {
+		if len(tag) >= 2 && tag[0] == "relay" {
+			inbox = append(inbox, tag[1])
+		}
+	}
+	if len(inbox) == 0 {
+		return fallback
+	}
+	return inbox
 }
