@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -83,36 +84,39 @@ func (dm *DMMonitor) Start(ctx context.Context) error {
 	}
 	log.Printf("DM monitor resuming from %s", time.Unix(int64(since), 0).Format(time.RFC3339))
 
-	// Connect to relays and subscribe
-	pool := nostr.NewSimplePool(ctx)
-
-	// Subscribe to events
-	sub := pool.SubMany(ctx, dm.relays, filters)
-
+	// One subscription per relay, merged here, rather than pool.SubMany.
+	//
+	// SubMany looked right and lost every direct message this relay was ever
+	// sent. Its per-relay goroutines share one context and each of them calls
+	// cancel() on the way out, so the first relay to give up tears down the
+	// subscription on all the others. Two of the five answer a filter for
+	// messages addressed to one pubkey with CLOSED: auth-required and stop
+	// there, which killed the whole thing about a second after boot. Damus was
+	// holding the messages the entire time.
+	//
+	// Proven rather than reasoned: subscribing to damus alone returns them,
+	// adding nostr.mom to the same call returns nothing at all.
 	go func() {
-		for event := range sub {
-			// Check if already processed using persistent storage
+		for event := range dm.subscribe(ctx, filters) {
 			if dm.storage.IsDMProcessed(event.ID) {
 				continue // Already processed
 			}
 
-			log.Printf("Received DM from %s (event ID: %s)", event.PubKey, event.ID)
+			log.Printf("Received a message (event %s, kind %d)", short(event.ID, 8), event.Kind)
 
-			// Process the DM
-			if err := dm.processDM(ctx, event.Event); err != nil {
-				log.Printf("Failed to process DM: %v", err)
+			if err := dm.processDM(ctx, event); err != nil {
+				log.Printf("Failed to process message: %v", err)
 				continue
 			}
 
-			// Mark as processed in persistent storage
 			if err := dm.storage.MarkDMProcessed(event.ID); err != nil {
-				log.Printf("Failed to mark DM as processed: %v", err)
+				log.Printf("Failed to mark message as processed: %v", err)
 			}
-			// And move the watermark, so a fresh volume does not start over.
 			if err := dm.storage.AdvanceDMWatermark(int64(event.CreatedAt)); err != nil {
 				log.Printf("Failed to advance DM watermark: %v", err)
 			}
 		}
+		log.Printf("DM monitor stopped")
 	}()
 
 	if dm.adminPubkey != "" {
@@ -121,6 +125,130 @@ func (dm *DMMonitor) Start(ctx context.Context) error {
 		log.Printf("DM monitor started, listening for PROMOTE; no admin pubkey, so REMOVE is refused")
 	}
 	return nil
+}
+
+// subscribe follows every relay independently and merges what they deliver.
+// A relay that refuses, drops or never connects costs only itself.
+func (dm *DMMonitor) subscribe(ctx context.Context, filters nostr.Filters) <-chan *nostr.Event {
+	events := make(chan *nostr.Event)
+
+	var wg sync.WaitGroup
+	for _, url := range dm.relays {
+		wg.Add(1)
+		go func(url string) {
+			defer wg.Done()
+			dm.followRelay(ctx, url, filters, events)
+		}(url)
+	}
+
+	go func() {
+		wg.Wait()
+		close(events)
+	}()
+
+	return events
+}
+
+// followRelay keeps one relay's subscription alive for as long as the context
+// lives, standing it back up whenever it drops.
+func (dm *DMMonitor) followRelay(ctx context.Context, url string, filters nostr.Filters, out chan<- *nostr.Event) {
+	const (
+		minBackoff = 3 * time.Second
+		maxBackoff = 2 * time.Minute
+	)
+	backoff := minBackoff
+
+	for ctx.Err() == nil {
+		if dm.followOnce(ctx, url, filters, out) {
+			backoff = minBackoff // it worked for a while, so retry promptly
+		}
+		if ctx.Err() != nil {
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+		if backoff < maxBackoff {
+			backoff *= 2
+		}
+	}
+}
+
+// followOnce holds one connection until it fails, and reports whether the
+// subscription was ever established.
+func (dm *DMMonitor) followOnce(ctx context.Context, url string, filters nostr.Filters, out chan<- *nostr.Event) (established bool) {
+	relay, err := nostr.RelayConnect(ctx, url)
+	if err != nil {
+		log.Printf("DM monitor could not connect to %s: %v", url, err)
+		return false
+	}
+	defer relay.Close()
+
+	sub, err := relay.Subscribe(ctx, filters)
+	if err != nil {
+		log.Printf("DM monitor could not subscribe on %s: %v", url, err)
+		return false
+	}
+	defer sub.Unsub()
+
+	authed := false
+	established = true
+	log.Printf("DM monitor watching %s", url)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return established
+
+		case reason := <-sub.ClosedReason:
+			// Relays that take DM privacy seriously will not serve a filter for
+			// messages addressed to a pubkey until the asker proves they are
+			// that pubkey. We are, so answer the challenge and ask again.
+			// Matched anywhere rather than as a prefix. NIP-01 asks for a
+			// machine-readable word at the front, and relays do send one, but
+			// several put "ERROR: " before it. go-nostr's own pool checks for
+			// the bare prefix, which is why its auth handler never fired here
+			// and why adding one changed nothing at all.
+			if strings.Contains(reason, "auth-required") && !authed {
+				if err := relay.Auth(ctx, dm.signAuth); err != nil {
+					// Report it as never established, so the caller backs off
+					// hard. A relay whose AUTH is broken will refuse again in
+					// three seconds and every three seconds after that.
+					log.Printf("DM monitor failed to authenticate to %s: %v", url, err)
+					return false
+				}
+				authed = true
+
+				resubscribed, err := relay.Subscribe(ctx, filters)
+				if err != nil {
+					log.Printf("DM monitor could not re-subscribe on %s: %v", url, err)
+					return established
+				}
+				sub.Unsub()
+				sub = resubscribed
+				log.Printf("DM monitor authenticated to %s", url)
+				continue
+			}
+			log.Printf("DM monitor subscription closed by %s: %s", url, reason)
+			return established
+
+		case event, more := <-sub.Events:
+			if !more {
+				return established
+			}
+			if event == nil {
+				continue
+			}
+			select {
+			case out <- event:
+			case <-ctx.Done():
+				return established
+			}
+		}
+	}
 }
 
 // processDM opens a message on whichever transport it arrived by and acts on
@@ -321,8 +449,14 @@ func (dm *DMMonitor) reply(ctx context.Context, recipientPubkey, message string,
 	return dm.publish(ctx, event, recipientPubkey)
 }
 
+// signAuth answers a relay's NIP-42 challenge as the relay's own key, which is
+// the identity whose messages we are asking for.
+func (dm *DMMonitor) signAuth(authEvent *nostr.Event) error {
+	return authEvent.Sign(dm.relayPrivkey)
+}
+
 func (dm *DMMonitor) publish(ctx context.Context, event *nostr.Event, recipientPubkey string) error {
-	pool := nostr.NewSimplePool(ctx)
+	pool := nostr.NewSimplePool(ctx, nostr.WithAuthHandler(dm.signAuth))
 
 	successes := 0
 	for _, relayURL := range dm.relays {
