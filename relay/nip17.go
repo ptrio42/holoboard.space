@@ -257,20 +257,95 @@ func publishRelayLists(ctx context.Context, privkey string, dmRelays, generalRel
 		Tags:      relayTags(generalRelays, "r"),
 	}
 
-	targets := append(append(append([]string{}, dmRelays...), generalRelays...), discoveryRelays...)
-
+	events := make([]*nostr.Event, 0, 2)
 	for _, event := range []*nostr.Event{dmList, generalList} {
 		if err := event.Sign(privkey); err != nil {
 			log.Printf("Failed to sign the kind:%d relay list: %v", event.Kind, err)
 			continue
 		}
-		published := publishEverywhere(ctx, event, targets)
-		if published == 0 {
-			log.Printf("Could not publish kind:%d anywhere; messages may not find us", event.Kind)
+		events = append(events, event)
+	}
+
+	targets := dedupe(append(append(append([]string{}, dmRelays...), generalRelays...), discoveryRelays...))
+
+	// Keep at the ones that did not take it. Publishing once at boot means a
+	// relay that happens to be down at that moment never learns where to reach
+	// this one, and purplepag.es being the relay clients consult first, that is
+	// the difference between findable and not. These are replaceable events, so
+	// sending them again costs nothing.
+	go retryPublishing(ctx, events, targets)
+}
+
+// retryPublishing sends each event to every target, then keeps returning to the
+// ones that refused, with a widening gap between attempts.
+func retryPublishing(ctx context.Context, events []*nostr.Event, targets []string) {
+	remaining := targets
+	delay := 30 * time.Second
+
+	for attempt := 1; ; attempt++ {
+		var failed []string
+		for _, url := range remaining {
+			if publishTo(ctx, url, events) {
+				continue
+			}
+			failed = append(failed, url)
+		}
+
+		accepted := len(remaining) - len(failed)
+		if attempt == 1 {
+			log.Printf("Relay lists published to %d of %d relays", accepted, len(remaining))
+		} else if accepted > 0 {
+			log.Printf("Relay lists reached %d more relays on attempt %d", accepted, attempt)
+		}
+
+		if len(failed) == 0 {
+			return
+		}
+		if delay > 2*time.Hour {
+			log.Printf("Giving up on %v; clients using those to find this relay will not", failed)
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(delay):
+		}
+		remaining = failed
+		delay *= 3
+	}
+}
+
+// publishTo reports whether one relay accepted every event.
+func publishTo(ctx context.Context, url string, events []*nostr.Event) bool {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	relay, err := nostr.RelayConnect(ctx, url)
+	if err != nil {
+		return false
+	}
+	defer relay.Close()
+
+	for _, event := range events {
+		if err := relay.Publish(ctx, *event); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+func dedupe(values []string) []string {
+	seen := map[string]bool{}
+	unique := make([]string, 0, len(values))
+	for _, v := range values {
+		if seen[v] {
 			continue
 		}
-		log.Printf("Published kind:%d to %d relays", event.Kind, published)
+		seen[v] = true
+		unique = append(unique, v)
 	}
+	return unique
 }
 
 func relayTags(relays []string, tagName string) nostr.Tags {
@@ -279,30 +354,6 @@ func relayTags(relays []string, tagName string) nostr.Tags {
 		tags = append(tags, nostr.Tag{tagName, url})
 	}
 	return tags
-}
-
-// publishEverywhere sends one event to each target, skipping duplicates, and
-// reports how many accepted it.
-func publishEverywhere(ctx context.Context, event *nostr.Event, targets []string) int {
-	pool := nostr.NewSimplePool(ctx)
-
-	seen := map[string]bool{}
-	published := 0
-	for _, url := range targets {
-		if seen[url] {
-			continue
-		}
-		seen[url] = true
-
-		relay, err := pool.EnsureRelay(url)
-		if err != nil {
-			continue
-		}
-		if err := relay.Publish(ctx, *event); err == nil {
-			published++
-		}
-	}
-	return published
 }
 
 // normalizePubkey accepts an npub or a bare hex pubkey and returns hex.
