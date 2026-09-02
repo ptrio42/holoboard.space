@@ -242,7 +242,16 @@ func main() {
 		log.Printf("Admin pubkey: %s", short(adminPubkey, 8))
 	}
 
-	dmMonitor := NewDMMonitor(fetchRelays, relayPubkey, relayPrivkey, invoiceManager, storage).
+	// The DM inbox is its own set. What is good for watching zaps is not
+	// necessarily somewhere this relay can read its own messages, and
+	// advertising an inbox we cannot read is worse than advertising none.
+	dmRelays := defaultDMRelays
+	if configured := getEnv("DM_RELAYS", ""); configured != "" {
+		dmRelays = splitAndTrim(configured)
+	}
+	log.Printf("DM inbox: %s", strings.Join(dmRelays, ", "))
+
+	dmMonitor := NewDMMonitor(dmRelays, relayPubkey, relayPrivkey, invoiceManager, storage).
 		WithAdmin(adminPubkey)
 	if err := dmMonitor.Start(ctx); err != nil {
 		log.Fatalf("Failed to start DM monitor: %v", err)
@@ -251,7 +260,7 @@ func main() {
 	// Tell clients where to deliver a gift wrap. Without a kind:10050 a NIP-17
 	// client has to guess, and the usual guess is the recipient's write relays,
 	// which for a relay that publishes almost nothing is nowhere useful.
-	go publishRelayLists(ctx, relayPrivkey, fetchRelays)
+	go publishRelayLists(ctx, relayPrivkey, dmRelays, fetchRelays)
 
 	// Start mention monitor to watch for relay pubkey tags (promotional flow)
 	mentionMonitor := NewMentionMonitor(relayPubkey, relayPrivkey, storage, fetcher, pool)

@@ -201,6 +201,21 @@ func mustJSON(event nostr.Event) string {
 	return string(encoded)
 }
 
+// defaultDMRelays is the inbox this relay advertises and reads.
+//
+// Deliberately not the same set as FETCH_RELAYS. Two of those, nos.lol and
+// nostr.mom, refuse NIP-42 with a server-side configuration error, so this
+// relay cannot read its own messages there; advertising them as an inbox
+// invites senders to deliver somewhere nothing will ever be collected. Every
+// relay here has been checked: damus serves the filter unauthenticated, and
+// auth.nostr1.com accepts our AUTH.
+var defaultDMRelays = []string{
+	"wss://relay.damus.io",
+	"wss://relay.primal.net",
+	"wss://offchain.pub",
+	"wss://auth.nostr1.com",
+}
+
 // discoveryRelays are where clients go looking for somebody's metadata, as
 // opposed to where that somebody reads. purplepag.es in particular is the one
 // most clients consult first, and a kind:10050 that is not there might as well
@@ -225,21 +240,24 @@ var discoveryRelays = []string{
 //
 // Both lists therefore say the same thing, and that thing is the set the
 // monitor actually watches.
-func publishRelayLists(ctx context.Context, privkey string, subscribed []string) {
+func publishRelayLists(ctx context.Context, privkey string, dmRelays, generalRelays []string) {
+	// Where to deliver a direct message. This is an inbox: NIP-17 has the
+	// sender publish to the recipient's list, the opposite way round to NIP-65,
+	// so every entry has to be somewhere this relay can actually read.
 	dmList := &nostr.Event{
 		CreatedAt: nostr.Now(),
 		Kind:      kindDMRelayList,
-		Tags:      relayTags(subscribed, "relay"),
+		Tags:      relayTags(dmRelays, "relay"),
 	}
 	// NIP-65. Clients fall back to this when they find no kind:10050, so it
 	// pointing somewhere else is worse than it being absent.
 	generalList := &nostr.Event{
 		CreatedAt: nostr.Now(),
 		Kind:      kindRelayList,
-		Tags:      relayTags(subscribed, "r"),
+		Tags:      relayTags(generalRelays, "r"),
 	}
 
-	targets := append(append([]string{}, subscribed...), discoveryRelays...)
+	targets := append(append(append([]string{}, dmRelays...), generalRelays...), discoveryRelays...)
 
 	for _, event := range []*nostr.Event{dmList, generalList} {
 		if err := event.Sign(privkey); err != nil {
