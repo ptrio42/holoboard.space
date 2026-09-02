@@ -38,8 +38,10 @@ const (
 	kindGiftWrap    = 1059
 	kindSeal        = 13
 	kindChatMessage = 14
-	// kindDMRelayList tells clients where to deliver a gift wrap.
+	// kindDMRelayList tells clients where to deliver a gift wrap, and
+	// kindRelayList is the general NIP-65 list clients fall back to.
 	kindDMRelayList = 10050
+	kindRelayList   = 10002
 
 	// NIP-59 asks for a gift wrap's timestamp to be dithered into the past, so
 	// that when a message was sent cannot be read off the relay.
@@ -199,34 +201,81 @@ func mustJSON(event nostr.Event) string {
 	return string(encoded)
 }
 
-// publishDMRelayList announces where to deliver a gift wrap addressed to this
-// relay's pubkey, per NIP-17.
-//
-// Clients that find no kind:10050 fall back to guessing, usually the
-// recipient's write relays, and this pubkey publishes almost nothing, so the
-// guess lands nowhere and the message is never seen. The list is the same set
-// the DM monitor subscribes on, which is the only way the two agree by
-// construction rather than by somebody remembering to update both.
-func publishDMRelayList(ctx context.Context, privkey string, relays []string) {
-	tags := nostr.Tags{}
-	for _, url := range relays {
-		tags = append(tags, nostr.Tag{"relay", url})
-	}
+// discoveryRelays are where clients go looking for somebody's metadata, as
+// opposed to where that somebody reads. purplepag.es in particular is the one
+// most clients consult first, and a kind:10050 that is not there might as well
+// not exist: the client falls back to the general relay list and delivers the
+// message somewhere nobody is listening.
+var discoveryRelays = []string{
+	"wss://purplepag.es",
+	"wss://relay.nostr.net",
+	"wss://relay.primal.net",
+	"wss://relay.damus.io",
+}
 
-	event := &nostr.Event{
+// publishRelayLists says where to reach this relay, in both the places a client
+// might look.
+//
+// Getting this wrong is silent. A message goes out, the sender's client reports
+// success, and it lands on a relay nobody is subscribed to; nothing anywhere
+// reports a failure. That is exactly what happened here: the kind:10050 went
+// only to the relays this one reads, none of which a client consults for
+// metadata, so clients fell back to a kind:10002 published in February that
+// advertised three relays the DM monitor has never subscribed to.
+//
+// Both lists therefore say the same thing, and that thing is the set the
+// monitor actually watches.
+func publishRelayLists(ctx context.Context, privkey string, subscribed []string) {
+	dmList := &nostr.Event{
 		CreatedAt: nostr.Now(),
 		Kind:      kindDMRelayList,
-		Tags:      tags,
-		Content:   "",
+		Tags:      relayTags(subscribed, "relay"),
 	}
-	if err := event.Sign(privkey); err != nil {
-		log.Printf("Failed to sign the DM relay list: %v", err)
-		return
+	// NIP-65. Clients fall back to this when they find no kind:10050, so it
+	// pointing somewhere else is worse than it being absent.
+	generalList := &nostr.Event{
+		CreatedAt: nostr.Now(),
+		Kind:      kindRelayList,
+		Tags:      relayTags(subscribed, "r"),
 	}
 
-	pool := nostr.NewSimplePool(ctx)
-	published := 0
+	targets := append(append([]string{}, subscribed...), discoveryRelays...)
+
+	for _, event := range []*nostr.Event{dmList, generalList} {
+		if err := event.Sign(privkey); err != nil {
+			log.Printf("Failed to sign the kind:%d relay list: %v", event.Kind, err)
+			continue
+		}
+		published := publishEverywhere(ctx, event, targets)
+		if published == 0 {
+			log.Printf("Could not publish kind:%d anywhere; messages may not find us", event.Kind)
+			continue
+		}
+		log.Printf("Published kind:%d to %d relays", event.Kind, published)
+	}
+}
+
+func relayTags(relays []string, tagName string) nostr.Tags {
+	tags := nostr.Tags{}
 	for _, url := range relays {
+		tags = append(tags, nostr.Tag{tagName, url})
+	}
+	return tags
+}
+
+// publishEverywhere sends one event to each target, skipping duplicates, and
+// reports how many accepted it.
+func publishEverywhere(ctx context.Context, event *nostr.Event, targets []string) int {
+	pool := nostr.NewSimplePool(ctx)
+
+	seen := map[string]bool{}
+	published := 0
+	for _, url := range targets {
+		if seen[url] {
+			continue
+		}
+		seen[url] = true
+
 		relay, err := pool.EnsureRelay(url)
 		if err != nil {
 			continue
@@ -235,12 +284,7 @@ func publishDMRelayList(ctx context.Context, privkey string, relays []string) {
 			published++
 		}
 	}
-
-	if published == 0 {
-		log.Printf("Could not publish the DM relay list anywhere; NIP-17 messages may not find us")
-		return
-	}
-	log.Printf("DM relay list published to %d/%d relays", published, len(relays))
+	return published
 }
 
 // normalizePubkey accepts an npub or a bare hex pubkey and returns hex.

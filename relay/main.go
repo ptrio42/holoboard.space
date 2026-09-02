@@ -251,7 +251,7 @@ func main() {
 	// Tell clients where to deliver a gift wrap. Without a kind:10050 a NIP-17
 	// client has to guess, and the usual guess is the recipient's write relays,
 	// which for a relay that publishes almost nothing is nowhere useful.
-	go publishDMRelayList(ctx, relayPrivkey, fetchRelays)
+	go publishRelayLists(ctx, relayPrivkey, fetchRelays)
 
 	// Start mention monitor to watch for relay pubkey tags (promotional flow)
 	mentionMonitor := NewMentionMonitor(relayPubkey, relayPrivkey, storage, fetcher, pool)
