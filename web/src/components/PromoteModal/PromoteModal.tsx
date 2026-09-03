@@ -279,6 +279,53 @@ export function PromoteModal({ onClose }: PromoteModalProps) {
                 </div>
                 )}
 
+                {/*
+                 * Spelled out rather than summarised, because somebody about to
+                 * pay has a right to know what the money buys and for how long.
+                 * The half-life in particular: without it a reasonable person
+                 * assumes a small top-up refreshes everything they ever paid.
+                 */}
+                <details className="disclosure border-t-2 border-cyan-400/20 pt-4">
+                    <summary className="focus-pixel cursor-pointer font-pixel text-[10px] tracking-widest
+                        text-cyan-300/70 hover:text-neon-cyan">
+                        How ranking works
+                    </summary>
+                    <div className="mt-4 space-y-4 text-xs leading-relaxed text-cyan-100/70">
+                        <p>
+                            The board is ordered by what a note's sats are worth today, not by what
+                            was paid for it. Every payment keeps half its worth for thirty days,
+                            half of that for another thirty, and so on down.
+                        </p>
+
+                        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 font-pixel text-[9px]
+                            text-cyan-300/60">
+                            <dt>paid today</dt>
+                            <dd>1000 sats count as 1000</dd>
+                            <dt>30 days ago</dt>
+                            <dd>1000 sats count as 500</dd>
+                            <dt>60 days ago</dt>
+                            <dd>1000 sats count as 250</dd>
+                        </dl>
+
+                        <p>
+                            Every payment ages on its own, so a single sat today adds one sat and
+                            nothing more: it does not refresh what was paid last year. That is why
+                            the top of the board is rented rather than bought.
+                        </p>
+
+                        <p>
+                            The row shows the sats actually paid, which never changes, and the
+                            blocks beside it show how much of that is still counting. The whole rule
+                            is one line:
+                        </p>
+
+                        <code className="block border-2 border-cyan-400/25 bg-void p-2 text-[10px]
+                            break-all text-cyan-200/80">
+                            score = sum of each payment x 0.5 ^ (its age / 30 days)
+                        </code>
+                    </div>
+                </details>
+
                 <details className="disclosure border-t-2 border-cyan-400/20 pt-4">
                     <summary className="focus-pixel cursor-pointer font-pixel text-[10px] tracking-widest
                         text-cyan-300/70 hover:text-neon-cyan">
