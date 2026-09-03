@@ -398,17 +398,23 @@ func firstWord(text string) string {
 }
 
 func invoiceMessage(invoice *Invoice) string {
-	return fmt.Sprintf(`Invoice generated!
+	// Two forms of the same invoice, on purpose.
+	//
+	// The lightning: URI is the one a client or the operating system can hand
+	// straight to a wallet, so it is the one worth putting first and alone on
+	// its line. Not every client turns it into something tappable, though, and
+	// there is nothing this end can do about that, so the bare invoice follows
+	// for copying by hand.
+	return fmt.Sprintf(`Pay this to promote your note. %d sats, expires %s.
 
-Amount: %d sats
-Expires: %s
+lightning:%s
 
-Payment Request:
-%s
+If your client will not open that, copy the invoice itself:
 
-Pay this invoice to promote your post. Once paid, your post will be added to the relay.`,
+%s`,
 		invoice.AmountSats,
-		invoice.ExpiresAt.Format("2006-01-02 15:04:05"),
+		invoice.ExpiresAt.UTC().Format("15:04 UTC on 2 January"),
+		invoice.PaymentRequest,
 		invoice.PaymentRequest,
 	)
 }
