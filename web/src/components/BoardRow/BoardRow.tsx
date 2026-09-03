@@ -34,6 +34,9 @@ const TIERS = [
     { accent: "#22d3ee", glow: "rgba(34,211,238,0.28)", text: "text-neon-cyan" },
     { accent: "#ec4899", glow: "rgba(236,72,153,0.28)", text: "text-neon-pink" },
 ];
+/** Blocks in the fade meter. Coarse on purpose: it is read, not measured. */
+const METER_BLOCKS = 8;
+
 const DEFAULT_TIER = { accent: "rgba(34,211,238,0.32)", glow: undefined, text: "text-cyan-300/60" };
 
 /**
@@ -100,32 +103,42 @@ export function BoardRow({ event, rank, sats, weight }: BoardRowProps) {
                                         onClick={() => setShowWeight((open) => !open)}
                                         aria-expanded={showWeight}
                                         aria-label={weightLabel(sats, weight, faded)}
-                                        className={`focus-pixel group flex items-center gap-2 ${tier.text}`}
+                                        className={`focus-pixel group relative flex items-center gap-2
+                                            ${tier.text}`}
                                     >
                                         <span className="font-pixel text-[9px] tracking-wider" aria-hidden="true">
                                             {satsLabel(sats)}
                                         </span>
-                                        {fresh !== null && (
-                                            <>
-                                                <span
-                                                    aria-hidden="true"
-                                                    className="h-1 w-10 shrink-0 border border-cyan-400/25 bg-void"
-                                                >
+
+                                        {/* Only once something has gone. A full meter says
+                                            nothing, and drawn as one line it reads as a dash. */}
+                                        {faded && (
+                                            <span aria-hidden="true" className="flex items-center gap-px">
+                                                {Array.from({ length: METER_BLOCKS }, (_, i) => (
                                                     <span
-                                                        className="block h-full bg-current opacity-70"
-                                                        style={{ width: `${Math.round(fresh * 100)}%` }}
+                                                        key={i}
+                                                        className={`h-2 w-1 ${
+                                                            i < Math.round((fresh ?? 0) * METER_BLOCKS)
+                                                                ? "bg-current"
+                                                                : "bg-cyan-400/15"
+                                                        }`}
                                                     />
-                                                </span>
-                                                {faded && (
-                                                    <span
-                                                        aria-hidden="true"
-                                                        className={`font-pixel text-[9px] text-cyan-300/40
-                                                            ${showWeight ? "inline" : "hidden group-hover:inline"}`}
-                                                    >
-                                                        {formatSats(weight ?? 0)} now
-                                                    </span>
-                                                )}
-                                            </>
+                                                ))}
+                                            </span>
+                                        )}
+
+                                        {/* Above rather than beside, so the row does not grow a
+                                            second column of numbers that is usually not there. */}
+                                        {faded && (
+                                            <span
+                                                role="tooltip"
+                                                className={`pointer-events-none absolute bottom-full right-0 z-10 mb-2
+                                                    border-2 border-cyan-400/40 bg-void px-2 py-1 font-pixel
+                                                    text-[9px] whitespace-nowrap text-cyan-200/90
+                                                    ${showWeight ? "block" : "hidden group-hover:block"}`}
+                                            >
+                                                {formatSats(weight ?? 0)} of {formatSats(sats)} still counting
+                                            </span>
                                         )}
                                     </button>
                                 )}
