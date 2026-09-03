@@ -126,7 +126,7 @@ export function BoardRow({ event, rank, sats, weight }: BoardRowProps) {
                                                         className={`h-2 w-2 ${
                                                             i < (litBlocks ?? 0)
                                                                 ? "bg-current"
-                                                                : "border border-cyan-400/45"
+                                                                : "border border-cyan-400/30"
                                                         }`}
                                                     />
                                                 ))}
