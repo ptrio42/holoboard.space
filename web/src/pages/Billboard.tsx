@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { NDKKind, NDKSubscriptionCacheUsage } from "@nostr-dev-kit/ndk";
 import { useSubscribe } from "@nostr-dev-kit/react";
 import { BoardRow } from "../components/BoardRow/BoardRow";
-import { PromoteModal } from "../components/PromoteModal/PromoteModal";
+import { PromoteModal, RANKING_SECTION } from "../components/PromoteModal/PromoteModal";
 import { PixelButton } from "../components/ui/PixelButton";
 import { PixelPanel } from "../components/ui/PixelPanel";
 import { useRelayStatus } from "../hooks/useRelayStatus";
@@ -11,6 +11,26 @@ import { BOARD_LIMIT, KIND_COMMENT, RELAY_URL, SATS_ENDPOINT } from "../config";
 
 export default function Billboard() {
     const [isModalOpen, setIsModalOpen] = useState(false);
+    /*
+     * Sections of the promote dialog are linkable, which means the address bar
+     * can ask for something that is not on the page yet. Read on arrival and on
+     * every later change, so a link works whether it was followed from outside
+     * or clicked while already here.
+     */
+    const [linkedSection, setLinkedSection] = useState("");
+
+    useEffect(() => {
+        const readHash = () => {
+            const section = window.location.hash.replace(/^#/, "");
+            if (section !== RANKING_SECTION) return;
+            setLinkedSection(section);
+            setIsModalOpen(true);
+        };
+
+        readHash();
+        window.addEventListener("hashchange", readHash);
+        return () => window.removeEventListener("hashchange", readHash);
+    }, []);
     const { status: relayStatus, retry: retryRelay } = useRelayStatus(RELAY_URL);
     const { sats, ranks, weights, refresh: refreshSats } = useSatsMap(SATS_ENDPOINT);
 
@@ -140,7 +160,20 @@ export default function Billboard() {
                 </p>
             </footer>
 
-            {isModalOpen && <PromoteModal onClose={() => setIsModalOpen(false)} />}
+            {isModalOpen && (
+                <PromoteModal
+                    openSection={linkedSection}
+                    onClose={() => {
+                        setIsModalOpen(false);
+                        setLinkedSection("");
+                        // Leave the address bar pointing at the board, or the
+                        // dialog springs back open on the next reload.
+                        if (window.location.hash) {
+                            window.history.replaceState(null, "", window.location.pathname);
+                        }
+                    }}
+                />
+            )}
         </div>
     );
 }

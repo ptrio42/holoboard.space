@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useNDKCurrentUser } from "@nostr-dev-kit/react";
 import { Modal } from "../ui/Modal";
 import { PixelButton, PixelLink } from "../ui/PixelButton";
@@ -11,8 +11,13 @@ import { usePromotionFlow, type Stage } from "./usePromotionFlow";
 import { RELAY_PUBKEY, RELAY_URL, ZAP_PRESETS } from "../../config";
 import { formatSats, toNpub } from "../../lib/nostr";
 
+/** The disclosure a link can point at, so it opens already unfolded. */
+export const RANKING_SECTION = "how-ranking-works";
+
 interface PromoteModalProps {
     onClose: () => void;
+    /** Set when the dialog was opened by a link to one of its sections. */
+    openSection?: string;
 }
 
 const STEPS: { key: string; label: string; stages: Stage[] }[] = [
@@ -22,7 +27,7 @@ const STEPS: { key: string; label: string; stages: Stage[] }[] = [
 ];
 
 /** Rendered only while open; closing unmounts it, which is what clears the flow. */
-export function PromoteModal({ onClose }: PromoteModalProps) {
+export function PromoteModal({ onClose, openSection }: PromoteModalProps) {
     const user = useNDKCurrentUser();
     const { state, submitNote, zapReply } = usePromotionFlow();
     const [reference, setReference] = useState("");
@@ -34,6 +39,19 @@ export function PromoteModal({ onClose }: PromoteModalProps) {
      * involved at all; nothing about the board requires knowing who you are.
      */
     const [mode, setMode] = useState<"direct" | "signed">("direct");
+
+    // A link to the ranking explanation has to do three things, since the text
+    // lives in a dialog that does not exist until something opens it: open the
+    // dialog, unfold the section, and put it in view. The first is the caller's
+    // job; the other two are here.
+    const rankingRef = useRef<HTMLDetailsElement>(null);
+    const [rankingOpen, setRankingOpen] = useState(openSection === RANKING_SECTION);
+
+    useEffect(() => {
+        if (openSection !== RANKING_SECTION) return;
+        setRankingOpen(true);
+        rankingRef.current?.scrollIntoView({ block: "center" });
+    }, [openSection]);
 
     const busy = state.stage === "publishing" || state.stage === "awaiting-reply";
     const activeStep = STEPS.findIndex((step) => step.stages.includes(state.stage));
@@ -285,7 +303,13 @@ export function PromoteModal({ onClose }: PromoteModalProps) {
                  * The half-life in particular: without it a reasonable person
                  * assumes a small top-up refreshes everything they ever paid.
                  */}
-                <details className="disclosure border-t-2 border-cyan-400/20 pt-4">
+                <details
+                    id={RANKING_SECTION}
+                    ref={rankingRef}
+                    open={rankingOpen}
+                    onToggle={(event) => setRankingOpen(event.currentTarget.open)}
+                    className="disclosure border-t-2 border-cyan-400/20 pt-4"
+                >
                     <summary className="focus-pixel cursor-pointer font-pixel text-[10px] tracking-widest
                         text-cyan-300/70 hover:text-neon-cyan">
                         How ranking works
