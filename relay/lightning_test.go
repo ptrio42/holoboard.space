@@ -87,8 +87,8 @@ func newTestStorage(t *testing.T) *Storage {
 
 // TestReconcilerBooksSettledInvoices is the test that matters for the payment
 // loop: an invoice paid while nothing was watching must still end up credited
-// to its post. This is the restart case DESIGN.md described and that the LNbits
-// and Zebedee backends never implemented, which is why 36 invoices sat pending.
+// to its post. Nothing implemented this until now, which is why 36 invoices sat
+// pending against posts that had been paid for.
 func TestReconcilerBooksSettledInvoices(t *testing.T) {
 	storage := newTestStorage(t)
 	seckey := nostr.GeneratePrivateKey()

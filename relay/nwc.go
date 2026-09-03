@@ -499,8 +499,8 @@ func (b *NWCBackend) GenerateInvoice(ctx context.Context, amountSats int64, memo
 }
 
 // CheckInvoice asks the wallet whether one invoice has been paid. This is what
-// lets the relay reconcile invoices it slept through, which is the scenario
-// DESIGN.md called Case 6.
+// lets the relay reconcile invoices it slept through: paid while the process
+// was down, or while its connection to the wallet was.
 //
 // Treat the returned amount as advisory and never book payment on it. Coinos,
 // for one, omits the amount field entirely from a lookup_invoice reply while

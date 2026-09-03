@@ -192,8 +192,8 @@ const reconcileErrorBudget = 3
 // StartInvoiceReconciler asks the wallet about invoices we are still waiting on.
 //
 // It does two jobs. On boot it settles anything that was paid while the relay
-// was down, which is the restart case DESIGN.md sketched out and nobody ever
-// implemented. After that it keeps running on a ticker as a backstop for
+// was down, which was designed for from the start and never built, leaving 36
+// invoices sitting pending. After that it runs on a ticker as a backstop for
 // wallets that publish no payment notifications, so the payment loop closes
 // even when WatchInvoices never emits anything.
 //

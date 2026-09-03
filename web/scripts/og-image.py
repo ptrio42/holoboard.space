@@ -23,7 +23,7 @@ CYAN = (34, 211, 238)
 PINK = (236, 72, 153)
 GOLD = (251, 191, 36)
 
-TAGLINE = "Rank is sats. Recent sats count for more."
+TAGLINE = "Lit with sats"
 DOMAIN = "holoboard.space"
 
 
@@ -41,7 +41,7 @@ def main() -> None:
     args = parser.parse_args()
 
     wordmark = ImageFont.truetype(args.font, 76)
-    body = ImageFont.truetype(args.font, 21)
+    body = ImageFont.truetype(args.font, 32)
     small = ImageFont.truetype(args.font, 17)
 
     image = Image.new("RGB", (WIDTH, HEIGHT), VOID)
