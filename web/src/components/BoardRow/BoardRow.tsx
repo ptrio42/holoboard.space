@@ -114,16 +114,19 @@ export function BoardRow({ event, rank, sats, weight }: BoardRowProps) {
                                         </span>
 
                                         {/* Only once something has gone. A full meter says
-                                            nothing, and drawn as one line it reads as a dash. */}
+                                            nothing, and drawn as one line it reads as a dash.
+                                            Lit blocks are solid and spent ones are hollow, since
+                                            telling them apart by brightness alone left an empty
+                                            meter looking much like a full one. */}
                                         {faded && (
                                             <span aria-hidden="true" className="flex items-center gap-px">
                                                 {Array.from({ length: METER_BLOCKS }, (_, i) => (
                                                     <span
                                                         key={i}
-                                                        className={`h-2 w-1 ${
+                                                        className={`h-2 w-2 ${
                                                             i < (litBlocks ?? 0)
                                                                 ? "bg-current"
-                                                                : "bg-cyan-400/30"
+                                                                : "border border-cyan-400/45"
                                                         }`}
                                                     />
                                                 ))}
