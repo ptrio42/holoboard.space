@@ -67,8 +67,11 @@ export function BoardRow({ event, rank, sats, weight }: BoardRowProps) {
     const fresh = typeof sats === "number" && typeof weight === "number" && sats > 0
         ? Math.max(0, Math.min(1, weight / sats))
         : null;
-    // Below this the two numbers are the same number and saying both is noise.
-    const faded = fresh !== null && fresh < 0.95;
+    // One rule, not two. Deciding whether to draw the meter separately from how
+    // many of its blocks to fill let a note round up to a full one, which is
+    // the case the meter is meant never to appear in.
+    const litBlocks = fresh === null ? null : Math.round(fresh * METER_BLOCKS);
+    const faded = litBlocks !== null && litBlocks < METER_BLOCKS;
 
     return (
         <li>
@@ -118,7 +121,7 @@ export function BoardRow({ event, rank, sats, weight }: BoardRowProps) {
                                                     <span
                                                         key={i}
                                                         className={`h-2 w-1 ${
-                                                            i < Math.round((fresh ?? 0) * METER_BLOCKS)
+                                                            i < (litBlocks ?? 0)
                                                                 ? "bg-current"
                                                                 : "bg-cyan-400/15"
                                                         }`}
