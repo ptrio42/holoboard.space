@@ -18,8 +18,12 @@ export interface LedgerEntry {
     /**
      * What those sats are worth today. The board is ordered by this, not by
      * satsPaid, because a payment fades: see the relay's rank half-life.
+     *
+     * Null when the relay did not send one, which is not the same as zero: a
+     * note paid long enough ago really can be worth nothing, and reading a
+     * missing field as that would draw every row as spent.
      */
-    weight: number;
+    weight: number | null;
     /** Unix seconds of the most recent payment, 0 if somehow never paid. */
     lastPaidAt: number;
     /** 1-based position in the relay's own ranking. */
@@ -55,7 +59,9 @@ function parseEntry(value: unknown): LedgerEntry | null {
     return {
         id: value.id,
         satsPaid: asNumber(value.sats_paid),
-        weight: asNumber(value.weight),
+        weight: typeof value.weight === "number" && Number.isFinite(value.weight)
+            ? value.weight
+            : null,
         lastPaidAt: asNumber(value.last_paid_at),
         rank: asNumber(value.rank),
     };
@@ -95,5 +101,9 @@ export function toSatsMap(ledger: Ledger): SatsMap {
 }
 
 export function toWeightMap(ledger: Ledger): ReadonlyMap<string, number> {
-    return new Map(ledger.entries.map((entry) => [entry.id, entry.weight]));
+    return new Map(
+        ledger.entries
+            .filter((entry): entry is LedgerEntry & { weight: number } => entry.weight !== null)
+            .map((entry) => [entry.id, entry.weight]),
+    );
 }

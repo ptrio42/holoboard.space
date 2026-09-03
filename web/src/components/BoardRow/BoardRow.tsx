@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { NDKEvent } from "@nostr-dev-kit/ndk";
 import { PixelPanel } from "../ui/PixelPanel";
 import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
@@ -36,6 +37,14 @@ const TIERS = [
 ];
 const DEFAULT_TIER = { accent: "rgba(34,211,238,0.32)", glow: undefined, text: "text-cyan-300/60" };
 
+/**
+ * The whole story for a screen reader, which has neither hover nor a bar.
+ */
+function weightLabel(sats: number, weight: number | undefined, faded: boolean): string {
+    if (!faded || typeof weight !== "number") return `${satsLabel(sats)} paid`;
+    return `${satsLabel(sats)} paid, worth ${satsLabel(weight)} today`;
+}
+
 /** "1 sat", but "2 sats" and "2.1k sats". */
 function satsLabel(sats: number): string {
     return `${formatSats(sats)} ${sats === 1 ? "sat" : "sats"}`;
@@ -45,6 +54,8 @@ export function BoardRow({ event, rank, sats, weight }: BoardRowProps) {
     const tier = TIERS[rank - 1] ?? DEFAULT_TIER;
     const created = event.created_at ?? 0;
     const parent = parentOf(event);
+    // Tapped open on a touch screen, which has no hover to ask with.
+    const [showWeight, setShowWeight] = useState(false);
 
     /*
      * How much of what was paid still counts. Shown as a bar rather than a
@@ -80,25 +91,26 @@ export function BoardRow({ event, rank, sats, weight }: BoardRowProps) {
                             <h2 className="min-w-0 text-base font-normal">
                                 <span className="sr-only">
                                     Rank {rank}
-                                    {typeof sats === "number" && `, paid ${satsLabel(sats)}`}
-                                    {faded && `, worth ${satsLabel(weight ?? 0)} today`}, posted by{" "}
+                                    {typeof sats === "number" && `, paid ${satsLabel(sats)}`}, posted by{" "}
                                 </span>
                                 <UserProfileInline pubkey={event.pubkey} />
                             </h2>
                             <div className="flex shrink-0 items-center gap-3">
                                 {typeof sats === "number" && (
-                                    <span className={`group flex items-center gap-2 ${tier.text}`}>
-                                        <span
-                                            className="font-pixel text-[9px] tracking-wider"
-                                            aria-hidden="true"
-                                        >
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowWeight((open) => !open)}
+                                        aria-expanded={showWeight}
+                                        aria-label={weightLabel(sats, weight, faded)}
+                                        className={`focus-pixel group flex items-center gap-2 ${tier.text}`}
+                                    >
+                                        <span className="font-pixel text-[9px] tracking-wider" aria-hidden="true">
                                             {satsLabel(sats)}
                                         </span>
                                         {fresh !== null && (
                                             <>
                                                 <span
                                                     aria-hidden="true"
-                                                    title={`${(weight ?? 0).toLocaleString()} of ${sats.toLocaleString()} sats still counting`}
                                                     className="h-1 w-10 shrink-0 border border-cyan-400/25 bg-void"
                                                 >
                                                     <span
@@ -109,15 +121,15 @@ export function BoardRow({ event, rank, sats, weight }: BoardRowProps) {
                                                 {faded && (
                                                     <span
                                                         aria-hidden="true"
-                                                        className="reveal-on-hover font-pixel text-[9px]
-                                                            text-cyan-300/40 group-hover:inline"
+                                                        className={`font-pixel text-[9px] text-cyan-300/40
+                                                            ${showWeight ? "inline" : "hidden group-hover:inline"}`}
                                                     >
                                                         {formatSats(weight ?? 0)} now
                                                     </span>
                                                 )}
                                             </>
                                         )}
-                                    </span>
+                                    </button>
                                 )}
                                 {created > 0 && (
                                     <time
