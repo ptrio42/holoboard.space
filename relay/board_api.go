@@ -21,7 +21,7 @@ type boardResponse struct {
 // This exists because a nostr event is signed over its own tags, so the relay
 // cannot annotate a stored note with its sats total without invalidating the
 // signature and having every client drop it. The board's entire premise is
-// "rank is total sats", and until this endpoint existed no client could see the
+// "rank is sats, recently paid", and until this endpoint existed no client could see the
 // figure that premise rests on.
 //
 // The tradeoff being made: a generic nostr client still sees only an

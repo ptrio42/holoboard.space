@@ -21,7 +21,7 @@ Relay URL, relay pubkey and the public relay list all come from `VITE_`-prefixed
 
 ## relay
 
-Go 1.22+, khatru, go-nostr. Accepts kind:1 only, serves them sorted by total sats paid, then by last payment time, then by age. Beyond serving queries it also runs three outbound subscriptions against public relays: one for zap receipts addressed to it, one for NIP-04 DMs carrying `PROMOTE` commands, and one for mentions of its own pubkey.
+Go 1.22+, khatru, go-nostr. Accepts kind:1 notes and kind:1111 comments, and serves them ordered by what their payments are worth today: each payment halves in weight every thirty days, so a note nobody pays for slides down rather than sitting on a total it earned once. Beyond serving queries it also runs three outbound subscriptions against public relays: one for zap receipts addressed to it, one for NIP-04 DMs carrying `PROMOTE` commands, and one for mentions of its own pubkey.
 
 ```bash
 cd relay

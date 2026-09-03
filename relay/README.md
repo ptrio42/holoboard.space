@@ -1,13 +1,13 @@
 # Nostr Promotion Board Relay
 
-A custom Nostr relay built with [khatru](https://github.com/fiatjaf/khatru) that implements a paid promotion board for Nostr posts. Posts are ranked and served based on the total sats paid for their promotion.
+A custom Nostr relay built with [khatru](https://github.com/fiatjaf/khatru) that implements a paid promotion board for Nostr posts. Posts are ranked and served by what their payments are worth today: each one halves in weight every thirty days, so a post nobody pays for slides down.
 
 ## Features
 
 - **Kind:1 Events Only**: Only accepts and stores text notes (kind:1 events)
 - **Pay-to-Promote**: Posts must be paid for to be stored and served
 - **Flexible Payment**: Support for both zap-based and invoice-based promotion
-- **Ranked Feed**: Posts sorted by total sats paid, last payment timestamp, and creation time
+- **Ranked Feed**: Posts sorted by the decayed value of their payments, then by total sats paid, last payment timestamp, and creation time
 - **Open Promotion**: Anyone can promote any post, not just the author
 - **Persistent Storage**: JSON-based storage with automatic saves
 

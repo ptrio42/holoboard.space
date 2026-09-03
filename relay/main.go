@@ -356,7 +356,7 @@ func main() {
 	// Setup relay handlers
 	config := RelayConfig{
 		Name:        name,
-		Description: getEnv("RELAY_DESCRIPTION", "A paid promotion relay where posts are ranked by total sats received"),
+		Description: getEnv("RELAY_DESCRIPTION", "A paid promotion relay where posts are ranked by sats, with recent sats counting for more"),
 		RelayPubkey: relayPubkey,
 		Contact:     contact,
 		Icon:        icon,

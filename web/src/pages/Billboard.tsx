@@ -107,7 +107,7 @@ export default function Billboard() {
             </header>
 
             <main id="board" tabIndex={-1}>
-                <h2 className="sr-only">The board, ranked by total sats paid</h2>
+                <h2 className="sr-only">The board, ranked by sats paid, with recent sats counting for more</h2>
 
                 {isOffline && <RelayDown onRetry={retryRelay} />}
                 {isLoading && <LoadingRows />}

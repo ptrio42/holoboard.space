@@ -115,7 +115,8 @@ func SetupRelay(relay *khatru.Relay, storage *Storage, monitor *PaymentMonitor, 
 func CreateInfoEvent(relayPubkey, relayPrivkey string) (*nostr.Event, error) {
 	content := `🚀 Welcome to the Nostr Promotion Board!
 
-This is a paid promotion relay where posts are ranked by total sats received.
+This is a paid promotion relay where posts are ranked by sats. Recent sats count for
+more, so a post nobody pays for slides down the board over time.
 
 📍 How to promote a post:
 
@@ -142,8 +143,8 @@ The relay monitors major relays for zaps and will automatically fetch and promot
 
 💰 Payment Rules:
 - Any post can be promoted by anyone (not just the author)
-- Posts are ranked by total sats paid
-- Multiple payments to the same post increase its ranking
+- Posts are ranked by sats paid, each payment worth less as it ages
+- Multiple payments to the same post increase its ranking, and keep it there
 - The relay actively monitors other relays for zaps
 
 📊 Query this relay to see the top promoted posts!

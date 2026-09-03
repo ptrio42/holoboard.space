@@ -1,9 +1,10 @@
 # holoboard web
 
 The frontend of [holoboard.space](https://holoboard.space): a bulletin board on Nostr where
-rank is total sats paid and nothing else.
+rank is sats, and recent sats count for more.
 
-The relay does the ranking. It serves the board already ordered, so this app renders the notes
+The relay does the ranking, including the decay. It serves the board already ordered along with
+what each note's sats are worth today, so this app renders the notes
 in the order they arrive and adds no sorting of its own. If the relay is unreachable there is
 no board, and the page says so rather than showing an empty list.
 

@@ -6,7 +6,6 @@ import TextRenderer from "../TextRenderer/TextRenderer";
 import { Expandable } from "../ui/Expandable";
 import { formatSats, njumpUrl } from "../../lib/nostr";
 import { parentOf } from "../../lib/parent";
-import { isoDate, timeAgo } from "../../lib/time";
 
 interface BoardRowProps {
     event: NDKEvent;
@@ -52,7 +51,6 @@ function satsLabel(sats: number): string {
 
 export function BoardRow({ event, rank, sats, weight }: BoardRowProps) {
     const tier = TIERS[rank - 1] ?? DEFAULT_TIER;
-    const created = event.created_at ?? 0;
     const parent = parentOf(event);
     // Tapped open on a touch screen, which has no hover to ask with.
     const [showWeight, setShowWeight] = useState(false);
@@ -130,14 +128,6 @@ export function BoardRow({ event, rank, sats, weight }: BoardRowProps) {
                                             </>
                                         )}
                                     </button>
-                                )}
-                                {created > 0 && (
-                                    <time
-                                        dateTime={isoDate(created)}
-                                        className="font-pixel text-[9px] text-cyan-300/35"
-                                    >
-                                        {timeAgo(created)}
-                                    </time>
                                 )}
                             </div>
                         </div>

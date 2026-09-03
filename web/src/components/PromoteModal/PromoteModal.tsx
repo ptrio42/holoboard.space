@@ -75,9 +75,10 @@ export function PromoteModal({ onClose }: PromoteModalProps) {
                         Before you pay
                     </h3>
                     <p className="text-xs leading-relaxed text-cyan-100/70">
-                        Nobody vets what goes up, and rank is sats alone. Spam, scams and anything
-                        illegal come down when we see them. There is no refund, and paying again
-                        will not put a note back.
+                        Nobody vets what goes up. Rank is sats, and recent sats count for more, so
+                        a note nobody pays for slides down. Spam, scams and anything illegal come
+                        down when we see them. There is no refund, and paying again will not put a
+                        note back.
                     </p>
                 </section>
 
@@ -122,7 +123,8 @@ export function PromoteModal({ onClose }: PromoteModalProps) {
                         <p className="leading-relaxed">
                             Point at any note on Nostr. Holoboard mentions it for you, the relay
                             answers with a promotional reply, and zapping that reply is what puts the
-                            note on the board. Rank is total sats, nothing else.
+                            note on the board. Rank is sats, and recent sats count for more, so a note
+                            nobody pays for slides down.
                         </p>
 
                         {!user ? (
