@@ -98,6 +98,11 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 	// fire for a receipt that now passes validation.
 
 	var postID string
+	// Wherever the id came from, the same place said where the note lives.
+	// Losing that between here and the fetch is how a perfectly good reference
+	// ends up reported as a note that does not exist.
+	var hints []string
+	var author string
 
 	// PRIORITY 1: Check if this is a zap to a promotional reply
 	// Look for 'e' tag in zap request to identify the zapped event
@@ -111,9 +116,10 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 
 	if zappedEventID != "" {
 		// Try chain-chasing approach: fetch the zapped event and check if it's a promotional reply
-		promotedNoteID, err := pm.getPromotedNoteFromChain(zappedEventID)
+		promotedNoteID, chainHints, chainAuthor, err := pm.getPromotedNoteFromChain(zappedEventID)
 		if err == nil && promotedNoteID != "" {
 			postID = promotedNoteID
+			hints, author = chainHints, chainAuthor
 			log.Printf("Zap to promotional reply %s -> promoting note %s (via chain)", short(zappedEventID, 8), short(postID, 8))
 		} else if err != nil {
 			log.Printf("Chain-chasing failed for %s: %v, trying storage fallback", short(zappedEventID, 8), err)
@@ -134,14 +140,17 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 		pendingInvoice, exists := pm.storage.GetPendingInvoiceByBolt11(bolt11)
 		if exists {
 			postID = pendingInvoice.PostID
+			hints, author = pendingInvoice.RelayHints, pendingInvoice.Author
 			log.Printf("Matched bolt11 to DM invoice for post %s", short(postID, 8))
 		}
 	}
 
 	// PRIORITY 3: Try extracting from zap comment
 	if postID == "" && zapRequest.Content != "" {
-		postID = extractEventIDFromText(zapRequest.Content)
-		if postID != "" {
+		reference := extractEventIDFromText(zapRequest.Content)
+		if reference != "" {
+			postID = reference
+			hints, author = noteHints(reference)
 			log.Printf("Extracted post ID from zap comment: %s", short(postID, 8))
 		}
 	}
@@ -166,7 +175,7 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 	if !exists {
 		// Fetch the post from other relays
 		log.Printf("Post %s not found locally, fetching from network...", postID)
-		fetchedEvent, err := pm.fetcher.FetchPost(ctx, postID)
+		fetchedEvent, err := pm.fetcher.FetchPostFrom(ctx, postID, hints, author)
 		if err != nil {
 			log.Printf("Failed to fetch post %s: %v", postID, err)
 			return fmt.Errorf("failed to fetch post: %w", err)
@@ -243,13 +252,13 @@ func (pm *PaymentMonitor) ProcessInvoicePayment(paymentHash string, amountSats i
 
 // getPromotedNoteFromChain reconstructs the promotion chain from events
 // Chain: Zap -> Promotional Reply -> Original Mention -> Extract Note ID
-func (pm *PaymentMonitor) getPromotedNoteFromChain(promotionalReplyID string) (string, error) {
+func (pm *PaymentMonitor) getPromotedNoteFromChain(promotionalReplyID string) (string, []string, string, error) {
 	ctx := context.Background()
 
 	// Step 1: Fetch the promotional reply
 	promotionalReply, err := pm.fetchEvent(ctx, promotionalReplyID, []int{1}) // kind:1 notes
 	if err != nil {
-		return "", fmt.Errorf("failed to fetch promotional reply: %w", err)
+		return "", nil, "", fmt.Errorf("failed to fetch promotional reply: %w", err)
 	}
 
 	// Step 2: Extract the mention ID from promotional reply's 'e' tag
@@ -262,7 +271,7 @@ func (pm *PaymentMonitor) getPromotedNoteFromChain(promotionalReplyID string) (s
 	}
 
 	if mentionID == "" {
-		return "", fmt.Errorf("promotional reply has no 'e' tag (no parent mention)")
+		return "", nil, "", fmt.Errorf("promotional reply has no 'e' tag (no parent mention)")
 	}
 
 	log.Printf("Found mention ID %s from promotional reply %s", short(mentionID, 8), short(promotionalReplyID, 8))
@@ -270,21 +279,26 @@ func (pm *PaymentMonitor) getPromotedNoteFromChain(promotionalReplyID string) (s
 	// Step 3: Fetch the original mention
 	mention, err := pm.fetchEvent(ctx, mentionID, []int{1}) // kind:1 notes
 	if err != nil {
-		return "", fmt.Errorf("failed to fetch mention: %w", err)
+		return "", nil, "", fmt.Errorf("failed to fetch mention: %w", err)
 	}
 
 	// Step 4: Extract note ID from mention content
-	noteID := extractEventIDFromText(mention.Content)
-	if noteID == "" {
-		return "", fmt.Errorf("no note ID found in mention content")
+	reference := extractEventIDFromText(mention.Content)
+	if reference == "" {
+		return "", nil, "", fmt.Errorf("no note ID found in mention content")
 	}
+	// The mention is where the person said which note they meant, so it is also
+	// where they said where it lives. Carrying that out of here is what lets a
+	// note off this board's relays survive to settlement.
+	hints, author := noteHints(reference)
+	noteID := reference
 
 	// Normalise before returning, so callers and their log lines see a hex id
 	// rather than a bech32 prefix. Logs used to read "promoting note nevent1q",
 	// which is the same eight useless characters for every note.
 	noteID = normalizeEventID(noteID)
 	log.Printf("Extracted note ID %s from mention content", short(noteID, 8))
-	return noteID, nil
+	return noteID, hints, author, nil
 }
 
 // fetchEvent fetches a single event by ID from configured relays

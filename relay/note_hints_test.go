@@ -101,3 +101,39 @@ func TestInvoiceKeepsTheHints(t *testing.T) {
 		t.Errorf("author = %s, want %s", short(stored.Author, 8), short(author, 8))
 	}
 }
+
+// Every route into the board ends up fetching the note a second time when the
+// payment settles, and each of them has the reference to hand at that point.
+// This pins that they all pass it on, since losing it there is invisible until
+// somebody has already paid.
+func TestEveryPathCarriesHintsToSettlement(t *testing.T) {
+	id := "5555555555555555555555555555555555555555555555555555555555555555"
+	author := "6666666666666666666666666666666666666666666666666666666666666666"
+	relays := []string{"wss://elsewhere.example.com"}
+
+	nevent, err := nip19.EncodeEvent(id, relays, author)
+	if err != nil {
+		t.Fatalf("failed to encode: %v", err)
+	}
+
+	// A zap comment, a mention body and a pasted form all reach noteHints via
+	// extractEventIDFromText, so the extraction has to survive surrounding text.
+	for _, surrounding := range []string{
+		nevent,
+		"nostr:" + nevent,
+		"promote this one please nostr:" + nevent + " thanks",
+		"@holoboard " + nevent,
+	} {
+		extracted := extractEventIDFromText(surrounding)
+		gotRelays, gotAuthor := noteHints(extracted)
+		if len(gotRelays) != 1 || gotRelays[0] != relays[0] {
+			t.Errorf("%.30s lost the relay hint: %v", surrounding, gotRelays)
+		}
+		if gotAuthor != author {
+			t.Errorf("%.30s lost the author", surrounding)
+		}
+		if normalizeEventID(extracted) != id {
+			t.Errorf("%.30s did not resolve to the id", surrounding)
+		}
+	}
+}
