@@ -15,6 +15,11 @@ export interface LedgerEntry {
     id: string;
     /** Everything this note has been paid, in sats. */
     satsPaid: number;
+    /**
+     * What those sats are worth today. The board is ordered by this, not by
+     * satsPaid, because a payment fades: see the relay's rank half-life.
+     */
+    weight: number;
     /** Unix seconds of the most recent payment, 0 if somehow never paid. */
     lastPaidAt: number;
     /** 1-based position in the relay's own ranking. */
@@ -50,6 +55,7 @@ function parseEntry(value: unknown): LedgerEntry | null {
     return {
         id: value.id,
         satsPaid: asNumber(value.sats_paid),
+        weight: asNumber(value.weight),
         lastPaidAt: asNumber(value.last_paid_at),
         rank: asNumber(value.rank),
     };
@@ -86,4 +92,8 @@ export async function fetchLedger(endpoint: string, signal?: AbortSignal): Promi
 
 export function toSatsMap(ledger: Ledger): SatsMap {
     return new Map(ledger.entries.map((entry) => [entry.id, entry.satsPaid]));
+}
+
+export function toWeightMap(ledger: Ledger): ReadonlyMap<string, number> {
+    return new Map(ledger.entries.map((entry) => [entry.id, entry.weight]));
 }

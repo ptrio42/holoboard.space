@@ -12,7 +12,7 @@ import { BOARD_LIMIT, KIND_COMMENT, RELAY_URL, SATS_ENDPOINT } from "../config";
 export default function Billboard() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const { status: relayStatus, retry: retryRelay } = useRelayStatus(RELAY_URL);
-    const { sats, ranks, refresh: refreshSats } = useSatsMap(SATS_ENDPOINT);
+    const { sats, ranks, weights, refresh: refreshSats } = useSatsMap(SATS_ENDPOINT);
 
     /*
      * The relay does the ranking and returns the board already ordered, so the
@@ -95,8 +95,8 @@ export default function Billboard() {
                         HOLOBOARD
                     </h1>
                     <p className="mx-auto max-w-xl text-xs leading-relaxed text-cyan-200/70 sm:text-sm">
-                        A bulletin board where the only ranking signal is sats. Pay to push any note
-                        up the list. Pay more, sit higher. That is the whole rule.
+                        A bulletin board where the only ranking signal is sats. Recent sats count
+                        for more, so a note nobody pays for slides down the list.
                     </p>
                     <div className="flex justify-center">
                         <PixelButton size="lg" variant="accent" onClick={() => setIsModalOpen(true)}>
@@ -121,6 +121,7 @@ export default function Billboard() {
                                 event={event}
                                 rank={index + 1}
                                 sats={sats.get(event.id)}
+                                weight={weights.get(event.id)}
                             />
                         ))}
                     </ul>

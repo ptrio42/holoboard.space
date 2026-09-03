@@ -237,6 +237,22 @@ body::after {
     border: 2px solid rgba(34, 211, 238, 0.35);
 }
 
+/*
+ * The figure behind the freshness bar. Hidden where a pointer can ask for it by
+ * hovering, always visible where one cannot: a touch screen has no hover, and
+ * `title` does not survive there either, so anything that only appears on hover
+ * simply does not exist on a phone.
+ */
+.reveal-on-hover {
+    display: none;
+}
+
+@media (hover: none) {
+    .reveal-on-hover {
+        display: inline;
+    }
+}
+
 .note-body video {
     display: block;
     max-width: 100%;

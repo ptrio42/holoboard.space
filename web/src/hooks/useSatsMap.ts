@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchLedger, toSatsMap, type SatsMap } from "../lib/sats";
+import { fetchLedger, toSatsMap, toWeightMap, type SatsMap } from "../lib/sats";
 
 const REFRESH_MS = 15_000;
 
@@ -11,6 +11,8 @@ interface SatsState {
     sats: SatsMap;
     /** Event id to the relay's own 1-based rank for it. */
     ranks: ReadonlyMap<string, number>;
+    /** Event id to what its sats are worth today, which is what sets the rank. */
+    weights: ReadonlyMap<string, number>;
     /** Everything the board has taken, or null before the first answer. */
     totalSats: number | null;
 }
@@ -36,6 +38,7 @@ export function useSatsMap(endpoint: string): SatsResult {
     const [state, setState] = useState<SatsState>({
         sats: EMPTY,
         ranks: EMPTY_RANKS,
+        weights: EMPTY_RANKS,
         totalSats: null,
     });
     // Bumped to ask again out of band, when a note arrives that the ledger has
@@ -57,6 +60,7 @@ export function useSatsMap(endpoint: string): SatsResult {
                 setState({
                     sats: toSatsMap(ledger),
                     ranks: new Map(ledger.entries.map((e) => [e.id, e.rank])),
+                    weights: toWeightMap(ledger),
                     totalSats: ledger.totalSats,
                 });
             } catch {

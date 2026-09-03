@@ -16,6 +16,12 @@ interface BoardRowProps {
      * note on this board was paid for, that is how it got here.
      */
     sats?: number;
+    /**
+     * What those sats are worth today. The board is ordered by this rather than
+     * by sats, because a payment fades, so a note with fewer sats can sit
+     * higher. Undefined means the ledger has not answered yet.
+     */
+    weight?: number;
 }
 
 /**
@@ -35,10 +41,22 @@ function satsLabel(sats: number): string {
     return `${formatSats(sats)} ${sats === 1 ? "sat" : "sats"}`;
 }
 
-export function BoardRow({ event, rank, sats }: BoardRowProps) {
+export function BoardRow({ event, rank, sats, weight }: BoardRowProps) {
     const tier = TIERS[rank - 1] ?? DEFAULT_TIER;
     const created = event.created_at ?? 0;
     const parent = parentOf(event);
+
+    /*
+     * How much of what was paid still counts. Shown as a bar rather than a
+     * second number, because the bar answers "why is this here" at a glance and
+     * a number would need explaining. The figures behind it stay in the markup
+     * for anyone who wants them, and for a screen reader, which has no hover.
+     */
+    const fresh = typeof sats === "number" && typeof weight === "number" && sats > 0
+        ? Math.max(0, Math.min(1, weight / sats))
+        : null;
+    // Below this the two numbers are the same number and saying both is noise.
+    const faded = fresh !== null && fresh < 0.95;
 
     return (
         <li>
@@ -62,18 +80,43 @@ export function BoardRow({ event, rank, sats }: BoardRowProps) {
                             <h2 className="min-w-0 text-base font-normal">
                                 <span className="sr-only">
                                     Rank {rank}
-                                    {typeof sats === "number" && `, paid ${satsLabel(sats)}`}, posted by{" "}
+                                    {typeof sats === "number" && `, paid ${satsLabel(sats)}`}
+                                    {faded && `, worth ${satsLabel(weight ?? 0)} today`}, posted by{" "}
                                 </span>
                                 <UserProfileInline pubkey={event.pubkey} />
                             </h2>
                             <div className="flex shrink-0 items-center gap-3">
                                 {typeof sats === "number" && (
-                                    <span
-                                        className={`font-pixel text-[9px] tracking-wider ${tier.text}`}
-                                        title={`${sats.toLocaleString()} sats paid`}
-                                        aria-hidden="true"
-                                    >
-                                        {satsLabel(sats)}
+                                    <span className={`group flex items-center gap-2 ${tier.text}`}>
+                                        <span
+                                            className="font-pixel text-[9px] tracking-wider"
+                                            aria-hidden="true"
+                                        >
+                                            {satsLabel(sats)}
+                                        </span>
+                                        {fresh !== null && (
+                                            <>
+                                                <span
+                                                    aria-hidden="true"
+                                                    title={`${(weight ?? 0).toLocaleString()} of ${sats.toLocaleString()} sats still counting`}
+                                                    className="h-1 w-10 shrink-0 border border-cyan-400/25 bg-void"
+                                                >
+                                                    <span
+                                                        className="block h-full bg-current opacity-70"
+                                                        style={{ width: `${Math.round(fresh * 100)}%` }}
+                                                    />
+                                                </span>
+                                                {faded && (
+                                                    <span
+                                                        aria-hidden="true"
+                                                        className="reveal-on-hover font-pixel text-[9px]
+                                                            text-cyan-300/40 group-hover:inline"
+                                                    >
+                                                        {formatSats(weight ?? 0)} now
+                                                    </span>
+                                                )}
+                                            </>
+                                        )}
                                     </span>
                                 )}
                                 {created > 0 && (

@@ -258,10 +258,15 @@ func rankLessAt(a, b *PromotedPost, now time.Time) bool {
 
 // LedgerEntry is what one note has been paid, as served to clients.
 type LedgerEntry struct {
-	ID         string `json:"id"`
-	SatsPaid   int64  `json:"sats_paid"`
-	LastPaidAt int64  `json:"last_paid_at"` // unix seconds, 0 if never
-	Rank       int    `json:"rank"`         // 1-based, matching the served order
+	ID       string `json:"id"`
+	SatsPaid int64  `json:"sats_paid"`
+	// Weight is what those sats are worth today, which is what the order is
+	// actually built from. Served because a list sorted by a number nobody can
+	// see is a list nobody can check: without it a note with fewer sats sitting
+	// higher reads as a bug rather than as an old note giving way to a new one.
+	Weight     int64 `json:"weight"`
+	LastPaidAt int64 `json:"last_paid_at"` // unix seconds, 0 if never
+	Rank       int   `json:"rank"`         // 1-based, matching the served order
 }
 
 // Ledger returns every promoted note with what it has been paid, in board
@@ -276,7 +281,10 @@ func (s *Storage) Ledger() []LedgerEntry {
 	for _, post := range s.posts {
 		posts = append(posts, post)
 	}
-	sort.Slice(posts, func(i, j int) bool { return rankLess(posts[i], posts[j]) })
+	// One clock for the whole listing, so the order and the weights beside it
+	// describe the same moment.
+	now := time.Now()
+	sort.Slice(posts, func(i, j int) bool { return rankLessAt(posts[i], posts[j], now) })
 
 	entries := make([]LedgerEntry, 0, len(posts))
 	for i, post := range posts {
@@ -287,6 +295,7 @@ func (s *Storage) Ledger() []LedgerEntry {
 		entries = append(entries, LedgerEntry{
 			ID:         post.PostID,
 			SatsPaid:   post.TotalSatsPaid,
+			Weight:     int64(math.Round(post.score(now))),
 			LastPaidAt: lastPaid,
 			Rank:       i + 1,
 		})
