@@ -35,7 +35,7 @@ const TIERS = [
     { accent: "#ec4899", glow: "rgba(236,72,153,0.28)", text: "text-neon-pink" },
 ];
 /** Blocks in the fade meter. Coarse on purpose: it is read, not measured. */
-const METER_BLOCKS = 8;
+const METER_BLOCKS = 5;
 
 const DEFAULT_TIER = { accent: "rgba(34,211,238,0.32)", glow: undefined, text: "text-cyan-300/60" };
 
@@ -123,19 +123,21 @@ export function BoardRow({ event, rank, sats, weight }: BoardRowProps) {
                                                         className={`h-2 w-1 ${
                                                             i < (litBlocks ?? 0)
                                                                 ? "bg-current"
-                                                                : "bg-cyan-400/15"
+                                                                : "bg-cyan-400/30"
                                                         }`}
                                                     />
                                                 ))}
                                             </span>
                                         )}
 
-                                        {/* Above rather than beside, so the row does not grow a
-                                            second column of numbers that is usually not there. */}
+                                        {/* Under the cluster rather than beside it, so the row does
+                                            not grow a second column of numbers that is usually not
+                                            there, and not above it: the header sits against the top
+                                            of the panel, with no room to put anything over it. */}
                                         {faded && (
                                             <span
                                                 role="tooltip"
-                                                className={`pointer-events-none absolute bottom-full right-0 z-10 mb-2
+                                                className={`pointer-events-none absolute top-full right-0 z-10 mt-2
                                                     border-2 border-cyan-400/40 bg-void px-2 py-1 font-pixel
                                                     text-[9px] whitespace-nowrap text-cyan-200/90
                                                     ${showWeight ? "block" : "hidden group-hover:block"}`}
