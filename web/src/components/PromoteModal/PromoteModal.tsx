@@ -50,7 +50,12 @@ export function PromoteModal({ onClose, openSection }: PromoteModalProps) {
     useEffect(() => {
         if (openSection !== RANKING_SECTION) return;
         setRankingOpen(true);
-        rankingRef.current?.scrollIntoView({ block: "center" });
+        // After the next paint. The dialog's scroll container has not been laid
+        // out when this first runs, so scrolling now moves nothing.
+        const frame = requestAnimationFrame(() =>
+            rankingRef.current?.scrollIntoView({ block: "center" }),
+        );
+        return () => cancelAnimationFrame(frame);
     }, [openSection]);
 
     const busy = state.stage === "publishing" || state.stage === "awaiting-reply";
