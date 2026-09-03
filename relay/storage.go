@@ -29,6 +29,12 @@ type PendingInvoice struct {
 	AmountSats  int64     `json:"amount_sats"`
 	CreatedAt   time.Time `json:"created_at"`
 	ExpiresAt   time.Time `json:"expires_at"`
+	// Where the note was said to live, and who wrote it. Kept because the note
+	// is fetched again when the invoice settles, and by then the reference the
+	// person pasted is long gone; without these, a note findable before payment
+	// can be unfindable after it.
+	RelayHints []string `json:"relay_hints,omitempty"`
+	Author     string   `json:"author,omitempty"`
 }
 
 // Storage manages promoted posts and pending invoices

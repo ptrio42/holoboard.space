@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -209,7 +211,7 @@ func (pm *PaymentMonitor) ProcessInvoicePayment(paymentHash string, amountSats i
 
 	ctx := context.Background()
 	if !exists {
-		fetchedEvent, err := pm.fetcher.FetchPost(ctx, invoice.PostID)
+		fetchedEvent, err := pm.fetcher.FetchPostFrom(ctx, invoice.PostID, invoice.RelayHints, invoice.Author)
 		if err != nil {
 			return fmt.Errorf("failed to fetch post: %w", err)
 		}
@@ -353,44 +355,150 @@ func (pf *PostFetcher) Relays() []string {
 	return pf.relays
 }
 
-// FetchPost fetches a post by ID from configured relays
+// FetchPost fetches a post by ID from the configured relays.
 func (pf *PostFetcher) FetchPost(ctx context.Context, postID string) (*nostr.Event, error) {
-	if len(pf.relays) == 0 {
+	return pf.FetchPostFrom(ctx, postID, nil, "")
+}
+
+// FetchPostFrom looks for a note on the relays it was pointed at as well as the
+// configured ones, and asks them all at once.
+//
+// Both halves of that matter. An nevent carries relay hints and an author for
+// exactly this reason, and throwing them away means refusing to look where the
+// person who handed you the reference said to look; a note that lives nowhere
+// near this board's five relays was simply declared not to exist. And querying
+// in turn meant one slow relay could spend the whole budget before the others
+// were tried, so a note that was findable still was not found.
+//
+// When the hints and the configured relays both come up empty and an author is
+// known, their own write relays are the last place worth asking: that is where
+// they publish, whatever anybody else happens to carry.
+func (pf *PostFetcher) FetchPostFrom(ctx context.Context, postID string, hints []string, author string) (*nostr.Event, error) {
+	candidates := dedupe(append(append([]string{}, hints...), pf.relays...))
+	if len(candidates) == 0 && author == "" {
 		return nil, fmt.Errorf("no relays configured for fetching")
 	}
 
-	// Create a filter for this specific event
-	filters := []nostr.Filter{
-		{
-			IDs:   []string{postID},
-			Kinds: []int{1},
-			Limit: 1,
-		},
+	if event := queryAll(ctx, candidates, postID); event != nil {
+		return event, nil
 	}
 
-	// Try to fetch from each relay
-	for _, relayURL := range pf.relays {
-		relay, err := nostr.RelayConnect(ctx, relayURL)
-		if err != nil {
-			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
-			continue
-		}
-
-		events, err := relay.QuerySync(ctx, filters[0])
-		relay.Close()
-
-		if err != nil {
-			log.Printf("Failed to query relay %s: %v", relayURL, err)
-			continue
-		}
-
-		if len(events) > 0 {
-			log.Printf("Found post %s on relay %s", postID, relayURL)
-			return events[0], nil
+	if author != "" {
+		if writeRelays := authorWriteRelays(ctx, author, candidates); len(writeRelays) > 0 {
+			log.Printf("Looking for %s on %s's own relays", short(postID, 8), short(author, 8))
+			if event := queryAll(ctx, writeRelays, postID); event != nil {
+				return event, nil
+			}
 		}
 	}
 
 	return nil, fmt.Errorf("post %s not found on any relay", postID)
+}
+
+// queryAll asks every relay at once and takes the first answer.
+func queryAll(ctx context.Context, relays []string, postID string) *nostr.Event {
+	if len(relays) == 0 {
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	filter := nostr.Filter{IDs: []string{postID}, Kinds: []int{1}, Limit: 1}
+	found := make(chan *nostr.Event, len(relays))
+
+	var wg sync.WaitGroup
+	for _, url := range relays {
+		wg.Add(1)
+		go func(url string) {
+			defer wg.Done()
+
+			relay, err := nostr.RelayConnect(ctx, url)
+			if err != nil {
+				return
+			}
+			defer relay.Close()
+
+			events, err := relay.QuerySync(ctx, filter)
+			if err != nil || len(events) == 0 {
+				return
+			}
+			log.Printf("Found post %s on relay %s", short(postID, 8), url)
+			select {
+			case found <- events[0]:
+			default:
+			}
+		}(url)
+	}
+
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+
+	select {
+	case event := <-found:
+		return event
+	case <-done:
+		select {
+		case event := <-found:
+			return event
+		default:
+			return nil
+		}
+	case <-ctx.Done():
+		return nil
+	}
+}
+
+// authorWriteRelays reads where somebody publishes, from their NIP-65 list.
+func authorWriteRelays(ctx context.Context, author string, searchOn []string) []string {
+	ctx, cancel := context.WithTimeout(ctx, 6*time.Second)
+	defer cancel()
+
+	sources := dedupe(append(append([]string{}, discoveryRelays...), searchOn...))
+
+	var mu sync.Mutex
+	var newest *nostr.Event
+
+	var wg sync.WaitGroup
+	for _, url := range sources {
+		wg.Add(1)
+		go func(url string) {
+			defer wg.Done()
+
+			relay, err := nostr.RelayConnect(ctx, url)
+			if err != nil {
+				return
+			}
+			defer relay.Close()
+
+			found, err := relay.QuerySync(ctx, nostr.Filter{
+				Kinds: []int{kindRelayList}, Authors: []string{author}, Limit: 1,
+			})
+			if err != nil || len(found) == 0 {
+				return
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			if newest == nil || found[0].CreatedAt > newest.CreatedAt {
+				newest = found[0]
+			}
+		}(url)
+	}
+	wg.Wait()
+
+	if newest == nil {
+		return nil
+	}
+
+	var writes []string
+	for _, tag := range newest.Tags {
+		// NIP-65: an r tag with no marker is both read and write.
+		if len(tag) >= 2 && tag[0] == "r" && (len(tag) < 3 || tag[2] == "write") {
+			writes = append(writes, tag[1])
+		}
+	}
+	return writes
 }
 
 // extractEventIDFromText extracts event IDs from text content
@@ -529,4 +637,24 @@ func extractDescriptionFromBolt11(bolt11 string) string {
 	}
 
 	return ""
+}
+
+// noteHints pulls the relay hints and author out of an nevent, which is what
+// they are there for. A note1 or a bare hex id carries neither.
+func noteHints(reference string) (relays []string, author string) {
+	trimmed := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(reference), "nostr:"))
+	if !strings.HasPrefix(trimmed, "nevent1") {
+		return nil, ""
+	}
+
+	prefix, value, err := nip19.Decode(trimmed)
+	if err != nil || prefix != "nevent" {
+		return nil, ""
+	}
+
+	pointer, ok := value.(nostr.EventPointer)
+	if !ok {
+		return nil, ""
+	}
+	return pointer.Relays, pointer.Author
 }

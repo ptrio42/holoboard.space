@@ -335,7 +335,8 @@ func (dm *DMMonitor) handleCommand(ctx context.Context, sender, text, replyTo st
 		log.Printf("PROMOTE request from %s for post %s (amount: %d sats)",
 			short(sender, 8), short(postID, 8), amount)
 
-		invoice, err := dm.invoiceManager.GeneratePromotionInvoice(ctx, postID, amount)
+		hints, author := noteHints(extractEventIDFromText(text))
+		invoice, err := dm.invoiceManager.GeneratePromotionInvoice(ctx, postID, amount, hints, author)
 		if err != nil {
 			log.Printf("Failed to generate invoice: %v", err)
 			return err
@@ -482,17 +483,10 @@ func (dm *DMMonitor) signAuth(authEvent *nostr.Event) error {
 }
 
 func (dm *DMMonitor) publish(ctx context.Context, event *nostr.Event, recipientPubkey string, targets []string) error {
-	pool := nostr.NewSimplePool(ctx, nostr.WithAuthHandler(dm.signAuth))
-
 	successes := 0
-	for _, relayURL := range targets {
-		relay, err := pool.EnsureRelay(relayURL)
-		if err != nil {
-			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
-			continue
-		}
-		if err := relay.Publish(ctx, *event); err != nil {
-			log.Printf("Failed to publish reply to %s: %v", relayURL, err)
+	for _, url := range targets {
+		if err := dm.publishTo(ctx, url, event); err != nil {
+			log.Printf("Failed to publish reply to %s: %v", url, err)
 			continue
 		}
 		successes++
@@ -505,4 +499,34 @@ func (dm *DMMonitor) publish(ctx context.Context, event *nostr.Event, recipientP
 	log.Printf("Reply sent to %s (%d/%d of their inbox relays)",
 		short(recipientPubkey, 8), successes, len(targets))
 	return nil
+}
+
+// publishTo sends one event to one relay, authenticating when asked.
+//
+// The pool's auth handler only answers a CLOSED on a subscription; a relay that
+// wants AUTH before it will accept a write says so in the response to the write
+// itself. Without this, delivering to a relay that protects direct messages
+// fails on exactly the relays most worth delivering to.
+func (dm *DMMonitor) publishTo(ctx context.Context, url string, event *nostr.Event) error {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+
+	relay, err := nostr.RelayConnect(ctx, url)
+	if err != nil {
+		return err
+	}
+	defer relay.Close()
+
+	err = relay.Publish(ctx, *event)
+	if err == nil {
+		return nil
+	}
+	if !strings.Contains(err.Error(), "auth-required") {
+		return err
+	}
+
+	if authErr := relay.Auth(ctx, dm.signAuth); authErr != nil {
+		return fmt.Errorf("relay wanted auth and refused it: %w", authErr)
+	}
+	return relay.Publish(ctx, *event)
 }

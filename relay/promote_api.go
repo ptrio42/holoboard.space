@@ -40,9 +40,10 @@ const (
 	promoteBurst  = 20
 	promoteWindow = 10 * time.Minute
 
-	// Short on purpose. A note nobody can find should say so quickly; hanging
-	// for fifteen seconds looks like a broken page rather than a wrong note.
-	promoteFetchTimeout = 6 * time.Second
+	// The relays are asked all at once, so this is a bound on the whole search
+	// rather than on each hop, and it has to leave room for the second pass
+	// that asks the author's own relays when the first finds nothing.
+	promoteFetchTimeout = 15 * time.Second
 
 	// Bounds the wallet call. Without it a slow wallet races the server's write
 	// timeout, and losing that race looks like a 502 with no explanation rather
@@ -197,6 +198,13 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 			return
 		}
 
+		// Read once, used twice: to find the note now, and to find it again
+		// when the invoice settles.
+		hints, author := noteHints(req.Note)
+		if len(hints) == 0 && author == "" {
+			hints, author = noteHints(extractEventIDFromText(req.Note))
+		}
+
 		amount := req.AmountSats
 		if amount == 0 {
 			amount = invoices.defaultAmountSats
@@ -221,7 +229,9 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 			ctx, cancel := context.WithTimeout(r.Context(), promoteFetchTimeout)
 			defer cancel()
 
-			note, err := fetcher.FetchPost(ctx, noteID)
+			// An nevent names relays and an author precisely so a reader does
+			// not have to already know where the note lives.
+			note, err := fetcher.FetchPostFrom(ctx, noteID, hints, author)
 			if err != nil {
 				writeError(w, http.StatusNotFound,
 					"could not find that note on any relay this board watches")
@@ -247,7 +257,7 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 		mintCtx, cancelMint := context.WithTimeout(r.Context(), promoteMintTimeout)
 		defer cancelMint()
 
-		invoice, err := invoices.GeneratePromotionInvoice(mintCtx, noteID, amount)
+		invoice, err := invoices.GeneratePromotionInvoice(mintCtx, noteID, amount, hints, author)
 		if err != nil {
 			log.Printf("Failed to mint a promotion invoice for %s: %v", short(noteID, 8), err)
 			writeError(w, http.StatusBadGateway, "the wallet would not issue an invoice")

@@ -125,7 +125,7 @@ func NewInvoiceManager(backend LightningBackend, storage *Storage, monitor *Paym
 
 // GeneratePromotionInvoice generates an invoice for promoting a post
 // If amountSats is 0, uses the default amount
-func (im *InvoiceManager) GeneratePromotionInvoice(ctx context.Context, postID string, amountSats int64) (*Invoice, error) {
+func (im *InvoiceManager) GeneratePromotionInvoice(ctx context.Context, postID string, amountSats int64, hints []string, author string) (*Invoice, error) {
 	// Use default amount if not specified
 	if amountSats == 0 {
 		amountSats = im.defaultAmountSats
@@ -146,6 +146,8 @@ func (im *InvoiceManager) GeneratePromotionInvoice(ctx context.Context, postID s
 		AmountSats:  invoice.AmountSats,
 		CreatedAt:   time.Now(),
 		ExpiresAt:   invoice.ExpiresAt, // Set expiry from backend
+		RelayHints:  hints,
+		Author:      author,
 	}
 
 	if err := im.storage.AddPendingInvoice(pendingInvoice); err != nil {

@@ -99,7 +99,8 @@ func (mm *MentionMonitor) ProcessMention(ctx context.Context, mentionEvent *nost
 
 	// Fetch the note to validate it exists
 	log.Printf("Fetching note %s to validate...", short(noteID, 8))
-	noteToPromote, err := mm.fetcher.FetchPost(ctx, noteID)
+	hints, author := noteHints(extractEventIDFromText(mentionEvent.Content))
+	noteToPromote, err := mm.fetcher.FetchPostFrom(ctx, noteID, hints, author)
 	if err != nil {
 		log.Printf("Failed to fetch note %s: %v", noteID, err)
 		return mm.SendErrorReply(ctx, mentionEvent, fmt.Sprintf("Could not find note %s. Please check the note ID.", short(noteID, 16)))
