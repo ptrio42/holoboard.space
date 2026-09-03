@@ -182,8 +182,8 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 		}
 
 		// Verify it's a kind:1 event
-		if fetchedEvent.Kind != 1 {
-			return fmt.Errorf("event %s is not kind:1 (got kind:%d)", postID, fetchedEvent.Kind)
+		if !isPromotable(fetchedEvent.Kind) {
+			return fmt.Errorf("event %s is kind:%d, which this board does not rank", postID, fetchedEvent.Kind)
 		}
 
 		// Store with payment
@@ -225,8 +225,8 @@ func (pm *PaymentMonitor) ProcessInvoicePayment(paymentHash string, amountSats i
 			return fmt.Errorf("failed to fetch post: %w", err)
 		}
 
-		if fetchedEvent.Kind != 1 {
-			return fmt.Errorf("event is not kind:1")
+		if !isPromotable(fetchedEvent.Kind) {
+			return fmt.Errorf("event is kind:%d, which this board does not rank", fetchedEvent.Kind)
 		}
 
 		// Store with payment

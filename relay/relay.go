@@ -31,18 +31,18 @@ func SetupRelay(relay *khatru.Relay, storage *Storage, monitor *PaymentMonitor, 
 	// khatru appends 9 itself whenever a DeleteEvent hook is registered
 	// (nip11.go:13), and it does not deduplicate, so listing it here served the
 	// document with 9 in it twice.
-	relay.Info.SupportedNIPs = []int{1, 11, 57}
+	relay.Info.SupportedNIPs = []int{1, 11, 22, 57}
 
-	// RejectEvent: Accept kind:1 (posts) and kind:9735 (zap receipts)
+	// RejectEvent: accept kind:1 notes, kind:1111 comments and kind:9735 receipts
 	relay.RejectEvent = append(relay.RejectEvent, func(ctx context.Context, event *nostr.Event) (bool, string) {
 		// Accept zap receipts (for payment processing)
 		if event.Kind == 9735 {
 			return false, ""
 		}
 
-		// Only accept kind:1 events for storage
-		if event.Kind != 1 {
-			return true, "relay only accepts kind:1 events and kind:9735 zap receipts"
+		// Text notes and comments; zap receipts were handled above.
+		if !isPromotable(event.Kind) {
+			return true, "relay only accepts kind:1 notes, kind:1111 comments and kind:9735 zap receipts"
 		}
 
 		// Check if this event has already been paid for

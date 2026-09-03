@@ -237,9 +237,9 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 					"could not find that note on any relay this board watches")
 				return
 			}
-			if note.Kind != 1 {
+			if !isPromotable(note.Kind) {
 				writeError(w, http.StatusBadRequest, fmt.Sprintf(
-					"that is a kind %d event, and this board only takes text notes (kind 1)",
+					"that is a kind %d event, and this board takes text notes and comments",
 					note.Kind))
 				return
 			}

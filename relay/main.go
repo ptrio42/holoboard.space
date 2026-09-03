@@ -229,6 +229,18 @@ func main() {
 	}
 
 	// Start DM monitor to listen for PROMOTE commands via DM
+	// How fast a payment stops counting. Long enough that a note is not
+	// punished for a quiet week, short enough that a board nobody is paying for
+	// drains rather than fossilises.
+	if days := getEnv("RANK_HALF_LIFE_DAYS", ""); days != "" {
+		parsed, err := strconv.ParseFloat(days, 64)
+		if err != nil || parsed <= 0 {
+			log.Fatalf("Invalid RANK_HALF_LIFE_DAYS: %s", days)
+		}
+		rankHalfLife = time.Duration(parsed * float64(24*time.Hour))
+	}
+	log.Printf("Rank half-life: %s", rankHalfLife)
+
 	// One pubkey may take a note off the board, by DM. Accepts an npub or hex;
 	// an unparseable value is fatal rather than silently leaving nobody in
 	// charge, because that failure would only show up when it mattered.

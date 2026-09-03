@@ -107,7 +107,7 @@ func (mm *MentionMonitor) ProcessMention(ctx context.Context, mentionEvent *nost
 	}
 
 	// Verify it's a kind:1 event
-	if noteToPromote.Kind != 1 {
+	if !isPromotable(noteToPromote.Kind) {
 		return mm.SendErrorReply(ctx, mentionEvent, "Only text notes (kind:1) can be promoted.")
 	}
 

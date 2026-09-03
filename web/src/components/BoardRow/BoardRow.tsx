@@ -4,6 +4,7 @@ import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
 import TextRenderer from "../TextRenderer/TextRenderer";
 import { Expandable } from "../ui/Expandable";
 import { formatSats, njumpUrl } from "../../lib/nostr";
+import { parentOf } from "../../lib/parent";
 import { isoDate, timeAgo } from "../../lib/time";
 
 interface BoardRowProps {
@@ -37,6 +38,7 @@ function satsLabel(sats: number): string {
 export function BoardRow({ event, rank, sats }: BoardRowProps) {
     const tier = TIERS[rank - 1] ?? DEFAULT_TIER;
     const created = event.created_at ?? 0;
+    const parent = parentOf(event);
 
     return (
         <li>
@@ -91,15 +93,30 @@ export function BoardRow({ event, rank, sats }: BoardRowProps) {
                             </Expandable>
                         </div>
 
-                        <a
-                            href={njumpUrl(event.id, "note")}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="focus-pixel inline-block font-pixel text-[9px] tracking-widest
-                                text-cyan-300/40 hover:text-neon-cyan"
-                        >
-                            Open note
-                        </a>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                            <a
+                                href={njumpUrl(event.id, "note")}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="focus-pixel inline-block font-pixel text-[9px] tracking-widest
+                                    text-cyan-300/40 hover:text-neon-cyan"
+                            >
+                                Open note
+                            </a>
+                            {/* Without this a comment reads as somebody talking
+                                to nobody, since what it answers is not here. */}
+                            {parent && (
+                                <a
+                                    href={parent.href}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="focus-pixel inline-block font-pixel text-[9px] tracking-widest
+                                        text-cyan-300/40 hover:text-neon-cyan"
+                                >
+                                    {parent.label} &gt;
+                                </a>
+                            )}
+                        </div>
                     </div>
                 </article>
             </PixelPanel>

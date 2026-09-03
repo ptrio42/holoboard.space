@@ -70,3 +70,6 @@ export const BOARD_LIMIT = Number(import.meta.env.VITE_BOARD_LIMIT ?? 50);
 
 /** Amounts offered in the zap step, in sats. */
 export const ZAP_PRESETS = [21, 210, 2_100, 21_000];
+
+/** NIP-22 comment. Ranked alongside plain notes; see the board subscription. */
+export const KIND_COMMENT = 1111;

@@ -7,7 +7,7 @@ import { PixelButton } from "../components/ui/PixelButton";
 import { PixelPanel } from "../components/ui/PixelPanel";
 import { useRelayStatus } from "../hooks/useRelayStatus";
 import { useSatsMap } from "../hooks/useSatsMap";
-import { BOARD_LIMIT, RELAY_URL, SATS_ENDPOINT } from "../config";
+import { BOARD_LIMIT, KIND_COMMENT, RELAY_URL, SATS_ENDPOINT } from "../config";
 
 export default function Billboard() {
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -27,7 +27,11 @@ export default function Billboard() {
      * whatever order IndexedDB feels like, which reshuffles the ranking.
      */
     const { events, eose } = useSubscribe(
-        [{ kinds: [NDKKind.Text], limit: BOARD_LIMIT }],
+        // Comments as well as notes. NIP-22 gives a kind:1111 the same plain
+        // text content a kind:1 has, and the board already carried replies
+        // written as kind:1, so drawing the line at the kind number excluded
+        // nothing a reader would have noticed.
+        [{ kinds: [NDKKind.Text, KIND_COMMENT], limit: BOARD_LIMIT }],
         {
             subId: "board",
             relayUrls: [RELAY_URL],

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,12 +14,55 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
+// Payment is one sum paid for one note, at one moment.
+//
+// Kept individually because ranking decays each payment from its own date. A
+// single figure with a last-paid date cannot express that, and using one would
+// hand anybody a way to refresh a large old total by paying a single sat.
+type Payment struct {
+	Sats int64     `json:"sats"`
+	At   time.Time `json:"at"`
+}
+
 // PromotedPost represents a paid post stored in the relay
 type PromotedPost struct {
 	PostID               string       `json:"post_id"`
 	Event                *nostr.Event `json:"event"`
 	TotalSatsPaid        int64        `json:"total_sats_paid"`
 	LastPaymentTimestamp time.Time    `json:"last_payment_timestamp"`
+	// Payments is the history TotalSatsPaid is the sum of. Posts stored before
+	// this existed have none, and are treated as a single payment on their last
+	// payment date.
+	Payments []Payment `json:"payments,omitempty"`
+}
+
+// rankHalfLife is how long it takes a payment to count for half of what it did.
+//
+// The board is a place people pay to be seen, and without this the only way to
+// move is to out-pay everything ever paid before you, so the top silts up with
+// whoever got there first and nobody after them can afford the climb. Sats do
+// not stop having been paid; they stop being recent.
+var rankHalfLife = 30 * 24 * time.Hour
+
+// score is what the board actually orders by: every payment, each faded by its
+// own age. The number of sats paid is reported unchanged, because that is a
+// fact and this is an opinion about it.
+func (p *PromotedPost) score(now time.Time) float64 {
+	history := p.Payments
+	if len(history) == 0 {
+		// Everything paid before the history existed, dated as one payment.
+		history = []Payment{{Sats: p.TotalSatsPaid, At: p.LastPaymentTimestamp}}
+	}
+
+	var total float64
+	for _, payment := range history {
+		age := now.Sub(payment.At)
+		if age < 0 {
+			age = 0
+		}
+		total += float64(payment.Sats) * math.Pow(0.5, age.Seconds()/rankHalfLife.Seconds())
+	}
+	return total
 }
 
 // PendingInvoice tracks invoices generated for PROMOTE requests
@@ -93,6 +137,7 @@ func (s *Storage) AddPayment(postID string, amountSats int64, event *nostr.Event
 		// Update existing post
 		post.TotalSatsPaid += amountSats
 		post.LastPaymentTimestamp = time.Now()
+		post.Payments = append(post.Payments, Payment{Sats: amountSats, At: post.LastPaymentTimestamp})
 		fmt.Printf("📈 Updated post %s: +%d sats (total: %d sats)\n",
 			short(postID, 8), amountSats, post.TotalSatsPaid)
 	} else {
@@ -100,11 +145,13 @@ func (s *Storage) AddPayment(postID string, amountSats int64, event *nostr.Event
 		if event == nil {
 			return fmt.Errorf("cannot create new post without event")
 		}
+		now := time.Now()
 		post = &PromotedPost{
 			PostID:               postID,
 			Event:                event,
 			TotalSatsPaid:        amountSats,
-			LastPaymentTimestamp: time.Now(),
+			LastPaymentTimestamp: now,
+			Payments:             []Payment{{Sats: amountSats, At: now}},
 		}
 		s.posts[postID] = post
 		fmt.Printf("🆕 New post promoted: %s with %d sats\n", short(postID, 8), amountSats)
@@ -192,6 +239,14 @@ func (s *Storage) HasPost(postID string) bool {
 // who is first, and two copies of a three-level comparison would not stay in
 // step.
 func rankLess(a, b *PromotedPost) bool {
+	return rankLessAt(a, b, time.Now())
+}
+
+func rankLessAt(a, b *PromotedPost, now time.Time) bool {
+	scoreA, scoreB := a.score(now), b.score(now)
+	if scoreA != scoreB {
+		return scoreA > scoreB
+	}
 	if a.TotalSatsPaid != b.TotalSatsPaid {
 		return a.TotalSatsPaid > b.TotalSatsPaid
 	}
@@ -634,4 +689,18 @@ func (s *Storage) CheckAndMarkZapProcessed(zapEventID string) (bool, error) {
 	}
 
 	return true, nil // First time processing
+}
+
+// kindComment is NIP-22, a threading note scoped to a root event.
+const kindComment = 1111
+
+// isPromotable reports whether the board will rank an event of this kind.
+//
+// Comments are in for the same reason plain notes are: NIP-22 gives them
+// plaintext content and nothing else to render, and the board already carried
+// replies written as kind:1, which are fragments of a conversation in exactly
+// the same way. Excluding 1111 while accepting those drew the line at the kind
+// number rather than at anything a reader would notice.
+func isPromotable(kind int) bool {
+	return kind == 1 || kind == kindComment
 }
