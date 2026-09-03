@@ -19,7 +19,7 @@ func TestGiftWrapRoundTrip(t *testing.T) {
 	recipientSK := nostr.GeneratePrivateKey()
 	recipientPK, _ := nostr.GetPublicKey(recipientSK)
 
-	wrap, err := wrapMessage("REMOVE note1abc", recipientPK, senderSK)
+	wrap, err := wrapMessage("REMOVE note1abc", recipientPK, senderSK, "")
 	if err != nil {
 		t.Fatalf("failed to wrap: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestSomebodyElseCannotReadIt(t *testing.T) {
 	senderSK := nostr.GeneratePrivateKey()
 	recipientPK, _ := nostr.GetPublicKey(nostr.GeneratePrivateKey())
 
-	wrap, err := wrapMessage("secret", recipientPK, senderSK)
+	wrap, err := wrapMessage("secret", recipientPK, senderSK, "")
 	if err != nil {
 		t.Fatalf("failed to wrap: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestGiftWrapTimestampIsDithered(t *testing.T) {
 	seen := make(map[nostr.Timestamp]bool)
 	now := nostr.Now()
 	for i := 0; i < 20; i++ {
-		wrap, err := wrapMessage("hello", recipientPK, senderSK)
+		wrap, err := wrapMessage("hello", recipientPK, senderSK, "")
 		if err != nil {
 			t.Fatalf("failed to wrap: %v", err)
 		}
@@ -217,7 +217,7 @@ func TestTamperedContentIsRejected(t *testing.T) {
 	recipientSK := nostr.GeneratePrivateKey()
 	recipientPK, _ := nostr.GetPublicKey(recipientSK)
 
-	wrap, err := wrapMessage("REMOVE note1abc", recipientPK, senderSK)
+	wrap, err := wrapMessage("REMOVE note1abc", recipientPK, senderSK, "")
 	if err != nil {
 		t.Fatalf("failed to wrap: %v", err)
 	}
@@ -234,5 +234,94 @@ func TestTamperedContentIsRejected(t *testing.T) {
 
 	if _, err := unwrapGiftWrap(&tampered, recipientSK); err == nil {
 		t.Error("a tampered gift wrap was opened")
+	}
+}
+
+// NIP-17: "An e tag denotes the direct parent message this post is replying
+// to." Without it an answer sits beside the request rather than in the same
+// thread.
+func TestReplyNamesTheMessageItAnswers(t *testing.T) {
+	senderSK := nostr.GeneratePrivateKey()
+	recipientSK := nostr.GeneratePrivateKey()
+	recipientPK, _ := nostr.GetPublicKey(recipientSK)
+
+	parentID := strings.Repeat("ab", 32)
+	wrap, err := wrapMessage("here is your invoice", recipientPK, senderSK, parentID)
+	if err != nil {
+		t.Fatalf("failed to wrap: %v", err)
+	}
+
+	rumor, err := unwrapGiftWrap(wrap, recipientSK)
+	if err != nil {
+		t.Fatalf("failed to unwrap: %v", err)
+	}
+
+	e := rumor.Tags.GetFirst([]string{"e"})
+	if e == nil {
+		t.Fatal("no e tag, so the reply is not threaded to the request")
+	}
+	if e.Value() != parentID {
+		t.Errorf("e tag names %s, want the message being answered", short(e.Value(), 8))
+	}
+
+	// And a message that answers nothing carries no e tag at all.
+	fresh, err := wrapMessage("unprompted", recipientPK, senderSK, "")
+	if err != nil {
+		t.Fatalf("failed to wrap: %v", err)
+	}
+	opened, err := unwrapGiftWrap(fresh, recipientSK)
+	if err != nil {
+		t.Fatalf("failed to unwrap: %v", err)
+	}
+	if opened.Tags.GetFirst([]string{"e"}) != nil {
+		t.Error("an unprompted message claims to reply to something")
+	}
+}
+
+// NIP-59: "Tags MUST always be empty in a kind:13", and the rumor inside must
+// stay unsigned. Both are load-bearing rather than cosmetic: a tag on the seal
+// would leak who is talking to whom, and a signature on the rumor would make a
+// leaked message provable.
+func TestSealCarriesNothingAndTheRumorIsUnsigned(t *testing.T) {
+	senderSK := nostr.GeneratePrivateKey()
+	recipientSK := nostr.GeneratePrivateKey()
+	recipientPK, _ := nostr.GetPublicKey(recipientSK)
+
+	wrap, err := wrapMessage("hello", recipientPK, senderSK, "")
+	if err != nil {
+		t.Fatalf("failed to wrap: %v", err)
+	}
+
+	wrapKey, err := nip44.GenerateConversationKey(wrap.PubKey, recipientSK)
+	if err != nil {
+		t.Fatalf("failed to derive: %v", err)
+	}
+	sealJSON, err := nip44.Decrypt(wrap.Content, wrapKey)
+	if err != nil {
+		t.Fatalf("failed to decrypt: %v", err)
+	}
+
+	var seal nostr.Event
+	if err := json.Unmarshal([]byte(sealJSON), &seal); err != nil {
+		t.Fatalf("failed to parse the seal: %v", err)
+	}
+	if len(seal.Tags) != 0 {
+		t.Errorf("the seal carries %d tags, which must be none: %v", len(seal.Tags), seal.Tags)
+	}
+	if seal.Kind != kindSeal {
+		t.Errorf("seal kind = %d, want %d", seal.Kind, kindSeal)
+	}
+
+	rumor, err := unwrapGiftWrap(wrap, recipientSK)
+	if err != nil {
+		t.Fatalf("failed to unwrap: %v", err)
+	}
+	if rumor.Sig != "" {
+		t.Error("the rumor is signed, which would make a leaked message provable")
+	}
+	// The canonical time belongs to the rumor; the layers around it are dithered.
+	if rumor.CreatedAt <= wrap.CreatedAt {
+		t.Errorf("rumor %d is not later than the dithered wrap %d, so nothing was hidden",
+			rumor.CreatedAt, wrap.CreatedAt)
 	}
 }

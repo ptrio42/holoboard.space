@@ -119,7 +119,7 @@ func unwrapGiftWrap(giftWrap *nostr.Event, recipientPrivkey string) (*nostr.Even
 // recipient and proves who wrote it, and the wrap around it is addressed from a
 // key that exists for this one message, so nothing on the outside links the
 // message to its sender.
-func wrapMessage(content, recipientPubkey, senderPrivkey string) (*nostr.Event, error) {
+func wrapMessage(content, recipientPubkey, senderPrivkey, replyTo string) (*nostr.Event, error) {
 	senderPubkey, err := nostr.GetPublicKey(senderPrivkey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive the sender pubkey: %w", err)
@@ -127,11 +127,18 @@ func wrapMessage(content, recipientPubkey, senderPrivkey string) (*nostr.Event, 
 
 	// The rumor. Never signed: NIP-59 leaves it unsigned so that a leaked
 	// message cannot be proven to have come from anyone.
+	tags := nostr.Tags{nostr.Tag{"p", recipientPubkey}}
+	if replyTo != "" {
+		// NIP-17 uses an e tag for the direct parent, which is what puts the
+		// answer in the same thread as the request rather than next to it.
+		tags = append(tags, nostr.Tag{"e", replyTo})
+	}
+
 	rumor := nostr.Event{
 		PubKey:    senderPubkey,
 		CreatedAt: nostr.Now(),
 		Kind:      kindChatMessage,
-		Tags:      nostr.Tags{nostr.Tag{"p", recipientPubkey}},
+		Tags:      tags,
 		Content:   content,
 	}
 	rumor.ID = rumor.GetID()
@@ -382,18 +389,21 @@ func normalizePubkey(input string) (string, error) {
 // recipientInbox finds where somebody has asked to have direct messages
 // delivered, per NIP-17.
 //
-// Replying to a gift wrap on the relays this one reads works only when the two
-// sets happen to overlap, which is luck rather than design: the sender's client
-// is watching their own inbox, not ours. It fires a query per relay rather than
-// using the pool, because SimplePool tears the whole subscription down as soon
-// as any one relay gives up.
+// Returns nothing when they have published no kind:10050, and that is not a
+// failure to work around. NIP-17 is explicit: "Clients MUST only publish events
+// to the relays listed in the recipient's kind 10050 event. If such a list is
+// not found that indicates the user is not ready to receive messages and
+// clients shouldn't try." Falling back to the relays this one happens to read
+// would put the reply somewhere the recipient is not looking, which is the same
+// silence with extra steps.
 //
-// Falls back to the given set, since a reply somewhere plausible beats no reply.
-func recipientInbox(ctx context.Context, pubkey string, fallback []string) []string {
+// It fires a query per relay rather than using the pool, because SimplePool
+// tears the whole subscription down as soon as any one relay gives up.
+func recipientInbox(ctx context.Context, pubkey string, searchOn []string) []string {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	sources := dedupe(append(append([]string{}, discoveryRelays...), fallback...))
+	sources := dedupe(append(append([]string{}, discoveryRelays...), searchOn...))
 
 	var mu sync.Mutex
 	var newest *nostr.Event
@@ -427,8 +437,9 @@ func recipientInbox(ctx context.Context, pubkey string, fallback []string) []str
 	wg.Wait()
 
 	if newest == nil {
-		log.Printf("No inbox published by %s; replying where this relay reads instead", short(pubkey, 8))
-		return fallback
+		log.Printf("%s has published no kind:10050, so there is nowhere to reply to them",
+			short(pubkey, 8))
+		return nil
 	}
 
 	inbox := make([]string, 0, len(newest.Tags))
@@ -436,9 +447,6 @@ func recipientInbox(ctx context.Context, pubkey string, fallback []string) []str
 		if len(tag) >= 2 && tag[0] == "relay" {
 			inbox = append(inbox, tag[1])
 		}
-	}
-	if len(inbox) == 0 {
-		return fallback
 	}
 	return inbox
 }

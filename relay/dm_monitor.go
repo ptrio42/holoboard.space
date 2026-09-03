@@ -27,6 +27,10 @@ type DMMonitor struct {
 	// adminPubkey may take a note off the board. Empty means nobody can, and
 	// the commands answer as though they do not exist.
 	adminPubkey string
+	// lookupInbox finds where to deliver a reply. Swappable so a test can
+	// exercise the command handling without reaching the network, which is
+	// otherwise unavoidable: finding an inbox means querying relays.
+	lookupInbox func(ctx context.Context, pubkey string, searchOn []string) []string
 }
 
 // NewDMMonitor creates a new DM monitor
@@ -37,6 +41,7 @@ func NewDMMonitor(relays []string, relayPubkey, relayPrivkey string, invoiceMana
 		relayPrivkey:   relayPrivkey,
 		invoiceManager: invoiceManager,
 		storage:        storage,
+		lookupInbox:    recipientInbox,
 	}
 }
 
@@ -259,7 +264,7 @@ func (dm *DMMonitor) followOnce(ctx context.Context, url string, filters nostr.F
 // which this relay was deaf to, so a PROMOTE from a current client vanished
 // without a trace.
 func (dm *DMMonitor) processDM(ctx context.Context, event *nostr.Event) error {
-	var sender, text string
+	var sender, text, replyTo string
 	wrapped := event.Kind == kindGiftWrap
 
 	if wrapped {
@@ -284,6 +289,12 @@ func (dm *DMMonitor) processDM(ctx context.Context, event *nostr.Event) error {
 		}
 
 		sender, text = rumor.PubKey, rumor.Content
+		// NIP-17: an e tag names the message being replied to, so the answer
+		// lands in the conversation rather than beside it.
+		replyTo = rumor.ID
+		if replyTo == "" {
+			replyTo = rumor.GetID()
+		}
 	} else {
 		sharedSecret, err := nip04.ComputeSharedSecret(event.PubKey, dm.relayPrivkey)
 		if err != nil {
@@ -296,18 +307,18 @@ func (dm *DMMonitor) processDM(ctx context.Context, event *nostr.Event) error {
 		sender, text = event.PubKey, decrypted
 	}
 
-	return dm.handleCommand(ctx, sender, strings.TrimSpace(text), wrapped)
+	return dm.handleCommand(ctx, sender, strings.TrimSpace(text), replyTo, wrapped)
 }
 
 // handleCommand acts on the text of a message. Anything unrecognised is
 // ignored rather than answered: replying to every stray DM would make the relay
 // a way to send mail to strangers.
-func (dm *DMMonitor) handleCommand(ctx context.Context, sender, text string, wrapped bool) error {
+func (dm *DMMonitor) handleCommand(ctx context.Context, sender, text, replyTo string, wrapped bool) error {
 	verb := strings.ToUpper(firstWord(text))
 
 	switch verb {
 	case "REMOVE", "RESTORE":
-		return dm.handleAdminCommand(ctx, sender, verb, text, wrapped)
+		return dm.handleAdminCommand(ctx, sender, verb, text, replyTo, wrapped)
 
 	case "PROMOTE":
 		postID, amountSats, ok := ParsePromoteCommand(text)
@@ -332,7 +343,7 @@ func (dm *DMMonitor) handleCommand(ctx context.Context, sender, text string, wra
 		log.Printf("Generated invoice for post %s (payment_hash: %s, amount: %d sats)",
 			short(postID, 8), short(invoice.PaymentHash, 12), invoice.AmountSats)
 
-		return dm.reply(ctx, sender, invoiceMessage(invoice), wrapped)
+		return dm.reply(ctx, sender, invoiceMessage(invoice), replyTo, wrapped)
 
 	default:
 		log.Printf("Message from %s carried no command I know, ignoring", short(sender, 8))
@@ -345,7 +356,7 @@ func (dm *DMMonitor) handleCommand(ctx context.Context, sender, text string, wra
 // The sender is compared against one configured pubkey. That comparison is only
 // worth anything because unwrapGiftWrap establishes the sender from the
 // signature on the seal rather than from anything the message claims.
-func (dm *DMMonitor) handleAdminCommand(ctx context.Context, sender, verb, text string, wrapped bool) error {
+func (dm *DMMonitor) handleAdminCommand(ctx context.Context, sender, verb, text, replyTo string, wrapped bool) error {
 	if dm.adminPubkey == "" || sender != dm.adminPubkey {
 		// Says nothing about why. Somebody probing for the command learns only
 		// that nothing happened.
@@ -355,7 +366,7 @@ func (dm *DMMonitor) handleAdminCommand(ctx context.Context, sender, verb, text 
 
 	fields := strings.Fields(text)
 	if len(fields) < 2 {
-		return dm.reply(ctx, sender, fmt.Sprintf("%s needs a note reference.", verb), wrapped)
+		return dm.reply(ctx, sender, fmt.Sprintf("%s needs a note reference.", verb), replyTo, wrapped)
 	}
 
 	noteID := normalizeEventID(fields[1])
@@ -363,30 +374,30 @@ func (dm *DMMonitor) handleAdminCommand(ctx context.Context, sender, verb, text 
 		noteID = normalizeEventID(extractEventIDFromText(text))
 	}
 	if len(noteID) != 64 || !isHex64(noteID) {
-		return dm.reply(ctx, sender, "I could not find a note reference in that.", wrapped)
+		return dm.reply(ctx, sender, "I could not find a note reference in that.", replyTo, wrapped)
 	}
 
 	if verb == "RESTORE" {
 		if err := dm.storage.RestorePost(noteID); err != nil {
-			return dm.reply(ctx, sender, fmt.Sprintf("Nothing to restore: %v", err), wrapped)
+			return dm.reply(ctx, sender, fmt.Sprintf("Nothing to restore: %v", err), replyTo, wrapped)
 		}
 		log.Printf("Admin restored %s by DM", short(noteID, 8))
 		return dm.reply(ctx, sender, fmt.Sprintf(
 			"Restored %s. It can be promoted again, starting from zero sats.",
-			short(noteID, 12)), wrapped)
+			short(noteID, 12)), replyTo, wrapped)
 	}
 
 	sats, err := dm.storage.RemovePost(noteID)
 	if err != nil {
 		log.Printf("Admin failed to remove %s: %v", short(noteID, 8), err)
-		return dm.reply(ctx, sender, "That did not write; the note is still up.", wrapped)
+		return dm.reply(ctx, sender, "That did not write; the note is still up.", replyTo, wrapped)
 	}
 
 	log.Printf("Admin removed %s by DM (%d sats)", short(noteID, 8), sats)
 	return dm.reply(ctx, sender, fmt.Sprintf(
 		"Removed %s, which had %d sats against it. Paying for it again will not put it back. "+
 			"Nothing is refunded, and the note still exists everywhere else on nostr.",
-		short(noteID, 12), sats), wrapped)
+		short(noteID, 12), sats), replyTo, wrapped)
 }
 
 func firstWord(text string) string {
@@ -422,20 +433,24 @@ If your client will not open that, copy the invoice itself:
 // reply answers on the transport the request arrived by. Answering a NIP-17
 // message with a kind:4 would land somewhere the sender's client is no longer
 // looking, which is the whole reason this path was silent.
-func (dm *DMMonitor) reply(ctx context.Context, recipientPubkey, message string, wrapped bool) error {
+func (dm *DMMonitor) reply(ctx context.Context, recipientPubkey, message, replyTo string, wrapped bool) error {
 	var event *nostr.Event
 
 	targets := dm.relays
 
 	if wrapped {
-		wrap, err := wrapMessage(message, recipientPubkey, dm.relayPrivkey)
+		// NIP-17 delivers to the recipient's inbox, not the sender's, and says
+		// not to send at all when they have published none.
+		targets = dm.lookupInbox(ctx, recipientPubkey, dm.relays)
+		if len(targets) == 0 {
+			return fmt.Errorf("%s has no published inbox to reply to", short(recipientPubkey, 8))
+		}
+
+		wrap, err := wrapMessage(message, recipientPubkey, dm.relayPrivkey, replyTo)
 		if err != nil {
 			return fmt.Errorf("failed to wrap the reply: %w", err)
 		}
 		event = wrap
-		// NIP-17 delivers to the recipient's inbox, not the sender's. Publishing
-		// where this relay happens to read only works when the two sets overlap.
-		targets = recipientInbox(ctx, recipientPubkey, dm.relays)
 	} else {
 		sharedSecret, err := nip04.ComputeSharedSecret(recipientPubkey, dm.relayPrivkey)
 		if err != nil {

@@ -24,6 +24,10 @@ func adminFixture(t *testing.T) (*DMMonitor, *Storage, string) {
 	relayPubkey, _ := nostr.GetPublicKey(relayPrivkey)
 
 	dm := NewDMMonitor(nil, relayPubkey, relayPrivkey, invoices, storage)
+	// Nothing here should touch the network; finding a real inbox would.
+	dm.lookupInbox = func(context.Context, string, []string) []string {
+		return []string{"wss://example.invalid"}
+	}
 	return dm, storage, postID
 }
 
@@ -37,7 +41,7 @@ func TestOnlyTheAdminCanRemove(t *testing.T) {
 	strangerPubkey, _ := nostr.GetPublicKey(nostr.GeneratePrivateKey())
 
 	// A stranger asking is ignored, and told nothing.
-	if err := dm.handleCommand(context.Background(), strangerPubkey, "REMOVE "+postID, true); err != nil {
+	if err := dm.handleCommand(context.Background(), strangerPubkey, "REMOVE "+postID, "", true); err != nil {
 		t.Fatalf("a refused command should not error: %v", err)
 	}
 	if _, exists := storage.GetPost(postID); !exists {
@@ -49,7 +53,7 @@ func TestOnlyTheAdminCanRemove(t *testing.T) {
 
 	// The operator asking works. The reply cannot be published with no relays
 	// configured, which is expected and is not what this asserts.
-	_ = dm.handleCommand(context.Background(), adminPubkey, "REMOVE "+postID, true)
+	_ = dm.handleCommand(context.Background(), adminPubkey, "REMOVE "+postID, "", true)
 	if _, exists := storage.GetPost(postID); exists {
 		t.Error("the operator's REMOVE did not take the note down")
 	}
@@ -63,7 +67,7 @@ func TestNoAdminConfiguredMeansNobodyCanRemove(t *testing.T) {
 
 	// Not even an empty pubkey, which is what an unset ADMIN_PUBKEY would be.
 	for _, sender := range []string{"", dm.relayPubkey} {
-		if err := dm.handleCommand(context.Background(), sender, "REMOVE "+postID, true); err != nil {
+		if err := dm.handleCommand(context.Background(), sender, "REMOVE "+postID, "", true); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	}
@@ -78,12 +82,12 @@ func TestAdminRestoreByDM(t *testing.T) {
 	adminPubkey, _ := nostr.GetPublicKey(nostr.GeneratePrivateKey())
 	dm.WithAdmin(adminPubkey)
 
-	_ = dm.handleCommand(context.Background(), adminPubkey, "REMOVE "+postID, true)
+	_ = dm.handleCommand(context.Background(), adminPubkey, "REMOVE "+postID, "", true)
 	if !storage.IsRemoved(postID) {
 		t.Fatal("setup failed: the note was not removed")
 	}
 
-	_ = dm.handleCommand(context.Background(), adminPubkey, "RESTORE "+postID, true)
+	_ = dm.handleCommand(context.Background(), adminPubkey, "RESTORE "+postID, "", true)
 	if storage.IsRemoved(postID) {
 		t.Error("RESTORE did not lift the block")
 	}
@@ -101,7 +105,7 @@ func TestAdminAcceptsPastedReferences(t *testing.T) {
 		t.Fatalf("failed to encode: %v", err)
 	}
 
-	_ = dm.handleCommand(context.Background(), adminPubkey, "REMOVE https://njump.me/"+encoded, true)
+	_ = dm.handleCommand(context.Background(), adminPubkey, "REMOVE https://njump.me/"+encoded, "", true)
 	if !storage.IsRemoved(postID) {
 		t.Error("a pasted njump link was not understood")
 	}
@@ -113,7 +117,7 @@ func TestUnknownCommandsAreIgnored(t *testing.T) {
 	dm, _, _ := adminFixture(t)
 
 	for _, text := range []string{"", "hello there", "REMOVEALL", "gm"} {
-		if err := dm.handleCommand(context.Background(), "somebody", text, true); err != nil {
+		if err := dm.handleCommand(context.Background(), "somebody", text, "", true); err != nil {
 			t.Errorf("%q produced an error instead of being ignored: %v", text, err)
 		}
 	}

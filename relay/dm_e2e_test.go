@@ -21,7 +21,7 @@ func TestRemoveOverGiftWrapEndToEnd(t *testing.T) {
 	dm.WithAdmin(adminPubkey)
 
 	// Someone else sends the identical command first.
-	impostorWrap, err := wrapMessage("REMOVE "+postID, dm.relayPubkey, nostr.GeneratePrivateKey())
+	impostorWrap, err := wrapMessage("REMOVE "+postID, dm.relayPubkey, nostr.GeneratePrivateKey(), "")
 	if err != nil {
 		t.Fatalf("failed to wrap: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestRemoveOverGiftWrapEndToEnd(t *testing.T) {
 	}
 
 	// Now the operator.
-	wrap, err := wrapMessage("REMOVE "+postID, dm.relayPubkey, adminPrivkey)
+	wrap, err := wrapMessage("REMOVE "+postID, dm.relayPubkey, adminPrivkey, "")
 	if err != nil {
 		t.Fatalf("failed to wrap: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestStaleGiftWrapIsIgnored(t *testing.T) {
 	adminPubkey, _ := nostr.GetPublicKey(adminPrivkey)
 	dm.WithAdmin(adminPubkey)
 
-	wrap, err := wrapMessage("REMOVE "+postID, dm.relayPubkey, adminPrivkey)
+	wrap, err := wrapMessage("REMOVE "+postID, dm.relayPubkey, adminPrivkey, "")
 	if err != nil {
 		t.Fatalf("failed to wrap: %v", err)
 	}
