@@ -238,7 +238,9 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 				return
 			}
 			if note.Kind != 1 {
-				writeError(w, http.StatusBadRequest, "only text notes can be promoted")
+				writeError(w, http.StatusBadRequest, fmt.Sprintf(
+					"that is a kind %d event, and this board only takes text notes (kind 1)",
+					note.Kind))
 				return
 			}
 		}

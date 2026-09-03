@@ -418,7 +418,11 @@ func queryAll(ctx context.Context, relays []string, postID string) *nostr.Event 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	filter := nostr.Filter{IDs: []string{postID}, Kinds: []int{1}, Limit: 1}
+	// No kind filter. An id names exactly one event, so narrowing by kind buys
+	// nothing and costs the difference between "we could not find it" and "we
+	// found it and it is not the sort of thing this board takes". Callers check
+	// the kind themselves and can say which it was.
+	filter := nostr.Filter{IDs: []string{postID}, Limit: 1}
 	found := make(chan *nostr.Event, len(relays))
 
 	var wg sync.WaitGroup
