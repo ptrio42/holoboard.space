@@ -67,6 +67,19 @@ func (mm *MentionMonitor) Start(ctx context.Context, relays []string) {
 	log.Printf("Mention monitor started, watching %d relays", len(relays))
 }
 
+// mentionedNote returns the note a mention is pointing at, or an empty string
+// when it points at none.
+//
+// The distinction it draws is the whole of the reply policy: something here
+// means somebody is asking this board to do a job, and nothing here means they
+// were talking about the board rather than to it.
+func mentionedNote(mentionEvent *nostr.Event) string {
+	if reference := extractEventIDFromText(mentionEvent.Content); reference != "" {
+		return reference
+	}
+	return quotedEventID(mentionEvent)
+}
+
 // ProcessMention handles a mention event
 func (mm *MentionMonitor) ProcessMention(ctx context.Context, mentionEvent *nostr.Event) error {
 	// Check if already processed
@@ -76,16 +89,19 @@ func (mm *MentionMonitor) ProcessMention(ctx context.Context, mentionEvent *nost
 
 	log.Printf("Processing mention from %s: %s", short(mentionEvent.PubKey, 8), short(mentionEvent.Content, 50))
 
-	// Extract note ID from content, then from a quote tag.
-	noteID := extractEventIDFromText(mentionEvent.Content)
-	if noteID == "" {
-		noteID = quotedEventID(mentionEvent)
-	}
+	noteID := mentionedNote(mentionEvent)
 
 	if noteID == "" {
-		// No valid note ID found, send usage instructions
-		log.Printf("No valid note ID in mention %s, sending usage instructions", mentionEvent.ID)
-		return mm.SendUsageInstructions(ctx, mentionEvent)
+		// Nothing to act on, so say nothing.
+		//
+		// Answering every mention turned the account into something that
+		// interrupts: naming the board in a note, to recommend it or argue
+		// about it, came back with instructions nobody asked for. A mention
+		// carrying no note is somebody talking about this board, not to it.
+		// A malformed reference below still gets an answer, because that is
+		// somebody trying to use it and getting it wrong.
+		log.Printf("Mention %s carries no note, leaving it alone", short(mentionEvent.ID, 8))
+		return mm.storage.MarkMentionProcessed(mentionEvent.ID)
 	}
 
 	// Normalize the note ID

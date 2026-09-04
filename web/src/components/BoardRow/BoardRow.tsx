@@ -136,13 +136,17 @@ export function BoardRow({ event, rank, sats, weight }: BoardRowProps) {
                                         {/* Under the cluster rather than beside it, so the row does
                                             not grow a second column of numbers that is usually not
                                             there, and not above it: the header sits against the top
-                                            of the panel, with no room to put anything over it. */}
+                                            of the panel, with no room to put anything over it.
+                                            It hangs off the left on a narrow screen: a long author
+                                            name pushes this cluster onto its own line at the left
+                                            edge, and anchoring right then ran it off the screen. */}
                                         {faded && (
                                             <span
                                                 role="tooltip"
-                                                className={`pointer-events-none absolute top-full right-0 z-10 mt-2
-                                                    border-2 border-cyan-400/40 bg-void px-2 py-1 font-pixel
-                                                    text-[9px] whitespace-nowrap text-cyan-200/90
+                                                className={`pointer-events-none absolute top-full left-0 z-10 mt-2
+                                                    max-w-[min(16rem,calc(100vw-3rem))] border-2 border-cyan-400/40
+                                                    bg-void px-2 py-1 font-pixel text-[9px] text-cyan-200/90
+                                                    sm:left-auto sm:right-0 sm:whitespace-nowrap
                                                     ${showWeight ? "block" : "hidden group-hover:block"}`}
                                             >
                                                 {formatSats(weight ?? 0)} of {formatSats(sats)} still counting
