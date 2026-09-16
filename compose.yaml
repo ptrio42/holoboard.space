@@ -1,0 +1,42 @@
+services:
+  relay:
+    build:
+      context: ./relay
+      target: standalone
+    env_file:
+      - .env
+    environment:
+      PORT: "8080"
+      DATA_FILE: /data/relay_data.json
+    command:
+      - sh
+      - -c
+      - >-
+        if [ -z "$$RELAY_PRIVKEY" ] || [ -z "$$VITE_RELAY_PUBKEY" ]; then
+          echo "Set RELAY_PRIVKEY and VITE_RELAY_PUBKEY in .env. See README.md." >&2;
+          exit 1;
+        fi;
+        exec /app/relay
+    volumes:
+      - relay_data:/data
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  web:
+    build:
+      context: ./web
+      args:
+        VITE_RELAY_URL: ${VITE_RELAY_URL:-ws://localhost:8080/relay}
+        VITE_RELAY_PUBKEY: ${VITE_RELAY_PUBKEY:-}
+        VITE_PUBLIC_RELAYS: ${FETCH_RELAYS:-wss://nos.lol,wss://relay.damus.io,wss://relay.primal.net,wss://nostr.mom,wss://offchain.pub}
+        VITE_BOARD_LIMIT: ${VITE_BOARD_LIMIT:-50}
+        VITE_SATS_ENDPOINT: ${VITE_SATS_ENDPOINT:-}
+    ports:
+      - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-8080}:8080"
+    depends_on:
+      relay:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  relay_data:

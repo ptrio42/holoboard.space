@@ -3,6 +3,11 @@
 Fly.io, one machine, one volume. The frontend is not deployed from here; see
 the root README for that half.
 
+To run both parts together with Docker Compose, follow the
+[Docker instructions in the root README](../README.md#run-your-own-board-with-docker).
+Compose builds the non-root `standalone` image target. Fly builds the default
+`fly` target, which preserves `/root/data` and access to the existing volume.
+
 ## What you need first
 
 - `flyctl`, and `fly auth login` on the account that will own the app
@@ -164,10 +169,10 @@ Non-secret settings live in `[env]` in `fly.toml` and take effect on the next
 Secrets go through `fly secrets set` and never into `fly.toml`: `RELAY_PRIVKEY`
 and `NWC_URI`. `fly secrets list` shows names and digests, never values.
 
-Watch `DATA_FILE`. Its fallback when unset is a bare `relay_data.json`, which
-lands in the image at `/root/` rather than on the volume, so every deploy would
-silently start from an empty board. Only the `[env]` line keeps it on the
-volume.
+Keep `DATA_FILE` under the mounted volume. The Fly image defaults to
+`/root/data/relay_data.json`, and `[env]` sets the same path explicitly. When
+running the Go binary outside Docker, its fallback is a bare `relay_data.json`
+in the working directory.
 
 ## Cost
 

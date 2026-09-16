@@ -1,0 +1,13 @@
+node_modules
+dist
+coverage
+.env
+.env.*
+.npmrc
+*.pem
+*.key
+*.log
+.git
+.DS_Store
+README.md
+scripts

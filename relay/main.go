@@ -356,7 +356,7 @@ func main() {
 	// Setup relay handlers
 	config := RelayConfig{
 		Name:        name,
-		Description: getEnv("RELAY_DESCRIPTION", "A paid promotion relay where posts are ranked by sats, with recent sats counting for more"),
+		Description: getEnv("RELAY_DESCRIPTION", "A paid promotion relay where posts are ranked by sats, with recent sats counting for more. Visit https://holoboard.space"),
 		RelayPubkey: relayPubkey,
 		Contact:     contact,
 		Icon:        icon,
@@ -438,6 +438,7 @@ func main() {
 	// Handle graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	shutdownDone := make(chan struct{})
 
 	go func() {
 		<-sigChan
@@ -457,7 +458,7 @@ func main() {
 		storage.Quiesce()
 
 		log.Printf("Shutdown complete")
-		os.Exit(0)
+		close(shutdownDone)
 	}()
 
 	// Start the HTTP server
@@ -465,4 +466,7 @@ func main() {
 	if err := relay.Start("0.0.0.0", port); err != nil {
 		log.Fatalf("Failed to start relay: %v", err)
 	}
+	// Start returns as soon as the listener closes. Keep the process alive
+	// until active handlers and any storage writes have finished too.
+	<-shutdownDone
 }
