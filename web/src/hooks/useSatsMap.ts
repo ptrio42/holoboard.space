@@ -13,7 +13,7 @@ interface SatsState {
     ranks: ReadonlyMap<string, number>;
     /** Event id to what its sats are worth today, which is what sets the rank. */
     weights: ReadonlyMap<string, number>;
-    /** Everything the board has taken, or null before the first answer. */
+    /** Total paid for visible notes, or null before the first answer. */
     totalSats: number | null;
 }
 

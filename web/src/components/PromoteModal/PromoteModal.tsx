@@ -18,6 +18,9 @@ interface PromoteModalProps {
     onClose: () => void;
     /** Set when the dialog was opened by a link to one of its sections. */
     openSection?: string;
+    initialReference?: string;
+    currentWeight?: number;
+    onPaid?: () => void;
 }
 
 const STEPS: { key: string; label: string; stages: Stage[] }[] = [
@@ -27,10 +30,20 @@ const STEPS: { key: string; label: string; stages: Stage[] }[] = [
 ];
 
 /** Rendered only while open; closing unmounts it, which is what clears the flow. */
-export function PromoteModal({ onClose, openSection }: PromoteModalProps) {
+export function PromoteModal({ onClose, openSection, initialReference = "", currentWeight, onPaid }: PromoteModalProps) {
     const user = useNDKCurrentUser();
     const { state, submitNote, zapReply } = usePromotionFlow();
-    const [reference, setReference] = useState("");
+    const [reference, setReference] = useState(initialReference);
+    const paidCallback = useRef(onPaid);
+    useEffect(() => { paidCallback.current = onPaid; }, [onPaid]);
+    const notified = useRef(false);
+    useEffect(() => {
+        if (state.stage === "paid" && !notified.current) {
+            notified.current = true;
+            paidCallback.current?.();
+        }
+        if (state.stage !== "paid") notified.current = false;
+    }, [state.stage]);
     const [amount, setAmount] = useState<number>(ZAP_PRESETS[1]);
     const inputId = useId();
     /*
@@ -49,12 +62,12 @@ export function PromoteModal({ onClose, openSection }: PromoteModalProps) {
 
     useEffect(() => {
         if (openSection !== RANKING_SECTION) return;
-        setRankingOpen(true);
         // After the next paint. The dialog's scroll container has not been laid
         // out when this first runs, so scrolling now moves nothing.
-        const frame = requestAnimationFrame(() =>
-            rankingRef.current?.scrollIntoView({ block: "center" }),
-        );
+        const frame = requestAnimationFrame(() => {
+            setRankingOpen(true);
+            rankingRef.current?.scrollIntoView({ block: "center" });
+        });
         return () => cancelAnimationFrame(frame);
     }, [openSection]);
 
@@ -100,12 +113,16 @@ export function PromoteModal({ onClose, openSection }: PromoteModalProps) {
                     <p className="text-xs leading-relaxed text-cyan-100/70">
                         Nobody vets what goes up. Rank is sats, and recent sats count for more, so
                         a note nobody pays for slides down. Spam, scams and anything illegal come
-                        down when we see them. There is no refund, and paying again will not put a
-                        note back.
+                        down when we see them. There is no refund. Paying again will not restore
+                        a note removed by the operator.
                     </p>
                 </section>
 
-                {mode === "direct" && <DirectPromote />}
+                {typeof currentWeight === "number" && <p className="text-xs leading-relaxed text-cyan-100/70">
+                    Current weight: {formatSats(currentWeight)} sats. Your payment adds to its weight.
+                    Its place on the board also depends on other notes' payments.
+                </p>}
+                {mode === "direct" && <DirectPromote initialReference={initialReference} onPaid={onPaid} />}
 
                 {mode === "signed" && (
                 <div className="space-y-6">

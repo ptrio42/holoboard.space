@@ -1,8 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { parseLedger, toWeightMap } from "./sats";
+import { parseLedger, toWeightMap, visibleBoardEvents } from "./sats";
 
 const entry = (extra: Record<string, unknown>) => ({
     id: "a".repeat(64), sats_paid: 100, last_paid_at: 1, rank: 1, ...extra,
+});
+
+describe("visible board events", () => {
+    const events = [{ id: "active" }, { id: "expired" }];
+
+    it("removes expired events from an existing subscription after a ledger refresh", () => {
+        const before = new Map([["active", 1], ["expired", 2]]);
+        expect(visibleBoardEvents(events, before, new Map(), true)).toEqual(events);
+        const after = new Map([["active", 1]]);
+        expect(visibleBoardEvents(events, after, new Map(), true)).toEqual([events[0]]);
+        expect(visibleBoardEvents(events, new Map(), new Map(), true)).toEqual([]);
+    });
+
+    it("shows a revived note when it returns to the ledger", () => {
+        const ranks = new Map([["expired", 1]]);
+        expect(visibleBoardEvents(events, ranks, new Map([["expired", 20]]), true)).toEqual([events[1]]);
+    });
+
+    it("waits for the first ledger answer before hiding unknown events", () => {
+        expect(visibleBoardEvents(events, new Map(), new Map(), false)).toEqual(events);
+    });
+
+    it("hides zero weight from older relays while retaining unknown weights", () => {
+        const ranks = new Map([["active", 1], ["expired", 2]]);
+        expect(visibleBoardEvents(events, ranks, new Map([["expired", 0]]), true)).toEqual([events[0]]);
+    });
 });
 
 describe("ledger weights", () => {

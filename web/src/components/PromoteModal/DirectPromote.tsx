@@ -39,13 +39,23 @@ type Phase =
     | { kind: "paid"; sats: number }
     | { kind: "failed"; message: string };
 
-export function DirectPromote() {
-    const [reference, setReference] = useState("");
+export function DirectPromote({ initialReference = "", onPaid }: { initialReference?: string; onPaid?: () => void }) {
+    const [reference, setReference] = useState(initialReference);
     const [amount, setAmount] = useState<number>(ZAP_PRESETS[1]);
     const [phase, setPhase] = useState<Phase>({ kind: "idle" });
     const abort = useRef<AbortController | null>(null);
 
     useEffect(() => () => abort.current?.abort(), []);
+    const paidCallback = useRef(onPaid);
+    useEffect(() => { paidCallback.current = onPaid; }, [onPaid]);
+    const notified = useRef(false);
+    useEffect(() => {
+        if (phase.kind === "paid" && !notified.current) {
+            notified.current = true;
+            paidCallback.current?.();
+        }
+        if (phase.kind !== "paid") notified.current = false;
+    }, [phase.kind]);
 
     const start = useCallback(async () => {
         const note = reference.trim();

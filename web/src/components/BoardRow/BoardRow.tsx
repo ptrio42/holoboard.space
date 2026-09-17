@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { NDKEvent } from "@nostr-dev-kit/ndk";
 import { PixelPanel } from "../ui/PixelPanel";
+import { PixelButton } from "../ui/PixelButton";
 import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
 import TextRenderer from "../TextRenderer/TextRenderer";
 import { Expandable } from "../ui/Expandable";
@@ -9,7 +10,10 @@ import { parentOf } from "../../lib/parent";
 
 interface BoardRowProps {
     event: NDKEvent;
-    rank: number;
+    rank?: number;
+    expired?: boolean;
+    onPromote?: () => void;
+    lastPaidAt?: number;
     /**
      * What this note has been paid. Undefined means the ledger has not answered
      * yet, which is not the same as zero and must not render as zero: every
@@ -52,8 +56,8 @@ function satsLabel(sats: number): string {
     return `${formatSats(sats)} ${sats === 1 ? "sat" : "sats"}`;
 }
 
-export function BoardRow({ event, rank, sats, weight }: BoardRowProps) {
-    const tier = TIERS[rank - 1] ?? DEFAULT_TIER;
+export function BoardRow({ event, rank, sats, weight, expired = false, onPromote, lastPaidAt }: BoardRowProps) {
+    const tier = !expired && rank ? TIERS[rank - 1] ?? DEFAULT_TIER : DEFAULT_TIER;
     const parent = parentOf(event);
     // Tapped open on a touch screen, which has no hover to ask with.
     const [showWeight, setShowWeight] = useState(false);
@@ -78,7 +82,7 @@ export function BoardRow({ event, rank, sats, weight }: BoardRowProps) {
             <PixelPanel accent={tier.accent} glow={tier.glow}>
                 <article className="flex gap-3 p-4 sm:gap-5 sm:p-5">
                     {/* Fixed width so the content column does not step right at rank 10. */}
-                    <div className="flex w-9 shrink-0 flex-col items-center gap-1 sm:w-12">
+                    {!expired && <div className="flex w-9 shrink-0 flex-col items-center gap-1 sm:w-12">
                         <span
                             className={`font-pixel text-lg leading-none sm:text-2xl ${tier.text}`}
                             aria-hidden="true"
@@ -88,18 +92,19 @@ export function BoardRow({ event, rank, sats, weight }: BoardRowProps) {
                         <span className="font-pixel text-[8px] tracking-widest text-cyan-300/30">
                             {rank === 1 ? "TOP" : "RANK"}
                         </span>
-                    </div>
+                    </div>}
 
                     <div className="min-w-0 flex-1 space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                             <h2 className="min-w-0 text-base font-normal">
                                 <span className="sr-only">
-                                    Rank {rank}
+                                    {expired ? "Expired note" : `Rank ${rank}`}
                                     {typeof sats === "number" && `, paid ${satsLabel(sats)}`}, posted by{" "}
                                 </span>
                                 <UserProfileInline pubkey={event.pubkey} />
                             </h2>
                             <div className="flex shrink-0 items-center gap-3">
+                                {expired && <span className="font-pixel text-[8px] tracking-widest text-cyan-300/40">Expired</span>}
                                 {typeof sats === "number" && (
                                     <button
                                         type="button"
@@ -158,34 +163,43 @@ export function BoardRow({ event, rank, sats, weight }: BoardRowProps) {
                         </div>
 
                         <div className="text-[13px] text-cyan-50/80 sm:text-sm">
-                            <Expandable label={`note at rank ${rank}`}>
+                            <Expandable label={expired ? "expired note" : `note at rank ${rank}`}>
                                 <TextRenderer text={event.content} />
                             </Expandable>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                            <a
-                                href={njumpUrl(event.id, "note")}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="focus-pixel inline-block font-pixel text-[9px] tracking-widest
-                                    text-cyan-300/40 hover:text-neon-cyan"
-                            >
-                                Open note
-                            </a>
-                            {/* Without this a comment reads as somebody talking
-                                to nobody, since what it answers is not here. */}
-                            {parent && (
+                        {expired && typeof lastPaidAt === "number" && lastPaidAt > 0 && <p className="text-xs text-cyan-300/40">
+                            Last payment: <time dateTime={new Date(lastPaidAt * 1000).toISOString()}>{new Date(lastPaidAt * 1000).toLocaleDateString()}</time>
+                        </p>}
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                                 <a
-                                    href={parent.href}
+                                    href={njumpUrl(event.id, "note")}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="focus-pixel inline-block font-pixel text-[9px] tracking-widest
                                         text-cyan-300/40 hover:text-neon-cyan"
                                 >
-                                    {parent.label} &gt;
+                                    Open note
                                 </a>
-                            )}
+                                {/* Without this a comment reads as somebody talking
+                                    to nobody, since what it answers is not here. */}
+                                {parent && (
+                                    <a
+                                        href={parent.href}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="focus-pixel inline-block font-pixel text-[9px] tracking-widest
+                                            text-cyan-300/40 hover:text-neon-cyan"
+                                    >
+                                        {parent.label} &gt;
+                                    </a>
+                                )}
+                            </div>
+                            {onPromote && <PixelButton size="sm" variant="ghost" onClick={onPromote}
+                                className="min-h-11 w-full sm:w-auto [&_.pixel-btn__face]:flex [&_.pixel-btn__face]:min-h-11 [&_.pixel-btn__face]:items-center [&_.pixel-btn__face]:justify-center">
+                                {expired ? "Promote again" : "Boost"}
+                            </PixelButton>}
                         </div>
                     </div>
                 </article>

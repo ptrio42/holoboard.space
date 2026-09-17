@@ -224,6 +224,18 @@ Settlement is picked up two ways. A wallet that advertises `payment_received` pu
 
 Runtime state is a single JSON file (`relay_data.json`, path configurable via `DATA_FILE`). It is gitignored, as is `.env`.
 
+Notes disappear from the board when their current weight rounds to zero sats.
+Their payment history stays in storage, and a new payment makes them visible
+again. An open website removes expired notes on its next ledger refresh.
+
+Use **Boost** below an active note to add another payment. The **Expired** link
+below the board opens past promotions, where **Promote again** brings a note
+back after payment. Both buttons fill in the note reference; choose an amount
+and request an invoice when ready. A payment adds weight but does not guarantee
+a particular rank. Notes removed by the operator are excluded from the archive.
+The archive is also available at `GET /api/board/expired`, with optional `limit`
+(1 to 50) and `cursor` parameters. Use the returned `next_cursor` for another page.
+
 ## Promotion flows
 
 1. **Pay an invoice, no key needed.** `POST /api/promote` with a note reference and an optional `amount_sats`; the relay answers with a bolt11. `GET /api/promote/status` says whether that invoice is still outstanding and what the note has collected, which is how a caller tells settlement from expiry: both leave storage the same way. The reference can be a `note1`, an `nevent1`, a bare 64-character id, or a link containing one. Crediting comes from the payment rather than from whoever asked, so nothing here needs a signer. This is what the website's promote dialog uses by default.

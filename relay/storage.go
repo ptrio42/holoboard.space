@@ -65,6 +65,10 @@ func (p *PromotedPost) score(now time.Time) float64 {
 	return total
 }
 
+func (p *PromotedPost) weight(now time.Time) int64 {
+	return int64(math.Round(p.score(now)))
+}
+
 // PendingInvoice tracks invoices generated for PROMOTE requests
 type PendingInvoice struct {
 	PostID      string    `json:"post_id"`
@@ -269,7 +273,7 @@ type LedgerEntry struct {
 	Rank       int   `json:"rank"`         // 1-based, matching the served order
 }
 
-// Ledger returns every promoted note with what it has been paid, in board
+// Ledger returns every visible promoted note with what it has been paid, in board
 // order. A nostr event is signed, so its tags cannot carry the sats total
 // without invalidating the signature; this is how the figure reaches clients
 // instead.
@@ -277,13 +281,15 @@ func (s *Storage) Ledger() []LedgerEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	now := time.Now()
 	posts := make([]*PromotedPost, 0, len(s.posts))
 	for _, post := range s.posts {
-		posts = append(posts, post)
+		if post.weight(now) > 0 {
+			posts = append(posts, post)
+		}
 	}
 	// One clock for the whole listing, so the order and the weights beside it
 	// describe the same moment.
-	now := time.Now()
 	sort.Slice(posts, func(i, j int) bool { return rankLessAt(posts[i], posts[j], now) })
 
 	entries := make([]LedgerEntry, 0, len(posts))
@@ -295,7 +301,7 @@ func (s *Storage) Ledger() []LedgerEntry {
 		entries = append(entries, LedgerEntry{
 			ID:         post.PostID,
 			SatsPaid:   post.TotalSatsPaid,
-			Weight:     int64(math.Round(post.score(now))),
+			Weight:     post.weight(now),
 			LastPaidAt: lastPaid,
 			Rank:       i + 1,
 		})
@@ -308,13 +314,16 @@ func (s *Storage) QueryPosts(ctx context.Context, filter nostr.Filter) []*nostr.
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// Collect all promoted posts
+	// Expired promotions stay in storage so another payment can revive them.
+	now := time.Now()
 	var posts []*PromotedPost
 	for _, post := range s.posts {
-		posts = append(posts, post)
+		if post.weight(now) > 0 {
+			posts = append(posts, post)
+		}
 	}
 
-	sort.Slice(posts, func(i, j int) bool { return rankLess(posts[i], posts[j]) })
+	sort.Slice(posts, func(i, j int) bool { return rankLessAt(posts[i], posts[j], now) })
 
 	// Apply filter and collect matching events
 	var results []*nostr.Event

@@ -375,6 +375,7 @@ func main() {
 	// JSON route cannot collide with the websocket or the NIP-11 document, and
 	// Start() already wraps everything in permissive CORS for GET.
 	relay.Router().HandleFunc("/api/board", BoardHandler(storage))
+	relay.Router().HandleFunc("/api/board/expired", ExpiredHandler(storage))
 	log.Printf("Board ledger served at /api/board")
 
 	// Promoting without an identity. The relay never cared who mentioned it, so

@@ -39,6 +39,18 @@ export interface Ledger {
 
 export type SatsMap = ReadonlyMap<string, number>;
 
+/** Drop expired notes from a live subscription after the ledger refreshes. */
+export function visibleBoardEvents<T extends { id: string }>(
+    events: T[],
+    ranks: ReadonlyMap<string, number>,
+    weights: ReadonlyMap<string, number>,
+    hasLedger: boolean,
+): T[] {
+    return events.filter((event) =>
+        (!hasLedger || ranks.has(event.id)) && (weights.get(event.id) ?? 1) > 0,
+    );
+}
+
 /** Anything at all, narrowed as we go. Ledger JSON comes off the network. */
 type Unknown = Record<string, unknown>;
 

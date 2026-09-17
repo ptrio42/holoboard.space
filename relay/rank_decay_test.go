@@ -273,3 +273,55 @@ func TestServedFeedMatchesTheLedgerOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestExpiredPromotionsDisappearAndCanBeRevived(t *testing.T) {
+	storage := newTestStorage(t)
+	now := time.Now()
+	expired := seedPaidPost(t, storage, 100, now.Add(-10*rankHalfLife))
+	active := seedPaidPost(t, storage, 10, now)
+
+	for _, filter := range []nostr.Filter{
+		{Kinds: []int{1}, Limit: 1},
+		{IDs: []string{expired}},
+	} {
+		events := storage.QueryPosts(context.Background(), filter)
+		if len(filter.IDs) > 0 {
+			if len(events) != 0 {
+				t.Fatal("an expired promotion is still served by ID")
+			}
+		} else if len(events) != 1 || events[0].ID != active {
+			t.Fatal("expired promotions must not occupy the query limit")
+		}
+	}
+	_, body := fetchLedger(t, storage, "GET")
+	if body.Posts != 1 || body.TotalSats != 10 || len(body.Entries) != 1 || body.Entries[0].ID != active || body.Entries[0].Rank != 1 {
+		t.Fatalf("ledger still includes expired promotions: %+v", body)
+	}
+	post, ok := storage.GetPost(expired)
+	if !ok || post.TotalSatsPaid != 100 {
+		t.Fatal("expired promotion lost its payment history")
+	}
+	if err := storage.AddPayment(expired, 20, nil); err != nil {
+		t.Fatal(err)
+	}
+	events := storage.QueryPosts(context.Background(), nostr.Filter{Kinds: []int{1}, Limit: 1})
+	entries := storage.Ledger()
+	if len(events) != 1 || events[0].ID != expired || len(entries) != 2 || entries[0].ID != expired || entries[0].SatsPaid != 120 {
+		t.Fatal("a new payment did not revive the promotion with its history")
+	}
+}
+
+func TestPromotionExpiryUsesDisplayedWeight(t *testing.T) {
+	now := time.Now()
+	post := &PromotedPost{Payments: []Payment{{Sats: 1, At: now}}}
+	if post.weight(now.Add(rankHalfLife)) != 1 {
+		t.Fatal("exactly half a sat should still round to one")
+	}
+	if post.weight(now.Add(rankHalfLife+time.Second)) != 0 {
+		t.Fatal("less than half a sat should round to zero")
+	}
+	legacy := &PromotedPost{TotalSatsPaid: 1, LastPaymentTimestamp: now.Add(-2 * rankHalfLife)}
+	if legacy.weight(now) != 0 {
+		t.Fatal("legacy promotions must expire using the same weight")
+	}
+}

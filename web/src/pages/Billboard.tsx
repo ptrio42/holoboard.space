@@ -7,10 +7,12 @@ import { PixelButton } from "../components/ui/PixelButton";
 import { PixelPanel } from "../components/ui/PixelPanel";
 import { useRelayStatus } from "../hooks/useRelayStatus";
 import { useSatsMap } from "../hooks/useSatsMap";
+import { visibleBoardEvents } from "../lib/sats";
 import { BOARD_LIMIT, KIND_COMMENT, RELAY_URL, SATS_ENDPOINT } from "../config";
 
 export default function Billboard() {
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [promotion, setPromotion] = useState<{ id: string; weight?: number } | null>(null);
     /*
      * Sections of the promote dialog are linkable, which means the address bar
      * can ask for something that is not on the page yet. Read on arrival and on
@@ -32,7 +34,7 @@ export default function Billboard() {
         return () => window.removeEventListener("hashchange", readHash);
     }, []);
     const { status: relayStatus, retry: retryRelay } = useRelayStatus(RELAY_URL);
-    const { sats, ranks, weights, refresh: refreshSats } = useSatsMap(SATS_ENDPOINT);
+    const { sats, ranks, weights, totalSats, refresh: refreshSats } = useSatsMap(SATS_ENDPOINT);
 
     /*
      * The relay does the ranking and returns the board already ordered, so the
@@ -70,19 +72,21 @@ export default function Billboard() {
      * arrives at the end of the stream regardless of where it belongs, and a
      * note that merely gained sats does not arrive again at all.
      *
-     * So order by the rank the ledger reports, falling back to arrival order
-     * for anything the ledger has not caught up with yet.
+     * Order by the rank the ledger reports. After the first ledger answer,
+     * only its visible entries belong on screen; expired notes can still be
+     * present in the open subscription's event list.
      */
     const ordered = useMemo(() => {
-        if (ranks.size === 0) return events;
+        const visible = visibleBoardEvents(events, ranks, weights, totalSats !== null);
+        if (ranks.size === 0) return visible;
         const arrival = new Map(events.map((event, index) => [event.id, index]));
-        return [...events].sort((a, b) => {
+        return visible.sort((a, b) => {
             const ra = ranks.get(a.id) ?? Number.MAX_SAFE_INTEGER;
             const rb = ranks.get(b.id) ?? Number.MAX_SAFE_INTEGER;
             if (ra !== rb) return ra - rb;
             return (arrival.get(a.id) ?? 0) - (arrival.get(b.id) ?? 0);
         });
-    }, [events, ranks]);
+    }, [events, ranks, weights, totalSats]);
 
     // A note that just arrived is not in the ledger yet, and waiting out the
     // poll would leave it sitting at the bottom with no sats beside it.
@@ -92,7 +96,7 @@ export default function Billboard() {
 
     const isOffline = relayStatus === "offline";
     const isLoading = !isOffline && !eose && events.length === 0;
-    const isEmpty = !isOffline && eose && events.length === 0;
+    const isEmpty = !isOffline && eose && ordered.length === 0;
 
     return (
         <div className="mx-auto min-h-dvh w-full max-w-5xl px-4 pt-6 pb-20 sm:px-6">
@@ -133,7 +137,7 @@ export default function Billboard() {
                 {isLoading && <LoadingRows />}
                 {isEmpty && <EmptyBoard onPromote={() => setIsModalOpen(true)} />}
 
-                {events.length > 0 && (
+                {ordered.length > 0 && (
                     <ul className="space-y-4">
                         {ordered.map((event, index) => (
                             <BoardRow
@@ -142,16 +146,23 @@ export default function Billboard() {
                                 rank={index + 1}
                                 sats={sats.get(event.id)}
                                 weight={weights.get(event.id)}
+                                onPromote={() => {
+                                    setPromotion({ id: event.id, weight: weights.get(event.id) });
+                                    setIsModalOpen(true);
+                                }}
                             />
                         ))}
                     </ul>
                 )}
 
-                {events.length > 0 && (
+                {ordered.length > 0 && (
                     <div className="mt-6">
-                        <OpenSlot rank={events.length + 1} onPromote={() => setIsModalOpen(true)} />
+                        <OpenSlot rank={ordered.length + 1} onPromote={() => setIsModalOpen(true)} />
                     </div>
                 )}
+                <div className="mt-8 text-center">
+                    <a href="/expired" className="focus-pixel inline-flex min-h-11 items-center font-pixel text-[9px] tracking-widest text-cyan-300/50 hover:text-neon-cyan">Expired &gt;</a>
+                </div>
             </main>
 
             <footer className="mt-16 border-t-2 border-cyan-400/15 pt-6 text-center">
@@ -163,8 +174,12 @@ export default function Billboard() {
             {isModalOpen && (
                 <PromoteModal
                     openSection={linkedSection}
+                    initialReference={promotion?.id}
+                    currentWeight={promotion?.weight}
+                    onPaid={refreshSats}
                     onClose={() => {
                         setIsModalOpen(false);
+                        setPromotion(null);
                         setLinkedSection("");
                         // Leave the address bar pointing at the board, or the
                         // dialog springs back open on the next reload.
