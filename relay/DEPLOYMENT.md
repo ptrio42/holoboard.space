@@ -1,10 +1,10 @@
 # Deploying the relay
 
 Fly.io, one machine, one volume. The frontend is not deployed from here; see
-the root README for that half.
+the [frontend README](../web/README.md) for its build and configuration.
 
 To run both parts together with Docker Compose, follow the
-[Docker instructions in the root README](../README.md#run-your-own-board-with-docker).
+[self-hosting guide](../docs/self-hosting.md).
 Compose builds the non-root `standalone` image target. Fly builds the default
 `fly` target, which preserves `/root/data` and access to the existing volume.
 

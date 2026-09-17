@@ -1,87 +1,64 @@
-# holoboard web
+# Holoboard web
 
-The frontend of [holoboard.space](https://holoboard.space): a bulletin board on Nostr where
-rank is sats, and recent sats count for more.
+The React frontend for [holoboard.space](https://holoboard.space), built with
+Vite, Tailwind CSS and NDK. See the [project README](../README.md) for promotion
+and billboard rules.
 
-The relay does the ranking, including the decay. It serves the board already ordered along with
-what each note's sats are worth today, so this app renders the notes
-in the order they arrive and adds no sorting of its own. If the relay is unreachable there is
-no board, and the page says so rather than showing an empty list.
+## Run locally
 
-## Running it
+Run from `web/` with Node.js and npm installed:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Defaults point at the production relay, so a fresh clone works with no setup. Copy `.env.example`
-to `.env.local` to point somewhere else.
+Defaults connect to the live Holoboard relay. To use your own relay, copy
+[.env.example](.env.example) to `.env.local` and edit its settings.
+
+## Check changes
 
 ```bash
-npm run build   # tsc -b && vite build; this is what typechecks
+npm run test
 npm run lint
+npm run build
 ```
 
-`npm run dev` does not typecheck. Run the build before calling anything done.
+The build checks TypeScript and creates the production website in `dist/`.
+The development server does not check types.
 
 ## Configuration
 
-| Variable | What it is |
+| Variable | Purpose |
 | --- | --- |
-| `VITE_RELAY_URL` | The board relay. Serves the ranked list. |
-| `VITE_RELAY_PUBKEY` | The relay's identity. Promotions are mentions of, and zaps to, this key. |
-| `VITE_PUBLIC_RELAYS` | Where profiles, promotion mentions, the relay's replies and zap receipts travel. |
-| `VITE_BOARD_LIMIT` | How many ranked notes to ask for. |
+| `VITE_RELAY_URL` | Board relay WebSocket URL. |
+| `VITE_RELAY_PUBKEY` | Board identity, used for promotion mentions and zaps. |
+| `VITE_PUBLIC_RELAYS` | Comma-separated relays for profiles, quoted notes, mentions and zaps. |
+| `VITE_BOARD_LIMIT` | Maximum number of board notes requested. Default: 50. |
+| `VITE_SATS_ENDPOINT` | Optional board API URL. Defaults to the relay URL over HTTP(S), followed by `/api/board`. |
 
-Both relay sets sit in the same NDK pool, because the board relay stores only what has been paid
-for and cannot carry the rest. The board subscription pins itself to `VITE_RELAY_URL` with
-`exclusiveRelay`, so notes seen on public relays never drift into the ranking.
+These settings are included at build time. Rebuild to change a deployed website.
 
-## Promoting a note
+## Where things live
 
-`PROMOTE A NOTE` walks the mention flow, which is the one with real usage:
+- `src/config.ts`: relay URLs, identity and defaults.
+- `src/pages/Billboard.tsx`: board and expired promotions.
+- `src/components/BoardRow/`: ranked note cards.
+- `src/components/BillboardScreen/`: shared billboard display for preview and feed.
+- `src/components/PromoteModal/`: invoice, preview and zap flows.
+- `src/components/TextRenderer/`: note content, links and quote previews.
+- `src/components/ui/` and `src/index.css`: shared controls and styles.
 
-1. Sign in with a NIP-07 extension.
-2. Paste any note reference. `note1`, `nevent1`, a bare 64-character id, or a client URL
-   containing one.
-3. The app publishes a kind:1 mentioning the relay and quoting that note, to the public relays.
-4. The relay answers with a promotional reply carrying a `promoted_note` tag.
-5. Zapping that reply is what buys the ranking. The invoice appears as a QR, a copyable bolt11
-   and a `lightning:` link; WebLN pays it directly when a wallet is present.
+Notes come from the board relay through Nostr. The app reads ranks, payment
+weights and appearance from its [HTTP API](../relay/API.md), refreshing every
+15 seconds. Public-relay notes do not enter the board subscription. Ranking
+and payment decisions belong to the relay.
 
-Payment is confirmed by watching for the zap receipt, not by trusting the wallet, so paying from
-a phone in another room still closes the loop.
+## Visual conventions
 
-The direct-zap and `PROMOTE` DM routes are behind **Other ways to promote** in the same dialog.
+Use the pixel font for headings, controls and ranks; note bodies use a system
+monospace font. Card frames show rank: gold, cyan and pink for the top three,
+then dim cyan. Paid billboard text has its own selected color inside that frame.
 
-## Layout
-
-```
-src/
-  components/
-    ui/            buttons, panels, modal, avatar, QR, spinner
-    BoardRow/      one ranked note
-    PromoteModal/  the promotion flow and its state machine
-    LoginButton/   NIP-07 sign-in
-    Ndk.tsx        headless NDK session wiring
-  hooks/           relay connection status
-  lib/             the NDK singleton, nostr encoding helpers, time formatting
-  pages/           the board
-```
-
-## Look
-
-Pixel art, PressStart2P, neon cyan and pink on near-black. Two rules keep it legible:
-
-- **PressStart2P is for display only.** Headings, buttons, labels, rank numbers. Note bodies use a
-  system mono, because notes are long and arrive in every script.
-- **Colour carries rank, not decoration.** Gold, cyan and pink for the top three, a dim cyan for
-  everything below.
-
-The corner notch comes from one `--pixel-notch` clip-path shared by every framed surface. Because
-`clip-path` cuts a `border` into disconnected pieces at the corners, framed things are built as two
-stacked layers: an outer one in the border colour, an inner one in the panel fill.
-
-Press Start 2P is by CodeMan38, under the SIL Open Font License 1.1
-([source](https://fonts.google.com/specimen/Press+Start+2P)), shipped here as WOFF2.
+[Press Start 2P](https://fonts.google.com/specimen/Press+Start+2P), by CodeMan38,
+is bundled as WOFF2 under the SIL Open Font License 1.1.
