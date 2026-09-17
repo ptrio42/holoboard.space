@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+
 	"fmt"
+	"github.com/nbd-wtf/go-nostr"
 	"log"
 	"net"
 	"net/http"
@@ -56,26 +59,29 @@ const (
 )
 
 type promoteRequest struct {
-	Note       string `json:"note"`
-	AmountSats int64  `json:"amount_sats"`
+	Note       string           `json:"note"`
+	AmountSats int64            `json:"amount_sats"`
+	Billboard  *BillboardConfig `json:"billboard,omitempty"`
+	StyleOnly  bool             `json:"style_only,omitempty"`
 }
 
 type promoteResponse struct {
-	Invoice     string `json:"invoice"`
-	PaymentHash string `json:"payment_hash"`
-	AmountSats  int64  `json:"amount_sats"`
-	NoteID      string `json:"note_id"`
-	ExpiresAt   int64  `json:"expires_at"`
+	Invoice       string `json:"invoice"`
+	PaymentHash   string `json:"payment_hash"`
+	AmountSats    int64  `json:"amount_sats"`
+	NoteID        string `json:"note_id"`
+	ExpiresAt     int64  `json:"expires_at"`
+	PromotionSats int64  `json:"promotion_sats"`
+	BillboardFee  int64  `json:"billboard_fee_sats"`
 }
 
 type promoteStatus struct {
-	// Pending is the only thing this endpoint can state as fact: whether the
-	// invoice is still outstanding.
-	Pending bool `json:"pending"`
-	// SatsPaid is what the note has collected right now. A caller that noted
-	// the figure before paying can tell settlement from expiry by comparing,
-	// which is something the relay genuinely cannot do on its own: a settled
-	// invoice and an expired one are both simply gone.
+	// Pending reports an outstanding invoice; Settled requires a durable receipt.
+	Pending bool            `json:"pending"`
+	Settled bool            `json:"settled"`
+	Receipt *InvoiceReceipt `json:"receipt,omitempty"`
+	// SatsPaid excludes appearance fees. Settled and Receipt identify this
+	// invoice's durable settlement, including appearance-only purchases.
 	SatsPaid int64  `json:"sats_paid"`
 	NoteID   string `json:"note_id"`
 }
@@ -205,6 +211,11 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 			hints, author = noteHints(extractEventIDFromText(req.Note))
 		}
 
+		if req.StyleOnly {
+			writeError(w, http.StatusBadRequest, "billboard appearance can only be chosen with an initial promotion")
+			return
+		}
+
 		amount := req.AmountSats
 		if amount == 0 {
 			amount = invoices.defaultAmountSats
@@ -225,7 +236,21 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 		// Refuse to mint an invoice for a note nobody can find. This is the
 		// cheapest abuse guard there is, and it also stops somebody paying for
 		// a promotion that could never be fulfilled.
-		if _, known := storage.GetPost(noteID); !known {
+		var event *nostr.Event
+		active := false
+		if post, known := storage.GetPost(noteID); known {
+			event = post.Event
+			active = post.weight(time.Now()) > 0
+		}
+		if storage.IsRemoved(noteID) {
+			writeError(w, http.StatusConflict, "this note was removed by the operator")
+			return
+		}
+		if req.Billboard != nil && active {
+			writeError(w, http.StatusConflict, "active notes can only be boosted with their existing appearance")
+			return
+		}
+		if event == nil {
 			ctx, cancel := context.WithTimeout(r.Context(), promoteFetchTimeout)
 			defer cancel()
 
@@ -237,12 +262,18 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 					"could not find that note on any relay this board watches")
 				return
 			}
+			event = note
 			if !isPromotable(note.Kind) {
 				writeError(w, http.StatusBadRequest, fmt.Sprintf(
 					"that is a kind %d event, and this board takes text notes and comments",
 					note.Kind))
 				return
 			}
+		}
+
+		if err := req.Billboard.validate(event); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
 		}
 
 		// The limit is checked here rather than at the top, so a mistyped
@@ -259,8 +290,18 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 		mintCtx, cancelMint := context.WithTimeout(r.Context(), promoteMintTimeout)
 		defer cancelMint()
 
-		invoice, err := invoices.GeneratePromotionInvoice(mintCtx, noteID, amount, hints, author)
+		var invoice *Invoice
+		var err error
+		if req.Billboard != nil {
+			invoice, err = invoices.GenerateBillboardInvoice(mintCtx, noteID, amount, hints, author, req.Billboard, req.StyleOnly, event)
+		} else {
+			invoice, err = invoices.GeneratePromotionInvoice(mintCtx, noteID, amount, hints, author)
+		}
 		if err != nil {
+			if errors.Is(err, errBillboardConflict) {
+				writeError(w, http.StatusConflict, err.Error())
+				return
+			}
 			log.Printf("Failed to mint a promotion invoice for %s: %v", short(noteID, 8), err)
 			writeError(w, http.StatusBadGateway, "the wallet would not issue an invoice")
 			return
@@ -268,23 +309,23 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 
 		log.Printf("Minted a no-login invoice for %s: %d sats", short(noteID, 8), invoice.AmountSats)
 
+		fee := int64(0)
+		if req.Billboard != nil {
+			fee = billboardFeeSats
+		}
 		writeJSON(w, http.StatusOK, promoteResponse{
-			Invoice:     invoice.PaymentRequest,
-			PaymentHash: invoice.PaymentHash,
-			AmountSats:  invoice.AmountSats,
-			NoteID:      noteID,
-			ExpiresAt:   invoice.ExpiresAt.Unix(),
+			Invoice:       invoice.PaymentRequest,
+			PaymentHash:   invoice.PaymentHash,
+			AmountSats:    invoice.AmountSats,
+			NoteID:        noteID,
+			ExpiresAt:     invoice.ExpiresAt.Unix(),
+			PromotionSats: amount, BillboardFee: fee,
 		})
 	}
 }
 
-// PromoteStatusHandler reports whether an invoice is still outstanding, and
-// what the note has collected, so a page showing a QR code knows when to stop.
-//
-// It deliberately does not claim "settled". Paid invoices and expired ones are
-// both removed from storage, so their absence proves nothing on its own. The
-// caller knows what the note had before it paid; the two figures together are
-// what settle the question.
+// PromoteStatusHandler checks a pending invoice and returns its durable receipt.
+// A missing pending invoice alone never proves payment.
 func PromoteStatusHandler(storage *Storage, invoices *InvoiceManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -311,6 +352,11 @@ func PromoteStatusHandler(storage *Storage, invoices *InvoiceManager) http.Handl
 		}
 
 		status := promoteStatus{NoteID: note}
+		if receipt, settled := storage.InvoiceReceipt(hash); settled {
+			status.Settled = true
+			status.Receipt = receipt
+			status.NoteID = receipt.NoteID
+		}
 		if invoice, waiting := storage.GetPendingInvoice(hash); waiting {
 			status.Pending = true
 			status.NoteID = invoice.PostID

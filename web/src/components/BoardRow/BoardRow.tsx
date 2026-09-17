@@ -1,3 +1,6 @@
+import type { BillboardConfig } from "../../lib/billboard";
+import { BillboardScreen } from "../BillboardScreen/BillboardScreen";
+import { NoteAttachments } from "../TextRenderer/NoteAttachments";
 import { useState } from "react";
 import type { NDKEvent } from "@nostr-dev-kit/ndk";
 import { PixelPanel } from "../ui/PixelPanel";
@@ -10,6 +13,7 @@ import { parentOf } from "../../lib/parent";
 
 interface BoardRowProps {
     event: NDKEvent;
+    billboard?: BillboardConfig;
     rank?: number;
     expired?: boolean;
     onPromote?: () => void;
@@ -56,7 +60,7 @@ function satsLabel(sats: number): string {
     return `${formatSats(sats)} ${sats === 1 ? "sat" : "sats"}`;
 }
 
-export function BoardRow({ event, rank, sats, weight, expired = false, onPromote, lastPaidAt }: BoardRowProps) {
+export function BoardRow({ event, rank, sats, weight, expired = false, onPromote, lastPaidAt, billboard }: BoardRowProps) {
     const tier = !expired && rank ? TIERS[rank - 1] ?? DEFAULT_TIER : DEFAULT_TIER;
     const parent = parentOf(event);
     // Tapped open on a touch screen, which has no hover to ask with.
@@ -79,15 +83,16 @@ export function BoardRow({ event, rank, sats, weight, expired = false, onPromote
 
     return (
         <li>
+            <div className="@container/row">
             <PixelPanel accent={tier.accent} glow={tier.glow}>
-                <article className="flex gap-3 p-4 sm:gap-5 sm:p-5">
+                <article className="flex gap-3 p-4 @xl/row:gap-5 @xl/row:p-5">
                     {/* Fixed width so the content column does not step right at rank 10. */}
-                    {!expired && <div className="flex w-9 shrink-0 flex-col items-center gap-1 sm:w-12">
+                    {!expired && <div className="flex w-9 shrink-0 flex-col items-center gap-1 @xl/row:w-12">
                         <span
-                            className={`font-pixel text-lg leading-none sm:text-2xl ${tier.text}`}
+                            className={`font-pixel text-lg leading-none @xl/row:text-2xl ${tier.text}`}
                             aria-hidden="true"
                         >
-                            {rank}
+                            {rank ?? "?"}
                         </span>
                         <span className="font-pixel text-[8px] tracking-widest text-cyan-300/30">
                             {rank === 1 ? "TOP" : "RANK"}
@@ -151,7 +156,7 @@ export function BoardRow({ event, rank, sats, weight, expired = false, onPromote
                                                 className={`pointer-events-none absolute top-full left-0 z-10 mt-2
                                                     max-w-[min(16rem,calc(100vw-3rem))] border-2 border-cyan-400/40
                                                     bg-void px-2 py-1 font-pixel text-[9px] text-cyan-200/90
-                                                    sm:left-auto sm:right-0 sm:whitespace-nowrap
+                                                    @xl/row:left-auto @xl/row:right-0 @xl/row:whitespace-nowrap
                                                     ${showWeight ? "block" : "hidden group-hover:block"}`}
                                             >
                                                 {formatSats(weight ?? 0)} of {formatSats(sats)} still counting
@@ -162,16 +167,26 @@ export function BoardRow({ event, rank, sats, weight, expired = false, onPromote
                             </div>
                         </div>
 
-                        <div className="text-[13px] text-cyan-50/80 sm:text-sm">
-                            <Expandable label={expired ? "expired note" : `note at rank ${rank}`}>
-                                <TextRenderer text={event.content} />
-                            </Expandable>
+                        {billboard && !expired && <BillboardScreen config={billboard} />}
+                        {billboard && !expired && <NoteAttachments content={event.content} tags={event.tags} ownId={event.id} />}
+
+                        <div className="text-[13px] text-cyan-50/80 @xl/row:text-sm">
+                            {billboard && !expired ? (
+                                <details className="disclosure">
+                                    <summary className="note-action cursor-pointer py-2">Full note</summary>
+                                    <TextRenderer text={event.content} embedQuotes={false} />
+                                </details>
+                            ) : (
+                                <Expandable label={expired ? "expired note" : `note at rank ${rank}`}>
+                                    <TextRenderer text={event.content} tags={event.tags} ownId={event.id} />
+                                </Expandable>
+                            )}
                         </div>
 
                         {expired && typeof lastPaidAt === "number" && lastPaidAt > 0 && <p className="text-xs text-cyan-300/40">
                             Last payment: <time dateTime={new Date(lastPaidAt * 1000).toISOString()}>{new Date(lastPaidAt * 1000).toLocaleDateString()}</time>
                         </p>}
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-col gap-3 @xl/row:flex-row @xl/row:items-center @xl/row:justify-between">
                             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                                 <a
                                     href={njumpUrl(event.id, "note")}
@@ -197,13 +212,14 @@ export function BoardRow({ event, rank, sats, weight, expired = false, onPromote
                                 )}
                             </div>
                             {onPromote && <PixelButton size="sm" variant="ghost" onClick={onPromote}
-                                className="min-h-11 w-full sm:w-auto [&_.pixel-btn__face]:flex [&_.pixel-btn__face]:min-h-11 [&_.pixel-btn__face]:items-center [&_.pixel-btn__face]:justify-center">
+                                className="min-h-11 w-full @xl/row:w-auto [&_.pixel-btn__face]:flex [&_.pixel-btn__face]:min-h-11 [&_.pixel-btn__face]:items-center [&_.pixel-btn__face]:justify-center">
                                 {expired ? "Promote again" : "Boost"}
                             </PixelButton>}
                         </div>
                     </div>
                 </article>
             </PixelPanel>
+            </div>
         </li>
     );
 }

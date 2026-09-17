@@ -239,8 +239,9 @@ func TestPromoteStatus(t *testing.T) {
 	if after.Pending {
 		t.Error("a settled invoice should no longer read as pending")
 	}
-	// The endpoint never claims "settled"; the caller tells it apart from an
-	// expiry by the sats having moved.
+	if !after.Settled || after.Receipt == nil {
+		t.Fatal("settlement receipt is missing")
+	}
 	if after.SatsPaid != 501 {
 		t.Errorf("sats = %d, want 501", after.SatsPaid)
 	}

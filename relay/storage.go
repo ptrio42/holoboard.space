@@ -33,7 +33,9 @@ type PromotedPost struct {
 	// Payments is the history TotalSatsPaid is the sum of. Posts stored before
 	// this existed have none, and are treated as a single payment on their last
 	// payment date.
-	Payments []Payment `json:"payments,omitempty"`
+	Payments   []Payment        `json:"payments,omitempty"`
+	Billboard  *BillboardConfig `json:"billboard,omitempty"`
+	ActivityID string           `json:"activity_id,omitempty"`
 }
 
 // rankHalfLife is how long it takes a payment to count for half of what it did.
@@ -69,7 +71,9 @@ func (p *PromotedPost) weight(now time.Time) int64 {
 	return int64(math.Round(p.score(now)))
 }
 
-// PendingInvoice tracks invoices generated for PROMOTE requests
+// PendingInvoice tracks invoices generated for PROMOTE requests. Expiry is the
+// payment deadline, not permission to delete: confirmation of a payment made
+// before that deadline may arrive after an outage. Retain until settlement.
 type PendingInvoice struct {
 	PostID      string    `json:"post_id"`
 	Invoice     string    `json:"invoice"`
@@ -81,8 +85,13 @@ type PendingInvoice struct {
 	// is fetched again when the invoice settles, and by then the reference the
 	// person pasted is long gone; without these, a note findable before payment
 	// can be unfindable after it.
-	RelayHints []string `json:"relay_hints,omitempty"`
-	Author     string   `json:"author,omitempty"`
+	RelayHints   []string         `json:"relay_hints,omitempty"`
+	Author       string           `json:"author,omitempty"`
+	Billboard    *BillboardConfig `json:"billboard,omitempty"`
+	BillboardFee int64            `json:"billboard_fee_sats,omitempty"`
+	StyleOnly    bool             `json:"style_only,omitempty"`
+	ActivityID   string           `json:"activity_id,omitempty"`
+	Event        *nostr.Event     `json:"event,omitempty"`
 }
 
 // Storage manages promoted posts and pending invoices
@@ -90,13 +99,14 @@ type Storage struct {
 	mu                 sync.RWMutex
 	posts              map[string]*PromotedPost   // post_id -> PromotedPost
 	pendingInvoices    map[string]*PendingInvoice // payment_hash -> PendingInvoice
-	processedZaps      map[string]bool            // zap_event_id -> processed (for deduplication)
-	processedDMs       map[string]bool            // dm_event_id -> processed (to prevent duplicate invoice sends)
-	promotionalReplies map[string]string          // promotional_reply_id -> note_to_promote_id
-	processedMentions  map[string]bool            // mention_event_id -> processed (to reply only once)
-	removed            map[string]bool            // post_id -> taken off the board by the operator, and kept off
-	mentionWatermark   int64                      // newest mention seen, so a restart does not skip the gap
-	dmWatermark        int64                      // same, for DMs
+	settledInvoices    map[string]*InvoiceReceipt
+	processedZaps      map[string]bool   // zap_event_id -> processed (for deduplication)
+	processedDMs       map[string]bool   // dm_event_id -> processed (to prevent duplicate invoice sends)
+	promotionalReplies map[string]string // promotional_reply_id -> note_to_promote_id
+	processedMentions  map[string]bool   // mention_event_id -> processed (to reply only once)
+	removed            map[string]bool   // post_id -> taken off the board by the operator, and kept off
+	mentionWatermark   int64             // newest mention seen, so a restart does not skip the gap
+	dmWatermark        int64             // same, for DMs
 	dataFile           string
 }
 
@@ -105,6 +115,7 @@ func NewStorage(dataFile string) (*Storage, error) {
 	s := &Storage{
 		posts:              make(map[string]*PromotedPost),
 		pendingInvoices:    make(map[string]*PendingInvoice),
+		settledInvoices:    make(map[string]*InvoiceReceipt),
 		processedZaps:      make(map[string]bool),
 		processedDMs:       make(map[string]bool),
 		promotionalReplies: make(map[string]string),
@@ -139,6 +150,10 @@ func (s *Storage) AddPayment(postID string, amountSats int64, event *nostr.Event
 	post, exists := s.posts[postID]
 	if exists {
 		// Update existing post
+		if post.weight(time.Now()) == 0 {
+			post.Billboard = nil
+			post.ActivityID = fmt.Sprintf("%d", time.Now().UnixNano())
+		}
 		post.TotalSatsPaid += amountSats
 		post.LastPaymentTimestamp = time.Now()
 		post.Payments = append(post.Payments, Payment{Sats: amountSats, At: post.LastPaymentTimestamp})
@@ -152,6 +167,7 @@ func (s *Storage) AddPayment(postID string, amountSats int64, event *nostr.Event
 		now := time.Now()
 		post = &PromotedPost{
 			PostID:               postID,
+			ActivityID:           fmt.Sprintf("%d", now.UnixNano()),
 			Event:                event,
 			TotalSatsPaid:        amountSats,
 			LastPaymentTimestamp: now,
@@ -226,7 +242,16 @@ func (s *Storage) GetPost(postID string) (*PromotedPost, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	post, exists := s.posts[postID]
-	return post, exists
+	if !exists {
+		return nil, false
+	}
+	snapshot := *post
+	snapshot.Payments = append([]Payment(nil), post.Payments...)
+	if post.Billboard != nil {
+		config := *post.Billboard
+		snapshot.Billboard = &config
+	}
+	return &snapshot, true
 }
 
 // HasPost checks if a post is already promoted
@@ -268,9 +293,10 @@ type LedgerEntry struct {
 	// actually built from. Served because a list sorted by a number nobody can
 	// see is a list nobody can check: without it a note with fewer sats sitting
 	// higher reads as a bug rather than as an old note giving way to a new one.
-	Weight     int64 `json:"weight"`
-	LastPaidAt int64 `json:"last_paid_at"` // unix seconds, 0 if never
-	Rank       int   `json:"rank"`         // 1-based, matching the served order
+	Weight     int64            `json:"weight"`
+	LastPaidAt int64            `json:"last_paid_at"` // unix seconds, 0 if never
+	Rank       int              `json:"rank"`         // 1-based, matching the served order
+	Billboard  *BillboardConfig `json:"billboard,omitempty"`
 }
 
 // Ledger returns every visible promoted note with what it has been paid, in board
@@ -304,6 +330,7 @@ func (s *Storage) Ledger() []LedgerEntry {
 			Weight:     post.weight(now),
 			LastPaidAt: lastPaid,
 			Rank:       i + 1,
+			Billboard:  post.Billboard,
 		})
 	}
 	return entries
@@ -457,6 +484,7 @@ func (s *Storage) save() error {
 	data := struct {
 		Posts              map[string]*PromotedPost   `json:"posts"`
 		PendingInvoices    map[string]*PendingInvoice `json:"pending_invoices"`
+		SettledInvoices    map[string]*InvoiceReceipt `json:"settled_invoices,omitempty"`
 		ProcessedZaps      map[string]bool            `json:"processed_zaps"`
 		ProcessedDMs       map[string]bool            `json:"processed_dms"`
 		PromotionalReplies map[string]string          `json:"promotional_replies"`
@@ -467,6 +495,7 @@ func (s *Storage) save() error {
 	}{
 		Posts:              s.posts,
 		PendingInvoices:    s.pendingInvoices,
+		SettledInvoices:    s.settledInvoices,
 		ProcessedZaps:      s.processedZaps,
 		ProcessedDMs:       s.processedDMs,
 		PromotionalReplies: s.promotionalReplies,
@@ -500,6 +529,7 @@ func (s *Storage) load() error {
 	var data struct {
 		Posts              map[string]*PromotedPost   `json:"posts"`
 		PendingInvoices    map[string]*PendingInvoice `json:"pending_invoices"`
+		SettledInvoices    map[string]*InvoiceReceipt `json:"settled_invoices,omitempty"`
 		ProcessedZaps      map[string]bool            `json:"processed_zaps"`
 		ProcessedDMs       map[string]bool            `json:"processed_dms"`
 		PromotionalReplies map[string]string          `json:"promotional_replies"`
@@ -516,6 +546,11 @@ func (s *Storage) load() error {
 	s.posts = data.Posts
 	if s.posts == nil {
 		s.posts = make(map[string]*PromotedPost)
+	}
+
+	s.settledInvoices = data.SettledInvoices
+	if s.settledInvoices == nil {
+		s.settledInvoices = make(map[string]*InvoiceReceipt)
 	}
 
 	s.pendingInvoices = data.PendingInvoices

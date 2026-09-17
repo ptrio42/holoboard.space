@@ -1,3 +1,4 @@
+import type { BillboardConfig } from "../lib/billboard";
 import { useCallback, useEffect, useState } from "react";
 import { fetchLedger, toSatsMap, toWeightMap, type SatsMap } from "../lib/sats";
 
@@ -9,6 +10,7 @@ const EMPTY_RANKS: ReadonlyMap<string, number> = new Map();
 interface SatsState {
     /** Event id to sats paid. Missing means "not known yet", not "zero". */
     sats: SatsMap;
+    billboards: ReadonlyMap<string, BillboardConfig>;
     /** Event id to the relay's own 1-based rank for it. */
     ranks: ReadonlyMap<string, number>;
     /** Event id to what its sats are worth today, which is what sets the rank. */
@@ -37,6 +39,7 @@ interface SatsResult extends SatsState {
 export function useSatsMap(endpoint: string): SatsResult {
     const [state, setState] = useState<SatsState>({
         sats: EMPTY,
+        billboards: new Map(),
         ranks: EMPTY_RANKS,
         weights: EMPTY_RANKS,
         totalSats: null,
@@ -59,6 +62,7 @@ export function useSatsMap(endpoint: string): SatsResult {
                 if (cancelled) return;
                 setState({
                     sats: toSatsMap(ledger),
+                    billboards: new Map(ledger.entries.flatMap((e) => e.billboard ? [[e.id, e.billboard] as const] : [])),
                     ranks: new Map(ledger.entries.map((e) => [e.id, e.rank])),
                     weights: toWeightMap(ledger),
                     totalSats: ledger.totalSats,

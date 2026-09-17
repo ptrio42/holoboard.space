@@ -1,3 +1,5 @@
+import { parseBillboard, type BillboardConfig } from "./billboard";
+
 /**
  * Client for the relay's payment ledger.
  *
@@ -13,6 +15,7 @@
 export interface LedgerEntry {
     /** Event id of the promoted note. */
     id: string;
+    billboard?: BillboardConfig;
     /** Everything this note has been paid, in sats. */
     satsPaid: number;
     /**
@@ -71,6 +74,7 @@ function parseEntry(value: unknown): LedgerEntry | null {
     return {
         id: value.id,
         satsPaid: asNumber(value.sats_paid),
+        billboard: parseBillboard(value.billboard),
         weight: typeof value.weight === "number" && Number.isFinite(value.weight)
             ? value.weight
             : null,

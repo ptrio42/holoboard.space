@@ -8,6 +8,8 @@ import (
 	"log"
 	"sync"
 	"time"
+
+	"github.com/nbd-wtf/go-nostr"
 )
 
 // LightningBackend interface for invoice generation and payment monitoring
@@ -108,6 +110,7 @@ type InvoiceManager struct {
 	paymentMonitor    *PaymentMonitor
 	defaultAmountSats int64
 
+	billboardMu sync.Mutex
 	checkMu     sync.Mutex
 	lastChecked map[string]time.Time
 }
@@ -126,30 +129,54 @@ func NewInvoiceManager(backend LightningBackend, storage *Storage, monitor *Paym
 // GeneratePromotionInvoice generates an invoice for promoting a post
 // If amountSats is 0, uses the default amount
 func (im *InvoiceManager) GeneratePromotionInvoice(ctx context.Context, postID string, amountSats int64, hints []string, author string) (*Invoice, error) {
-	// Use default amount if not specified
 	if amountSats == 0 {
 		amountSats = im.defaultAmountSats
 	}
+	return im.generateInvoice(ctx, postID, amountSats, hints, author, nil, false, nil)
+}
 
+// GenerateBillboardInvoice reserves the style while minting. Only one live
+// style invoice per note is offered, independently of ordinary boost invoices.
+func (im *InvoiceManager) GenerateBillboardInvoice(ctx context.Context, postID string, promotion int64, hints []string, author string, config *BillboardConfig, styleOnly bool, event *nostr.Event) (*Invoice, error) {
+	im.billboardMu.Lock()
+	defer im.billboardMu.Unlock()
+	if styleOnly || promotion <= 0 {
+		return nil, fmt.Errorf("%w: billboard requires an initial promotion payment", errBillboardConflict)
+	}
+	if post, ok := im.storage.GetPost(postID); ok && post.weight(time.Now()) > 0 {
+		return nil, fmt.Errorf("%w: active notes can only be boosted with their existing appearance", errBillboardConflict)
+	}
+	for _, pending := range im.storage.ListPendingInvoices() {
+		if pending.PostID == postID && pending.Billboard != nil && pending.ExpiresAt.After(time.Now()) {
+			return nil, fmt.Errorf("%w: a billboard invoice for this note is already waiting for payment", errBillboardConflict)
+		}
+	}
+	return im.generateInvoice(ctx, postID, promotion+billboardFeeSats, hints, author, config, styleOnly, event)
+}
+
+func (im *InvoiceManager) generateInvoice(ctx context.Context, postID string, amountSats int64, hints []string, author string, config *BillboardConfig, styleOnly bool, event *nostr.Event) (*Invoice, error) {
 	memo := fmt.Sprintf("Promote Nostr post: %s", postID)
-
+	if config != nil {
+		memo = fmt.Sprintf("Holoboard: %d sats promotion + %d sats billboard: %s", amountSats-billboardFeeSats, billboardFeeSats, postID)
+	}
 	invoice, err := im.backend.GenerateInvoice(ctx, amountSats, memo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate invoice: %w", err)
 	}
-
-	// Store the pending invoice
-	pendingInvoice := &PendingInvoice{
-		PostID:      postID,
-		Invoice:     invoice.PaymentRequest,
-		PaymentHash: invoice.PaymentHash,
-		AmountSats:  invoice.AmountSats,
-		CreatedAt:   time.Now(),
-		ExpiresAt:   invoice.ExpiresAt, // Set expiry from backend
-		RelayHints:  hints,
-		Author:      author,
+	if invoice.AmountSats != amountSats {
+		return nil, fmt.Errorf("wallet issued an invoice with an unexpected amount")
 	}
-
+	pendingInvoice := &PendingInvoice{
+		PostID: postID, Invoice: invoice.PaymentRequest, PaymentHash: invoice.PaymentHash,
+		AmountSats: invoice.AmountSats, CreatedAt: time.Now(), ExpiresAt: invoice.ExpiresAt,
+		RelayHints: hints, Author: author, Billboard: config, StyleOnly: styleOnly, Event: event,
+	}
+	if config != nil {
+		pendingInvoice.BillboardFee = billboardFeeSats
+		if post, ok := im.storage.GetPost(postID); ok {
+			pendingInvoice.ActivityID = post.ActivityID
+		}
+	}
 	if err := im.storage.AddPendingInvoice(pendingInvoice); err != nil {
 		return nil, fmt.Errorf("failed to store pending invoice: %w", err)
 	}

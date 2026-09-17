@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { BillboardEditor } from "./BillboardEditor";
+import { initialBillboard, validBillboard, type BillboardConfig } from "../../lib/billboard";
 import { PixelButton } from "../ui/PixelButton";
 import { CopyButton } from "../ui/CopyButton";
 import { QrCode } from "../ui/QrCode";
 import { Spinner } from "../ui/Spinner";
 import {
     checkProgress,
+    fetchNotePreview,
+    type NotePreview,
     describeFailure,
     requestInvoice,
     type PromoteInvoice,
@@ -35,8 +39,8 @@ const clampSats = (value: number): number => {
 type Phase =
     | { kind: "idle" }
     | { kind: "requesting" }
-    | { kind: "waiting"; invoice: PromoteInvoice; satsBefore: number }
-    | { kind: "paid"; sats: number }
+    | { kind: "waiting"; invoice: PromoteInvoice }
+    | { kind: "paid"; sats: number; billboardApplied: boolean; feeConverted: boolean }
     | { kind: "failed"; message: string };
 
 export function DirectPromote({ initialReference = "", onPaid }: { initialReference?: string; onPaid?: () => void }) {
@@ -44,8 +48,35 @@ export function DirectPromote({ initialReference = "", onPaid }: { initialRefere
     const [amount, setAmount] = useState<number>(ZAP_PRESETS[1]);
     const [phase, setPhase] = useState<Phase>({ kind: "idle" });
     const abort = useRef<AbortController | null>(null);
+    const previewAbort = useRef<AbortController | null>(null);
+    const [preview, setPreview] = useState<NotePreview | null>(null);
+    const [previewLoading, setPreviewLoading] = useState(false);
+    const [billboardEnabled, setBillboardEnabled] = useState(false);
+    const [config, setConfig] = useState<BillboardConfig>(() => initialBillboard(""));
+    const promotionAmount = amount;
+    const fee = billboardEnabled && !preview?.billboard ? preview?.billboardFeeSats ?? 0 : 0;
+    const invalidBillboard = billboardEnabled && (!preview || preview.active || !validBillboard(config, preview.event.content, preview.images));
 
-    useEffect(() => () => abort.current?.abort(), []);
+    const loadPreview = async () => {
+        previewAbort.current?.abort();
+        const controller = new AbortController();
+        previewAbort.current = controller;
+        setPreviewLoading(true);
+        setPhase({ kind: "idle" });
+        try {
+            const loaded = await fetchNotePreview(reference.trim(), controller.signal);
+            if (controller.signal.aborted) return;
+            setPreview(loaded);
+            setConfig(loaded.billboard ?? initialBillboard(loaded.event.content));
+            setBillboardEnabled(false);
+        } catch (error) {
+            if (!controller.signal.aborted) setPhase({ kind: "failed", message: describeFailure(error) });
+        } finally {
+            if (!controller.signal.aborted) setPreviewLoading(false);
+        }
+    };
+
+    useEffect(() => () => { abort.current?.abort(); previewAbort.current?.abort(); }, []);
     const paidCallback = useRef(onPaid);
     useEffect(() => { paidCallback.current = onPaid; }, [onPaid]);
     const notified = useRef(false);
@@ -69,46 +100,41 @@ export function DirectPromote({ initialReference = "", onPaid }: { initialRefere
         setPhase({ kind: "requesting" });
 
         try {
-            const invoice = await requestInvoice(note, amount, abort.current.signal);
-            // Remember what the note had before paying. The relay cannot tell a
-            // settled invoice from an expired one, since both are simply gone,
-            // so the change in this figure is what proves the payment landed.
-            let satsBefore = 0;
-            try {
-                satsBefore = (await checkProgress(invoice.paymentHash, invoice.noteId)).satsPaid;
-            } catch {
-                // Not knowing the baseline only costs a slightly weaker check.
-            }
-            setPhase({ kind: "waiting", invoice, satsBefore });
+            const controller = abort.current;
+            const invoice = await requestInvoice(note, promotionAmount, controller.signal,
+                billboardEnabled ? { billboard: config } : undefined);
+            if (!controller.signal.aborted) setPhase({ kind: "waiting", invoice });
         } catch (error) {
-            setPhase({ kind: "failed", message: describeFailure(error) });
+            if (!abort.current?.signal.aborted) setPhase({ kind: "failed", message: describeFailure(error) });
         }
-    }, [reference, amount]);
+    }, [reference, promotionAmount, billboardEnabled, config]);
 
     // Watch for the payment while a QR code is on screen.
     useEffect(() => {
         if (phase.kind !== "waiting") return;
 
-        const { invoice, satsBefore } = phase;
-        let stopped = false;
-
+        const { invoice } = phase;
+        const controller = new AbortController();
+        let timer: number | undefined;
         const tick = async () => {
             try {
-                const progress = await checkProgress(invoice.paymentHash, invoice.noteId);
-                if (stopped) return;
-                if (!progress.pending && progress.satsPaid > satsBefore) {
-                    setPhase({ kind: "paid", sats: progress.satsPaid });
+                const progress = await checkProgress(invoice.paymentHash, invoice.noteId, controller.signal);
+                if (controller.signal.aborted) return;
+                if (progress.settled) {
+                    setPhase({ kind: "paid", sats: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted });
+                    return;
+                }
+                if (!progress.pending || Date.now() >= invoice.expiresAt * 1000) {
+                    setPhase({ kind: "failed", message: "This invoice expired without a confirmed payment. Check your wallet before requesting another." });
+                    return;
                 }
             } catch {
-                // A failed poll is not a failed payment. Keep asking.
+                // A failed poll does not prove that a payment failed.
             }
+            if (!controller.signal.aborted) timer = window.setTimeout(() => void tick(), POLL_MS);
         };
-
-        const timer = window.setInterval(() => void tick(), POLL_MS);
-        return () => {
-            stopped = true;
-            window.clearInterval(timer);
-        };
+        void tick();
+        return () => { controller.abort(); window.clearTimeout(timer); };
     }, [phase]);
 
     if (phase.kind === "paid") {
@@ -119,7 +145,9 @@ export function DirectPromote({ initialReference = "", onPaid }: { initialRefere
                     The note is on the board with {formatSats(phase.sats)} sats against it. Pay
                     again any time to move it further up.
                 </p>
-                <PixelButton onClick={() => setPhase({ kind: "idle" })}>
+                {phase.billboardApplied && <p className="text-xs text-neon-cyan">Your billboard appearance is now active.</p>}
+                {phase.feeConverted && <p className="text-xs text-neon-gold">Appearance was no longer available. Its fee was credited to ranking promotion instead.</p>}
+                <PixelButton onClick={() => { setPhase({ kind: "idle" }); setPreview(null); setBillboardEnabled(false); }}>
                     Promote another
                 </PixelButton>
             </div>
@@ -135,6 +163,7 @@ export function DirectPromote({ initialReference = "", onPaid }: { initialRefere
                     its own; you do not have to come back and tell it.
                 </p>
 
+                <p className="text-xs text-cyan-100/70">Ranking promotion: {invoice.promotionSats} sats. Billboard appearance: {invoice.billboardFeeSats} sats.</p>
                 <div className="flex justify-center">
                     <QrCode value={invoice.invoice} label="Lightning invoice QR code" />
                 </div>
@@ -164,7 +193,9 @@ export function DirectPromote({ initialReference = "", onPaid }: { initialRefere
     }
 
     return (
-        <div className="space-y-4">
+        // Native fieldset layout collapses the preview's size-query container in Chrome.
+        // Inert keeps every control frozen while the invoice is being created.
+        <div inert={phase.kind === "requesting"} aria-busy={phase.kind === "requesting"} className="min-w-0 space-y-4">
             <p className="text-xs leading-relaxed text-cyan-100/70">
                 Paste the note you want promoted and pay the invoice. A link from njump or any
                 other client is fine. No extension, no signing in, and it works for anyone's note
@@ -177,7 +208,11 @@ export function DirectPromote({ initialReference = "", onPaid }: { initialRefere
                 </span>
                 <input
                     value={reference}
-                    onChange={(event) => setReference(event.target.value)}
+                    onChange={(event) => {
+                        previewAbort.current?.abort();
+                        setReference(event.target.value); setPreview(null); setPreviewLoading(false);
+                        setBillboardEnabled(false); setPhase({ kind: "idle" });
+                    }}
                     placeholder="note1..., nevent1..., or a link to the note"
                     spellCheck={false}
                     className="focus-pixel w-full border-2 border-cyan-400/30 bg-void p-2 text-xs
@@ -185,6 +220,11 @@ export function DirectPromote({ initialReference = "", onPaid }: { initialRefere
                 />
             </label>
 
+            <PixelButton size="sm" onClick={() => void loadPreview()} disabled={!reference.trim() || previewLoading || phase.kind === "requesting"}>
+                {previewLoading ? "Loading preview" : "Load note & preview"}
+            </PixelButton>
+            {preview && <BillboardEditor preview={preview} config={config} onChange={setConfig}
+                enabled={billboardEnabled} onEnabledChange={setBillboardEnabled} amount={promotionAmount} />}
             <div className="space-y-1">
                 <span className="font-pixel text-[9px] tracking-widest text-cyan-300/50">Amount</span>
                 <div className="flex flex-wrap items-center gap-2">
@@ -224,6 +264,13 @@ export function DirectPromote({ initialReference = "", onPaid }: { initialRefere
                     </label>
                 </div>
             </div>
+            <div className="space-y-1 border-t-2 border-cyan-400/20 pt-3 text-xs text-cyan-100/70">
+                <p>Ranking promotion: {formatSats(promotionAmount)} sats</p>
+                <p>Billboard appearance: {formatSats(fee)} sats</p>
+                <p className="text-neon-gold">Total: {formatSats(promotionAmount + fee)} sats</p>
+                {billboardEnabled && <p className="pt-2 leading-relaxed">If appearance becomes unavailable before settlement,
+                    its fee goes toward ranking promotion instead. After the note expires, a new billboard purchase is required.</p>}
+            </div>
 
             {phase.kind === "failed" && (
                 <p className="border-2 border-neon-pink/40 bg-neon-pink/5 p-2 text-xs text-neon-pink">
@@ -234,11 +281,11 @@ export function DirectPromote({ initialReference = "", onPaid }: { initialRefere
             <PixelButton
                 variant="accent"
                 onClick={() => void start()}
-                disabled={phase.kind === "requesting"}
+                disabled={phase.kind === "requesting" || previewLoading || invalidBillboard}
             >
                 {phase.kind === "requesting"
                     ? "Asking the relay"
-                    : `Get invoice, ${formatSats(amount)} sats`}
+                    : `Get invoice, ${formatSats(promotionAmount + fee)} sats`}
             </PixelButton>
         </div>
     );

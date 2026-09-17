@@ -383,6 +383,7 @@ func main() {
 	// consequence of the website automating the mention flow.
 	relay.Router().HandleFunc("/api/promote", PromoteHandler(storage, invoiceManager, fetcher))
 	relay.Router().HandleFunc("/api/promote/status", PromoteStatusHandler(storage, invoiceManager))
+	relay.Router().HandleFunc("/api/promote/preview", PreviewHandler(storage, fetcher))
 	log.Printf("No-login promotion served at /api/promote")
 
 	// Taking a note down. Registered only when a token exists, so a relay run

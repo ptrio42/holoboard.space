@@ -26,7 +26,7 @@ export const UserProfileInline = ({ pubkey, size = "sm" }: Props) => {
         >
             <Avatar pubkey={pubkey} src={profile?.picture} name={name} size={px} />
             <span className="min-w-0 truncate font-pixel text-[10px] tracking-wide text-cyan-200
-                group-hover:text-neon-pink sm:text-[11px]">
+                group-hover:text-neon-pink @xl/row:text-[11px]">
                 {name}
             </span>
             {profile?.nip05 && (

@@ -75,7 +75,7 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
     const activeStep = STEPS.findIndex((step) => step.stages.includes(state.stage));
 
     return (
-        <Modal isOpen onClose={onClose} title="Promote a note">
+        <Modal isOpen onClose={onClose} title="Promote a note" panelClassName="max-w-3xl">
             <div className="space-y-6 text-sm text-cyan-100/85">
                 <div className="flex gap-2 font-pixel text-[9px] tracking-widest" role="tablist">
                     {([
@@ -119,13 +119,14 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
                 </section>
 
                 {typeof currentWeight === "number" && <p className="text-xs leading-relaxed text-cyan-100/70">
-                    Current weight: {formatSats(currentWeight)} sats. Your payment adds to its weight.
+                    Current weight: {formatSats(currentWeight)} sats. The promotion portion of your payment adds to its weight.
                     Its place on the board also depends on other notes' payments.
                 </p>}
                 {mode === "direct" && <DirectPromote initialReference={initialReference} onPaid={onPaid} />}
 
                 {mode === "signed" && (
                 <div className="space-y-6">
+                <p className="text-xs text-cyan-100/70">To buy billboard appearance with a preview, use the Just pay tab. Zaps here add ranking weight and preserve any active appearance.</p>
                 <ol className="flex items-center gap-2 font-pixel text-[9px] tracking-widest">
                     {STEPS.map((step, index) => (
                         <li key={step.key} className="flex items-center gap-2">

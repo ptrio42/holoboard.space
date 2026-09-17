@@ -79,6 +79,10 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 		return fmt.Errorf("rejected zap %s: %w", short(zapEvent.ID, 8), err)
 	}
 
+	if _, settled := pm.storage.InvoiceReceipt(details.PaymentHash); settled {
+		return nil
+	}
+
 	zapRequest := *details.Request
 	amountSats := details.AmountSats
 	bolt11 := firstTag(zapEvent, "bolt11")
@@ -139,9 +143,7 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 	if postID == "" && bolt11 != "" {
 		pendingInvoice, exists := pm.storage.GetPendingInvoiceByBolt11(bolt11)
 		if exists {
-			postID = pendingInvoice.PostID
-			hints, author = pendingInvoice.RelayHints, pendingInvoice.Author
-			log.Printf("Matched bolt11 to DM invoice for post %s", short(postID, 8))
+			return pm.ProcessInvoicePayment(pendingInvoice.PaymentHash, pendingInvoice.AmountSats)
 		}
 	}
 
@@ -206,46 +208,39 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 	return nil
 }
 
-// ProcessInvoicePayment handles payments for invoices generated via PROMOTE flow
+// ProcessInvoicePayment settles the stored invoice allocation, ignoring advisory
+// wallet amounts. Concurrent duplicate notifications are harmless.
 func (pm *PaymentMonitor) ProcessInvoicePayment(paymentHash string, amountSats int64) error {
+	if _, settled := pm.storage.InvoiceReceipt(paymentHash); settled {
+		return nil
+	}
 	invoice, exists := pm.storage.GetPendingInvoice(paymentHash)
 	if !exists {
+		// Another notification may have settled it between the two reads.
+		if _, settled := pm.storage.InvoiceReceipt(paymentHash); settled {
+			return nil
+		}
 		return fmt.Errorf("no pending invoice found for payment hash: %s", paymentHash)
 	}
-
-	log.Printf("Invoice paid for post %s: %d sats", invoice.PostID, amountSats)
-
-	// Fetch the post if we don't have it
-	post, exists := pm.storage.GetPost(invoice.PostID)
-
-	ctx := context.Background()
-	if !exists {
-		fetchedEvent, err := pm.fetcher.FetchPostFrom(ctx, invoice.PostID, invoice.RelayHints, invoice.Author)
+	event := invoice.Event
+	if post, known := pm.storage.GetPost(invoice.PostID); known {
+		event = post.Event
+	}
+	if event == nil {
+		var err error
+		event, err = pm.fetcher.FetchPostFrom(context.Background(), invoice.PostID, invoice.RelayHints, invoice.Author)
 		if err != nil {
 			return fmt.Errorf("failed to fetch post: %w", err)
 		}
-
-		if !isPromotable(fetchedEvent.Kind) {
-			return fmt.Errorf("event is kind:%d, which this board does not rank", fetchedEvent.Kind)
-		}
-
-		// Store with payment
-		if err := pm.storage.AddPayment(invoice.PostID, amountSats, fetchedEvent); err != nil {
-			return fmt.Errorf("failed to store post: %w", err)
-		}
-		pm.announce(fetchedEvent)
-	} else {
-		// Update existing post
-		if err := pm.storage.AddPayment(invoice.PostID, amountSats, post.Event); err != nil {
-			return fmt.Errorf("failed to update post: %w", err)
-		}
-		pm.announce(post.Event)
 	}
-
-	// Remove the pending invoice
-	if err := pm.storage.RemovePendingInvoice(paymentHash); err != nil {
-		log.Printf("Failed to remove pending invoice: %v", err)
+	if !isPromotable(event.Kind) {
+		return fmt.Errorf("event is kind:%d, which this board does not rank", event.Kind)
 	}
+	announced, err := pm.storage.SettleInvoice(paymentHash, event)
+	if err != nil {
+		return err
+	}
+	pm.announce(announced)
 
 	return nil
 }

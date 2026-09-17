@@ -2,6 +2,8 @@ import { Fragment, useMemo } from "react";
 import { nip19 } from "@nostr-dev-kit/ndk";
 import { parseContent, type ContentToken } from "../../utils/textProcessing/parseContent";
 import { NostrMention } from "./NostrMention";
+import { noteAttachments, quoteReference } from "../../lib/noteAttachments";
+import { NoteQuote } from "./NoteQuote";
 
 /**
  * Draws the body of a kind:1.
@@ -19,6 +21,9 @@ import { NostrMention } from "./NostrMention";
 
 interface Props {
     text: string;
+    tags?: string[][];
+    ownId?: string;
+    embedQuotes?: boolean;
 }
 
 /** Text nodes carry the newlines, which JSX will not turn into breaks for us. */
@@ -44,7 +49,7 @@ function pubkeyOf(bech32: string): string | null {
     return null;
 }
 
-function renderToken(token: ContentToken, key: string) {
+function renderToken(token: ContentToken, key: string, embedQuotes: boolean, ownId?: string) {
     switch (token.kind) {
         case "text":
             return <Fragment key={key}>{withBreaks(token.value, key)}</Fragment>;
@@ -69,6 +74,8 @@ function renderToken(token: ContentToken, key: string) {
         case "mention": {
             const pubkey = pubkeyOf(token.bech32);
             if (pubkey) return <NostrMention key={key} pubkey={pubkey} />;
+            const quote = embedQuotes ? quoteReference(token.bech32) : null;
+            if (quote && quote.key !== ownId) return <NoteQuote key={key} reference={quote} />;
             return (
                 <a
                     key={key}
@@ -81,7 +88,9 @@ function renderToken(token: ContentToken, key: string) {
             );
         }
 
-        case "link":
+        case "link": {
+            const quote = embedQuotes ? quoteReference(token.href) : null;
+            if (quote && quote.key !== ownId) return <NoteQuote key={key} reference={quote} />;
             return (
                 <a
                     key={key}
@@ -92,15 +101,21 @@ function renderToken(token: ContentToken, key: string) {
                     {token.href.length > 64 ? `${token.href.slice(0, 61)}...` : token.href}
                 </a>
             );
+        }
     }
 }
 
-export default function TextRenderer({ text }: Props) {
+export default function TextRenderer({ text, tags, ownId, embedQuotes = true }: Props) {
     const tokens = useMemo(() => parseContent(text), [text]);
+    const taggedQuotes = useMemo(() => {
+        const inline = new Set(noteAttachments(text).quotes.map((quote) => quote.key));
+        return embedQuotes ? noteAttachments("", tags, ownId).quotes.filter((quote) => !inline.has(quote.key)) : [];
+    }, [text, tags, ownId, embedQuotes]);
 
     return (
         <div className="note-body">
-            {tokens.map((token, index) => renderToken(token, `t${index}`))}
+            {tokens.map((token, index) => renderToken(token, `t${index}`, embedQuotes, ownId))}
+            {taggedQuotes.map((reference) => <NoteQuote key={reference.key} reference={reference} />)}
         </div>
     );
 }

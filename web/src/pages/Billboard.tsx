@@ -34,7 +34,7 @@ export default function Billboard() {
         return () => window.removeEventListener("hashchange", readHash);
     }, []);
     const { status: relayStatus, retry: retryRelay } = useRelayStatus(RELAY_URL);
-    const { sats, ranks, weights, totalSats, refresh: refreshSats } = useSatsMap(SATS_ENDPOINT);
+    const { sats, ranks, weights, billboards, totalSats, refresh: refreshSats } = useSatsMap(SATS_ENDPOINT);
 
     /*
      * The relay does the ranking and returns the board already ordered, so the
@@ -146,6 +146,7 @@ export default function Billboard() {
                                 rank={index + 1}
                                 sats={sats.get(event.id)}
                                 weight={weights.get(event.id)}
+                                billboard={billboards.get(event.id)}
                                 onPromote={() => {
                                     setPromotion({ id: event.id, weight: weights.get(event.id) });
                                     setIsModalOpen(true);

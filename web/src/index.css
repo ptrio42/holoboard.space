@@ -263,3 +263,96 @@ body::after {
         transition-duration: 0.01ms !important;
     }
 }
+
+/* Billboard content has a bounded footprint; paid style never buys taller rows. */
+.note-action {
+    font-family: var(--font-pixel);
+    font-size: 9px;
+    line-height: 1.8;
+    letter-spacing: 0.1em;
+    color: rgba(103, 232, 249, 0.5);
+}
+.note-action:hover { color: var(--color-neon-cyan); }
+.note-action:focus-visible {
+    outline: 2px solid var(--color-neon-cyan);
+    outline-offset: 4px;
+}
+.note-quote {
+    margin: 0.75rem 0;
+    padding: 0.25rem 0 0.25rem 0.75rem;
+    border-left: 2px solid rgba(34, 211, 238, 0.3);
+    overflow-wrap: anywhere;
+}
+.note-body .note-quote a { text-decoration: none; }
+.note-quote > a { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.billboard-color--selected .pixel-btn__face { background: color-mix(in srgb, currentColor 12%, var(--color-void)); }
+.billboard-screen {
+    color: var(--billboard-ink);
+}
+.billboard-screen:focus-visible { outline: 2px solid var(--color-neon-cyan); outline-offset: 4px; }
+.billboard-screen__viewport {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 7rem;
+    overflow: hidden;
+}
+.billboard-screen__text {
+    display: inline-block;
+    flex-shrink: 0;
+    white-space: nowrap;
+    font-family: var(--font-body);
+    font-size: var(--billboard-font-size);
+    font-weight: 700;
+    line-height: 1.4;
+    letter-spacing: 0.04em;
+    text-shadow: 0 0 12px color-mix(in srgb, var(--billboard-ink) 60%, transparent);
+    animation: billboard-scroll var(--travel-duration, 15s) linear infinite;
+    animation-delay: var(--travel-delay, 0s);
+    animation-play-state: var(--billboard-play);
+}
+.billboard-screen--neon .billboard-screen__viewport { justify-content: center; padding: 0.5rem; }
+.billboard-screen--neon .billboard-screen__text {
+    flex-shrink: 1;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: center;
+    width: 100%;
+    color: color-mix(in srgb, var(--billboard-ink) 65%, white);
+    font-weight: 800;
+    line-height: 1.2;
+    text-shadow: 0 0 2px var(--billboard-ink),
+        0 0 8px color-mix(in srgb, var(--billboard-ink) 80%, transparent),
+        0 0 18px color-mix(in srgb, var(--billboard-ink) 35%, transparent);
+    animation: billboard-glow 4s ease-in-out infinite;
+    animation-play-state: var(--billboard-play);
+}
+.billboard-screen__image {
+    display: flex;
+    height: 9rem;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+.billboard-screen__image img { width: 100%; height: 100%; object-fit: contain; }
+.billboard-screen--image-led .billboard-screen__viewport { height: 4rem; }
+@keyframes billboard-scroll {
+    from { transform: translateX(var(--travel-start, 0px)); }
+    to { transform: translateX(var(--travel-end, -100%)); }
+}
+@keyframes billboard-glow {
+    0%, 100% {
+        text-shadow: 0 0 2px var(--billboard-ink),
+            0 0 8px color-mix(in srgb, var(--billboard-ink) 80%, transparent),
+            0 0 18px color-mix(in srgb, var(--billboard-ink) 35%, transparent);
+    }
+    50% {
+        text-shadow: 0 0 2px var(--billboard-ink),
+            0 0 12px color-mix(in srgb, var(--billboard-ink) 85%, transparent),
+            0 0 24px color-mix(in srgb, var(--billboard-ink) 45%, transparent);
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .billboard-screen__text { animation: none !important; transform: none; white-space: normal; flex-shrink: 1; width: 100%; overflow-wrap: anywhere; }
+    .billboard-screen__viewport { padding: 0.5rem; }
+}
