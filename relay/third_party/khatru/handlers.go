@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,19 +21,40 @@ import (
 
 // ServeHTTP implements http.Handler interface.
 func (rl *Relay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Add("Vary", "Accept")
 	if rl.ServiceURL == "" {
 		rl.ServiceURL = getServiceBaseURL(r)
 	}
 
 	if r.Header.Get("Upgrade") == "websocket" {
 		rl.HandleWebsocket(w, r)
-	} else if r.Header.Get("Accept") == "application/nostr+json" {
+	} else if acceptsNostrJSON(r.Header.Values("Accept")) {
 		cors.AllowAll().Handler(http.HandlerFunc(rl.HandleNIP11)).ServeHTTP(w, r)
 	} else if r.Header.Get("Content-Type") == "application/nostr+json+rpc" {
 		cors.AllowAll().Handler(http.HandlerFunc(rl.HandleNIP86)).ServeHTTP(w, r)
 	} else {
 		rl.serveMux.ServeHTTP(w, r)
 	}
+}
+
+// Accept may contain multiple media ranges, parameters and header lines.
+func acceptsNostrJSON(values []string) bool {
+	for _, value := range values {
+		for _, mediaRange := range strings.Split(value, ",") {
+			mediaType, params, err := mime.ParseMediaType(strings.TrimSpace(mediaRange))
+			if err != nil || mediaType != "application/nostr+json" {
+				continue
+			}
+			if q, ok := params["q"]; ok {
+				quality, err := strconv.ParseFloat(q, 64)
+				if err != nil || !(quality > 0 && quality <= 1) {
+					continue
+				}
+			}
+			return true
+		}
+	}
+	return false
 }
 
 func (rl *Relay) HandleWebsocket(w http.ResponseWriter, r *http.Request) {

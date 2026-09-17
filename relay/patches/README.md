@@ -1,9 +1,6 @@
 # Upstream patches
 
-This directory holds changes that belong to dependencies rather than to this
-relay's own code: two data races found by running `go test -race`, and one
-hardcoded timeout that made the payment endpoint unusable in production. All
-three are reproducible and none is fixed upstream.
+This directory holds patches applied to the vendored khatru dependency.
 
 ## khatru-listener-race.patch
 
@@ -97,3 +94,13 @@ What is left: the same in-tree copy treatment, or an upgrade. Unlike khatru,
 go-nostr is not archived, so checking whether a later release synchronises
 `Close()` is the first thing to try, bearing in mind the in-tree khatru requires
 go-nostr v0.34.x and would need adjusting alongside.
+
+## khatru-nip11-accept.patch
+
+Metadata requests with a list of accepted formats previously returned 404.
+The patch recognizes `application/nostr+json` within an Accept list, including
+parameters and multiple header lines. A quality of zero excludes that format.
+Responses vary by Accept so caches distinguish metadata from other responses.
+`TestRelayDescriptionAcceptNegotiation` checks the description and CORS headers
+through the vendored relay handler. Metadata follows
+[NIP-11](https://github.com/nostr-protocol/nips/blob/master/11.md).

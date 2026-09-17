@@ -1,7 +1,8 @@
 # Why khatru lives in this repo
 
-This is khatru v0.7.6 with one patch applied:
-[`../../patches/khatru-listener-race.patch`](../../patches/khatru-listener-race.patch).
+This is khatru v0.7.6 with local patches for listener synchronization, HTTP
+timeouts and NIP-11 Accept negotiation. See the
+[patch reference](../../patches/README.md).
 `go.mod` points at this directory with a `replace`.
 
 ## The patch
