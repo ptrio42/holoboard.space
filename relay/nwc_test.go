@@ -437,8 +437,7 @@ func TestNWCGenerateInvoice(t *testing.T) {
 }
 
 // TestNWCGenerateInvoiceDefaultsExpiry pins the guard against a zero expiry.
-// CleanupExpiredInvoices reads a zero time as long overdue, so a wallet that
-// omits expires_at would otherwise get its invoice deleted within the hour.
+// A wallet omitting expires_at must still yield a usable payment deadline.
 func TestNWCGenerateInvoiceDefaultsExpiry(t *testing.T) {
 	ctx := testContext(t)
 	relayURL := startTestRelay(t)

@@ -132,55 +132,77 @@ func NewStorage(dataFile string) (*Storage, error) {
 	return s, nil
 }
 
-// AddPayment adds or updates a post with a new payment
+// AddPayment persists a payment without changing the age of previous payments.
 func (s *Storage) AddPayment(postID string, amountSats int64, event *nostr.Event) error {
+	_, err := s.addPayment(postID, amountSats, event, "", "")
+	return err
+}
+
+// CreditZap records the credit and both receipt identifiers in one transaction.
+// Different receipts for the same invoice cannot credit the payment twice.
+func (s *Storage) CreditZap(postID string, amountSats int64, event *nostr.Event, zapID, paymentHash string) (bool, error) {
+	if zapID == "" || paymentHash == "" {
+		return false, fmt.Errorf("missing zap payment identifier")
+	}
+	return s.addPayment(postID, amountSats, event, zapID, paymentHash)
+}
+
+func (s *Storage) addPayment(postID string, amountSats int64, event *nostr.Event, zapID, paymentHash string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
+	if zapID != "" {
+		if s.processedZaps[zapID] || s.settledInvoices[paymentHash] != nil {
+			return false, nil
+		}
+		if s.pendingInvoices[paymentHash] != nil {
+			return false, fmt.Errorf("zap payment belongs to a pending promotion invoice")
+		}
+	}
 	if amountSats <= 0 {
-		return fmt.Errorf("invalid payment amount: %d", amountSats)
+		return false, fmt.Errorf("invalid payment amount: %d", amountSats)
 	}
-
-	// A removal that a payment can undo is not a removal. Whoever had the note
-	// taken down would otherwise put it back for a single sat.
 	if s.removed[postID] {
-		return fmt.Errorf("post %s was removed by the operator", short(postID, 8))
+		return false, fmt.Errorf("post %s was removed by the operator", short(postID, 8))
 	}
 
-	post, exists := s.posts[postID]
-	if exists {
-		// Update existing post
-		if post.weight(time.Now()) == 0 {
-			post.Billboard = nil
-			post.ActivityID = fmt.Sprintf("%d", time.Now().UnixNano())
+	original := s.posts[postID]
+	now := time.Now()
+	post := &PromotedPost{PostID: postID, Event: event}
+	if original != nil {
+		*post = *original
+		post.Payments = append([]Payment(nil), original.Payments...)
+		if len(post.Payments) == 0 {
+			post.Payments = []Payment{{Sats: post.TotalSatsPaid, At: post.LastPaymentTimestamp}}
 		}
-		post.TotalSatsPaid += amountSats
-		post.LastPaymentTimestamp = time.Now()
-		post.Payments = append(post.Payments, Payment{Sats: amountSats, At: post.LastPaymentTimestamp})
-		fmt.Printf("📈 Updated post %s: +%d sats (total: %d sats)\n",
-			short(postID, 8), amountSats, post.TotalSatsPaid)
-	} else {
-		// Create new post entry
-		if event == nil {
-			return fmt.Errorf("cannot create new post without event")
-		}
-		now := time.Now()
-		post = &PromotedPost{
-			PostID:               postID,
-			ActivityID:           fmt.Sprintf("%d", now.UnixNano()),
-			Event:                event,
-			TotalSatsPaid:        amountSats,
-			LastPaymentTimestamp: now,
-			Payments:             []Payment{{Sats: amountSats, At: now}},
-		}
-		s.posts[postID] = post
-		fmt.Printf("🆕 New post promoted: %s with %d sats\n", short(postID, 8), amountSats)
 	}
-
+	if post.Event == nil {
+		return false, fmt.Errorf("cannot create new post without event")
+	}
+	if original == nil || original.weight(now) == 0 {
+		post.Billboard = nil
+		post.ActivityID = fmt.Sprintf("%d", now.UnixNano())
+	}
+	post.TotalSatsPaid += amountSats
+	post.LastPaymentTimestamp = now
+	post.Payments = append(post.Payments, Payment{Sats: amountSats, At: now})
+	s.posts[postID] = post
+	if zapID != "" {
+		s.processedZaps[zapID] = true
+		s.settledInvoices[paymentHash] = &InvoiceReceipt{NoteID: postID, AmountSats: amountSats, PromotionSats: amountSats}
+	}
 	if err := s.save(); err != nil {
-		return fmt.Errorf("failed to save after adding payment: %w", err)
+		if original == nil {
+			delete(s.posts, postID)
+		} else {
+			s.posts[postID] = original
+		}
+		if zapID != "" {
+			delete(s.processedZaps, zapID)
+			delete(s.settledInvoices, paymentHash)
+		}
+		return false, fmt.Errorf("failed to save after adding payment: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 // RemovePost takes a note off the board and keeps it off.
@@ -696,52 +718,11 @@ func (s *Storage) MarkDMProcessed(dmEventID string) error {
 	return s.save()
 }
 
-// CleanupExpiredInvoices removes invoices that have expired
-func (s *Storage) CleanupExpiredInvoices() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := time.Now()
-	removed := 0
-
-	for hash, invoice := range s.pendingInvoices {
-		if now.After(invoice.ExpiresAt) {
-			delete(s.pendingInvoices, hash)
-			removed++
-		}
-	}
-
-	if removed > 0 {
-		fmt.Printf("🧹 Cleaned up %d expired invoices\n", removed)
-		return s.save()
-	}
-
-	return nil
-}
-
-// CheckAndMarkZapProcessed atomically checks if a zap has been processed
-// and marks it as processed if not. Returns true if this is the first time
-// processing this zap, false if it was already processed.
-func (s *Storage) CheckAndMarkZapProcessed(zapEventID string) (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Check if already processed
-	if s.processedZaps[zapEventID] {
-		return false, nil // Already processed
-	}
-
-	// Mark as processed
-	s.processedZaps[zapEventID] = true
-
-	// Save to disk
-	if err := s.save(); err != nil {
-		// Rollback if save fails
-		delete(s.processedZaps, zapEventID)
-		return false, err
-	}
-
-	return true, nil // First time processing
+// IsZapProcessed reports only successfully persisted zap credits.
+func (s *Storage) IsZapProcessed(zapID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.processedZaps[zapID]
 }
 
 // kindComment is NIP-22, a threading note scoped to a root event.

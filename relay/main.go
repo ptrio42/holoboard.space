@@ -279,24 +279,6 @@ func main() {
 	mentionMonitor.Start(ctx, fetchRelays)
 	log.Printf("Mention monitor started, watching for @relay mentions")
 
-	// Start periodic cleanup of expired invoices (every hour)
-	go func() {
-		ticker := time.NewTicker(1 * time.Hour)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if err := storage.CleanupExpiredInvoices(); err != nil {
-					log.Printf("Failed to cleanup expired invoices: %v", err)
-				}
-			}
-		}
-	}()
-	log.Printf("Expired invoice cleanup routine started (runs every hour)")
-
 	// Create khatru relay
 	relay := khatru.NewRelay()
 

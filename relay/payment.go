@@ -58,14 +58,7 @@ func NewPaymentMonitor(storage *Storage, relayPubkey string, fetcher *PostFetche
 
 // ProcessZap processes a zap event (kind 9735)
 func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event) error {
-	// Atomically check if we've already processed this zap and mark it as processed
-	// This prevents race conditions where multiple monitors process the same zap
-	isFirstTime, err := pm.storage.CheckAndMarkZapProcessed(zapEvent.ID)
-	if err != nil {
-		return fmt.Errorf("failed to check/mark zap: %w", err)
-	}
-	if !isFirstTime {
-		log.Printf("Zap %s already processed, skipping", zapEvent.ID)
+	if pm.storage.IsZapProcessed(zapEvent.ID) {
 		return nil
 	}
 
@@ -81,6 +74,11 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 
 	if _, settled := pm.storage.InvoiceReceipt(details.PaymentHash); settled {
 		return nil
+	}
+	// A receipt for one of our invoices must use its stored allocation,
+	// including the appearance fee, regardless of the zap comment.
+	if invoice, pending := pm.storage.GetPendingInvoice(details.PaymentHash); pending {
+		return pm.ProcessInvoicePayment(invoice.PaymentHash, invoice.AmountSats)
 	}
 
 	zapRequest := *details.Request
@@ -171,38 +169,25 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 
 	log.Printf("Received zap %s for post %s: %d sats", zapEvent.ID, postID, amountSats)
 
-	// Check if we already have this post
 	post, exists := pm.storage.GetPost(postID)
-
-	if !exists {
-		// Fetch the post from other relays
-		log.Printf("Post %s not found locally, fetching from network...", postID)
-		fetchedEvent, err := pm.fetcher.FetchPostFrom(ctx, postID, hints, author)
+	var event *nostr.Event
+	if exists {
+		event = post.Event
+	} else {
+		event, err = pm.fetcher.FetchPostFrom(ctx, postID, hints, author)
 		if err != nil {
-			log.Printf("Failed to fetch post %s: %v", postID, err)
 			return fmt.Errorf("failed to fetch post: %w", err)
 		}
-
-		// Verify it's a kind:1 event
-		if !isPromotable(fetchedEvent.Kind) {
-			return fmt.Errorf("event %s is kind:%d, which this board does not rank", postID, fetchedEvent.Kind)
+		if !isPromotable(event.Kind) {
+			return fmt.Errorf("event %s is kind:%d, which this board does not rank", postID, event.Kind)
 		}
-
-		// Store with payment
-		if err := pm.storage.AddPayment(postID, amountSats, fetchedEvent); err != nil {
-			return fmt.Errorf("failed to store post: %w", err)
-		}
-
-		pm.announce(fetchedEvent)
-		log.Printf("Fetched and stored post %s with %d sats", postID, amountSats)
-	} else {
-		// Update existing post
-		if err := pm.storage.AddPayment(postID, amountSats, post.Event); err != nil {
-			return fmt.Errorf("failed to update post payment: %w", err)
-		}
-
-		pm.announce(post.Event)
-		log.Printf("Updated post %s, total sats: %d", postID, post.TotalSatsPaid+amountSats)
+	}
+	credited, err := pm.storage.CreditZap(postID, amountSats, event, zapEvent.ID, details.PaymentHash)
+	if err != nil {
+		return fmt.Errorf("failed to credit zap: %w", err)
+	}
+	if credited {
+		pm.announce(event)
 	}
 
 	return nil

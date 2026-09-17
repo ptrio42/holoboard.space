@@ -63,9 +63,8 @@ const (
 const nwcRequestTimeout = 30 * time.Second
 
 // nwcInvoiceExpiry is what we ask for on new invoices, and the fallback used
-// when a wallet answers without an expires_at. Never leave this at the zero
-// time: CleanupExpiredInvoices treats a zero expiry as long past due and would
-// drop the invoice on its next hourly pass.
+// when a wallet answers without an expires_at, so the UI receives a usable
+// payment deadline.
 const nwcInvoiceExpiry = 1 * time.Hour
 
 // ParseNWCURI builds a backend from a nostr+walletconnect:// connection string.
