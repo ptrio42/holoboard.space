@@ -42,7 +42,7 @@ fly volumes create relay_data --size 1 --region fra
 
 fly secrets set RELAY_PRIVKEY=... NWC_URI=...   # one command, one restart
 
-fly deploy
+fly deploy --ha=false
 fly logs
 ```
 
@@ -63,6 +63,28 @@ Relay is listening on port 8080
 If the pubkey line does not match what the frontend expects, stop: the wrong
 `RELAY_PRIVKEY` went in.
 
+## Updating the existing deployment
+
+The relay and HTTP API are one Go application, deployed together on Fly.
+The website is deployed separately on Cloudflare Pages.
+
+Deploy the backend before publishing a frontend that uses new API fields or
+billboard templates. From the repository root:
+
+```bash
+cd relay
+fly status -a holoboard-relay
+fly config validate
+fly deploy --ha=false
+fly status -a holoboard-relay
+curl --fail https://relay.holoboard.space/api/board
+```
+
+Back up the ledger before deploying, using the command below. Keep the existing
+volume and secrets; updating code does not require recreating either.
+`--ha=false` disables creation of spare machines. This ledger requires one
+running instance. See the [Fly deploy reference](https://fly.io/docs/flyctl/deploy/).
+
 ## Restoring the board
 
 A fresh volume is an empty board. The relay will notice it has no info event
@@ -74,11 +96,11 @@ put relay_data.json /root/data/relay_data.json
 fly apps restart holoboard-relay
 ```
 
-**Empty `pending_invoices` to `{}` in the copy you upload.** The 36 entries in
-the current file were written by an older build and carry no `expires_at`. The
-reconciler asks the wallet about every pending invoice on boot and then on
-`INVOICE_CHECK_SECONDS`, so those 36 become 36 lookups a minute for invoices no
-wallet has ever heard of, until the hourly cleanup drops them.
+Restore the complete ledger, including `pending_invoices` and settlement
+receipts. Pending invoices are retained so delayed payments can still be
+credited; expiry alone does not prove an invoice was never paid. Do not clear
+them during a deployment or restore. Unpaid invoices can accumulate because
+the wallet lookup does not provide a definitive unpaid result.
 
 Back it up the same way, in reverse:
 
@@ -118,10 +140,27 @@ happened between February and August 2026.
 
 ### The frontend, and why the apex is not optional
 
-`web/` is a static Vite build, so any static host does: Cloudflare Pages or
-Netlify from the GitHub repo, root directory `web`, build `npm ci && npm run
-build`, output `dist`. Fly is the wrong tool for it; its `[[statics]]` will not
-serve `index.html` from the root.
+The production UI uses the Cloudflare Pages project `holoboard-space`, connected
+to `ptrio42/holoboard.space` on GitHub. Check these settings in its dashboard:
+
+| Setting | Value |
+| --- | --- |
+| Production branch | `main` |
+| Root directory | `web` |
+| Build command | `npm ci && npm run build` |
+| Build output directory | `dist` |
+
+These are the intended production settings; the Cloudflare project
+configuration is managed outside Git. See the [Pages build configuration
+reference](https://developers.cloudflare.com/pages/configuration/build-configuration/).
+With [Git integration](https://developers.cloudflare.com/pages/configuration/git-integration/)
+and automatic deployments enabled, pushing the production branch publishes
+the UI. Verify the backend first, then push and check the Pages build result.
+
+The `VITE_*` settings in the [frontend README](../web/README.md#configuration)
+are compiled into the website. Check production overrides in Cloudflare,
+especially the relay URL and public key. Repository defaults point to the
+production relay; local development overrides must not be used for publishing.
 
 The apex has to be the frontend rather than a redirect, because
 `web/public/.well-known/nostr.json` is the NIP-05 document for `_@holoboard.space`.

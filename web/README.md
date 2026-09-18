@@ -39,6 +39,9 @@ The development server does not check types.
 
 These settings are included at build time. Rebuild to change a deployed website.
 
+For production updates, follow the [Fly and Cloudflare deployment
+instructions](../relay/DEPLOYMENT.md#updating-the-existing-deployment).
+
 ## Where things live
 
 - `src/config.ts`: relay URLs, identity and defaults.
