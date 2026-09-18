@@ -30,11 +30,3 @@ export function noteTextSelection(content: string, fragment: string): [number, n
     }
     return undefined;
 }
-
-export function pastedNoteText(content: string, input: string): string {
-    if (content.includes(input)) return input;
-    const { text, offsets } = textareaSource(content);
-    const normalized = textareaSource(input).text;
-    const start = text.indexOf(normalized);
-    return start < 0 ? input : content.slice(offsets[start], offsets[start + normalized.length]);
-}

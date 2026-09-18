@@ -14,6 +14,7 @@ import { parentOf } from "../../lib/parent";
 interface BoardRowProps {
     event: NDKEvent;
     billboard?: BillboardConfig;
+    billboardPreviewSlide?: number;
     rank?: number;
     expired?: boolean;
     onPromote?: () => void;
@@ -60,7 +61,7 @@ function satsLabel(sats: number): string {
     return `${formatSats(sats)} ${sats === 1 ? "sat" : "sats"}`;
 }
 
-export function BoardRow({ event, rank, sats, weight, expired = false, onPromote, lastPaidAt, billboard }: BoardRowProps) {
+export function BoardRow({ event, rank, sats, weight, expired = false, onPromote, lastPaidAt, billboard, billboardPreviewSlide }: BoardRowProps) {
     const tier = !expired && rank ? TIERS[rank - 1] ?? DEFAULT_TIER : DEFAULT_TIER;
     const parent = parentOf(event);
     // Tapped open on a touch screen, which has no hover to ask with.
@@ -167,7 +168,7 @@ export function BoardRow({ event, rank, sats, weight, expired = false, onPromote
                             </div>
                         </div>
 
-                        {billboard && !expired && <BillboardScreen config={billboard} />}
+                        {billboard && !expired && <BillboardScreen config={billboard} initialSlide={billboardPreviewSlide} />}
                         {billboard && !expired && <NoteAttachments content={event.content} tags={event.tags} ownId={event.id} />}
 
                         <div className="text-[13px] text-cyan-50/80 @xl/row:text-sm">

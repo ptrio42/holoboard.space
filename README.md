@@ -30,12 +30,16 @@ messages described in the [relay README](relay/README.md#promotion-through-nostr
 
 ## Billboard appearance
 
-Choose an LED ticker, neon sign or image with a ticker, then adjust color, text
-size and scrolling speed. The free preview shows the appearance at desktop or
-phone width. It does not predict rank.
+Choose LED, neon, image + LED, terminal, split-flap, glitch, poster or slides
+from the template gallery, then adjust color, text size and available controls.
+The free preview shows the appearance at desktop or phone width. It does not
+predict rank.
 
-Billboard text is a fragment of up to 160 characters from the original note;
-images also come from that note. Links and quoted-note previews stay visible
+Highlight a fragment in the original note to choose billboard text, with a total
+limit of 160 characters.
+Slides use up to three fragments and change every three seconds, with manual
+controls. Animations pause on hover or tap and respect reduced-motion settings.
+Images also come from that note. Links and quoted-note previews stay visible
 below it. **Full note** opens the original content.
 
 Appearance costs an **introductory 100 sats**, deliberately low and subject to

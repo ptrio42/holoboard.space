@@ -169,7 +169,7 @@ func (im *InvoiceManager) generateInvoice(ctx context.Context, postID string, am
 	pendingInvoice := &PendingInvoice{
 		PostID: postID, Invoice: invoice.PaymentRequest, PaymentHash: invoice.PaymentHash,
 		AmountSats: invoice.AmountSats, CreatedAt: time.Now(), ExpiresAt: invoice.ExpiresAt,
-		RelayHints: hints, Author: author, Billboard: config, StyleOnly: styleOnly, Event: event,
+		RelayHints: hints, Author: author, Billboard: cloneBillboard(config), StyleOnly: styleOnly, Event: event,
 	}
 	if config != nil {
 		pendingInvoice.BillboardFee = billboardFeeSats

@@ -270,8 +270,7 @@ func (s *Storage) GetPost(postID string) (*PromotedPost, bool) {
 	snapshot := *post
 	snapshot.Payments = append([]Payment(nil), post.Payments...)
 	if post.Billboard != nil {
-		config := *post.Billboard
-		snapshot.Billboard = &config
+		snapshot.Billboard = cloneBillboard(post.Billboard)
 	}
 	return &snapshot, true
 }
@@ -352,7 +351,7 @@ func (s *Storage) Ledger() []LedgerEntry {
 			Weight:     post.weight(now),
 			LastPaidAt: lastPaid,
 			Rank:       i + 1,
-			Billboard:  post.Billboard,
+			Billboard:  cloneBillboard(post.Billboard),
 		})
 	}
 	return entries

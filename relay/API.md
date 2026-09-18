@@ -49,12 +49,20 @@ To buy appearance, add `billboard`:
 
 | Field | Allowed values |
 | --- | --- |
-| `template` | `led`, `neon`, `image-led` |
+| `template` | `led`, `neon`, `image-led`, `terminal`, `split-flap`, `glitch`, `poster`, `slides` |
 | `color` | `cyan`, `pink`, `gold` |
 | `size` | `small`, `medium`, `large` |
 | `speed` | `slow`, `normal`, `fast` |
 | `text` | Nonblank exact substring of the original content, up to 160 Unicode code points. |
-| `image` | Required only for `image-led`; choose a URL returned in preview's `images`. |
+| `slides` | Only for `slides`: 1 to 3 nonblank exact substrings, up to 160 Unicode code points combined. `text` must equal the first fragment. |
+| `image` | Required for `image-led`, optional for `poster`; choose a URL returned in preview's `images`. |
+
+For example, a slides billboard uses `"template": "slides"`,
+`"text": "First fragment"` and `"slides": ["First fragment", "Second fragment"]`.
+Each fragment must occur in the original note. `text` provides a first-slide
+fallback for clients that do not display slides. Other templates omit `slides`.
+Slides advance every three seconds in the UI; reduced motion keeps manual
+navigation. `speed` controls LED scrolling and terminal typing.
 
 `amount_sats` is the ranking amount; the server adds the appearance fee. Its
 introductory price is 100 sats, deliberately low and intended to increase.

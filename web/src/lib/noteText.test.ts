@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { noteTextSelection, pastedNoteText, selectedNoteText } from "./noteText";
+import { noteTextSelection, selectedNoteText } from "./noteText";
 import { initialBillboard, validBillboard } from "./billboard";
 
 describe("fragments from textarea selections", () => {
@@ -15,10 +15,10 @@ describe("fragments from textarea selections", () => {
         expect(selectedNoteText(content, 2, 4)).toBe("😀");
         expect(noteTextSelection(content, "😀")).toEqual([2, 4]);
     });
-    it("restores source line breaks in pasted multi-line fragments", () => {
+    it("maps multi-line selection boundaries back to the signed source", () => {
         const content = "Before\r\nFirst\r\nSecond\r\nAfter";
-        expect(pastedNoteText(content, "First\nSecond")).toBe("First\r\nSecond");
-        expect(pastedNoteText(content, "Invented\ntext")).toBe("Invented\ntext");
+        expect(selectedNoteText(content, 7, 19)).toBe("First\r\nSecond");
+        expect(noteTextSelection(content, "First\r\nSecond")).toEqual([7, 19]);
     });
     it("restores the occurrence with the exact original line breaks", () => {
         const content = "A\r\nB, A\nB";

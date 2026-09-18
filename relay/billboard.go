@@ -18,12 +18,13 @@ const billboardFeeSats int64 = 100
 const billboardMaxText = 160
 
 type BillboardConfig struct {
-	Template string `json:"template"`
-	Color    string `json:"color"`
-	Size     string `json:"size"`
-	Speed    string `json:"speed"`
-	Text     string `json:"text"`
-	Image    string `json:"image,omitempty"`
+	Template string   `json:"template"`
+	Color    string   `json:"color"`
+	Size     string   `json:"size"`
+	Speed    string   `json:"speed"`
+	Text     string   `json:"text"`
+	Image    string   `json:"image,omitempty"`
+	Slides   []string `json:"slides,omitempty"`
 }
 
 var imageURLPattern = regexp.MustCompile(`(?i)https?://[^\s<>"']+`)
@@ -47,7 +48,9 @@ func (b *BillboardConfig) validate(event *nostr.Event) error {
 	if b == nil {
 		return nil
 	}
-	if b.Template != "led" && b.Template != "neon" && b.Template != "image-led" {
+	switch b.Template {
+	case "led", "neon", "image-led", "terminal", "split-flap", "glitch", "poster", "slides":
+	default:
 		return fmt.Errorf("choose a supported billboard template")
 	}
 	if b.Color != "cyan" && b.Color != "pink" && b.Color != "gold" {
@@ -59,10 +62,26 @@ func (b *BillboardConfig) validate(event *nostr.Event) error {
 	if b.Speed != "slow" && b.Speed != "normal" && b.Speed != "fast" {
 		return fmt.Errorf("choose a supported animation speed")
 	}
-	if event == nil || strings.TrimSpace(b.Text) == "" || utf8.RuneCountInString(b.Text) > billboardMaxText || !strings.Contains(event.Content, b.Text) {
-		return fmt.Errorf("select up to %d characters from the original note", billboardMaxText)
+	fragments := []string{b.Text}
+	if b.Template == "slides" {
+		if len(b.Slides) < 1 || len(b.Slides) > 3 || b.Text != b.Slides[0] {
+			return fmt.Errorf("choose up to 3 slides with the first fragment as text")
+		}
+		fragments = b.Slides
+	} else if b.Slides != nil {
+		return fmt.Errorf("only the slides template accepts slides")
 	}
-	if b.Template == "image-led" {
+	characters := 0
+	for _, fragment := range fragments {
+		characters += utf8.RuneCountInString(fragment)
+		if event == nil || strings.TrimSpace(fragment) == "" || !strings.Contains(event.Content, fragment) {
+			return fmt.Errorf("choose non-empty fragments from the original note")
+		}
+	}
+	if characters > billboardMaxText {
+		return fmt.Errorf("select up to %d characters in total from the original note", billboardMaxText)
+	}
+	if b.Template == "image-led" || (b.Template == "poster" && b.Image != "") {
 		for _, image := range billboardImages(event.Content) {
 			if b.Image == image {
 				return nil
@@ -71,9 +90,18 @@ func (b *BillboardConfig) validate(event *nostr.Event) error {
 		return fmt.Errorf("choose an image from the original note")
 	}
 	if b.Image != "" {
-		return fmt.Errorf("only the image template accepts an image")
+		return fmt.Errorf("only image and poster templates accept an image")
 	}
 	return nil
+}
+
+func cloneBillboard(config *BillboardConfig) *BillboardConfig {
+	if config == nil {
+		return nil
+	}
+	clone := *config
+	clone.Slides = append([]string(nil), config.Slides...)
+	return &clone
 }
 
 type InvoiceReceipt struct {
@@ -141,8 +169,7 @@ func (s *Storage) SettleInvoice(hash string, event *nostr.Event) (*nostr.Event, 
 		post.Payments = append(post.Payments, Payment{Sats: promotion, At: now})
 	}
 	if applied {
-		config := *invoice.Billboard
-		post.Billboard = &config
+		post.Billboard = cloneBillboard(invoice.Billboard)
 	}
 	receipt := &InvoiceReceipt{NoteID: invoice.PostID, AmountSats: invoice.AmountSats, BillboardFee: invoice.AmountSats - promotion, PromotionSats: promotion, BillboardApplied: applied, FeeConverted: converted}
 	s.posts[invoice.PostID] = post

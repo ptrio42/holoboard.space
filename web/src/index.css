@@ -311,19 +311,32 @@ body::after {
     animation-delay: var(--travel-delay, 0s);
     animation-play-state: var(--billboard-play);
 }
-.billboard-screen--neon .billboard-screen__viewport { justify-content: center; padding: 0.5rem; }
+.billboard-screen--neon .billboard-screen__viewport {
+    justify-content: center;
+    padding: 0.75rem;
+    background: #030208;
+    isolation: isolate;
+}
+.billboard-screen--neon .billboard-screen__viewport::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: radial-gradient(ellipse at center, color-mix(in srgb, var(--billboard-ink) 22%, transparent), transparent 75%);
+}
 .billboard-screen--neon .billboard-screen__text {
     flex-shrink: 1;
     white-space: normal;
     overflow-wrap: anywhere;
     text-align: center;
     width: 100%;
-    color: color-mix(in srgb, var(--billboard-ink) 65%, white);
+    color: color-mix(in srgb, var(--billboard-ink) 20%, white);
     font-weight: 800;
     line-height: 1.2;
-    text-shadow: 0 0 2px var(--billboard-ink),
-        0 0 8px color-mix(in srgb, var(--billboard-ink) 80%, transparent),
-        0 0 18px color-mix(in srgb, var(--billboard-ink) 35%, transparent);
+    text-shadow: 0 0 1px white, 0 0 3px var(--billboard-ink),
+        0 0 9px var(--billboard-ink),
+        0 0 20px color-mix(in srgb, var(--billboard-ink) 85%, transparent),
+        0 0 36px color-mix(in srgb, var(--billboard-ink) 55%, transparent);
     animation: billboard-glow 4s ease-in-out infinite;
     animation-play-state: var(--billboard-play);
 }
@@ -342,17 +355,108 @@ body::after {
 }
 @keyframes billboard-glow {
     0%, 100% {
-        text-shadow: 0 0 2px var(--billboard-ink),
-            0 0 8px color-mix(in srgb, var(--billboard-ink) 80%, transparent),
-            0 0 18px color-mix(in srgb, var(--billboard-ink) 35%, transparent);
+        text-shadow: 0 0 1px white, 0 0 3px var(--billboard-ink),
+            0 0 9px var(--billboard-ink),
+            0 0 20px color-mix(in srgb, var(--billboard-ink) 85%, transparent),
+            0 0 36px color-mix(in srgb, var(--billboard-ink) 55%, transparent);
     }
     50% {
-        text-shadow: 0 0 2px var(--billboard-ink),
-            0 0 12px color-mix(in srgb, var(--billboard-ink) 85%, transparent),
-            0 0 24px color-mix(in srgb, var(--billboard-ink) 45%, transparent);
+        text-shadow: 0 0 1px white, 0 0 4px var(--billboard-ink),
+            0 0 12px var(--billboard-ink),
+            0 0 28px color-mix(in srgb, var(--billboard-ink) 90%, transparent),
+            0 0 44px color-mix(in srgb, var(--billboard-ink) 65%, transparent);
     }
 }
 @media (prefers-reduced-motion: reduce) {
     .billboard-screen__text { animation: none !important; transform: none; white-space: normal; flex-shrink: 1; width: 100%; overflow-wrap: anywhere; }
     .billboard-screen__viewport { padding: 0.5rem; }
+}
+
+.billboard-screen__display:focus-visible { outline: 2px solid var(--color-neon-cyan); outline-offset: 4px; }
+.billboard-screen:is(.billboard-screen--terminal, .billboard-screen--split-flap, .billboard-screen--glitch, .billboard-screen--poster, .billboard-screen--slides) .billboard-screen__viewport {
+    padding: 0.75rem;
+    justify-content: center;
+}
+.billboard-screen:is(.billboard-screen--terminal, .billboard-screen--split-flap, .billboard-screen--glitch, .billboard-screen--poster, .billboard-screen--slides) .billboard-screen__text {
+    animation: none;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    flex-shrink: 1;
+    width: 100%;
+    text-align: center;
+}
+.billboard-screen--terminal .billboard-screen__viewport { background: color-mix(in srgb, var(--billboard-ink) 5%, var(--color-void)); }
+.billboard-screen--terminal .billboard-screen__text { font-family: monospace; text-align: left; }
+.billboard-terminal-cursor { position: relative; }
+.billboard-terminal-cursor::after {
+    content: ""; position: absolute; left: 100%; top: 0; height: 1em; width: 0.1em;
+    background: var(--billboard-ink);
+}
+.billboard-flap {
+    display: inline-block;
+    white-space: pre;
+    transform-origin: center;
+    background: color-mix(in srgb, var(--billboard-ink) 8%, var(--color-void));
+    box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--billboard-ink) 35%, transparent);
+    animation: billboard-flap 8s ease-out infinite;
+    animation-delay: var(--flap-delay);
+    animation-play-state: var(--billboard-play);
+}
+@keyframes billboard-flap {
+    0% { transform: perspective(100px) rotateX(-85deg); filter: brightness(0.6); }
+    8%, 100% { transform: none; filter: none; }
+}
+.billboard-screen--split-flap .billboard-screen__text { font-family: var(--font-pixel); letter-spacing: 0.1em; }
+.billboard-screen.billboard-screen--glitch .billboard-screen__text {
+    animation: billboard-glitch 8s steps(1) infinite;
+    animation-play-state: var(--billboard-play);
+}
+@keyframes billboard-glitch {
+    0%, 91%, 94%, 100% { transform: none; text-shadow: 0 0 8px color-mix(in srgb, var(--billboard-ink) 30%, transparent); }
+    92% { transform: translateX(1px); text-shadow: -2px 0 #ec4899, 2px 0 #22d3ee; }
+    93% { transform: translateX(-1px); text-shadow: 2px 0 #ec4899, -2px 0 #22d3ee; }
+}
+.billboard-screen.billboard-screen--poster .billboard-screen__viewport {
+    height: 9rem;
+    padding: 1rem;
+    background: var(--billboard-ink);
+}
+.billboard-screen.billboard-screen--poster .billboard-screen__text {
+    font-family: var(--font-pixel);
+    color: var(--color-void);
+    text-align: left;
+    line-height: 1.5;
+    text-shadow: none;
+}
+.billboard-slide-controls { display: flex; justify-content: center; align-items: center; gap: 0.5rem; }
+.billboard-slide-controls button { min-width: 2.75rem; min-height: 2.75rem; }
+.billboard-template-gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
+.billboard-template { min-width: 0; text-align: left; padding: 0.75rem; border: 2px solid rgb(34 211 238 / 0.2); background: var(--color-void); }
+.billboard-template[aria-pressed="true"] { border-color: var(--color-neon-cyan); background: rgb(34 211 238 / 0.06); }
+.billboard-template:disabled { opacity: 0.4; }
+.billboard-template:focus-visible { outline: 2px solid var(--color-neon-gold); outline-offset: 2px; }
+.billboard-template__sample { display: flex; align-items: center; justify-content: center; height: 3rem; margin-bottom: 0.5rem; overflow: hidden; font-size: 0.7rem; font-weight: 700; color: var(--color-neon-cyan); }
+.billboard-template--neon .billboard-template__sample {
+    color: #edfcff;
+    background: #030208;
+    text-shadow: 0 0 1px white, 0 0 4px var(--color-neon-cyan), 0 0 12px var(--color-neon-cyan), 0 0 24px var(--color-neon-cyan);
+}
+.billboard-template--terminal .billboard-template__sample { justify-content: flex-start; font-family: monospace; background: rgb(34 211 238 / 0.06); }
+.billboard-template--split-flap .billboard-template__sample { letter-spacing: 0.15em; background: rgb(34 211 238 / 0.08); box-shadow: inset 0 -2px rgb(34 211 238 / 0.2); }
+.billboard-template--glitch .billboard-template__sample { text-shadow: -2px 0 var(--color-neon-pink), 2px 0 var(--color-neon-cyan); }
+.billboard-template--poster .billboard-template__sample {
+    justify-content: flex-start;
+    padding: 0.5rem;
+    font-family: var(--font-pixel);
+    font-size: 0.6rem;
+    color: var(--color-void);
+    background: var(--color-neon-cyan);
+    text-shadow: none;
+}
+.billboard-template--image-led .billboard-template__sample { background: repeating-linear-gradient(135deg, rgb(34 211 238 / 0.12) 0 8px, transparent 8px 16px); }
+.billboard-template--slides .billboard-template__sample { font-family: var(--font-pixel); font-size: 0.6rem; }
+@media (min-width: 768px) { .billboard-template-gallery { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (prefers-reduced-motion: reduce) {
+    .billboard-screen.billboard-screen--glitch .billboard-screen__text, .billboard-flap { animation: none !important; transform: none; filter: none; text-shadow: none; }
+    .billboard-terminal-cursor::after { display: none; }
 }
