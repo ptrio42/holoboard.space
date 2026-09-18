@@ -6,11 +6,6 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
-### Changed
-
-- Boost and Promote again are compact text actions alongside Open note,
-  reducing card height on mobile while keeping comfortable touch targets.
-
 ## 2026-09-18
 
 ### Added
@@ -28,6 +23,11 @@ record deployment, not announcement publication.
 - An expired-promotions archive with actions to promote notes again, plus
   a Boost action on active notes.
 - A Docker Compose setup and self-hosting guide for running your own board.
+
+### Changed
+
+- Boost and Promote again are compact text actions alongside Open note,
+  reducing card height on mobile while keeping comfortable touch targets.
 
 ### Fixed
 
