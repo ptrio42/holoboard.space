@@ -6,6 +6,11 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+### Changed
+
+- Boost and Promote again are compact text actions alongside Open note,
+  reducing card height on mobile while keeping comfortable touch targets.
+
 ## 2026-09-18
 
 ### Added

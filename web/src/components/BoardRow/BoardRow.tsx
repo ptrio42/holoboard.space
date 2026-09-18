@@ -4,7 +4,6 @@ import { NoteAttachments } from "../TextRenderer/NoteAttachments";
 import { useState } from "react";
 import type { NDKEvent } from "@nostr-dev-kit/ndk";
 import { PixelPanel } from "../ui/PixelPanel";
-import { PixelButton } from "../ui/PixelButton";
 import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
 import TextRenderer from "../TextRenderer/TextRenderer";
 import { Expandable } from "../ui/Expandable";
@@ -47,6 +46,7 @@ const TIERS = [
 const METER_BLOCKS = 5;
 
 const DEFAULT_TIER = { accent: "rgba(34,211,238,0.32)", glow: undefined, text: "text-cyan-300/60" };
+const FOOTER_ACTION = "note-action inline-flex cursor-pointer items-center";
 
 /**
  * The whole story for a screen reader, which has neither hover nor a bar.
@@ -187,35 +187,30 @@ export function BoardRow({ event, rank, sats, weight, expired = false, onPromote
                         {expired && typeof lastPaidAt === "number" && lastPaidAt > 0 && <p className="text-xs text-cyan-300/40">
                             Last payment: <time dateTime={new Date(lastPaidAt * 1000).toISOString()}>{new Date(lastPaidAt * 1000).toLocaleDateString()}</time>
                         </p>}
-                        <div className="flex flex-col gap-3 @xl/row:flex-row @xl/row:items-center @xl/row:justify-between">
-                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                            <a
+                                href={njumpUrl(event.id, "note")}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={FOOTER_ACTION}
+                            >
+                                Open note
+                            </a>
+                            {onPromote && <button type="button" onClick={onPromote} className={`${FOOTER_ACTION} min-h-11 min-w-11`}>
+                                {expired ? "Promote again" : "Boost"}
+                            </button>}
+                            {/* Without this a comment reads as somebody talking
+                                to nobody, since what it answers is not here. */}
+                            {parent && (
                                 <a
-                                    href={njumpUrl(event.id, "note")}
+                                    href={parent.href}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="focus-pixel inline-block font-pixel text-[9px] tracking-widest
-                                        text-cyan-300/40 hover:text-neon-cyan"
+                                    className={FOOTER_ACTION}
                                 >
-                                    Open note
+                                    {parent.label} &gt;
                                 </a>
-                                {/* Without this a comment reads as somebody talking
-                                    to nobody, since what it answers is not here. */}
-                                {parent && (
-                                    <a
-                                        href={parent.href}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="focus-pixel inline-block font-pixel text-[9px] tracking-widest
-                                            text-cyan-300/40 hover:text-neon-cyan"
-                                    >
-                                        {parent.label} &gt;
-                                    </a>
-                                )}
-                            </div>
-                            {onPromote && <PixelButton size="sm" variant="ghost" onClick={onPromote}
-                                className="min-h-11 w-full @xl/row:w-auto [&_.pixel-btn__face]:flex [&_.pixel-btn__face]:min-h-11 [&_.pixel-btn__face]:items-center [&_.pixel-btn__face]:justify-center">
-                                {expired ? "Promote again" : "Boost"}
-                            </PixelButton>}
+                            )}
                         </div>
                     </div>
                 </article>
