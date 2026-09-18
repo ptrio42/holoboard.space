@@ -4,6 +4,8 @@ A paid bulletin board for Nostr notes and comments. Anyone can promote a post,
 including someone else's. Visit [holoboard.space](https://holoboard.space) to
 browse the board or promote a note.
 
+See the [changelog](CHANGELOG.md) for user-facing updates.
+
 ## How the board works
 
 Promotion payments determine rank. Each payment loses half its ranking weight

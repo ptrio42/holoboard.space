@@ -115,8 +115,8 @@ There is no other copy. The volume is the only place this state lives.
 
 ## Custom domain
 
-DNS for holoboard.space is at Namecheap (`dns1.registrar-servers.com`). Two
-names matter, and they point at different things:
+DNS for holoboard.space is managed in Cloudflare. Two names matter, and they
+point at different things:
 
 | Name | Serves | Record |
 | --- | --- | --- |
@@ -175,8 +175,8 @@ which both Cloudflare Pages and Netlify honour. Without it the lookup is a
 cross-origin fetch the browser blocks, and the identifier fails to verify with
 no visible error.
 
-Namecheap cannot CNAME an apex. Use its ALIAS record type, or the host's own
-nameservers if you move DNS there.
+Manage production DNS in Cloudflare. An ordinary code update does not require
+changing DNS records or recreating either custom-domain binding.
 
 ## Do not scale out
 
