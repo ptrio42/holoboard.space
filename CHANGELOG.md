@@ -6,6 +6,8 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+## 2026-09-18
+
 ### Added
 
 - Optional billboard appearances: LED, neon, image + LED, terminal, split-flap,
@@ -28,4 +30,3 @@ record deployment, not announcement publication.
   notifications and zap receipts do not add ranking credit twice.
 - Relay information is returned when clients send a combined Accept header,
   including the relay description.
-
