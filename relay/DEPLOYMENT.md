@@ -42,7 +42,7 @@ fly volumes create relay_data --size 1 --region fra
 
 fly secrets set RELAY_PRIVKEY=... NWC_URI=...   # one command, one restart
 
-fly deploy --ha=false
+fly deploy
 fly logs
 ```
 
@@ -75,15 +75,18 @@ billboard templates. From the repository root:
 cd relay
 fly status -a holoboard-relay
 fly config validate
-fly deploy --ha=false
+fly deploy
 fly status -a holoboard-relay
 curl --fail https://relay.holoboard.space/api/board
 ```
 
 Back up the ledger before deploying, using the command below. Keep the existing
 volume and secrets; updating code does not require recreating either.
-`--ha=false` disables creation of spare machines. This ledger requires one
-running instance. See the [Fly deploy reference](https://fly.io/docs/flyctl/deploy/).
+Updates preserve the existing machine count. Fly also creates only one machine
+on initial deployment when a volume is mounted, so `--ha=false` is optional for
+this configuration. Keep one running instance for this ledger. See Fly's
+[scaling rules](https://fly.io/docs/launch/scale-count/) and
+[initial redundancy rules](https://fly.io/docs/apps/app-availability/).
 
 ## Restoring the board
 
