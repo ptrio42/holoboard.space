@@ -287,6 +287,19 @@ body::after {
 .note-quote > a { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .note-quote__excerpt { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .note-quote__excerpt .note-body { display: inline; }
+.note-quote__media {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 0.35rem;
+    width: min(100%, 20rem);
+    height: 3.5rem;
+    margin-top: 0.5rem;
+}
+.note-quote__media > a { position: relative; display: grid; min-width: 0; overflow: hidden; place-items: center; border: 1px solid rgb(34 211 238 / 0.25); background: rgb(34 211 238 / 0.035); }
+.note-quote__media > a::before { content: "IMAGE"; font-family: var(--font-pixel); font-size: 7px; color: rgb(165 243 252 / 0.2); }
+.note-quote__media img { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; object-fit: cover; }
+.note-quote__media-more { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; background: rgb(3 2 8 / 0.62); font-family: var(--font-pixel); font-size: 11px; color: var(--color-neon-cyan); }
 .billboard-color--selected .pixel-btn__face { background: color-mix(in srgb, currentColor 12%, var(--color-void)); }
 .billboard-screen {
     color: var(--billboard-ink);
@@ -324,7 +337,6 @@ body::after {
 .billboard-screen--neon .billboard-screen__viewport {
     justify-content: center;
     padding: 0.75rem;
-    background: #030208;
     isolation: isolate;
 }
 .billboard-screen--neon .billboard-screen__viewport::before {
@@ -395,7 +407,6 @@ body::after {
     width: 100%;
     text-align: center;
 }
-.billboard-screen--terminal .billboard-screen__viewport { background: color-mix(in srgb, var(--billboard-ink) 5%, var(--color-void)); }
 .billboard-screen--terminal .billboard-screen__text { font-family: monospace; text-align: left; }
 .billboard-terminal-cursor { position: relative; }
 .billboard-terminal-cursor::after {
@@ -429,17 +440,15 @@ body::after {
 .billboard-screen.billboard-screen--poster .billboard-screen__viewport {
     height: 9rem;
     padding: 1rem;
-    background: var(--billboard-ink);
+    box-shadow: inset 4px 0 var(--billboard-ink);
 }
 .billboard-screen.billboard-screen--poster .billboard-screen__text {
     font-family: var(--font-pixel);
-    color: var(--color-void);
+    color: var(--billboard-ink);
     text-align: left;
     line-height: 1.5;
     text-shadow: none;
 }
-.billboard-slide-controls { display: flex; justify-content: center; align-items: center; gap: 0.5rem; }
-.billboard-slide-controls button { min-width: 2.75rem; min-height: 2.75rem; }
 .billboard-template-gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
 .billboard-template { min-width: 0; text-align: left; padding: 0.75rem; border: 2px solid rgb(34 211 238 / 0.2); background: var(--color-void); }
 .billboard-template[aria-pressed="true"] { border-color: var(--color-neon-cyan); background: rgb(34 211 238 / 0.06); }
@@ -448,7 +457,6 @@ body::after {
 .billboard-template__sample { display: flex; align-items: center; justify-content: center; height: 3rem; margin-bottom: 0.5rem; overflow: hidden; font-size: 0.7rem; font-weight: 700; color: var(--color-neon-cyan); }
 .billboard-template--neon .billboard-template__sample {
     color: #edfcff;
-    background: #030208;
     text-shadow: 0 0 1px white, 0 0 4px var(--color-neon-cyan), 0 0 12px var(--color-neon-cyan), 0 0 24px var(--color-neon-cyan);
 }
 .billboard-template--terminal .billboard-template__sample { justify-content: flex-start; font-family: monospace; background: rgb(34 211 238 / 0.06); }
@@ -459,8 +467,8 @@ body::after {
     padding: 0.5rem;
     font-family: var(--font-pixel);
     font-size: 0.6rem;
-    color: var(--color-void);
-    background: var(--color-neon-cyan);
+    color: var(--color-neon-cyan);
+    box-shadow: inset 3px 0 var(--color-neon-cyan);
     text-shadow: none;
 }
 .billboard-template--image-led .billboard-template__sample { background: repeating-linear-gradient(135deg, rgb(34 211 238 / 0.12) 0 8px, transparent 8px 16px); }

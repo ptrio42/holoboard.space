@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { NDKSubscriptionCacheUsage, type NDKEvent, type NDKSubscription } from "@nostr-dev-kit/ndk";
 import { PUBLIC_RELAYS, RELAY_URL } from "../../config";
 import { ndk } from "../../lib/ndk";
-import { quotePreviewContent, type NoteQuoteReference } from "../../lib/noteAttachments";
+import { quoteImages, quotePreviewContent, type NoteQuoteReference } from "../../lib/noteAttachments";
 import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
 import { CompactNoteText } from "./CompactNoteText";
+import { QuoteMedia } from "./QuoteMedia";
 
 /** One level of quotation only. A quote never imports another ranked row or its animations. */
 export function NoteQuote({ reference }: { reference: NoteQuoteReference }) {
@@ -49,6 +50,7 @@ export function NoteQuote({ reference }: { reference: NoteQuoteReference }) {
                 <div className="note-quote__excerpt mt-2 text-[13px] leading-relaxed text-cyan-50/80">
                     <CompactNoteText text={quotePreviewContent(event.content)} />
                 </div>
+                <QuoteMedia images={quoteImages(event.content)} />
                 <a href={href} target="_blank" rel="noopener noreferrer nofollow"
                     className="note-action mt-2 inline-block py-1">Open quoted note</a>
             </> : <a href={href} target="_blank" rel="noopener noreferrer nofollow"

@@ -193,8 +193,6 @@ function BillboardDisplay({ config, initialSlide, sourceContent }: { config: Bil
 
     const animated = config.template !== "poster";
     const showImage = (config.template === "image-led" || config.template === "poster") && config.image;
-    const next = (direction: number) => setSlide(index => (index + direction + fragments.length) % fragments.length);
-
     return (
         <div className={`billboard-screen billboard-screen--${config.template} billboard-screen--${config.size}`} style={style}
             onPointerEnter={(e) => { if (e.pointerType === "mouse") setHovered(true); }}
@@ -212,9 +210,6 @@ function BillboardDisplay({ config, initialSlide, sourceContent }: { config: Bil
                 onKeyDown={(e) => {
                     if ((e.target as HTMLElement).closest("a, button")) return;
                     if (animated && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setPaused(value => !value); }
-                    if (config.template === "slides" && ["ArrowLeft", "ArrowRight"].includes(e.key)) {
-                        e.preventDefault(); next(e.key === "ArrowLeft" ? -1 : 1);
-                    }
                 }}>
                 {showImage && <div className="billboard-screen__image">
                     {failedImage === config.image
@@ -226,11 +221,8 @@ function BillboardDisplay({ config, initialSlide, sourceContent }: { config: Bil
                     <span ref={text} className="billboard-screen__text">{renderedText}</span>
                 </div>
             </div>
-            {config.template === "slides" && fragments.length > 1 && <div className="billboard-slide-controls" aria-label="Billboard slides">
-                <button type="button" className="note-action" aria-label="Previous slide" onClick={() => next(-1)}>&lt;</button>
-                <span className="font-pixel text-[8px]" aria-live={focused || paused || reduced ? "polite" : "off"}>{slide + 1} / {fragments.length}<span className="sr-only">: {displayText}</span></span>
-                <button type="button" className="note-action" aria-label="Next slide" onClick={() => next(1)}>&gt;</button>
-            </div>}
+            {config.template === "slides" && fragments.length > 1 &&
+                <span className="sr-only" aria-live={focused || paused || reduced ? "polite" : "off"}>Slide {slide + 1} of {fragments.length}: {displayText}</span>}
         </div>
     );
 }

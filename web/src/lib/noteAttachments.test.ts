@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nip19 } from "@nostr-dev-kit/ndk";
-import { linkLabel, noteAttachments, quotePreviewContent, quoteReference } from "./noteAttachments";
+import { linkLabel, noteAttachments, quoteImages, quotePreviewContent, quoteReference } from "./noteAttachments";
 
 const id = "a".repeat(64);
 const author = "b".repeat(64);
@@ -34,7 +34,9 @@ describe("advertising destinations", () => {
     it("keeps references intact in bounded previews without recursive embeds", () => {
         expect(linkLabel("https://example.com/shop?q=1")).toBe("example.com/shop?q=1");
         const reference = nip19.noteEncode(id);
-        expect(quotePreviewContent(`Hello\nhttps://example.com/a.png nostr:${reference}`)).toBe(`Hello [Image] nostr:${reference}`);
+        expect(quotePreviewContent(`Hello\nhttps://example.com/a.png nostr:${reference}`)).toBe(`Hello nostr:${reference}`);
+        expect(quoteImages("https://example.com/a.png https://example.com/a.png https://example.com/b.webp"))
+            .toEqual(["https://example.com/a.png", "https://example.com/b.webp"]);
         expect(Array.from(quotePreviewContent("😀".repeat(230)))).toHaveLength(221);
     });
 });

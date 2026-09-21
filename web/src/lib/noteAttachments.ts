@@ -59,6 +59,10 @@ export function linkLabel(href: string): string {
     } catch { return href; }
 }
 
+export function quoteImages(content: string): string[] {
+    return [...new Set(parseContent(content).flatMap(token => token.kind === "image" ? [token.src] : []))];
+}
+
 /** Keep references intact so the compact renderer can still turn them into links. */
 export function quotePreviewContent(content: string, limit = 220): string {
     const output: string[] = [];
@@ -68,7 +72,7 @@ export function quotePreviewContent(content: string, limit = 220): string {
         if (token.kind === "text") return token.value;
         if (token.kind === "mention") return `nostr:${token.bech32}`;
         if (token.kind === "link") return token.href;
-        return token.kind === "image" ? " [Image] " : " [Video] ";
+        return token.kind === "image" ? " " : " [Video] ";
     };
     const displayLength = (token: ContentToken) => {
         if (token.kind === "link") return Array.from(linkLabel(token.href)).length;

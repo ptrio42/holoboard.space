@@ -9,7 +9,13 @@ record deployment, not announcement publication.
 ### Fixed
 
 - Nostr references remain interactive in billboard text and quoted-note
-  previews instead of appearing as raw identifiers or placeholders.
+  previews instead of appearing as raw identifiers or placeholders. Quoted
+  notes show a bounded strip of image thumbnails.
+
+### Changed
+
+- Billboard styles inherit the note background, and slides rotate without
+  visible counters or navigation controls.
 
 ## 2026-09-18
 
