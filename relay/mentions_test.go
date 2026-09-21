@@ -7,9 +7,7 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
-// A quote note is the obvious way to ask for a promotion: quote the note, tag
-// the relay. Most clients put a nostr:nevent1 in the text as well, which the
-// content scan catches, but some set only the NIP-18 q tag.
+// A quote can carry the target while the text carries explicit intent.
 func TestQuotedEventID(t *testing.T) {
 	const quoted = "9f1c0d2b3a4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8"
 

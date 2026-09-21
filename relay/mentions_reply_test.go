@@ -52,14 +52,15 @@ func TestMentionWithoutANoteGetsNoReply(t *testing.T) {
 	}
 }
 
-// Somebody who did include a reference and got it wrong is trying to use the
-// thing, so that still counts as a request and still gets an answer. The line
-// between the two cases is the whole of the policy.
-func TestAReferenceIsWhatMakesItARequest(t *testing.T) {
+// A public request needs an explicit command. References alone also occur in
+// replies, media URLs and ordinary conversation.
+func TestPromoteCommandIsWhatMakesItARequest(t *testing.T) {
 	silent := []string{
 		"anyone tried holoboard?",
 		"@holoboard",
 		"nostr:npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq is worth a look",
+		"look at note1abcdefghijklmnop",
+		"https://media.example/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg",
 		"",
 	}
 	for _, content := range silent {
@@ -70,8 +71,8 @@ func TestAReferenceIsWhatMakesItARequest(t *testing.T) {
 
 	requests := []string{
 		"promote note1notarealreference please",
-		"nostr:nevent1qqsanythingatall",
-		"put note1abcdefghijklmnop up",
+		"PROMOTE nostr:nevent1qqsanythingatall",
+		"please promote: note1abcdefghijklmnop",
 	}
 	for _, content := range requests {
 		if mentionedNote(mention(t, content)) == "" {
@@ -80,19 +81,48 @@ func TestAReferenceIsWhatMakesItARequest(t *testing.T) {
 	}
 }
 
-// A quote counts as pointing at a note even when the text says nothing.
-func TestAQuoteCountsAsAReference(t *testing.T) {
+// A quote supplies the target only when the author explicitly asks to promote.
+func TestPromoteCommandCanTargetAQuote(t *testing.T) {
 	id := "1111111111111111111111111111111111111111111111111111111111111111"
 
-	evt := &nostr.Event{
-		CreatedAt: nostr.Now(), Kind: 1, Content: "worth a look",
-		Tags: nostr.Tags{nostr.Tag{"q", id}},
+	for _, test := range []struct {
+		content string
+		want    string
+	}{
+		{content: "@holoboard promote", want: id},
+		{content: "this is worth a look", want: ""},
+	} {
+		evt := &nostr.Event{
+			CreatedAt: nostr.Now(), Kind: 1, Content: test.content,
+			Tags: nostr.Tags{nostr.Tag{"q", id}},
+		}
+		if err := evt.Sign(nostr.GeneratePrivateKey()); err != nil {
+			t.Fatalf("failed to sign: %v", err)
+		}
+
+		if got := mentionedNote(evt); got != test.want {
+			t.Errorf("mentionedNote(%q) = %q, want %q", test.content, got, test.want)
+		}
 	}
-	if err := evt.Sign(nostr.GeneratePrivateKey()); err != nil {
-		t.Fatalf("failed to sign: %v", err)
+}
+
+func TestReplyWithImageHashAndProfileMentionIsNotARequest(t *testing.T) {
+	const hash = "a65eeb55c7389044a5eb3f638655b3d3f4bfec8a16fef52313c84c84faaa4377"
+	evt := mention(t, "nostr:nprofile1qqsyexample not sure if you yourself promoted your note on holoboard but it looks much nicer now after this update https://media.example/"+hash+".jpg")
+	evt.Tags = nostr.Tags{
+		{"e", "cbd91bb5566fd2f701f1a90f3597ada810abb2ae58c3d2942b6ef66da5aeaf8e", "", "root"},
+		{"p", testRelayPubkey},
 	}
 
-	if got := mentionedNote(evt); got != id {
-		t.Errorf("quote tag gave %q, want the quoted id", got)
+	if got := mentionedNote(evt); got != "" {
+		t.Errorf("ordinary reply was read as a promotion request for %q", got)
+	}
+
+	monitor, storage := mentionFixture(t)
+	if err := monitor.ProcessMention(context.Background(), evt); err != nil {
+		t.Fatalf("ordinary reply produced an error instead of silence: %v", err)
+	}
+	if !storage.IsMentionProcessed(evt.ID) {
+		t.Error("ordinary reply was not marked as processed")
 	}
 }

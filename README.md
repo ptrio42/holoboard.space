@@ -39,8 +39,8 @@ predict rank.
 
 Highlight a fragment in the original note to choose billboard text, with a total
 limit of 160 characters.
-Slides use up to three fragments and change every three seconds, with manual
-controls. Animations pause on hover or tap and respect reduced-motion settings.
+Slides use up to three fragments and change every three seconds. Animations
+pause on hover or tap and respect reduced-motion settings.
 Images also come from that note. Links and quoted-note previews stay visible
 below it. **Full note** opens the original content.
 

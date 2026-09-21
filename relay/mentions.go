@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
 )
+
+var promoteCommand = regexp.MustCompile(`(?i)(^|[^[:alnum:]_])promote([^[:alnum:]_]|$)`)
 
 // MentionMonitor watches for mentions of the relay pubkey and handles promotional requests
 type MentionMonitor struct {
@@ -74,6 +77,12 @@ func (mm *MentionMonitor) Start(ctx context.Context, relays []string) {
 // means somebody is asking this board to do a job, and nothing here means they
 // were talking about the board rather than to it.
 func mentionedNote(mentionEvent *nostr.Event) string {
+	// A reply can carry note IDs in thread tags, quoted text, links and even
+	// image filenames. None of those expresses intent. Requiring the public
+	// command keeps ordinary conversation from summoning the bot.
+	if !promoteCommand.MatchString(mentionEvent.Content) {
+		return ""
+	}
 	if reference := extractEventIDFromText(mentionEvent.Content); reference != "" {
 		return reference
 	}
@@ -89,19 +98,20 @@ func (mm *MentionMonitor) ProcessMention(ctx context.Context, mentionEvent *nost
 
 	log.Printf("Processing mention from %s: %s", short(mentionEvent.PubKey, 8), short(mentionEvent.Content, 50))
 
-	noteID := mentionedNote(mentionEvent)
-
-	if noteID == "" {
+	if !promoteCommand.MatchString(mentionEvent.Content) {
 		// Nothing to act on, so say nothing.
 		//
 		// Answering every mention turned the account into something that
 		// interrupts: naming the board in a note, to recommend it or argue
-		// about it, came back with instructions nobody asked for. A mention
-		// carrying no note is somebody talking about this board, not to it.
-		// A malformed reference below still gets an answer, because that is
-		// somebody trying to use it and getting it wrong.
-		log.Printf("Mention %s carries no note, leaving it alone", short(mentionEvent.ID, 8))
+		// about it, came back with instructions nobody asked for. Only the
+		// explicit promote command signals that the author wants a response.
+		log.Printf("Mention %s is not a promotion command, leaving it alone", short(mentionEvent.ID, 8))
 		return mm.storage.MarkMentionProcessed(mentionEvent.ID)
+	}
+
+	noteID := mentionedNote(mentionEvent)
+	if noteID == "" {
+		return mm.SendUsageInstructions(ctx, mentionEvent)
 	}
 
 	// Normalize the note ID
@@ -212,12 +222,12 @@ The more sats you zap, the higher it will rank. Anyone can add more sats to boos
 func (mm *MentionMonitor) SendUsageInstructions(ctx context.Context, mentionEvent *nostr.Event) error {
 	instructionsContent := `📢 Promotion Board
 
-To promote a note, mention me with any valid note ID:
+To promote a note, mention me with the word "promote" and a valid note ID:
 
 Examples:
 • @relay promote note1abc...
-• @relay check out nostr:nevent1...
-• @relay bech32abc123...
+• @relay promote nostr:nevent1...
+• Quote a note and write: @relay promote
 
 I'll reply with a confirmation. Zap that reply with any amount to add the note to the promotion board!
 
@@ -320,10 +330,9 @@ func mentionResumePoint(watermark int64, now time.Time) int64 {
 
 // quotedEventID reads the NIP-18 quote tag.
 //
-// Quoting a note and tagging the relay is the obvious way to ask for a
-// promotion, and most clients also drop a nostr:nevent1 into the text, which
-// the content scan already catches. Some do not, and set only the q tag. Those
-// used to get usage instructions back instead of a promotion.
+// With an explicit promote command, quoting a note and tagging the relay is a
+// concise way to identify the target. Most clients also drop a nostr:nevent1
+// into the text, which the content scan already catches. Some set only q.
 //
 // Deliberately not falling back to e tags. On a reply the e tag is the parent
 // being replied to, not the note being pointed at, so promoting it would charge

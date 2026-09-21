@@ -8,6 +8,8 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Ordinary replies that mention Holoboard no longer trigger promotion errors
+  when an image URL happens to contain a 64-character hash.
 - Nostr references remain interactive in billboard text and quoted-note
   previews instead of appearing as raw identifiers or placeholders. Quoted
   notes show a bounded strip of image thumbnails.
