@@ -55,28 +55,37 @@ func TestMentionWithoutANoteGetsNoReply(t *testing.T) {
 // A public request needs an explicit command. References alone also occur in
 // replies, media URLs and ordinary conversation.
 func TestPromoteCommandIsWhatMakesItARequest(t *testing.T) {
+	const note = "note1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+	const nevent = "nevent1qqsqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+	const hex = "1111111111111111111111111111111111111111111111111111111111111111"
+
 	silent := []string{
 		"anyone tried holoboard?",
 		"@holoboard",
 		"nostr:npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq is worth a look",
-		"look at note1abcdefghijklmnop",
+		"look at " + note,
+		"@holoboard I think this could promote nostr:" + note,
+		"@holoboard please promote " + note,
+		"@holoboard promote this project",
+		"@holoboard promote https://media.example/" + hex + ".jpg",
 		"https://media.example/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg",
 		"",
 	}
 	for _, content := range silent {
-		if got := mentionedNote(mention(t, content)); got != "" {
-			t.Errorf("%.34q read as a request for %q", content, got)
+		if got, command := parsePromotionCommand(mention(t, content)); command || got != "" {
+			t.Errorf("%.34q read as command=%t target=%q", content, command, got)
 		}
 	}
 
 	requests := []string{
-		"promote note1notarealreference please",
-		"PROMOTE nostr:nevent1qqsanythingatall",
-		"please promote: note1abcdefghijklmnop",
+		"promote " + note,
+		"PROMOTE nostr:" + nevent,
+		"@holoboard promote " + hex + ".",
+		"nostr:npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq promote nostr:" + note,
 	}
 	for _, content := range requests {
-		if mentionedNote(mention(t, content)) == "" {
-			t.Errorf("%.34q read as idle chatter rather than a request", content)
+		if got, command := parsePromotionCommand(mention(t, content)); !command || got == "" {
+			t.Errorf("%.34q read as command=%t target=%q", content, command, got)
 		}
 	}
 }
@@ -90,6 +99,8 @@ func TestPromoteCommandCanTargetAQuote(t *testing.T) {
 		want    string
 	}{
 		{content: "@holoboard promote", want: id},
+		{content: "nostr:npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq promote!", want: id},
+		{content: "@holoboard should we promote this?", want: ""},
 		{content: "this is worth a look", want: ""},
 	} {
 		evt := &nostr.Event{

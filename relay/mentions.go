@@ -11,7 +11,7 @@ import (
 	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
-var promoteCommand = regexp.MustCompile(`(?i)(^|[^[:alnum:]_])promote([^[:alnum:]_]|$)`)
+var publicPromoteCommand = regexp.MustCompile(`(?i)^\s*(?:(?:(?:nostr:)?(?:npub1|nprofile1)[023456789acdefghjklmnpqrstuvwxyz]+|@[^\s,:]+)[,:]?\s+)*promote(?:\s+((?:nostr:)?(?:note1|nevent1)[023456789acdefghjklmnpqrstuvwxyz]+|[0-9a-f]{64}))?\s*[.!]?\s*$`)
 
 // MentionMonitor watches for mentions of the relay pubkey and handles promotional requests
 type MentionMonitor struct {
@@ -70,23 +70,24 @@ func (mm *MentionMonitor) Start(ctx context.Context, relays []string) {
 	log.Printf("Mention monitor started, watching %d relays", len(relays))
 }
 
-// mentionedNote returns the note a mention is pointing at, or an empty string
-// when it points at none.
-//
-// The distinction it draws is the whole of the reply policy: something here
-// means somebody is asking this board to do a job, and nothing here means they
-// were talking about the board rather than to it.
+// parsePromotionCommand recognizes a complete public command after optional
+// textual profile mentions. Matching the whole message matters: "promote" can
+// occur in ordinary conversation, and a media URL can contain a 64-character
+// hash that is not a Nostr event ID.
+func parsePromotionCommand(mentionEvent *nostr.Event) (target string, command bool) {
+	matches := publicPromoteCommand.FindStringSubmatch(mentionEvent.Content)
+	if matches == nil {
+		return "", false
+	}
+	if matches[1] != "" {
+		return matches[1], true
+	}
+	return quotedEventID(mentionEvent), true
+}
+
 func mentionedNote(mentionEvent *nostr.Event) string {
-	// A reply can carry note IDs in thread tags, quoted text, links and even
-	// image filenames. None of those expresses intent. Requiring the public
-	// command keeps ordinary conversation from summoning the bot.
-	if !promoteCommand.MatchString(mentionEvent.Content) {
-		return ""
-	}
-	if reference := extractEventIDFromText(mentionEvent.Content); reference != "" {
-		return reference
-	}
-	return quotedEventID(mentionEvent)
+	target, _ := parsePromotionCommand(mentionEvent)
+	return target
 }
 
 // ProcessMention handles a mention event
@@ -98,7 +99,8 @@ func (mm *MentionMonitor) ProcessMention(ctx context.Context, mentionEvent *nost
 
 	log.Printf("Processing mention from %s: %s", short(mentionEvent.PubKey, 8), short(mentionEvent.Content, 50))
 
-	if !promoteCommand.MatchString(mentionEvent.Content) {
+	noteReference, isCommand := parsePromotionCommand(mentionEvent)
+	if !isCommand {
 		// Nothing to act on, so say nothing.
 		//
 		// Answering every mention turned the account into something that
@@ -109,13 +111,12 @@ func (mm *MentionMonitor) ProcessMention(ctx context.Context, mentionEvent *nost
 		return mm.storage.MarkMentionProcessed(mentionEvent.ID)
 	}
 
-	noteID := mentionedNote(mentionEvent)
-	if noteID == "" {
+	if noteReference == "" {
 		return mm.SendUsageInstructions(ctx, mentionEvent)
 	}
 
 	// Normalize the note ID
-	noteID = normalizeEventID(noteID)
+	noteID := normalizeEventID(noteReference)
 
 	// Validate note ID format
 	if len(noteID) != 64 {
@@ -125,7 +126,7 @@ func (mm *MentionMonitor) ProcessMention(ctx context.Context, mentionEvent *nost
 
 	// Fetch the note to validate it exists
 	log.Printf("Fetching note %s to validate...", short(noteID, 8))
-	hints, author := noteHints(extractEventIDFromText(mentionEvent.Content))
+	hints, author := noteHints(noteReference)
 	noteToPromote, err := mm.fetcher.FetchPostFrom(ctx, noteID, hints, author)
 	if err != nil {
 		log.Printf("Failed to fetch note %s: %v", noteID, err)
@@ -222,7 +223,7 @@ The more sats you zap, the higher it will rank. Anyone can add more sats to boos
 func (mm *MentionMonitor) SendUsageInstructions(ctx context.Context, mentionEvent *nostr.Event) error {
 	instructionsContent := `📢 Promotion Board
 
-To promote a note, mention me with the word "promote" and a valid note ID:
+To promote a note, mention me with one of these commands:
 
 Examples:
 • @relay promote note1abc...

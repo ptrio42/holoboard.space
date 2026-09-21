@@ -72,8 +72,9 @@ use HTTP intentionally. The planned Nostr transport is described in the
 
 ## Promotion through Nostr
 
-- Mention the relay's public key with `promote` and the target note reference,
-  then zap the relay's promotional reply. A quoted note can supply the target.
+- Mention the relay's public key with the complete command `promote <note_id>`,
+  then zap the relay's promotional reply. When quoting the target note, use the
+  complete command `promote`.
 - Zap the relay directly with the target reference in the zap comment or invoice
   description.
 - Send `PROMOTE <note_id>` to the relay by DM to receive an invoice.
