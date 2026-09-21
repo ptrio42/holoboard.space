@@ -6,6 +6,8 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+## 2026-09-21
+
 ### Fixed
 
 - Ordinary replies that mention Holoboard no longer trigger promotion errors
