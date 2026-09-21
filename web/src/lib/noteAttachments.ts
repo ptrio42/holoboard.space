@@ -1,5 +1,5 @@
 import { nip19, type NDKFilter } from "@nostr-dev-kit/ndk";
-import { parseContent } from "../utils/textProcessing/parseContent";
+import { parseContent, type ContentToken } from "../utils/textProcessing/parseContent";
 import { parseNoteReference } from "./nostr";
 
 export interface NoteQuoteReference {
@@ -59,14 +59,36 @@ export function linkLabel(href: string): string {
     } catch { return href; }
 }
 
-export function quoteExcerpt(content: string): string {
-    const plain = parseContent(content).map((token) => {
+/** Keep references intact so the compact renderer can still turn them into links. */
+export function quotePreviewContent(content: string, limit = 220): string {
+    const output: string[] = [];
+    let used = 0;
+    let truncated = false;
+    const source = (token: ContentToken) => {
         if (token.kind === "text") return token.value;
-        if (token.kind === "link") return linkLabel(token.href);
-        if (token.kind === "image") return " [Image] ";
-        if (token.kind === "video") return " [Video] ";
-        return " [Note reference] ";
-    }).join("").replace(/\s+/g, " ").trim();
-    const characters = Array.from(plain);
-    return characters.length > 220 ? `${characters.slice(0, 219).join("")}…` : plain || "Open quoted note";
+        if (token.kind === "mention") return `nostr:${token.bech32}`;
+        if (token.kind === "link") return token.href;
+        return token.kind === "image" ? " [Image] " : " [Video] ";
+    };
+    const displayLength = (token: ContentToken) => {
+        if (token.kind === "link") return Array.from(linkLabel(token.href)).length;
+        if (token.kind === "mention") return Math.min(16, Array.from(token.bech32).length);
+        return Array.from(source(token)).length;
+    };
+
+    for (const token of parseContent(content)) {
+        const length = displayLength(token);
+        if (used + length <= limit) {
+            output.push(source(token));
+            used += length;
+            continue;
+        }
+        const remaining = limit - used;
+        if (token.kind === "text" && remaining > 0) output.push(Array.from(token.value).slice(0, remaining).join(""));
+        else if (remaining >= Math.min(length, 16)) output.push(source(token));
+        truncated = true;
+        break;
+    }
+    const preview = output.join("").replace(/\s+/g, " ").trim();
+    return `${preview || "Open quoted note"}${truncated ? "…" : ""}`;
 }

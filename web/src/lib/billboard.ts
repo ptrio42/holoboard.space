@@ -1,3 +1,5 @@
+import { nip19 } from "@nostr-dev-kit/ndk";
+
 export const BILLBOARD_TEMPLATES = [
     { id: "led", name: "LED ticker", caption: "Text travelling across the screen", sample: "CITY SIGNAL >" },
     { id: "neon", name: "Neon sign", caption: "Bright lettering with a soft glow", sample: "NIGHT CITY" },
@@ -23,6 +25,32 @@ export interface BillboardConfig {
 export const BILLBOARD_MAX_TEXT = 160;
 export const BILLBOARD_MAX_SLIDES = 3;
 export const BILLBOARD_COLORS = { cyan: "#22d3ee", pink: "#ec4899", gold: "#fbbf24" };
+
+const NOSTR_SUFFIX = /(?:nostr:)?(?:npub1|nprofile1|note1|nevent1|naddr1)[023456789acdefghjklmnpqrstuvwxyz]+$/i;
+const BECH32_CONTINUATION = /^[023456789acdefghjklmnpqrstuvwxyz]+/i;
+
+function validNostrReference(value: string): boolean {
+    try {
+        nip19.decode(value.replace(/^nostr:/i, ""));
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/** Restore a Nostr URI cut at the display limit from the signed source note. */
+export function completeNostrReference(fragment: string, content: string): string {
+    const suffix = NOSTR_SUFFIX.exec(fragment)?.[0];
+    if (!suffix || validNostrReference(suffix)) return fragment;
+
+    let occurrence = content.indexOf(fragment);
+    while (occurrence >= 0) {
+        const continuation = BECH32_CONTINUATION.exec(content.slice(occurrence + fragment.length))?.[0] ?? "";
+        if (continuation && validNostrReference(`${suffix}${continuation}`)) return `${fragment}${continuation}`;
+        occurrence = content.indexOf(fragment, occurrence + 1);
+    }
+    return fragment;
+}
 
 export function billboardFragments(config: BillboardConfig): string[] {
     return config.template === "slides" ? config.slides ?? [] : [config.text];

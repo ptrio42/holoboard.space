@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
-import { BILLBOARD_COLORS, type BillboardConfig } from "../../lib/billboard";
+import { Fragment, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { nip19 } from "@nostr-dev-kit/ndk";
+import { BILLBOARD_COLORS, completeNostrReference, type BillboardConfig } from "../../lib/billboard";
+import { parseContent, type ContentToken } from "../../utils/textProcessing/parseContent";
+import { NostrMention } from "../TextRenderer/NostrMention";
 
 const SPEED = { slow: 24, normal: 40, fast: 60 };
 const FONT_SIZE = { small: 1.1, medium: 1.5, large: 2 };
@@ -11,11 +14,11 @@ const subscribeMotion = (callback: () => void) => {
     return () => query.removeEventListener("change", callback);
 };
 
-export function BillboardScreen({ config, initialSlide = 0 }: { config: BillboardConfig; initialSlide?: number }) {
-    return <BillboardDisplay key={`${initialSlide}:${JSON.stringify(config)}`} config={config} initialSlide={initialSlide} />;
+export function BillboardScreen({ config, initialSlide = 0, sourceContent = "" }: { config: BillboardConfig; initialSlide?: number; sourceContent?: string }) {
+    return <BillboardDisplay key={`${initialSlide}:${JSON.stringify(config)}`} config={config} initialSlide={initialSlide} sourceContent={sourceContent} />;
 }
 
-function BillboardDisplay({ config, initialSlide }: { config: BillboardConfig; initialSlide: number }) {
+function BillboardDisplay({ config, initialSlide, sourceContent }: { config: BillboardConfig; initialSlide: number; sourceContent: string }) {
     const viewport = useRef<HTMLDivElement>(null);
     const text = useRef<HTMLSpanElement>(null);
     const pointerType = useRef("mouse");
@@ -31,12 +34,56 @@ function BillboardDisplay({ config, initialSlide }: { config: BillboardConfig; i
     const [typingTime, setTypingTime] = useState(0);
     const elapsed = useRef(0);
     const fragments = config.template === "slides" && config.slides?.length ? config.slides : [config.text];
-    const displayText = (fragments[slide] ?? config.text).replace(/\s+/g, " ");
+    const displayText = completeNostrReference(fragments[slide] ?? config.text, sourceContent).replace(/\s+/g, " ");
     const characters = Array.from(displayText);
     const running = visible && foreground && !paused && !hovered && !focused && !reduced;
     const typingStep = { slow: 100, normal: 65, fast: 40 }[config.speed];
     const typingCycle = characters.length * typingStep + 4000;
     const revealed = reduced ? characters.length : Math.min(characters.length, 1 + Math.floor(typingTime / typingStep));
+
+    let characterIndex = 0;
+    const animatedCharacters = (value: string, key: string): ReactNode => Array.from(value).map((character) => {
+        const index = characterIndex++;
+        if (config.template === "terminal") return <span key={`${key}-${index}`}
+            className={index === revealed - 1 ? "billboard-terminal-cursor" : undefined}
+            style={{ visibility: index < revealed ? "visible" : "hidden" }}>{character}</span>;
+        if (config.template === "split-flap") return <span key={`${key}-${index}`}
+            className="billboard-flap" style={{ "--flap-delay": `${index * 0.004}s` } as CSSProperties}>{character}</span>;
+        return character;
+    });
+    const billboardToken = (token: ContentToken, index: number): ReactNode => {
+        const key = `token-${index}`;
+        if (token.kind === "text") return <Fragment key={key}>{animatedCharacters(token.value, key)}</Fragment>;
+        if (token.kind === "mention") {
+            try {
+                const decoded = nip19.decode(token.bech32);
+                const pubkey = decoded.type === "npub" ? decoded.data
+                    : decoded.type === "nprofile" ? decoded.data.pubkey : null;
+                if (pubkey) {
+                    const start = characterIndex;
+                    characterIndex += Array.from(token.bech32).length;
+                    const terminal = config.template === "terminal";
+                    return <span key={key}
+                        className={terminal && start === revealed - 1 ? "billboard-terminal-cursor"
+                            : config.template === "split-flap" ? "billboard-flap" : undefined}
+                        style={{
+                            ...(terminal ? { visibility: start < revealed ? "visible" : "hidden" } : {}),
+                            ...(config.template === "split-flap" ? { "--flap-delay": `${start * 0.004}s` } : {}),
+                        } as CSSProperties}><NostrMention pubkey={pubkey} /></span>;
+                }
+            } catch {
+                // Invalid references remain readable links, matching the normal note renderer.
+            }
+            const label = `${token.bech32.slice(0, 12)}...`;
+            return <a key={key} href={`https://njump.me/${token.bech32}`} target="_blank"
+                rel="noopener noreferrer nofollow">{animatedCharacters(label, key)}</a>;
+        }
+        const href = token.kind === "link" ? token.href : token.src;
+        return <a key={key} href={href} target="_blank" rel="noopener noreferrer nofollow">
+            {animatedCharacters(href, key)}
+        </a>;
+    };
+    const renderedText = parseContent(displayText).map(billboardToken);
 
     useEffect(() => {
         if (!running || config.template !== "terminal") return;
@@ -121,9 +168,11 @@ function BillboardDisplay({ config, initialSlide }: { config: BillboardConfig; i
         // Observe the viewport only: fitting the label must not trigger another fitting pass.
         const observer = new ResizeObserver(measure);
         observer.observe(element);
+        const contentObserver = new MutationObserver(measure);
+        contentObserver.observe(label, { childList: true, subtree: true, characterData: true });
         reducedMotion.addEventListener("change", measure);
         void document.fonts.ready.then(measure);
-        return () => { stopped = true; cancelAnimationFrame(frame); observer.disconnect(); reducedMotion.removeEventListener("change", measure); };
+        return () => { stopped = true; cancelAnimationFrame(frame); observer.disconnect(); contentObserver.disconnect(); reducedMotion.removeEventListener("change", measure); };
     }, [displayText, config.size, config.speed, config.template, visible]);
 
     useEffect(() => {
@@ -152,12 +201,16 @@ function BillboardDisplay({ config, initialSlide }: { config: BillboardConfig; i
             onPointerLeave={(e) => { if (e.pointerType === "mouse") setHovered(false); }}
             onFocusCapture={(e) => { if (e.target.matches(":focus-visible")) setFocused(true); }}
             onBlurCapture={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false); }}>
-            <div className="billboard-screen__display" role={animated ? "button" : "img"} tabIndex={animated ? 0 : undefined}
-                aria-label={`Billboard: ${fragments.join(". ")}`} aria-pressed={animated ? paused : undefined}
+            <div className="billboard-screen__display" role="group" tabIndex={animated ? 0 : undefined}
+                aria-label={`${paused ? "Paused billboard" : "Billboard"}: ${fragments.join(". ")}`}
                 aria-description={animated ? "Tap to pause or resume animation. Motion pauses on mouse hover or keyboard focus." : undefined}
                 onPointerDown={(e) => { pointerType.current = e.pointerType; }}
-                onClick={(e) => { if (animated && (e.detail === 0 || pointerType.current !== "mouse")) setPaused(value => !value); }}
+                onClick={(e) => {
+                    if ((e.target as HTMLElement).closest("a, button")) return;
+                    if (animated && (e.detail === 0 || pointerType.current !== "mouse")) setPaused(value => !value);
+                }}
                 onKeyDown={(e) => {
+                    if ((e.target as HTMLElement).closest("a, button")) return;
                     if (animated && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setPaused(value => !value); }
                     if (config.template === "slides" && ["ArrowLeft", "ArrowRight"].includes(e.key)) {
                         e.preventDefault(); next(e.key === "ArrowLeft" ? -1 : 1);
@@ -170,14 +223,7 @@ function BillboardDisplay({ config, initialSlide }: { config: BillboardConfig; i
                             onError={() => setFailedImage(config.image ?? null)} />}
                 </div>}
                 <div ref={viewport} className="billboard-screen__viewport">
-                    <span ref={text} className="billboard-screen__text" aria-hidden="true">
-                        {config.template === "terminal" ? characters.map((character, index) => <span key={index}
-                            className={index === revealed - 1 ? "billboard-terminal-cursor" : undefined}
-                            style={{ visibility: index < revealed ? "visible" : "hidden" }}>{character}</span>)
-                        : config.template === "split-flap" ? characters.map((character, index) => <span key={index}
-                            className="billboard-flap" style={{ "--flap-delay": `${index * 0.004}s` } as CSSProperties}>{character}</span>)
-                        : displayText}
-                    </span>
+                    <span ref={text} className="billboard-screen__text">{renderedText}</span>
                 </div>
             </div>
             {config.template === "slides" && fragments.length > 1 && <div className="billboard-slide-controls" aria-label="Billboard slides">

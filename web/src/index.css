@@ -285,6 +285,8 @@ body::after {
 }
 .note-body .note-quote a { text-decoration: none; }
 .note-quote > a { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.note-quote__excerpt { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.note-quote__excerpt .note-body { display: inline; }
 .billboard-color--selected .pixel-btn__face { background: color-mix(in srgb, currentColor 12%, var(--color-void)); }
 .billboard-screen {
     color: var(--billboard-ink);
@@ -311,6 +313,14 @@ body::after {
     animation-delay: var(--travel-delay, 0s);
     animation-play-state: var(--billboard-play);
 }
+.billboard-screen__text a {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.18em;
+}
+.billboard-screen__text a:hover { color: var(--color-neon-pink); }
+.billboard-screen__text a:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 .billboard-screen--neon .billboard-screen__viewport {
     justify-content: center;
     padding: 0.75rem;

@@ -168,7 +168,7 @@ export function BoardRow({ event, rank, sats, weight, expired = false, onPromote
                             </div>
                         </div>
 
-                        {billboard && !expired && <BillboardScreen config={billboard} initialSlide={billboardPreviewSlide} />}
+                        {billboard && !expired && <BillboardScreen config={billboard} initialSlide={billboardPreviewSlide} sourceContent={event.content} />}
                         {billboard && !expired && <NoteAttachments content={event.content} tags={event.tags} ownId={event.id} />}
 
                         <div className="text-[13px] text-cyan-50/80 @xl/row:text-sm">

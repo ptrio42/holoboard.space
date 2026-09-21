@@ -6,6 +6,11 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+### Fixed
+
+- Nostr references remain interactive in billboard text and quoted-note
+  previews instead of appearing as raw identifiers or placeholders.
+
 ## 2026-09-18
 
 ### Added

@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { NDKSubscriptionCacheUsage, type NDKEvent, type NDKSubscription } from "@nostr-dev-kit/ndk";
 import { PUBLIC_RELAYS, RELAY_URL } from "../../config";
 import { ndk } from "../../lib/ndk";
-import { quoteExcerpt, type NoteQuoteReference } from "../../lib/noteAttachments";
+import { quotePreviewContent, type NoteQuoteReference } from "../../lib/noteAttachments";
 import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
+import { CompactNoteText } from "./CompactNoteText";
 
 /** One level of quotation only. A quote never imports another ranked row or its animations. */
 export function NoteQuote({ reference }: { reference: NoteQuoteReference }) {
@@ -45,10 +46,11 @@ export function NoteQuote({ reference }: { reference: NoteQuoteReference }) {
             <span className="font-pixel text-[8px] tracking-widest text-cyan-300/50">QUOTED NOTE</span>
             {event ? <>
                 <div className="mt-2"><UserProfileInline pubkey={event.pubkey} /></div>
+                <div className="note-quote__excerpt mt-2 text-[13px] leading-relaxed text-cyan-50/80">
+                    <CompactNoteText text={quotePreviewContent(event.content)} />
+                </div>
                 <a href={href} target="_blank" rel="noopener noreferrer nofollow"
-                    className="focus-pixel mt-2 block text-[13px] leading-relaxed text-cyan-50/80 hover:text-neon-cyan">
-                    {quoteExcerpt(event.content)}
-                </a>
+                    className="note-action mt-2 inline-block py-1">Open quoted note</a>
             </> : <a href={href} target="_blank" rel="noopener noreferrer nofollow"
                 className="note-action mt-2 block py-2">
                 {unavailable ? "Open quoted note" : "Loading quoted note…"}

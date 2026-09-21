@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { initialBillboard, parseBillboard, validBillboard } from "./billboard";
+import { nip19 } from "@nostr-dev-kit/ndk";
+import { completeNostrReference, initialBillboard, parseBillboard, validBillboard } from "./billboard";
 import { parseLedger } from "./sats";
 
 describe("billboard content", () => {
+    it("completes a Nostr reference cut at the display limit from signed content", () => {
+        const profile = nip19.nprofileEncode({ pubkey: "a".repeat(64), relays: ["wss://relay.example"] });
+        const content = `Respect to nostr:${profile} for the work`;
+        const fragment = Array.from(content).slice(0, 80).join("");
+        expect(completeNostrReference(fragment, content)).toBe(`Respect to nostr:${profile}`);
+        expect(completeNostrReference(fragment, `Different ${profile}`)).toBe(fragment);
+        expect(completeNostrReference(`nostr:${profile}`, content)).toBe(`nostr:${profile}`);
+    });
     it("accepts only a fragment of the original note", () => {
         const config = initialBillboard("Hello world");
         expect(validBillboard(config, "Hello world", [])).toBe(true);
