@@ -25,7 +25,10 @@ npm run build
 ```
 
 The build checks TypeScript and creates the production website in `dist/`.
-The development server does not check types.
+The development server does not check types. Production builds also generate
+the web app manifest and service worker. Preview the production build to test
+installation and offline startup, because the service worker is disabled in
+development.
 
 ## Configuration
 

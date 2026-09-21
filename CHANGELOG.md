@@ -6,6 +6,11 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+### Added
+
+- Holoboard can be installed as a PWA and reopens its cached interface when
+  the network is unavailable.
+
 ## 2026-09-21
 
 ### Fixed
