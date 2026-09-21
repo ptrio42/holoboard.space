@@ -34,9 +34,26 @@ minutes. It prints two lines beginning with `RELAY_PRIVKEY=` and
 `VITE_RELAY_PUBKEY=`. Open `.env` in a text editor and replace its two empty
 lines with the printed lines. Save the file.
 
-The private key controls your board's identity; the public key tells the website
-which relay it belongs to. Keep the pair together and reuse it after updates.
-Do not share the private key or generate a new pair every time you start.
+| Setting | Purpose | Visibility |
+| --- | --- | --- |
+| `RELAY_PRIVKEY` | The backend signs Nostr events and handles messages as the board. | Secret. Keep it on the server. |
+| `VITE_RELAY_PUBKEY` | The website identifies the board for mentions and zaps. | Public. Included in the website's browser code. |
+
+These are one matching pair for the board's Nostr identity, including its
+profile. Keep the pair together and reuse it after updates. Do not share the
+private key or generate a new pair every time you start. `ADMIN_PUBKEY`, if
+configured, identifies the operator allowed to administer the board through
+DMs; it is separate from the board's identity.
+
+The generator runs locally and uses `go-nostr` with Go's
+[cryptographically secure random source](https://pkg.go.dev/crypto/rand).
+It prints the keys to your terminal; it does not upload them.
+
+You can skip the generator and use a pair created with another Nostr tool.
+Set `RELAY_PRIVKEY` to the private key and `VITE_RELAY_PUBKEY` to its matching
+public key, both as 64 hexadecimal characters. Convert `nsec`/`npub` exports
+locally to hex first; these settings do not accept those encodings. Use a
+dedicated board identity, since the relay needs access to its private key.
 
 ## Start the website
 
