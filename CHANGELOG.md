@@ -18,6 +18,8 @@ record deployment, not announcement publication.
 
 - Board rows show the sats currently setting their rank, with historical paid
   totals available from the same figure.
+- Public promotion replies show the promoted note as a native quote, making the
+  zap target clearer while keeping the original note easy to open.
 
 ## 2026-09-21
 

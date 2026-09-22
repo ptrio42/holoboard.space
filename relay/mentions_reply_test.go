@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -114,6 +115,109 @@ func TestWebsitePromotionCommandShape(t *testing.T) {
 	}
 	if got := normalizeEventID(target); got != noteID {
 		t.Errorf("website command targets %q, want %q", got, noteID)
+	}
+}
+
+func TestPromotionalReplyUsesANativeQuote(t *testing.T) {
+	const noteID = "2222222222222222222222222222222222222222222222222222222222222222"
+	relays := []string{"wss://relay.example.com", "wss://other.example.com"}
+	monitor, _ := mentionFixture(t)
+	monitor.fetcher = NewPostFetcher(relays)
+
+	authorKey := nostr.GeneratePrivateKey()
+	author, err := nostr.GetPublicKey(authorKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := mention(t, "@holoboard promote")
+	note := &nostr.Event{
+		ID:      noteID,
+		PubKey:  author,
+		Kind:    1,
+		Content: "This original content must not be copied into the reply.",
+	}
+
+	reply, err := monitor.buildPromotionalReply(request, note)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.HasPrefix(reply.Content, promotionalReplyCopy+"\n\nnostr:nevent1") {
+		t.Fatalf("unexpected reply content: %q", reply.Content)
+	}
+	if strings.Contains(reply.Content, note.Content) {
+		t.Error("reply copied the original note instead of quoting it")
+	}
+
+	parts := strings.Split(reply.Content, "nostr:")
+	if len(parts) != 2 {
+		t.Fatalf("reply contains %d Nostr references, want one", len(parts)-1)
+	}
+	prefix, value, err := nip19.Decode(parts[1])
+	if err != nil {
+		t.Fatalf("decode quote reference: %v", err)
+	}
+	pointer, ok := value.(nostr.EventPointer)
+	if !ok || prefix != "nevent" {
+		t.Fatalf("quote decoded as %q %T, want nevent pointer", prefix, value)
+	}
+	if pointer.ID != noteID || pointer.Author != author {
+		t.Errorf("quote points to id=%q author=%q, want id=%q author=%q", pointer.ID, pointer.Author, noteID, author)
+	}
+	if len(pointer.Relays) != len(relays) || pointer.Relays[0] != relays[0] || pointer.Relays[1] != relays[1] {
+		t.Errorf("quote relays = %v, want %v", pointer.Relays, relays)
+	}
+
+	assertTag := func(name string, want nostr.Tag) {
+		t.Helper()
+		tag := reply.Tags.GetFirst([]string{name})
+		if tag == nil {
+			t.Fatalf("reply has no %q tag", name)
+		}
+		if len(*tag) != len(want) {
+			t.Fatalf("%q tag = %v, want %v", name, *tag, want)
+		}
+		for i := range want {
+			if (*tag)[i] != want[i] {
+				t.Fatalf("%q tag = %v, want %v", name, *tag, want)
+			}
+		}
+	}
+	assertTag("e", nostr.Tag{"e", request.ID, "", "root"})
+	assertTag("p", nostr.Tag{"p", request.PubKey})
+	assertTag("q", nostr.Tag{"q", noteID, relays[0], author})
+	assertTag("promoted_note", nostr.Tag{"promoted_note", noteID})
+}
+
+func TestPromotionalReplyQuoteNeedsNoRelayHint(t *testing.T) {
+	const noteID = "3333333333333333333333333333333333333333333333333333333333333333"
+	monitor, _ := mentionFixture(t)
+	author, err := nostr.GetPublicKey(nostr.GeneratePrivateKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reply, err := monitor.buildPromotionalReply(mention(t, "promote"), &nostr.Event{ID: noteID, PubKey: author, Kind: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	q := reply.Tags.GetFirst([]string{"q"})
+	if q == nil || len(*q) != 4 {
+		t.Fatalf("q tag = %v, want id, empty relay slot and author", q)
+	}
+	if (*q)[1] != noteID || (*q)[2] != "" || (*q)[3] != author {
+		t.Errorf("q tag = %v, want [q %s <empty> %s]", *q, noteID, author)
+	}
+
+	reference := strings.TrimPrefix(strings.Split(reply.Content, "nostr:")[1], " ")
+	_, value, err := nip19.Decode(reference)
+	if err != nil {
+		t.Fatalf("decode quote reference: %v", err)
+	}
+	pointer := value.(nostr.EventPointer)
+	if len(pointer.Relays) != 0 || pointer.Author != author {
+		t.Errorf("quote pointer relays=%v author=%q, want no relays and author %q", pointer.Relays, pointer.Author, author)
 	}
 }
 

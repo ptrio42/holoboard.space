@@ -147,44 +147,45 @@ func (mm *MentionMonitor) ProcessMention(ctx context.Context, mentionEvent *nost
 	return mm.storage.MarkMentionProcessed(mentionEvent.ID)
 }
 
-// CreatePromotionalReply creates a confirmation note with note preview
-func (mm *MentionMonitor) CreatePromotionalReply(ctx context.Context, mentionEvent *nostr.Event, noteToPromote *nostr.Event) error {
-	// Get author info
-	authorPubkey := noteToPromote.PubKey
+const promotionalReplyCopy = `🚀 Promote on Holoboard
 
-	// Truncate content if too long
-	content := noteToPromote.Content
-	const maxContentLength = 280
-	if len(content) > maxContentLength {
-		content = content[:maxContentLength] + "..."
+Zap this Holoboard reply to promote the quoted note.
+More sats move the quoted note higher. Anyone can boost it.`
+
+// buildPromotionalReply keeps the payment target and the promoted note visually
+// distinct. The outer event receives the zap; the NIP-18 quote remains the
+// original, signed event and gives clients a native preview and link.
+func (mm *MentionMonitor) buildPromotionalReply(mentionEvent *nostr.Event, noteToPromote *nostr.Event) (nostr.Event, error) {
+	relays := mm.fetcher.Relays()
+	reference, err := nip19.EncodeEvent(noteToPromote.ID, relays, noteToPromote.PubKey)
+	if err != nil {
+		return nostr.Event{}, fmt.Errorf("encode promoted note reference: %w", err)
 	}
 
-	// Build promotional reply content
-	replyContent := fmt.Sprintf(`🚀 Promotion Request
+	relayHint := ""
+	if len(relays) > 0 {
+		relayHint = relays[0]
+	}
 
-You're about to promote this note:
-
-Author: nostr:%s
-Content: %s
-
-💰 Zap this note with any amount to add it to the relay!
-
-The more sats you zap, the higher it will rank. Anyone can add more sats to boost the ranking.`,
-		mustEncodeBech32NProfile(authorPubkey),
-		content,
-	)
-
-	// Create the reply event
-	replyEvent := nostr.Event{
+	return nostr.Event{
 		PubKey:    mm.relayPubkey,
 		CreatedAt: nostr.Timestamp(time.Now().Unix()),
 		Kind:      1,
 		Tags: nostr.Tags{
 			{"e", mentionEvent.ID, "", "root"},
 			{"p", mentionEvent.PubKey},
-			{"promoted_note", noteToPromote.ID}, // Custom tag to store which note this promotes
+			{"q", noteToPromote.ID, relayHint, noteToPromote.PubKey},
+			{"promoted_note", noteToPromote.ID},
 		},
-		Content: replyContent,
+		Content: promotionalReplyCopy + "\n\nnostr:" + reference,
+	}, nil
+}
+
+// CreatePromotionalReply creates a confirmation note with a native quote.
+func (mm *MentionMonitor) CreatePromotionalReply(ctx context.Context, mentionEvent *nostr.Event, noteToPromote *nostr.Event) error {
+	replyEvent, err := mm.buildPromotionalReply(mentionEvent, noteToPromote)
+	if err != nil {
+		return err
 	}
 
 	// Sign the event
@@ -230,7 +231,7 @@ Examples:
 • @relay promote nostr:nevent1...
 • Quote a note and write: @relay promote
 
-I'll reply with a confirmation. Zap that reply with any amount to add the note to the promotion board!
+I'll reply with the note quoted. Zap that Holoboard reply with any amount to promote the quoted note on the board!
 
 The more sats, the higher the ranking. Anyone can boost any note!`
 
@@ -294,17 +295,6 @@ func (mm *MentionMonitor) SendErrorReply(ctx context.Context, mentionEvent *nost
 
 	// Mark as processed
 	return mm.storage.MarkMentionProcessed(mentionEvent.ID)
-}
-
-// mustEncodeBech32NProfile encodes a pubkey as npub
-func mustEncodeBech32NProfile(pubkey string) string {
-	// For simplicity, just return npub for now
-	// Full nprofile would include relay hints
-	npub, err := nip19.EncodePublicKey(pubkey)
-	if err != nil {
-		return pubkey
-	}
-	return npub
 }
 
 // maxMentionBacklog caps how far back a restart will look for missed mentions.
