@@ -6,6 +6,7 @@ import { CopyButton } from "../ui/CopyButton";
 import { QrCode } from "../ui/QrCode";
 import { Spinner } from "../ui/Spinner";
 import { LoginButton } from "../LoginButton/LoginButton";
+import TextRenderer from "../TextRenderer/TextRenderer";
 import { DirectPromote } from "./DirectPromote";
 import { PromotionAmountPicker } from "./PromotionAmountPicker";
 import { usePromotionFlow, type Stage } from "./usePromotionFlow";
@@ -228,9 +229,9 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
                             <p className="mb-2 font-pixel text-[9px] tracking-widest text-neon-gold">
                                 The relay answered
                             </p>
-                            <p className="max-h-40 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-cyan-100/70">
-                                {state.reply.content.trim()}
-                            </p>
+                            <div className="max-h-80 overflow-y-auto text-xs leading-relaxed text-cyan-100/70">
+                                <TextRenderer text={state.reply.content.trim()} tags={state.reply.tags} ownId={state.reply.id} />
+                            </div>
                         </div>
 
                         <PromotionAmountPicker amount={amount}

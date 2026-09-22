@@ -120,9 +120,8 @@ func TestWebsitePromotionCommandShape(t *testing.T) {
 
 func TestPromotionalReplyUsesANativeQuote(t *testing.T) {
 	const noteID = "2222222222222222222222222222222222222222222222222222222222222222"
-	relays := []string{"wss://relay.example.com", "wss://other.example.com"}
+	const sourceRelay = "wss://source.example.com"
 	monitor, _ := mentionFixture(t)
-	monitor.fetcher = NewPostFetcher(relays)
 
 	authorKey := nostr.GeneratePrivateKey()
 	author, err := nostr.GetPublicKey(authorKey)
@@ -137,7 +136,7 @@ func TestPromotionalReplyUsesANativeQuote(t *testing.T) {
 		Content: "This original content must not be copied into the reply.",
 	}
 
-	reply, err := monitor.buildPromotionalReply(request, note)
+	reply, err := monitor.buildPromotionalReply(request, note, sourceRelay)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,8 +163,8 @@ func TestPromotionalReplyUsesANativeQuote(t *testing.T) {
 	if pointer.ID != noteID || pointer.Author != author {
 		t.Errorf("quote points to id=%q author=%q, want id=%q author=%q", pointer.ID, pointer.Author, noteID, author)
 	}
-	if len(pointer.Relays) != len(relays) || pointer.Relays[0] != relays[0] || pointer.Relays[1] != relays[1] {
-		t.Errorf("quote relays = %v, want %v", pointer.Relays, relays)
+	if len(pointer.Relays) != 1 || pointer.Relays[0] != sourceRelay {
+		t.Errorf("quote relays = %v, want [%s]", pointer.Relays, sourceRelay)
 	}
 
 	assertTag := func(name string, want nostr.Tag) {
@@ -185,7 +184,7 @@ func TestPromotionalReplyUsesANativeQuote(t *testing.T) {
 	}
 	assertTag("e", nostr.Tag{"e", request.ID, "", "root"})
 	assertTag("p", nostr.Tag{"p", request.PubKey})
-	assertTag("q", nostr.Tag{"q", noteID, relays[0], author})
+	assertTag("q", nostr.Tag{"q", noteID, sourceRelay, author})
 	assertTag("promoted_note", nostr.Tag{"promoted_note", noteID})
 }
 
@@ -197,7 +196,7 @@ func TestPromotionalReplyQuoteNeedsNoRelayHint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reply, err := monitor.buildPromotionalReply(mention(t, "promote"), &nostr.Event{ID: noteID, PubKey: author, Kind: 1})
+	reply, err := monitor.buildPromotionalReply(mention(t, "promote"), &nostr.Event{ID: noteID, PubKey: author, Kind: 1}, "")
 	if err != nil {
 		t.Fatal(err)
 	}

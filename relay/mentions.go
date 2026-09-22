@@ -127,7 +127,7 @@ func (mm *MentionMonitor) ProcessMention(ctx context.Context, mentionEvent *nost
 	// Fetch the note to validate it exists
 	log.Printf("Fetching note %s to validate...", short(noteID, 8))
 	hints, author := noteHints(noteReference)
-	noteToPromote, err := mm.fetcher.FetchPostFrom(ctx, noteID, hints, author)
+	noteToPromote, relayHint, err := mm.fetcher.FetchPostFromWithRelay(ctx, noteID, hints, author)
 	if err != nil {
 		log.Printf("Failed to fetch note %s: %v", noteID, err)
 		return mm.SendErrorReply(ctx, mentionEvent, fmt.Sprintf("Could not find note %s. Please check the note ID.", short(noteID, 16)))
@@ -139,7 +139,7 @@ func (mm *MentionMonitor) ProcessMention(ctx context.Context, mentionEvent *nost
 	}
 
 	// Create promotional reply
-	if err := mm.CreatePromotionalReply(ctx, mentionEvent, noteToPromote); err != nil {
+	if err := mm.CreatePromotionalReply(ctx, mentionEvent, noteToPromote, relayHint); err != nil {
 		return fmt.Errorf("failed to create promotional reply: %w", err)
 	}
 
@@ -155,16 +155,14 @@ More sats move the quoted note higher. Anyone can boost it.`
 // buildPromotionalReply keeps the payment target and the promoted note visually
 // distinct. The outer event receives the zap; the NIP-18 quote remains the
 // original, signed event and gives clients a native preview and link.
-func (mm *MentionMonitor) buildPromotionalReply(mentionEvent *nostr.Event, noteToPromote *nostr.Event) (nostr.Event, error) {
-	relays := mm.fetcher.Relays()
+func (mm *MentionMonitor) buildPromotionalReply(mentionEvent *nostr.Event, noteToPromote *nostr.Event, relayHint string) (nostr.Event, error) {
+	var relays []string
+	if relayHint != "" {
+		relays = []string{relayHint}
+	}
 	reference, err := nip19.EncodeEvent(noteToPromote.ID, relays, noteToPromote.PubKey)
 	if err != nil {
 		return nostr.Event{}, fmt.Errorf("encode promoted note reference: %w", err)
-	}
-
-	relayHint := ""
-	if len(relays) > 0 {
-		relayHint = relays[0]
 	}
 
 	return nostr.Event{
@@ -182,8 +180,8 @@ func (mm *MentionMonitor) buildPromotionalReply(mentionEvent *nostr.Event, noteT
 }
 
 // CreatePromotionalReply creates a confirmation note with a native quote.
-func (mm *MentionMonitor) CreatePromotionalReply(ctx context.Context, mentionEvent *nostr.Event, noteToPromote *nostr.Event) error {
-	replyEvent, err := mm.buildPromotionalReply(mentionEvent, noteToPromote)
+func (mm *MentionMonitor) CreatePromotionalReply(ctx context.Context, mentionEvent *nostr.Event, noteToPromote *nostr.Event, relayHint string) error {
+	replyEvent, err := mm.buildPromotionalReply(mentionEvent, noteToPromote, relayHint)
 	if err != nil {
 		return err
 	}

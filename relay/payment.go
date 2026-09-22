@@ -368,31 +368,38 @@ func (pf *PostFetcher) FetchPost(ctx context.Context, postID string) (*nostr.Eve
 // known, their own write relays are the last place worth asking: that is where
 // they publish, whatever anybody else happens to carry.
 func (pf *PostFetcher) FetchPostFrom(ctx context.Context, postID string, hints []string, author string) (*nostr.Event, error) {
+	event, _, err := pf.FetchPostFromWithRelay(ctx, postID, hints, author)
+	return event, err
+}
+
+// FetchPostFromWithRelay also reports the relay that returned the note, so a
+// caller can preserve a useful relay hint when it republishes the reference.
+func (pf *PostFetcher) FetchPostFromWithRelay(ctx context.Context, postID string, hints []string, author string) (*nostr.Event, string, error) {
 	candidates := dedupe(append(append([]string{}, hints...), pf.relays...))
 	if len(candidates) == 0 && author == "" {
-		return nil, fmt.Errorf("no relays configured for fetching")
+		return nil, "", fmt.Errorf("no relays configured for fetching")
 	}
 
-	if event := queryAll(ctx, candidates, postID); event != nil {
-		return event, nil
+	if event, relay := queryAll(ctx, candidates, postID); event != nil {
+		return event, relay, nil
 	}
 
 	if author != "" {
 		if writeRelays := authorWriteRelays(ctx, author, candidates); len(writeRelays) > 0 {
 			log.Printf("Looking for %s on %s's own relays", short(postID, 8), short(author, 8))
-			if event := queryAll(ctx, writeRelays, postID); event != nil {
-				return event, nil
+			if event, relay := queryAll(ctx, writeRelays, postID); event != nil {
+				return event, relay, nil
 			}
 		}
 	}
 
-	return nil, fmt.Errorf("post %s not found on any relay", postID)
+	return nil, "", fmt.Errorf("post %s not found on any relay", postID)
 }
 
 // queryAll asks every relay at once and takes the first answer.
-func queryAll(ctx context.Context, relays []string, postID string) *nostr.Event {
+func queryAll(ctx context.Context, relays []string, postID string) (*nostr.Event, string) {
 	if len(relays) == 0 {
-		return nil
+		return nil, ""
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -403,7 +410,11 @@ func queryAll(ctx context.Context, relays []string, postID string) *nostr.Event 
 	// found it and it is not the sort of thing this board takes". Callers check
 	// the kind themselves and can say which it was.
 	filter := nostr.Filter{IDs: []string{postID}, Limit: 1}
-	found := make(chan *nostr.Event, len(relays))
+	type result struct {
+		event *nostr.Event
+		relay string
+	}
+	found := make(chan result, len(relays))
 
 	var wg sync.WaitGroup
 	for _, url := range relays {
@@ -423,7 +434,7 @@ func queryAll(ctx context.Context, relays []string, postID string) *nostr.Event 
 			}
 			log.Printf("Found post %s on relay %s", short(postID, 8), url)
 			select {
-			case found <- events[0]:
+			case found <- result{event: events[0], relay: url}:
 			default:
 			}
 		}(url)
@@ -433,17 +444,17 @@ func queryAll(ctx context.Context, relays []string, postID string) *nostr.Event 
 	go func() { wg.Wait(); close(done) }()
 
 	select {
-	case event := <-found:
-		return event
+	case match := <-found:
+		return match.event, match.relay
 	case <-done:
 		select {
-		case event := <-found:
-			return event
+		case match := <-found:
+			return match.event, match.relay
 		default:
-			return nil
+			return nil, ""
 		}
 	case <-ctx.Done():
-		return nil
+		return nil, ""
 	}
 }
 
