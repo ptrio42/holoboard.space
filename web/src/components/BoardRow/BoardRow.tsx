@@ -51,9 +51,10 @@ const FOOTER_ACTION = "note-action inline-flex cursor-pointer items-center";
 /**
  * The whole story for a screen reader, which has neither hover nor a bar.
  */
-function weightLabel(sats: number, weight: number | undefined, faded: boolean): string {
-    if (!faded || typeof weight !== "number") return `${satsLabel(sats)} paid`;
-    return `${satsLabel(sats)} paid, worth ${satsLabel(weight)} today`;
+function weightLabel(sats: number, weight: number | undefined, expired: boolean): string {
+    if (expired) return `${satsLabel(sats)} paid, no longer counting`;
+    if (typeof weight !== "number") return `${satsLabel(sats)} paid, current weight unavailable`;
+    return `${satsLabel(weight)} counting, ${satsLabel(sats)} paid in total`;
 }
 
 /** "1 sat", but "2 sats" and "2.1k sats". */
@@ -81,6 +82,10 @@ export function BoardRow({ event, rank, sats, weight, expired = false, onPromote
     // the case the meter is meant never to appear in.
     const litBlocks = fresh === null ? null : Math.round(fresh * METER_BLOCKS);
     const faded = litBlocks !== null && litBlocks < METER_BLOCKS;
+    const hasHistoricalTotal = typeof weight === "number" && typeof sats === "number" && weight < sats;
+    // Active rows lead with the number that actually sets their position. The
+    // archive still leads with historical sats because nothing counts there.
+    const displayedSats = expired ? sats : weight ?? sats;
 
     return (
         <li>
@@ -116,12 +121,12 @@ export function BoardRow({ event, rank, sats, weight, expired = false, onPromote
                                         type="button"
                                         onClick={() => setShowWeight((open) => !open)}
                                         aria-expanded={showWeight}
-                                        aria-label={weightLabel(sats, weight, faded)}
+                                        aria-label={weightLabel(sats, weight, expired)}
                                         className={`focus-pixel group relative flex items-center gap-2
                                             ${tier.text}`}
                                     >
                                         <span className="font-pixel text-[9px] tracking-wider" aria-hidden="true">
-                                            {satsLabel(sats)}
+                                            {satsLabel(displayedSats ?? sats)}
                                         </span>
 
                                         {/* Only once something has gone. A full meter says
@@ -151,7 +156,7 @@ export function BoardRow({ event, rank, sats, weight, expired = false, onPromote
                                             It hangs off the left on a narrow screen: a long author
                                             name pushes this cluster onto its own line at the left
                                             edge, and anchoring right then ran it off the screen. */}
-                                        {faded && (
+                                        {hasHistoricalTotal && (
                                             <span
                                                 role="tooltip"
                                                 className={`pointer-events-none absolute top-full left-0 z-10 mt-2

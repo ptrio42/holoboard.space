@@ -7,9 +7,11 @@ import { QrCode } from "../ui/QrCode";
 import { Spinner } from "../ui/Spinner";
 import { LoginButton } from "../LoginButton/LoginButton";
 import { DirectPromote } from "./DirectPromote";
+import { PromotionAmountPicker } from "./PromotionAmountPicker";
 import { usePromotionFlow, type Stage } from "./usePromotionFlow";
 import { RELAY_PUBKEY, RELAY_URL, ZAP_PRESETS } from "../../config";
 import { formatSats, toNpub } from "../../lib/nostr";
+import type { RankingTarget } from "../../lib/ranking";
 
 /** The disclosure a link can point at, so it opens already unfolded. */
 export const RANKING_SECTION = "how-ranking-works";
@@ -20,6 +22,7 @@ interface PromoteModalProps {
     openSection?: string;
     initialReference?: string;
     currentWeight?: number;
+    rankingTargets?: RankingTarget[];
     onPaid?: () => void;
 }
 
@@ -30,7 +33,7 @@ const STEPS: { key: string; label: string; stages: Stage[] }[] = [
 ];
 
 /** Rendered only while open; closing unmounts it, which is what clears the flow. */
-export function PromoteModal({ onClose, openSection, initialReference = "", currentWeight, onPaid }: PromoteModalProps) {
+export function PromoteModal({ onClose, openSection, initialReference = "", currentWeight, rankingTargets = [], onPaid }: PromoteModalProps) {
     const user = useNDKCurrentUser();
     const { state, submitNote, zapReply } = usePromotionFlow();
     const [reference, setReference] = useState(initialReference);
@@ -118,11 +121,8 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
                     </p>
                 </section>
 
-                {typeof currentWeight === "number" && <p className="text-xs leading-relaxed text-cyan-100/70">
-                    Current weight: {formatSats(currentWeight)} sats. The promotion portion of your payment adds to its weight.
-                    Its place on the board also depends on other notes' payments.
-                </p>}
-                {mode === "direct" && <DirectPromote initialReference={initialReference} onPaid={onPaid} />}
+                {mode === "direct" && <DirectPromote initialReference={initialReference} currentWeight={currentWeight}
+                    rankingTargets={rankingTargets} onPaid={onPaid} />}
 
                 {mode === "signed" && (
                 <div className="space-y-6">
@@ -233,39 +233,9 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
                             </p>
                         </div>
 
-                        <fieldset className="space-y-3">
-                            <legend className="font-pixel text-[10px] tracking-widest text-neon-pink">
-                                How many sats
-                            </legend>
-                            <div className="flex flex-wrap gap-2">
-                                {ZAP_PRESETS.map((preset) => (
-                                    <PixelButton
-                                        key={preset}
-                                        size="sm"
-                                        variant={amount === preset ? "accent" : "ghost"}
-                                        aria-pressed={amount === preset}
-                                        onClick={() => setAmount(preset)}
-                                    >
-                                        {formatSats(preset)}
-                                    </PixelButton>
-                                ))}
-                                <label className="flex items-center gap-2">
-                                    <span className="sr-only">Custom amount in sats</span>
-                                    <input
-                                        type="number"
-                                        min={1}
-                                        step={1}
-                                        value={amount}
-                                        onChange={(event) =>
-                                            setAmount(Math.max(1, Number(event.target.value) || 1))
-                                        }
-                                        className="focus-pixel w-28 border-2 border-cyan-400/40 bg-void px-2 py-2
-                                            text-right text-cyan-100"
-                                    />
-                                    <span className="font-pixel text-[9px] text-cyan-300/60">sats</span>
-                                </label>
-                            </div>
-                        </fieldset>
+                        <PromotionAmountPicker amount={amount}
+                            currentWeight={reference.trim() === initialReference ? currentWeight : 0}
+                            targets={rankingTargets} onChange={setAmount} />
 
                         <PixelButton variant="accent" onClick={() => void zapReply(amount)}>
                             Zap {formatSats(amount)} sats
@@ -361,9 +331,9 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
                         </p>
 
                         <p>
-                            The row shows the sats actually paid, which never changes, and the
-                            blocks beside it show how much of that is still counting. The whole rule
-                            is one line:
+                            Each row shows the sats still counting today. Open that figure to see
+                            the total ever paid; the blocks show how much of the total remains. The
+                            whole rule is one line:
                         </p>
 
                         <code className="block border-2 border-cyan-400/25 bg-void p-2 text-[10px]

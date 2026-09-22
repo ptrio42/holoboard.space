@@ -8,6 +8,7 @@ import { PixelPanel } from "../components/ui/PixelPanel";
 import { useRelayStatus } from "../hooks/useRelayStatus";
 import { useSatsMap } from "../hooks/useSatsMap";
 import { visibleBoardEvents } from "../lib/sats";
+import type { RankingTarget } from "../lib/ranking";
 import { BOARD_LIMIT, KIND_COMMENT, RELAY_URL, SATS_ENDPOINT } from "../config";
 
 export default function Billboard() {
@@ -97,6 +98,10 @@ export default function Billboard() {
     const isOffline = relayStatus === "offline";
     const isLoading = !isOffline && !eose && events.length === 0;
     const isEmpty = !isOffline && eose && ordered.length === 0;
+    const rankingTargets = useMemo(() => Array.from(weights.entries())
+        .map(([id, weight]) => ({ rank: ranks.get(id), weight }))
+        .filter((target): target is RankingTarget => typeof target.rank === "number" && target.rank <= 3)
+        .sort((a, b) => a.rank - b.rank), [ranks, weights]);
 
     return (
         <div className="mx-auto min-h-dvh w-full max-w-5xl px-4 pt-6 pb-20 sm:px-6">
@@ -167,6 +172,17 @@ export default function Billboard() {
             </main>
 
             <footer className="mt-16 border-t-2 border-cyan-400/15 pt-6 text-center">
+                <nav aria-label="Footer" className="mb-3 flex flex-wrap justify-center gap-x-5 gap-y-2
+                    font-pixel text-[9px] tracking-widest">
+                    <a href={`#${RANKING_SECTION}`} className="focus-pixel inline-flex min-h-11 items-center
+                        text-cyan-300/60 hover:text-neon-cyan">
+                        How ranking works
+                    </a>
+                    <a href="https://github.com/ptrio42/holoboard.space" target="_blank" rel="noopener noreferrer"
+                        className="focus-pixel inline-flex min-h-11 items-center text-cyan-300/60 hover:text-neon-cyan">
+                        GitHub
+                    </a>
+                </nav>
                 <p className="font-pixel text-[9px] leading-relaxed tracking-widest text-cyan-300/35">
                     Served by {RELAY_URL.replace(/^wss?:\/\//, "")}
                 </p>
@@ -177,6 +193,7 @@ export default function Billboard() {
                     openSection={linkedSection}
                     initialReference={promotion?.id}
                     currentWeight={promotion?.weight}
+                    rankingTargets={rankingTargets}
                     onPaid={refreshSats}
                     onClose={() => {
                         setIsModalOpen(false);

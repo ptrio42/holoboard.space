@@ -10,6 +10,14 @@ record deployment, not announcement publication.
 
 - Holoboard can be installed as a PWA and reopens its cached interface when
   the network is unavailable.
+- Promotion amounts can target the board's current top three positions, with
+  estimates adjusted for weight the note already has.
+- The board footer links to the ranking explanation and the project's source.
+
+### Changed
+
+- Board rows show the sats currently setting their rank, with historical paid
+  totals available from the same figure.
 
 ## 2026-09-21
 
