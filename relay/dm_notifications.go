@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"sort"
+	"sync"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -20,9 +23,18 @@ const (
 	notificationConfirmed     = "confirmed"
 	notificationExpiryPending = "expiry_pending"
 
-	outboundOffer  = "offer"
-	outboundExpiry = "expiry"
+	outboundOffer        = "offer"
+	outboundExpiry       = "expiry"
+	outboundInvoice      = "invoice"
+	outboundConfirmation = "confirmation"
+
+	maxQueuedDMReplies           = 100
+	maxQueuedRepliesPerRecipient = 3
+	outboundReplyLifetime        = 24 * time.Hour
+	outboxWorkers                = 8
 )
+
+var errDMReplyQueueFull = errors.New("DM reply queue is full")
 
 // PromotionContact says who may opt into one expiry notification after a
 // payment settles. It is private relay state and is never exposed by an API.
@@ -66,6 +78,7 @@ type OutboundDM struct {
 	SenderTargets   []string     `json:"sender_targets,omitempty"`
 	SenderDelivered []string     `json:"sender_delivered,omitempty"`
 	CreatedAt       time.Time    `json:"created_at"`
+	NextAttemptAt   time.Time    `json:"next_attempt_at,omitempty"`
 }
 
 func notificationKey(postID, activityID, recipient string) string {
@@ -228,9 +241,44 @@ func (s *Storage) queueOutboundDM(message *OutboundDM) error {
 	if _, exists := s.dmOutbox[message.Key]; exists {
 		return nil
 	}
+	if message.Purpose == "" {
+		count, recipientCount := 0, 0
+		for _, queued := range s.dmOutbox {
+			if queued.Purpose != "" {
+				continue
+			}
+			count++
+			if queued.Recipient == message.Recipient {
+				recipientCount++
+			}
+		}
+		if count >= maxQueuedDMReplies || recipientCount >= maxQueuedRepliesPerRecipient {
+			return errDMReplyQueueFull
+		}
+	}
 	s.dmOutbox[message.Key] = cloneOutboundDM(message)
 	if err := s.save(); err != nil {
 		delete(s.dmOutbox, message.Key)
+		return err
+	}
+	return nil
+}
+
+func (s *Storage) pruneExpiredDMReplies(now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	originalOutbox := cloneDMOutbox(s.dmOutbox)
+	for key, message := range s.dmOutbox {
+		if (message.Purpose == "" || message.Purpose == outboundInvoice || message.Purpose == outboundConfirmation) &&
+			!message.CreatedAt.IsZero() && now.Sub(message.CreatedAt) > outboundReplyLifetime {
+			delete(s.dmOutbox, key)
+		}
+	}
+	if len(originalOutbox) == len(s.dmOutbox) {
+		return nil
+	}
+	if err := s.save(); err != nil {
+		s.dmOutbox = originalOutbox
 		return err
 	}
 	return nil
@@ -240,10 +288,51 @@ func (s *Storage) pendingOutboundDMs() []*OutboundDM {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	messages := make([]*OutboundDM, 0, len(s.dmOutbox))
+	now := time.Now()
 	for _, message := range s.dmOutbox {
-		messages = append(messages, cloneOutboundDM(message))
+		if !message.NextAttemptAt.After(now) {
+			messages = append(messages, cloneOutboundDM(message))
+		}
 	}
+	sort.Slice(messages, func(i, j int) bool {
+		priority := func(message *OutboundDM) int {
+			if message.Event != nil {
+				return 0
+			}
+			if message.Purpose == outboundOffer || message.Purpose == outboundExpiry {
+				return 1
+			}
+			if message.Purpose == outboundInvoice || message.Purpose == outboundConfirmation {
+				return 2
+			}
+			return 3
+		}
+		left, right := priority(messages[i]), priority(messages[j])
+		if left != right {
+			return left < right
+		}
+		if !messages[i].CreatedAt.Equal(messages[j].CreatedAt) {
+			return messages[i].CreatedAt.Before(messages[j].CreatedAt)
+		}
+		return messages[i].Key < messages[j].Key
+	})
 	return messages
+}
+
+func (s *Storage) deferOutboundDMLookup(key string, next time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	message := s.dmOutbox[key]
+	if message == nil || message.Event != nil {
+		return nil
+	}
+	previous := message.NextAttemptAt
+	message.NextAttemptAt = next
+	if err := s.save(); err != nil {
+		message.NextAttemptAt = previous
+		return err
+	}
+	return nil
 }
 
 func (s *Storage) prepareOutboundDM(key string, event, senderEvent *nostr.Event, messageID string, targets, senderTargets []string) error {
@@ -401,84 +490,110 @@ func (dm *DMMonitor) runOutbox(ctx context.Context) {
 func (dm *DMMonitor) publishPendingDMs(ctx context.Context) {
 	dm.outboxMu.Lock()
 	defer dm.outboxMu.Unlock()
+	if err := dm.storage.pruneExpiredDMReplies(time.Now()); err != nil {
+		log.Printf("Failed to prune expired DM replies: %v", err)
+	}
+	jobs := make(chan *OutboundDM)
+	var workers sync.WaitGroup
+	for i := 0; i < outboxWorkers; i++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for message := range jobs {
+				dm.publishPendingDM(ctx, message)
+			}
+		}()
+	}
 	for _, message := range dm.storage.pendingOutboundDMs() {
 		if ctx.Err() != nil {
+			break
+		}
+		jobs <- message
+	}
+	close(jobs)
+	workers.Wait()
+}
+
+func (dm *DMMonitor) publishPendingDM(ctx context.Context, message *OutboundDM) {
+	if ctx.Err() != nil {
+		return
+	}
+	if message.Event == nil {
+		targets := dm.relays
+		var event *nostr.Event
+		var senderEvent *nostr.Event
+		var messageID string
+		var err error
+		if message.Transport == dmTransportNIP17 {
+			targets = dm.lookupInbox(ctx, message.Recipient, dm.relays)
+			if len(targets) == 0 {
+				if err := dm.storage.deferOutboundDMLookup(message.Key, time.Now().Add(10*time.Minute)); err != nil {
+					log.Printf("Failed to defer DM inbox lookup %s: %v", message.Key, err)
+				}
+				return
+			}
+			event, senderEvent, messageID, err = wrapMessageCopies(message.Content, message.Recipient, dm.relayPrivkey, message.ReplyTo)
+		} else {
+			event, err = legacyDM(message.Content, message.Recipient, dm.relayPubkey, dm.relayPrivkey)
+			if event != nil {
+				messageID = event.ID
+			}
+		}
+		if err != nil {
+			log.Printf("Failed to build queued DM %s: %v", message.Key, err)
 			return
 		}
-		if message.Event == nil {
-			targets := dm.relays
-			var event *nostr.Event
-			var senderEvent *nostr.Event
-			var messageID string
-			var err error
-			if message.Transport == dmTransportNIP17 {
-				targets = dm.lookupInbox(ctx, message.Recipient, dm.relays)
-				if len(targets) == 0 {
-					continue
-				}
-				event, senderEvent, messageID, err = wrapMessageCopies(message.Content, message.Recipient, dm.relayPrivkey, message.ReplyTo)
-			} else {
-				event, err = legacyDM(message.Content, message.Recipient, dm.relayPubkey, dm.relayPrivkey)
-				if event != nil {
-					messageID = event.ID
-				}
-			}
-			if err != nil {
-				log.Printf("Failed to build queued DM %s: %v", message.Key, err)
-				continue
-			}
-			senderTargets := []string(nil)
-			if senderEvent != nil {
-				senderTargets = dm.relays
-			}
-			if err := dm.storage.prepareOutboundDM(message.Key, event, senderEvent, messageID, targets, senderTargets); err != nil {
-				log.Printf("Failed to persist queued DM %s: %v", message.Key, err)
-				continue
-			}
-			message.Event, message.MessageID, message.Targets = event, messageID, targets
-			message.SenderEvent, message.SenderTargets = senderEvent, senderTargets
+		senderTargets := []string(nil)
+		if senderEvent != nil {
+			senderTargets = dm.senderRelays
 		}
+		if err := dm.storage.prepareOutboundDM(message.Key, event, senderEvent, messageID, targets, senderTargets); err != nil {
+			log.Printf("Failed to persist queued DM %s: %v", message.Key, err)
+			return
+		}
+		message.Event, message.MessageID, message.Targets = event, messageID, targets
+		message.SenderEvent, message.SenderTargets = senderEvent, senderTargets
+	}
 
-		alreadyDelivered := make(map[string]bool, len(message.Delivered))
-		for _, target := range message.Delivered {
-			alreadyDelivered[target] = true
+	alreadyDelivered := make(map[string]bool, len(message.Delivered))
+	for _, target := range message.Delivered {
+		alreadyDelivered[target] = true
+	}
+	accepted := make([]string, 0, len(message.Targets))
+	for _, target := range message.Targets {
+		if alreadyDelivered[target] {
+			continue
 		}
-		accepted := make([]string, 0, len(message.Targets))
-		for _, target := range message.Targets {
-			if alreadyDelivered[target] {
-				continue
-			}
-			if err := dm.publishTo(ctx, target, message.Event); err != nil {
-				log.Printf("Failed to publish queued DM %s to %s: %v", message.Key, target, err)
-				continue
-			}
-			accepted = append(accepted, target)
+		if err := dm.publishTo(ctx, target, message.Event); err != nil {
+			log.Printf("Failed to publish queued DM %s to %s: %v", message.Key, target, err)
+			continue
 		}
-		if len(accepted) > 0 {
-			if err := dm.storage.markOutboundDMDelivered(message.Key, message.Event.ID, accepted, false); err != nil {
-				log.Printf("Failed to record queued DM %s delivery: %v", message.Key, err)
-			}
+		accepted = append(accepted, target)
+	}
+	if len(accepted) > 0 {
+		if err := dm.storage.markOutboundDMDelivered(message.Key, message.Event.ID, accepted, false); err != nil {
+			log.Printf("Failed to record queued DM %s delivery: %v", message.Key, err)
 		}
+	}
 
-		alreadySenderDelivered := make(map[string]bool, len(message.SenderDelivered))
-		for _, target := range message.SenderDelivered {
-			alreadySenderDelivered[target] = true
+	alreadySenderDelivered := make(map[string]bool, len(message.SenderDelivered))
+	for _, target := range message.SenderDelivered {
+		alreadySenderDelivered[target] = true
+	}
+	senderAccepted := make([]string, 0, len(message.SenderTargets))
+	for _, target := range message.SenderTargets {
+		if alreadySenderDelivered[target] {
+			continue
 		}
-		senderAccepted := make([]string, 0, len(message.SenderTargets))
-		for _, target := range message.SenderTargets {
-			if alreadySenderDelivered[target] {
-				continue
-			}
-			if err := dm.publishTo(ctx, target, message.SenderEvent); err != nil {
-				log.Printf("Failed to publish queued DM sender copy %s to %s: %v", message.Key, target, err)
-				continue
-			}
-			senderAccepted = append(senderAccepted, target)
+		if err := dm.publishTo(ctx, target, message.SenderEvent); err != nil {
+			log.Printf("Failed to publish queued DM sender copy %s to %s: %v", message.Key, target, err)
+			continue
 		}
-		if len(senderAccepted) > 0 {
-			if err := dm.storage.markOutboundDMDelivered(message.Key, message.SenderEvent.ID, senderAccepted, true); err != nil {
-				log.Printf("Failed to record queued DM sender-copy delivery %s: %v", message.Key, err)
-			}
+		senderAccepted = append(senderAccepted, target)
+	}
+	if len(senderAccepted) > 0 {
+		if err := dm.storage.markOutboundDMDelivered(message.Key, message.SenderEvent.ID, senderAccepted, true); err != nil {
+			log.Printf("Failed to record queued DM sender-copy delivery %s: %v", message.Key, err)
 		}
 	}
 }

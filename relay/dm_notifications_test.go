@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,11 +35,111 @@ func notificationFixture(t *testing.T) (*DMMonitor, *PaymentMonitor, *Storage, s
 		return []string{"wss://recipient-inbox.example"}
 	}
 	published := []*nostr.Event{}
+	var publishedMu sync.Mutex
 	dm.publishEvent = func(_ context.Context, _ string, event *nostr.Event) error {
+		publishedMu.Lock()
+		defer publishedMu.Unlock()
 		published = append(published, cloneNostrEvent(event))
 		return nil
 	}
 	return dm, monitor, storage, note.ID, recipientPrivkey, recipientPubkey, &published
+}
+
+func TestDMReplyQueueIsBoundedWithoutBlockingInvoices(t *testing.T) {
+	storage := newTestStorage(t)
+	for i := 0; i < maxQueuedRepliesPerRecipient; i++ {
+		if err := storage.queueOutboundDM(&OutboundDM{
+			Key: fmt.Sprintf("reply:%d", i), Recipient: "sender", Content: "error", CreatedAt: time.Now(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := storage.queueOutboundDM(&OutboundDM{Key: "overflow", Recipient: "sender", CreatedAt: time.Now()}); !errors.Is(err, errDMReplyQueueFull) {
+		t.Fatalf("overflow error=%v, want queue full", err)
+	}
+	if err := storage.queueOutboundDM(&OutboundDM{Key: "invoice", Recipient: "sender", Purpose: outboundInvoice, CreatedAt: time.Now()}); err != nil {
+		t.Fatalf("invoice was blocked by reply limit: %v", err)
+	}
+	if err := storage.queueOutboundDM(&OutboundDM{Key: "confirmation", Recipient: "sender", Purpose: outboundConfirmation, CreatedAt: time.Now()}); err != nil {
+		t.Fatalf("confirmation was blocked by reply limit: %v", err)
+	}
+	if err := storage.pruneExpiredDMReplies(time.Now().Add(outboundReplyLifetime + time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if len(storage.dmOutbox) != 0 {
+		t.Fatalf("stale replies remain queued: %d", len(storage.dmOutbox))
+	}
+}
+
+func TestMissingNIP17InboxDoesNotBlockOtherRecipients(t *testing.T) {
+	storage := newTestStorage(t)
+	privateKey := nostr.GeneratePrivateKey()
+	publicKey, _ := nostr.GetPublicKey(privateKey)
+	dm := NewDMMonitor(nil, publicKey, privateKey, nil, storage)
+	for i := 0; i < 2; i++ {
+		if err := storage.queueOutboundDM(&OutboundDM{
+			Key: fmt.Sprintf("invoice:%d", i), Recipient: fmt.Sprintf("recipient:%d", i),
+			Transport: dmTransportNIP17, Purpose: outboundInvoice, CreatedAt: time.Now(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entered := make(chan struct{}, 2)
+	release := make(chan struct{})
+	dm.lookupInbox = func(context.Context, string, []string) []string {
+		entered <- struct{}{}
+		<-release
+		return nil
+	}
+	done := make(chan struct{})
+	go func() {
+		dm.publishPendingDMs(context.Background())
+		close(done)
+	}()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-entered:
+		case <-time.After(2 * time.Second):
+			close(release)
+			<-done
+			t.Fatal("one inbox lookup blocked another recipient")
+		}
+	}
+	close(release)
+	<-done
+	for _, message := range storage.dmOutbox {
+		if !message.NextAttemptAt.After(time.Now()) {
+			t.Fatalf("missing inbox was not deferred: %+v", message)
+		}
+	}
+}
+
+func TestNIP17SenderCopyUsesAdvertisedRelays(t *testing.T) {
+	storage := newTestStorage(t)
+	privateKey := nostr.GeneratePrivateKey()
+	publicKey, _ := nostr.GetPublicKey(privateKey)
+	recipientPrivateKey := nostr.GeneratePrivateKey()
+	recipientPublicKey, _ := nostr.GetPublicKey(recipientPrivateKey)
+	dm := NewDMMonitor([]string{"wss://current.example", "wss://legacy.example"}, publicKey, privateKey, nil, storage).
+		WithSenderRelays([]string{"wss://current.example"})
+	dm.lookupInbox = func(context.Context, string, []string) []string {
+		return []string{"wss://recipient.example"}
+	}
+	var targetsMu sync.Mutex
+	var targets []string
+	dm.publishEvent = func(_ context.Context, target string, _ *nostr.Event) error {
+		targetsMu.Lock()
+		defer targetsMu.Unlock()
+		targets = append(targets, target)
+		return nil
+	}
+	if err := dm.reply(context.Background(), recipientPublicKey, "hello", "", true); err != nil {
+		t.Fatal(err)
+	}
+	dm.publishPendingDMs(context.Background())
+	if len(targets) != 2 || !containsAll(targets, []string{"wss://current.example", "wss://recipient.example"}) {
+		t.Fatalf("unexpected publication targets: %v", targets)
+	}
 }
 
 func unwrapTexts(t *testing.T, events []*nostr.Event, recipientPrivkey string) []*nostr.Event {
@@ -57,11 +159,11 @@ func TestPromoteOverNIP17QueuesOneInvoiceAndDecryptableReply(t *testing.T) {
 	dm, _, storage, noteID, recipientPrivkey, recipientPubkey, published := notificationFixture(t)
 
 	if err := dm.handleCommandEvent(context.Background(), recipientPubkey,
-		"PROMOTE 21 "+noteID, "request-rumor", true, "source-wrap"); err != nil {
+		"PROMOTE 21 "+noteID, "request-rumor", "", true, "source-wrap"); err != nil {
 		t.Fatal(err)
 	}
 	if err := dm.handleCommandEvent(context.Background(), recipientPubkey,
-		"PROMOTE 21 "+noteID, "request-rumor", true, "source-wrap"); err != nil {
+		"PROMOTE 21 "+noteID, "request-rumor", "", true, "source-wrap"); err != nil {
 		t.Fatal(err)
 	}
 	if pending := storage.ListPendingInvoices(); len(pending) != 1 {
@@ -84,7 +186,7 @@ func TestPromoteOverNIP17QueuesOneInvoiceAndDecryptableReply(t *testing.T) {
 func TestConfirmedNotificationFiresOnceWhenActivityExpires(t *testing.T) {
 	dm, monitor, storage, noteID, recipientPrivkey, recipientPubkey, published := notificationFixture(t)
 	if err := dm.handleCommandEvent(context.Background(), recipientPubkey,
-		"PROMOTE 21 "+noteID, "request-rumor", true, "source-wrap"); err != nil {
+		"PROMOTE 21 "+noteID, "request-rumor", "", true, "source-wrap"); err != nil {
 		t.Fatal(err)
 	}
 	invoice := storage.ListPendingInvoices()[0]
@@ -110,7 +212,24 @@ func TestConfirmedNotificationFiresOnceWhenActivityExpires(t *testing.T) {
 		t.Fatal("activation prompt was not delivered")
 	}
 
-	if err := dm.handleCommand(context.Background(), recipientPubkey, "YES", prompt.ID, true); err != nil {
+	unthreadedYes, err := wrapMessage("YES", dm.relayPubkey, recipientPrivkey, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dm.processDM(context.Background(), unthreadedYes); err != nil {
+		t.Fatal(err)
+	}
+	for _, notification := range storage.notifications {
+		if notification.State != notificationAwaitingYes {
+			t.Fatalf("unthreaded YES confirmed notification: %q", notification.State)
+		}
+	}
+
+	yesWrap, err := wrapMessage("YES", dm.relayPubkey, recipientPrivkey, prompt.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dm.processDM(context.Background(), yesWrap); err != nil {
 		t.Fatal(err)
 	}
 	for _, notification := range storage.notifications {

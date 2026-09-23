@@ -100,9 +100,11 @@ Private messages use
 rumors inside [NIP-59](https://github.com/nostr-protocol/nips/blob/master/59.md)
 gift wraps, encrypted with NIP-44. Legacy NIP-04 kind 4 requests still receive
 kind 4 replies. At startup, the service publishes a kind 10050 inbox list to
-discovery relays and listens on exactly the `DM_RELAYS` in that list. The
-default list contains three relays. NIP-17 replies go only to the recipient's
-own kind 10050 relays; no list means no speculative fallback delivery.
+discovery relays. The default list contains three relays; the monitor also
+reads the previously advertised Damus inbox during the transition. A custom
+`DM_RELAYS` setting controls both the advertised and read lists. NIP-17 replies
+go only to the recipient's own kind 10050 relays; no list means no speculative
+fallback delivery.
 
 After a DM invoice or public promotion reply is paid, Holoboard sends an
 activation DM to the requester. Reply `YES` to that message, or send
@@ -113,6 +115,10 @@ notification offer.
 
 Outgoing messages and their signed event IDs are stored before publication.
 Delivery is tracked per relay, failed relays are retried after restarts, and
+undeliverable command replies expire from the queue after 24 hours. Replies
+without a recipient kind 10050 list are retried after ten minutes. Ordinary
+command replies are capped at 100 queued globally and three per sender;
+invoices, successful confirmations and promotion notifications are exempt.
 NIP-17 keeps a separately wrapped sender copy as required for sent-message
 history.
 

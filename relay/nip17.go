@@ -267,7 +267,7 @@ func mustJSON(event nostr.Event) string {
 	return string(encoded)
 }
 
-// defaultDMRelays is the inbox this relay advertises and reads.
+// defaultDMRelays is the inbox this relay advertises.
 //
 // Deliberately not the same set as FETCH_RELAYS. nos.lol, nostr.mom and
 // relay.damus.io have all failed NIP-42 or availability checks, so advertising
@@ -277,6 +277,20 @@ var defaultDMRelays = []string{
 	"wss://relay.primal.net",
 	"wss://offchain.pub",
 	"wss://auth.nostr1.com",
+}
+
+// Older kind 10050 lists also advertised Damus. Keep reading it during the
+// transition so a client using a cached list has a chance to reach us.
+var legacyDMReadRelays = []string{"wss://relay.damus.io"}
+
+func dmRelayConfig(configured string) (advertised, read []string) {
+	if strings.TrimSpace(configured) != "" {
+		advertised = dedupe(splitAndTrim(configured))
+		return advertised, append([]string(nil), advertised...)
+	}
+	advertised = append([]string(nil), defaultDMRelays...)
+	read = dedupe(append(append([]string(nil), advertised...), legacyDMReadRelays...))
+	return advertised, read
 }
 
 // discoveryRelays are where clients go looking for somebody's metadata, as

@@ -269,13 +269,12 @@ func main() {
 	// The DM inbox is its own set. What is good for watching zaps is not
 	// necessarily somewhere this relay can read its own messages, and
 	// advertising an inbox we cannot read is worse than advertising none.
-	dmRelays := defaultDMRelays
-	if configured := getEnv("DM_RELAYS", ""); configured != "" {
-		dmRelays = splitAndTrim(configured)
-	}
+	dmRelays, dmReadRelays := dmRelayConfig(getEnv("DM_RELAYS", ""))
 	log.Printf("DM inbox: %s", strings.Join(dmRelays, ", "))
+	log.Printf("DM read relays: %s", strings.Join(dmReadRelays, ", "))
 
-	dmMonitor := NewDMMonitor(dmRelays, relayPubkey, relayPrivkey, invoiceManager, storage).
+	dmMonitor := NewDMMonitor(dmReadRelays, relayPubkey, relayPrivkey, invoiceManager, storage).
+		WithSenderRelays(dmRelays).
 		WithAdmin(adminPubkey).
 		WithBoardAdmin(accountPublisher).
 		WithFetcher(fetcher)

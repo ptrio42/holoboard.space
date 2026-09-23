@@ -52,6 +52,21 @@ func TestGiftWrapRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDMRelayConfigKeepsLegacyInboxReadOnly(t *testing.T) {
+	advertised, read := dmRelayConfig("")
+	if len(advertised) != len(defaultDMRelays) || len(read) != len(defaultDMRelays)+1 {
+		t.Fatalf("advertised=%v, read=%v", advertised, read)
+	}
+	if containsAll(advertised, legacyDMReadRelays) || !containsAll(read, legacyDMReadRelays) {
+		t.Fatalf("legacy inbox must be read but not advertised: advertised=%v, read=%v", advertised, read)
+	}
+
+	advertised, read = dmRelayConfig("wss://one.example, wss://two.example")
+	if len(advertised) != 2 || len(read) != 2 || !containsAll(read, advertised) || !containsAll(advertised, read) {
+		t.Fatalf("custom DM relays should be read and advertised: advertised=%v, read=%v", advertised, read)
+	}
+}
+
 func TestGiftWrapIncludesSenderHistoryCopy(t *testing.T) {
 	senderSK := nostr.GeneratePrivateKey()
 	senderPK, _ := nostr.GetPublicKey(senderSK)

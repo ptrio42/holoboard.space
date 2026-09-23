@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -21,6 +22,7 @@ const maxDMBacklog = 1 * time.Hour
 // DMMonitor monitors external relays for DMs sent to the relay
 type DMMonitor struct {
 	relays         []string
+	senderRelays   []string
 	relayPubkey    string
 	relayPrivkey   string
 	invoiceManager *InvoiceManager
@@ -45,6 +47,7 @@ type DMMonitor struct {
 func NewDMMonitor(relays []string, relayPubkey, relayPrivkey string, invoiceManager *InvoiceManager, storage *Storage) *DMMonitor {
 	monitor := &DMMonitor{
 		relays:         relays,
+		senderRelays:   relays,
 		relayPubkey:    relayPubkey,
 		relayPrivkey:   relayPrivkey,
 		invoiceManager: invoiceManager,
@@ -58,6 +61,13 @@ func NewDMMonitor(relays []string, relayPubkey, relayPrivkey string, invoiceMana
 		return publishSignedEvent(ctx, relay, event, relayPrivkey)
 	}
 	return monitor
+}
+
+// WithSenderRelays keeps sent-message copies on the advertised inbox relays.
+// During a relay-list transition, the monitor may read additional old inboxes.
+func (dm *DMMonitor) WithSenderRelays(relays []string) *DMMonitor {
+	dm.senderRelays = append([]string(nil), relays...)
+	return dm
 }
 
 func (dm *DMMonitor) WithFetcher(fetcher *PostFetcher) *DMMonitor {
@@ -305,7 +315,7 @@ func (dm *DMMonitor) followOnce(ctx context.Context, url string, filters nostr.F
 // which this relay was deaf to, so a PROMOTE from a current client vanished
 // without a trace.
 func (dm *DMMonitor) processDM(ctx context.Context, event *nostr.Event) error {
-	var sender, text, replyTo string
+	var sender, text, replyTo, parentID string
 	wrapped := event.Kind == kindGiftWrap
 
 	if wrapped {
@@ -330,6 +340,7 @@ func (dm *DMMonitor) processDM(ctx context.Context, event *nostr.Event) error {
 		}
 
 		sender, text = rumor.PubKey, rumor.Content
+		parentID = firstTag(rumor, "e")
 		// NIP-17: an e tag names the message being replied to, so the answer
 		// lands in the conversation rather than beside it.
 		replyTo = rumor.ID
@@ -348,17 +359,17 @@ func (dm *DMMonitor) processDM(ctx context.Context, event *nostr.Event) error {
 		sender, text = event.PubKey, decrypted
 	}
 
-	return dm.handleCommandEvent(ctx, sender, strings.TrimSpace(text), replyTo, wrapped, event.ID)
+	return dm.handleCommandEvent(ctx, sender, strings.TrimSpace(text), replyTo, parentID, wrapped, event.ID)
 }
 
 // handleCommand acts on the text of a message. Anything unrecognised is
 // ignored rather than answered: replying to every stray DM would make the relay
 // a way to send mail to strangers.
 func (dm *DMMonitor) handleCommand(ctx context.Context, sender, text, replyTo string, wrapped bool) error {
-	return dm.handleCommandEvent(ctx, sender, text, replyTo, wrapped, "")
+	return dm.handleCommandEvent(ctx, sender, text, replyTo, "", wrapped, "")
 }
 
-func (dm *DMMonitor) handleCommandEvent(ctx context.Context, sender, text, replyTo string, wrapped bool, sourceID string) error {
+func (dm *DMMonitor) handleCommandEvent(ctx context.Context, sender, text, replyTo, parentID string, wrapped bool, sourceID string) error {
 	verb := strings.ToUpper(firstWord(text))
 
 	switch verb {
@@ -366,12 +377,15 @@ func (dm *DMMonitor) handleCommandEvent(ctx context.Context, sender, text, reply
 		return dm.handleAdminCommand(ctx, sender, verb, text, replyTo, wrapped)
 
 	case "YES":
-		notification, err := dm.storage.confirmNotification(sender, replyTo, "")
+		if wrapped && parentID == "" {
+			return dm.reply(ctx, sender, "Reply YES to the activation message, or send NOTIFY <note id>.", replyTo, wrapped)
+		}
+		notification, err := dm.storage.confirmNotification(sender, parentID, "")
 		if err != nil {
 			return dm.reply(ctx, sender, err.Error(), replyTo, wrapped)
 		}
 		dm.Wake()
-		return dm.reply(ctx, sender, fmt.Sprintf(
+		return dm.replyConfirmation(ctx, sender, fmt.Sprintf(
 			"Done. I will send one DM when %s moves to Expired.", noteReference(notification.PostID)), replyTo, wrapped)
 
 	case "NOTIFY":
@@ -385,7 +399,7 @@ func (dm *DMMonitor) handleCommandEvent(ctx context.Context, sender, text, reply
 			return dm.reply(ctx, sender, err.Error(), replyTo, wrapped)
 		}
 		dm.Wake()
-		return dm.reply(ctx, sender, fmt.Sprintf(
+		return dm.replyConfirmation(ctx, sender, fmt.Sprintf(
 			"Done. I will send one DM when %s moves to Expired.", noteReference(notification.PostID)), replyTo, wrapped)
 
 	case "PROMOTE":
@@ -404,7 +418,7 @@ func (dm *DMMonitor) handleCommandEvent(ctx context.Context, sender, text, reply
 		}
 
 		if existing, found := dm.storage.GetPendingInvoiceBySourceDM(sourceID); found {
-			return dm.reply(ctx, sender, invoiceMessage(&Invoice{
+			return dm.replyInvoice(ctx, sender, invoiceMessage(&Invoice{
 				PaymentRequest: existing.Invoice, PaymentHash: existing.PaymentHash,
 				AmountSats: existing.AmountSats, ExpiresAt: existing.ExpiresAt,
 			}), replyTo, wrapped)
@@ -454,7 +468,7 @@ func (dm *DMMonitor) handleCommandEvent(ctx context.Context, sender, text, reply
 		log.Printf("Generated invoice for post %s (payment_hash: %s, amount: %d sats)",
 			short(postID, 8), short(invoice.PaymentHash, 12), invoice.AmountSats)
 
-		return dm.reply(ctx, sender, invoiceMessage(invoice), replyTo, wrapped)
+		return dm.replyInvoice(ctx, sender, invoiceMessage(invoice), replyTo, wrapped)
 
 	default:
 		log.Printf("Message from %s carried no command I know, ignoring", short(sender, 8))
@@ -493,7 +507,7 @@ func (dm *DMMonitor) handleAdminCommand(ctx context.Context, sender, verb, text,
 			return dm.reply(ctx, sender, fmt.Sprintf("Nothing to restore: %v", err), replyTo, wrapped)
 		}
 		log.Printf("Admin restored %s by DM", short(noteID, 8))
-		return dm.reply(ctx, sender, fmt.Sprintf(
+		return dm.replyConfirmation(ctx, sender, fmt.Sprintf(
 			"Restored %s. It can be promoted again, starting from zero sats.",
 			short(noteID, 12)), replyTo, wrapped)
 	}
@@ -505,7 +519,7 @@ func (dm *DMMonitor) handleAdminCommand(ctx context.Context, sender, verb, text,
 	}
 
 	log.Printf("Admin removed %s by DM (%d sats)", short(noteID, 8), sats)
-	return dm.reply(ctx, sender, fmt.Sprintf(
+	return dm.replyConfirmation(ctx, sender, fmt.Sprintf(
 		"Removed %s, which had %d sats against it. Paying for it again will not put it back. "+
 			"Nothing is refunded, and the note still exists everywhere else on nostr.",
 		short(noteID, 12), sats), replyTo, wrapped)
@@ -545,6 +559,18 @@ If your client will not open that, copy the invoice itself:
 // message with a kind:4 would land somewhere the sender's client is no longer
 // looking, which is the whole reason this path was silent.
 func (dm *DMMonitor) reply(ctx context.Context, recipientPubkey, message, replyTo string, wrapped bool) error {
+	return dm.queueReply(ctx, recipientPubkey, message, replyTo, wrapped, "")
+}
+
+func (dm *DMMonitor) replyInvoice(ctx context.Context, recipientPubkey, message, replyTo string, wrapped bool) error {
+	return dm.queueReply(ctx, recipientPubkey, message, replyTo, wrapped, outboundInvoice)
+}
+
+func (dm *DMMonitor) replyConfirmation(ctx context.Context, recipientPubkey, message, replyTo string, wrapped bool) error {
+	return dm.queueReply(ctx, recipientPubkey, message, replyTo, wrapped, outboundConfirmation)
+}
+
+func (dm *DMMonitor) queueReply(ctx context.Context, recipientPubkey, message, replyTo string, wrapped bool, purpose string) error {
 	_ = ctx
 	transport := dmTransportNIP04
 	if wrapped {
@@ -553,9 +579,13 @@ func (dm *DMMonitor) reply(ctx context.Context, recipientPubkey, message, replyT
 	digest := sha256.Sum256([]byte(recipientPubkey + "\x00" + replyTo + "\x00" + message))
 	queued := &OutboundDM{
 		Key: fmt.Sprintf("reply:%x", digest[:]), Recipient: recipientPubkey,
-		Transport: transport, ReplyTo: replyTo, Content: message, CreatedAt: time.Now(),
+		Transport: transport, ReplyTo: replyTo, Content: message, Purpose: purpose, CreatedAt: time.Now(),
 	}
 	if err := dm.storage.queueOutboundDM(queued); err != nil {
+		if errors.Is(err, errDMReplyQueueFull) {
+			log.Printf("DM reply queue full; skipped response to %s", short(recipientPubkey, 8))
+			return nil
+		}
 		return fmt.Errorf("failed to queue reply: %w", err)
 	}
 	dm.Wake()
