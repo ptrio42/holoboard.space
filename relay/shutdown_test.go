@@ -87,7 +87,11 @@ func TestRelaySIGTERMCompletesShutdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := cmd.Wait(); err != nil {
-		t.Fatalf("relay did not exit cleanly: %v", err)
+		logs, readErr := os.ReadFile(logPath)
+		if readErr != nil {
+			t.Fatalf("relay did not exit cleanly: %v (could not read log: %v)", err, readErr)
+		}
+		t.Fatalf("relay did not exit cleanly: %v\n%s", err, logs)
 	}
 	logs, err := os.ReadFile(logPath)
 	if err != nil {

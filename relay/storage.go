@@ -94,34 +94,57 @@ type PendingInvoice struct {
 	Event        *nostr.Event     `json:"event,omitempty"`
 }
 
+const (
+	accountPublicationQuote    = "quote"
+	accountPublicationDeletion = "deletion"
+)
+
+// AccountPublication is one signed event the board account must deliver.
+//
+// Targets are captured when the event is created. Delivered targets stay next
+// to the event so a restart only retries the relays that have not accepted it
+// yet. Cancelled quote records are retained as tombstones: without one, a note
+// removed and later restored would look new and receive a second quote.
+type AccountPublication struct {
+	Type       string       `json:"type"`
+	NoteID     string       `json:"note_id"`
+	Event      *nostr.Event `json:"event,omitempty"`
+	Targets    []string     `json:"targets,omitempty"`
+	Delivered  []string     `json:"delivered,omitempty"`
+	Cancelled  bool         `json:"cancelled,omitempty"`
+	Suppressed bool         `json:"suppressed,omitempty"`
+}
+
 // Storage manages promoted posts and pending invoices
 type Storage struct {
-	mu                 sync.RWMutex
-	posts              map[string]*PromotedPost   // post_id -> PromotedPost
-	pendingInvoices    map[string]*PendingInvoice // payment_hash -> PendingInvoice
-	settledInvoices    map[string]*InvoiceReceipt
-	processedZaps      map[string]bool   // zap_event_id -> processed (for deduplication)
-	processedDMs       map[string]bool   // dm_event_id -> processed (to prevent duplicate invoice sends)
-	promotionalReplies map[string]string // promotional_reply_id -> note_to_promote_id
-	processedMentions  map[string]bool   // mention_event_id -> processed (to reply only once)
-	removed            map[string]bool   // post_id -> taken off the board by the operator, and kept off
-	mentionWatermark   int64             // newest mention seen, so a restart does not skip the gap
-	dmWatermark        int64             // same, for DMs
-	dataFile           string
+	mu                  sync.RWMutex
+	posts               map[string]*PromotedPost   // post_id -> PromotedPost
+	pendingInvoices     map[string]*PendingInvoice // payment_hash -> PendingInvoice
+	settledInvoices     map[string]*InvoiceReceipt
+	processedZaps       map[string]bool   // zap_event_id -> processed (for deduplication)
+	processedDMs        map[string]bool   // dm_event_id -> processed (to prevent duplicate invoice sends)
+	promotionalReplies  map[string]string // promotional_reply_id -> note_to_promote_id
+	processedMentions   map[string]bool   // mention_event_id -> processed (to reply only once)
+	removed             map[string]bool   // post_id -> taken off the board by the operator, and kept off
+	accountPublications map[string]*AccountPublication
+	mentionWatermark    int64 // newest mention seen, so a restart does not skip the gap
+	dmWatermark         int64 // same, for DMs
+	dataFile            string
 }
 
 // NewStorage creates a new storage instance
 func NewStorage(dataFile string) (*Storage, error) {
 	s := &Storage{
-		posts:              make(map[string]*PromotedPost),
-		pendingInvoices:    make(map[string]*PendingInvoice),
-		settledInvoices:    make(map[string]*InvoiceReceipt),
-		processedZaps:      make(map[string]bool),
-		processedDMs:       make(map[string]bool),
-		promotionalReplies: make(map[string]string),
-		processedMentions:  make(map[string]bool),
-		removed:            make(map[string]bool),
-		dataFile:           dataFile,
+		posts:               make(map[string]*PromotedPost),
+		pendingInvoices:     make(map[string]*PendingInvoice),
+		settledInvoices:     make(map[string]*InvoiceReceipt),
+		processedZaps:       make(map[string]bool),
+		processedDMs:        make(map[string]bool),
+		promotionalReplies:  make(map[string]string),
+		processedMentions:   make(map[string]bool),
+		removed:             make(map[string]bool),
+		accountPublications: make(map[string]*AccountPublication),
+		dataFile:            dataFile,
 	}
 
 	// Load existing data
@@ -141,13 +164,23 @@ func (s *Storage) AddPayment(postID string, amountSats int64, event *nostr.Event
 // CreditZap records the credit and both receipt identifiers in one transaction.
 // Different receipts for the same invoice cannot credit the payment twice.
 func (s *Storage) CreditZap(postID string, amountSats int64, event *nostr.Event, zapID, paymentHash string) (bool, error) {
+	return s.CreditZapWithPublication(postID, amountSats, event, zapID, paymentHash, nil, nil)
+}
+
+// CreditZapWithPublication records the payment and, for a note the board has
+// never seen before, its account quote in the same durable write.
+func (s *Storage) CreditZapWithPublication(postID string, amountSats int64, event *nostr.Event, zapID, paymentHash string, quote *nostr.Event, targets []string) (bool, error) {
 	if zapID == "" || paymentHash == "" {
 		return false, fmt.Errorf("missing zap payment identifier")
 	}
-	return s.addPayment(postID, amountSats, event, zapID, paymentHash)
+	return s.addPaymentWithPublication(postID, amountSats, event, zapID, paymentHash, quote, targets)
 }
 
 func (s *Storage) addPayment(postID string, amountSats int64, event *nostr.Event, zapID, paymentHash string) (bool, error) {
+	return s.addPaymentWithPublication(postID, amountSats, event, zapID, paymentHash, nil, nil)
+}
+
+func (s *Storage) addPaymentWithPublication(postID string, amountSats int64, event *nostr.Event, zapID, paymentHash string, quote *nostr.Event, targets []string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if zapID != "" {
@@ -166,6 +199,8 @@ func (s *Storage) addPayment(postID string, amountSats int64, event *nostr.Event
 	}
 
 	original := s.posts[postID]
+	quoteKey := quotePublicationKey(postID)
+	originalPublication, hadPublication := s.accountPublications[quoteKey]
 	now := time.Now()
 	post := &PromotedPost{PostID: postID, Event: event}
 	if original != nil {
@@ -186,6 +221,9 @@ func (s *Storage) addPayment(postID string, amountSats int64, event *nostr.Event
 	post.LastPaymentTimestamp = now
 	post.Payments = append(post.Payments, Payment{Sats: amountSats, At: now})
 	s.posts[postID] = post
+	if original == nil && !hadPublication && quote != nil {
+		s.accountPublications[quoteKey] = newAccountPublication(accountPublicationQuote, postID, quote, targets)
+	}
 	if zapID != "" {
 		s.processedZaps[zapID] = true
 		s.settledInvoices[paymentHash] = &InvoiceReceipt{NoteID: postID, AmountSats: amountSats, PromotionSats: amountSats}
@@ -195,6 +233,11 @@ func (s *Storage) addPayment(postID string, amountSats int64, event *nostr.Event
 			delete(s.posts, postID)
 		} else {
 			s.posts[postID] = original
+		}
+		if hadPublication {
+			s.accountPublications[quoteKey] = originalPublication
+		} else {
+			delete(s.accountPublications, quoteKey)
 		}
 		if zapID != "" {
 			delete(s.processedZaps, zapID)
@@ -216,17 +259,68 @@ func (s *Storage) addPayment(postID string, amountSats int64, event *nostr.Event
 // It returns what the note had collected, so the operator can see what was
 // removed rather than being told "done".
 func (s *Storage) RemovePost(postID string) (int64, error) {
+	return s.RemovePostWithDeletion(postID, nil, nil)
+}
+
+// RemovePostWithDeletion removes a note and atomically queues the deletion of
+// its account quote. A pending quote is cancelled first. The deletion is still
+// queued because the relay may have accepted the quote just before a crash,
+// while its successful delivery had not yet reached disk.
+func (s *Storage) RemovePostWithDeletion(postID string, deletion *nostr.Event, targets []string) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	var sats int64
-	if post, exists := s.posts[postID]; exists {
-		sats = post.TotalSatsPaid
+	originalPost, postExists := s.posts[postID]
+	if postExists {
+		sats = originalPost.TotalSatsPaid
 		delete(s.posts, postID)
 	}
+	wasRemoved := s.removed[postID]
 	s.removed[postID] = true
 
+	quoteKey := quotePublicationKey(postID)
+	originalQuote, quoteExists := s.accountPublications[quoteKey]
+	if !quoteExists {
+		s.accountPublications[quoteKey] = suppressedQuotePublication(postID)
+	} else if originalQuote.Event != nil {
+		cancelled := cloneAccountPublication(originalQuote)
+		cancelled.Cancelled = true
+		s.accountPublications[quoteKey] = cancelled
+	}
+
+	deletionKey := ""
+	var originalDeletion *AccountPublication
+	deletionExisted := false
+	if deletion != nil {
+		deletionKey = deletionPublicationKey(firstTag(deletion, "e"))
+		originalDeletion, deletionExisted = s.accountPublications[deletionKey]
+		if !deletionExisted {
+			s.accountPublications[deletionKey] = newAccountPublication(accountPublicationDeletion, postID, deletion, targets)
+		}
+	}
+
 	if err := s.save(); err != nil {
+		if postExists {
+			s.posts[postID] = originalPost
+		}
+		if wasRemoved {
+			s.removed[postID] = true
+		} else {
+			delete(s.removed, postID)
+		}
+		if quoteExists {
+			s.accountPublications[quoteKey] = originalQuote
+		} else {
+			delete(s.accountPublications, quoteKey)
+		}
+		if deletionKey != "" {
+			if deletionExisted {
+				s.accountPublications[deletionKey] = originalDeletion
+			} else {
+				delete(s.accountPublications, deletionKey)
+			}
+		}
 		return sats, fmt.Errorf("failed to save after removing post: %w", err)
 	}
 	fmt.Printf("🚫 Removed post %s from the board (%d sats, not refunded)\n", short(postID, 8), sats)
@@ -243,9 +337,18 @@ func (s *Storage) RestorePost(postID string) error {
 	if !s.removed[postID] {
 		return fmt.Errorf("post %s is not removed", short(postID, 8))
 	}
+	quoteKey := quotePublicationKey(postID)
+	_, quoteExists := s.accountPublications[quoteKey]
+	if !quoteExists {
+		s.accountPublications[quoteKey] = suppressedQuotePublication(postID)
+	}
 	delete(s.removed, postID)
 
 	if err := s.save(); err != nil {
+		s.removed[postID] = true
+		if !quoteExists {
+			delete(s.accountPublications, quoteKey)
+		}
 		return fmt.Errorf("failed to save after restoring post: %w", err)
 	}
 	fmt.Printf("↩️  Restored post %s; it can be promoted again\n", short(postID, 8))
@@ -503,27 +606,29 @@ func (s *Storage) Quiesce() {
 // save persists the storage to disk
 func (s *Storage) save() error {
 	data := struct {
-		Posts              map[string]*PromotedPost   `json:"posts"`
-		PendingInvoices    map[string]*PendingInvoice `json:"pending_invoices"`
-		SettledInvoices    map[string]*InvoiceReceipt `json:"settled_invoices,omitempty"`
-		ProcessedZaps      map[string]bool            `json:"processed_zaps"`
-		ProcessedDMs       map[string]bool            `json:"processed_dms"`
-		PromotionalReplies map[string]string          `json:"promotional_replies"`
-		ProcessedMentions  map[string]bool            `json:"processed_mentions"`
-		Removed            map[string]bool            `json:"removed"`
-		MentionWatermark   int64                      `json:"mention_watermark"`
-		DMWatermark        int64                      `json:"dm_watermark"`
+		Posts               map[string]*PromotedPost       `json:"posts"`
+		PendingInvoices     map[string]*PendingInvoice     `json:"pending_invoices"`
+		SettledInvoices     map[string]*InvoiceReceipt     `json:"settled_invoices,omitempty"`
+		ProcessedZaps       map[string]bool                `json:"processed_zaps"`
+		ProcessedDMs        map[string]bool                `json:"processed_dms"`
+		PromotionalReplies  map[string]string              `json:"promotional_replies"`
+		ProcessedMentions   map[string]bool                `json:"processed_mentions"`
+		Removed             map[string]bool                `json:"removed"`
+		AccountPublications map[string]*AccountPublication `json:"account_publications,omitempty"`
+		MentionWatermark    int64                          `json:"mention_watermark"`
+		DMWatermark         int64                          `json:"dm_watermark"`
 	}{
-		Posts:              s.posts,
-		PendingInvoices:    s.pendingInvoices,
-		SettledInvoices:    s.settledInvoices,
-		ProcessedZaps:      s.processedZaps,
-		ProcessedDMs:       s.processedDMs,
-		PromotionalReplies: s.promotionalReplies,
-		ProcessedMentions:  s.processedMentions,
-		Removed:            s.removed,
-		MentionWatermark:   s.mentionWatermark,
-		DMWatermark:        s.dmWatermark,
+		Posts:               s.posts,
+		PendingInvoices:     s.pendingInvoices,
+		SettledInvoices:     s.settledInvoices,
+		ProcessedZaps:       s.processedZaps,
+		ProcessedDMs:        s.processedDMs,
+		PromotionalReplies:  s.promotionalReplies,
+		ProcessedMentions:   s.processedMentions,
+		Removed:             s.removed,
+		AccountPublications: s.accountPublications,
+		MentionWatermark:    s.mentionWatermark,
+		DMWatermark:         s.dmWatermark,
 	}
 
 	bytes, err := json.MarshalIndent(data, "", "  ")
@@ -548,16 +653,17 @@ func (s *Storage) load() error {
 	}
 
 	var data struct {
-		Posts              map[string]*PromotedPost   `json:"posts"`
-		PendingInvoices    map[string]*PendingInvoice `json:"pending_invoices"`
-		SettledInvoices    map[string]*InvoiceReceipt `json:"settled_invoices,omitempty"`
-		ProcessedZaps      map[string]bool            `json:"processed_zaps"`
-		ProcessedDMs       map[string]bool            `json:"processed_dms"`
-		PromotionalReplies map[string]string          `json:"promotional_replies"`
-		ProcessedMentions  map[string]bool            `json:"processed_mentions"`
-		Removed            map[string]bool            `json:"removed"`
-		MentionWatermark   int64                      `json:"mention_watermark"`
-		DMWatermark        int64                      `json:"dm_watermark"`
+		Posts               map[string]*PromotedPost       `json:"posts"`
+		PendingInvoices     map[string]*PendingInvoice     `json:"pending_invoices"`
+		SettledInvoices     map[string]*InvoiceReceipt     `json:"settled_invoices,omitempty"`
+		ProcessedZaps       map[string]bool                `json:"processed_zaps"`
+		ProcessedDMs        map[string]bool                `json:"processed_dms"`
+		PromotionalReplies  map[string]string              `json:"promotional_replies"`
+		ProcessedMentions   map[string]bool                `json:"processed_mentions"`
+		Removed             map[string]bool                `json:"removed"`
+		AccountPublications map[string]*AccountPublication `json:"account_publications,omitempty"`
+		MentionWatermark    int64                          `json:"mention_watermark"`
+		DMWatermark         int64                          `json:"dm_watermark"`
 	}
 
 	if err := json.Unmarshal(bytes, &data); err != nil {
@@ -602,6 +708,11 @@ func (s *Storage) load() error {
 	s.removed = data.Removed
 	if s.removed == nil {
 		s.removed = make(map[string]bool)
+	}
+
+	s.accountPublications = data.AccountPublications
+	if s.accountPublications == nil {
+		s.accountPublications = make(map[string]*AccountPublication)
 	}
 
 	s.mentionWatermark = data.MentionWatermark

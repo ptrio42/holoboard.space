@@ -123,6 +123,12 @@ func (s *Storage) InvoiceReceipt(hash string) (*InvoiceReceipt, bool) {
 // SettleInvoice persists the credit, style, receipt and removal of the pending
 // invoice together. Duplicate wallet notifications cannot credit it twice.
 func (s *Storage) SettleInvoice(hash string, event *nostr.Event) (*nostr.Event, error) {
+	return s.SettleInvoiceWithPublication(hash, event, nil, nil)
+}
+
+// SettleInvoiceWithPublication settles an invoice and records the first quote
+// for a previously unseen note in the same atomic file replacement.
+func (s *Storage) SettleInvoiceWithPublication(hash string, event *nostr.Event, quote *nostr.Event, targets []string) (*nostr.Event, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.settledInvoices[hash]; ok {
@@ -136,6 +142,8 @@ func (s *Storage) SettleInvoice(hash string, event *nostr.Event) (*nostr.Event, 
 		return nil, fmt.Errorf("post was removed by the operator")
 	}
 	original := s.posts[invoice.PostID]
+	quoteKey := quotePublicationKey(invoice.PostID)
+	originalPublication, hadPublication := s.accountPublications[quoteKey]
 	now := time.Now()
 	post := &PromotedPost{PostID: invoice.PostID, Event: event}
 	active := original != nil && original.weight(now) > 0
@@ -175,6 +183,9 @@ func (s *Storage) SettleInvoice(hash string, event *nostr.Event) (*nostr.Event, 
 	s.posts[invoice.PostID] = post
 	s.settledInvoices[hash] = receipt
 	delete(s.pendingInvoices, hash)
+	if original == nil && !hadPublication && quote != nil {
+		s.accountPublications[quoteKey] = newAccountPublication(accountPublicationQuote, invoice.PostID, quote, targets)
+	}
 	if err := s.save(); err != nil {
 		if original == nil {
 			delete(s.posts, invoice.PostID)
@@ -183,6 +194,11 @@ func (s *Storage) SettleInvoice(hash string, event *nostr.Event) (*nostr.Event, 
 		}
 		delete(s.settledInvoices, hash)
 		s.pendingInvoices[hash] = invoice
+		if hadPublication {
+			s.accountPublications[quoteKey] = originalPublication
+		} else {
+			delete(s.accountPublications, quoteKey)
+		}
 		return nil, err
 	}
 	return post.Event, nil

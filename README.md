@@ -26,6 +26,13 @@ Use **Load note & preview** to check the content and optionally choose a
 billboard appearance before paying. The payment result confirms your specific
 invoice.
 
+When a note is promoted for the first time, the Holoboard Nostr account
+publishes one quote labelled as a paid promotion. Boosts and later returns to
+the board do not create more quotes. Removing the note from Holoboard publishes
+a [NIP-09 deletion request](https://github.com/nostr-protocol/nips/blob/master/09.md)
+for that quote, although Nostr cannot guarantee that every relay and client
+removes its copy.
+
 **Use my nostr key** offers the alternative mention, reply and zap flow.
 Promotions are also available through the [relay API](relay/API.md) and Nostr
 messages described in the [relay README](relay/README.md#promotion-through-nostr).

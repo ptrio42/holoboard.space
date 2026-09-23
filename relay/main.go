@@ -143,6 +143,16 @@ func main() {
 
 	// Initialize post fetcher
 	fetcher := NewPostFetcher(fetchRelays)
+	accountPublisher, err := NewAccountPublisher(
+		storage,
+		relayPubkey,
+		relayPrivkey,
+		getEnv("PUBLIC_BOARD_URL", ""),
+		fetchRelays,
+	)
+	if err != nil {
+		log.Fatalf("Invalid account publication configuration: %v", err)
+	}
 
 	// Which LNURL servers are allowed to say this relay was paid. The
 	// addresses are handed over at Start, once the profile and the Lightning
@@ -151,6 +161,7 @@ func main() {
 
 	// Initialize payment monitor
 	monitor := NewPaymentMonitor(storage, relayPubkey, fetcher, zapValidator)
+	monitor.SetAccountPublisher(accountPublisher)
 
 	// Initialize Lightning backend based on configuration
 	lightningBackend := getEnv("LIGHTNING_BACKEND", "mock")
@@ -209,6 +220,7 @@ func main() {
 	// Start payment watcher
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	accountPublisher.Start(ctx)
 
 	// Initialize SimplePool for mention monitoring
 	pool := nostr.NewSimplePool(ctx)
@@ -264,7 +276,8 @@ func main() {
 	log.Printf("DM inbox: %s", strings.Join(dmRelays, ", "))
 
 	dmMonitor := NewDMMonitor(dmRelays, relayPubkey, relayPrivkey, invoiceManager, storage).
-		WithAdmin(adminPubkey)
+		WithAdmin(adminPubkey).
+		WithBoardAdmin(accountPublisher)
 	if err := dmMonitor.Start(ctx); err != nil {
 		log.Fatalf("Failed to start DM monitor: %v", err)
 	}
@@ -372,7 +385,7 @@ func main() {
 	// without one has no such endpoint at all rather than one guarded by an
 	// empty string.
 	if adminToken := getEnv("ADMIN_TOKEN", ""); adminToken != "" {
-		relay.Router().HandleFunc("/api/admin/note", AdminHandler(storage, adminToken))
+		relay.Router().HandleFunc("/api/admin/note", AdminHandler(accountPublisher, adminToken))
 		log.Printf("Operator note removal served at /api/admin/note")
 	} else {
 		log.Printf("ADMIN_TOKEN is unset, so there is no way to take a note off the board")
@@ -423,6 +436,7 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	shutdownDone := make(chan struct{})
+	serverStarted := make(chan bool)
 
 	go func() {
 		<-sigChan
@@ -431,6 +445,12 @@ func main() {
 		// Stop the monitors first, so nothing new lands in storage while we
 		// are trying to leave the ledger in a settled state.
 		cancel()
+		accountPublisher.Wait()
+
+		// Khatru creates its http.Server inside Start. Waiting for its startup
+		// notification keeps Shutdown from racing that initialization when a
+		// signal arrives immediately after the listener becomes reachable.
+		<-serverStarted
 
 		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancelShutdown()
@@ -447,7 +467,7 @@ func main() {
 
 	// Start the HTTP server
 	log.Printf("Relay is listening on port %d", port)
-	if err := relay.Start("0.0.0.0", port); err != nil {
+	if err := relay.Start("0.0.0.0", port, serverStarted); err != nil {
 		log.Fatalf("Failed to start relay: %v", err)
 	}
 	// Start returns as soon as the listener closes. Keep the process alive

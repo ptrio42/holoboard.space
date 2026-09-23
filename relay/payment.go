@@ -23,13 +23,18 @@ type PaymentMonitor struct {
 	fetcher     *PostFetcher
 	// zapValidator holds the nostr keys this relay's LNURL servers sign
 	// receipts with. Without one, no zap can be believed.
-	zapValidator *LNURLResolver
+	zapValidator     *LNURLResolver
+	accountPublisher *AccountPublisher
 
 	// broadcast pushes a freshly promoted note to whoever is subscribed right
 	// now. Without it a note only appears on a client's next REQ, which for the
 	// board means the page has to be reloaded before you can see the promotion
 	// you just paid for.
 	broadcast func(*nostr.Event)
+}
+
+func (pm *PaymentMonitor) SetAccountPublisher(publisher *AccountPublisher) {
+	pm.accountPublisher = publisher
 }
 
 // SetBroadcaster wires the relay's own broadcast in. It is set after
@@ -105,6 +110,7 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 	// ends up reported as a note that does not exist.
 	var hints []string
 	var author string
+	var relayHint string
 
 	// PRIORITY 1: Check if this is a zap to a promotional reply
 	// Look for 'e' tag in zap request to identify the zapped event
@@ -122,6 +128,9 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 		if err == nil && promotedNoteID != "" {
 			postID = promotedNoteID
 			hints, author = chainHints, chainAuthor
+			if len(hints) > 0 {
+				relayHint = hints[0]
+			}
 			log.Printf("Zap to promotional reply %s -> promoting note %s (via chain)", short(zappedEventID, 8), short(postID, 8))
 		} else if err != nil {
 			log.Printf("Chain-chasing failed for %s: %v, trying storage fallback", short(zappedEventID, 8), err)
@@ -151,6 +160,9 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 		if reference != "" {
 			postID = reference
 			hints, author = noteHints(reference)
+			if len(hints) > 0 {
+				relayHint = hints[0]
+			}
 			log.Printf("Extracted post ID from zap comment: %s", short(postID, 8))
 		}
 	}
@@ -174,7 +186,7 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 	if exists {
 		event = post.Event
 	} else {
-		event, err = pm.fetcher.FetchPostFrom(ctx, postID, hints, author)
+		event, relayHint, err = pm.fetcher.FetchPostFromWithRelay(ctx, postID, hints, author)
 		if err != nil {
 			return fmt.Errorf("failed to fetch post: %w", err)
 		}
@@ -182,12 +194,26 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 			return fmt.Errorf("event %s is kind:%d, which this board does not rank", postID, event.Kind)
 		}
 	}
-	credited, err := pm.storage.CreditZap(postID, amountSats, event, zapEvent.ID, details.PaymentHash)
+	var quote *nostr.Event
+	if !exists && pm.accountPublisher != nil {
+		quote, err = pm.accountPublisher.BuildQuote(event, relayHint)
+		if err != nil {
+			return fmt.Errorf("failed to build account quote: %w", err)
+		}
+	}
+	var targets []string
+	if pm.accountPublisher != nil {
+		targets = pm.accountPublisher.Targets()
+	}
+	credited, err := pm.storage.CreditZapWithPublication(postID, amountSats, event, zapEvent.ID, details.PaymentHash, quote, targets)
 	if err != nil {
 		return fmt.Errorf("failed to credit zap: %w", err)
 	}
 	if credited {
 		pm.announce(event)
+		if quote != nil {
+			pm.accountPublisher.Wake()
+		}
 	}
 
 	return nil
@@ -208,12 +234,17 @@ func (pm *PaymentMonitor) ProcessInvoicePayment(paymentHash string, amountSats i
 		return fmt.Errorf("no pending invoice found for payment hash: %s", paymentHash)
 	}
 	event := invoice.Event
-	if post, known := pm.storage.GetPost(invoice.PostID); known {
+	post, known := pm.storage.GetPost(invoice.PostID)
+	if known {
 		event = post.Event
+	}
+	relayHint := ""
+	if len(invoice.RelayHints) > 0 {
+		relayHint = invoice.RelayHints[0]
 	}
 	if event == nil {
 		var err error
-		event, err = pm.fetcher.FetchPostFrom(context.Background(), invoice.PostID, invoice.RelayHints, invoice.Author)
+		event, relayHint, err = pm.fetcher.FetchPostFromWithRelay(context.Background(), invoice.PostID, invoice.RelayHints, invoice.Author)
 		if err != nil {
 			return fmt.Errorf("failed to fetch post: %w", err)
 		}
@@ -221,11 +252,26 @@ func (pm *PaymentMonitor) ProcessInvoicePayment(paymentHash string, amountSats i
 	if !isPromotable(event.Kind) {
 		return fmt.Errorf("event is kind:%d, which this board does not rank", event.Kind)
 	}
-	announced, err := pm.storage.SettleInvoice(paymentHash, event)
+	var quote *nostr.Event
+	if !known && pm.accountPublisher != nil {
+		var err error
+		quote, err = pm.accountPublisher.BuildQuote(event, relayHint)
+		if err != nil {
+			return fmt.Errorf("failed to build account quote: %w", err)
+		}
+	}
+	var targets []string
+	if pm.accountPublisher != nil {
+		targets = pm.accountPublisher.Targets()
+	}
+	announced, err := pm.storage.SettleInvoiceWithPublication(paymentHash, event, quote, targets)
 	if err != nil {
 		return err
 	}
 	pm.announce(announced)
+	if quote != nil {
+		pm.accountPublisher.Wake()
+	}
 
 	return nil
 }

@@ -37,6 +37,7 @@ relay setup, use the [Docker guide](../docs/self-hosting.md).
 | `PORT` | HTTP and WebSocket port. Default: 3334. |
 | `DATA_FILE` | JSON storage path. Default: `relay_data.json`. |
 | `FETCH_RELAYS` | Relays used to fetch notes and watch mentions and zap receipts. |
+| `PUBLIC_BOARD_URL` | Public website linked from paid-promotion quotes. |
 | `DEFAULT_PAYMENT_SATS` | Default invoice amount. Default: 1000. |
 | `INVOICE_CHECK_SECONDS` | Pending-invoice polling interval. Default: 60 seconds. |
 | `ADMIN_PUBKEY` / `ADMIN_TOKEN` | Optional operator access through DMs / HTTP. |
@@ -50,6 +51,16 @@ also checked at startup and at the configured polling interval, including those
 paid while the relay was offline. Unsettled invoice records are retained after
 expiry so delayed payment confirmation remains recoverable. Abandoned invoices
 therefore accumulate in the data file.
+
+The first successful promotion of a previously unseen note also queues one
+[NIP-18](https://github.com/nostr-protocol/nips/blob/master/18.md) kind 1 quote
+from the board identity. The signed event and its per-relay
+delivery state are stored with the payment, then published to `FETCH_RELAYS`
+outside the storage lock. Failed deliveries resume after a restart. Boosts,
+revivals and notes already present when this feature is installed are not
+quoted. Operator removal queues a
+[NIP-09](https://github.com/nostr-protocol/nips/blob/master/09.md) kind 5 deletion
+request for the quote.
 
 Zaps additionally need a resolvable Lightning address in the relay's Nostr
 profile, its NWC connection or `ZAP_LNURL_ADDRESSES`. Receipts must be signed by

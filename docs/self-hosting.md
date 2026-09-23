@@ -38,6 +38,7 @@ lines with the printed lines. Save the file.
 | --- | --- | --- |
 | `RELAY_PRIVKEY` | The backend signs Nostr events and handles messages as the board. | Secret. Keep it on the server. |
 | `VITE_RELAY_PUBKEY` | The website identifies the board for mentions and zaps. | Public. Included in the website's browser code. |
+| `PUBLIC_BOARD_URL` | The website linked from paid-promotion quotes. | Public. Use the externally reachable HTTPS address. |
 
 These are one matching pair for the board's Nostr identity, including its
 profile. Keep the pair together and reuse it after updates. Do not share the
@@ -183,7 +184,8 @@ forward HTTP requests and WebSocket upgrades to the website container on port
 8080. It serves the relay at `/relay` and its APIs under `/relay/api/`.
 
 For a website at `https://board.example.com`, set
-`VITE_RELAY_URL=wss://board.example.com/relay` and update `RELAY_DESCRIPTION`
+`VITE_RELAY_URL=wss://board.example.com/relay`, set
+`PUBLIC_BOARD_URL=https://board.example.com` and update `RELAY_DESCRIPTION`
 with your website URL in `.env`. Rebuild with the update command. The `VITE_`
 settings are included when the website is built; restarting alone cannot
 change them. [Vite explains this here](https://vite.dev/guide/env-and-mode).

@@ -26,6 +26,8 @@ primary_region = 'fra'
   # Shown to people, not just to developers reading a relay document: clients
   # like Jumble put this on the relay's card above the feed.
   RELAY_DESCRIPTION = 'A bulletin board where the order is decided by sats, with recent sats counting for more. Every note was paid for, and anyone can pay to push any note higher. Visit https://holoboard.space'
+  # Linked from the account quote created for each note's first promotion.
+  PUBLIC_BOARD_URL = 'https://holoboard.space'
   PORT = '8080'
 
 [[mounts]]

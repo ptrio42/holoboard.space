@@ -24,6 +24,7 @@ type DMMonitor struct {
 	relayPrivkey   string
 	invoiceManager *InvoiceManager
 	storage        *Storage // Use persistent storage for DM tracking
+	boardAdmin     boardAdmin
 	// adminPubkey may take a note off the board. Empty means nobody can, and
 	// the commands answer as though they do not exist.
 	adminPubkey string
@@ -41,8 +42,18 @@ func NewDMMonitor(relays []string, relayPubkey, relayPrivkey string, invoiceMana
 		relayPrivkey:   relayPrivkey,
 		invoiceManager: invoiceManager,
 		storage:        storage,
+		boardAdmin:     storage,
 		lookupInbox:    recipientInbox,
 	}
+}
+
+// WithBoardAdmin routes operator changes through the account publisher, which
+// adds deletion requests for quotes while preserving the existing DM command.
+func (dm *DMMonitor) WithBoardAdmin(admin boardAdmin) *DMMonitor {
+	if admin != nil {
+		dm.boardAdmin = admin
+	}
+	return dm
 }
 
 // WithAdmin names the one pubkey allowed to remove and restore notes.
@@ -379,7 +390,7 @@ func (dm *DMMonitor) handleAdminCommand(ctx context.Context, sender, verb, text,
 	}
 
 	if verb == "RESTORE" {
-		if err := dm.storage.RestorePost(noteID); err != nil {
+		if err := dm.boardAdmin.RestorePost(noteID); err != nil {
 			return dm.reply(ctx, sender, fmt.Sprintf("Nothing to restore: %v", err), replyTo, wrapped)
 		}
 		log.Printf("Admin restored %s by DM", short(noteID, 8))
@@ -388,7 +399,7 @@ func (dm *DMMonitor) handleAdminCommand(ctx context.Context, sender, verb, text,
 			short(noteID, 12)), replyTo, wrapped)
 	}
 
-	sats, err := dm.storage.RemovePost(noteID)
+	sats, err := dm.boardAdmin.RemovePost(noteID)
 	if err != nil {
 		log.Printf("Admin failed to remove %s: %v", short(noteID, 8), err)
 		return dm.reply(ctx, sender, "That did not write; the note is still up.", replyTo, wrapped)
@@ -508,25 +519,5 @@ func (dm *DMMonitor) publish(ctx context.Context, event *nostr.Event, recipientP
 // itself. Without this, delivering to a relay that protects direct messages
 // fails on exactly the relays most worth delivering to.
 func (dm *DMMonitor) publishTo(ctx context.Context, url string, event *nostr.Event) error {
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-
-	relay, err := nostr.RelayConnect(ctx, url)
-	if err != nil {
-		return err
-	}
-	defer relay.Close()
-
-	err = relay.Publish(ctx, *event)
-	if err == nil {
-		return nil
-	}
-	if !strings.Contains(err.Error(), "auth-required") {
-		return err
-	}
-
-	if authErr := relay.Auth(ctx, dm.signAuth); authErr != nil {
-		return fmt.Errorf("relay wanted auth and refused it: %w", authErr)
-	}
-	return relay.Publish(ctx, *event)
+	return publishSignedEvent(ctx, url, event, dm.relayPrivkey)
 }

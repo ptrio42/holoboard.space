@@ -207,6 +207,7 @@ Non-secret settings live in `[env]` in `fly.toml` and take effect on the next
 | `INVOICE_CHECK_SECONDS` | How often to re-check invoices still waiting. |
 | `DEFAULT_PAYMENT_SATS` | Invoice amount when a `PROMOTE` DM names none. |
 | `FETCH_RELAYS` | Public relays watched for zaps, DMs and mentions. |
+| `PUBLIC_BOARD_URL` | Public website linked from paid-promotion quotes. |
 
 Secrets go through `fly secrets set` and never into `fly.toml`: `RELAY_PRIVKEY`
 and `NWC_URI`. `fly secrets list` shows names and digests, never values.

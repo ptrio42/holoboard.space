@@ -8,6 +8,8 @@ record deployment, not announcement publication.
 
 ### Added
 
+- Holoboard publishes one clearly labelled paid-promotion quote when a new note
+  first reaches the board, with durable retry across relay outages and restarts.
 - Holoboard can be installed as a PWA and reopens its cached interface when
   the network is unavailable.
 - Promotion amounts can target the board's current top three positions, with

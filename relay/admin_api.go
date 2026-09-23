@@ -33,13 +33,18 @@ type adminResponse struct {
 	Status      string `json:"status"`
 }
 
+type boardAdmin interface {
+	RemovePost(string) (int64, error)
+	RestorePost(string) error
+}
+
 // AdminHandler removes a note from the board, or lifts a removal.
 //
 // The caller proves themselves with a bearer token rather than a signature. A
 // signed nostr command would fit the rest of the system better, but this has to
 // work from a phone at the moment it is needed, and a token in a header is
 // something an operator can use from anywhere without a signer to hand.
-func AdminHandler(storage *Storage, token string) http.HandlerFunc {
+func AdminHandler(storage boardAdmin, token string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", "POST")

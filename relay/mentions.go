@@ -49,7 +49,9 @@ func (mm *MentionMonitor) Start(ctx context.Context, relays []string) {
 	}
 	log.Printf("Mention monitor resuming from %s", time.Unix(int64(since), 0).Format(time.RFC3339))
 
-	sub := mm.pool.SubMany(ctx, relays, []nostr.Filter{filter})
+	// go-nostr normalizes relay URLs in place. Keep the caller's slice immutable,
+	// because startup also uses it to publish relay metadata concurrently.
+	sub := mm.pool.SubMany(ctx, append([]string(nil), relays...), []nostr.Filter{filter})
 
 	go func() {
 		for event := range sub {
