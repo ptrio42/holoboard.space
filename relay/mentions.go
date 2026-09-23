@@ -212,7 +212,7 @@ func (mm *MentionMonitor) CreatePromotionalReply(ctx context.Context, mentionEve
 	}
 
 	// Store the mapping: promotional reply ID -> note to promote ID
-	if err := mm.storage.AddPromotionalReply(replyEvent.ID, noteToPromote.ID); err != nil {
+	if err := mm.storage.AddPromotionalReplyWithRequester(replyEvent.ID, noteToPromote.ID, mentionEvent.PubKey); err != nil {
 		return fmt.Errorf("failed to store promotional reply mapping: %w", err)
 	}
 

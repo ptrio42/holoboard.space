@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log"
 	"strings"
@@ -25,18 +26,24 @@ type DMMonitor struct {
 	invoiceManager *InvoiceManager
 	storage        *Storage // Use persistent storage for DM tracking
 	boardAdmin     boardAdmin
+	fetcher        *PostFetcher
+	limiter        *rateLimiter
+	wake           chan struct{}
+	outboxMu       sync.Mutex
+	runner         sync.WaitGroup
 	// adminPubkey may take a note off the board. Empty means nobody can, and
 	// the commands answer as though they do not exist.
 	adminPubkey string
 	// lookupInbox finds where to deliver a reply. Swappable so a test can
 	// exercise the command handling without reaching the network, which is
 	// otherwise unavoidable: finding an inbox means querying relays.
-	lookupInbox func(ctx context.Context, pubkey string, searchOn []string) []string
+	lookupInbox  func(ctx context.Context, pubkey string, searchOn []string) []string
+	publishEvent func(context.Context, string, *nostr.Event) error
 }
 
 // NewDMMonitor creates a new DM monitor
 func NewDMMonitor(relays []string, relayPubkey, relayPrivkey string, invoiceManager *InvoiceManager, storage *Storage) *DMMonitor {
-	return &DMMonitor{
+	monitor := &DMMonitor{
 		relays:         relays,
 		relayPubkey:    relayPubkey,
 		relayPrivkey:   relayPrivkey,
@@ -44,7 +51,18 @@ func NewDMMonitor(relays []string, relayPubkey, relayPrivkey string, invoiceMana
 		storage:        storage,
 		boardAdmin:     storage,
 		lookupInbox:    recipientInbox,
+		limiter:        newRateLimiter(promoteBurst, promoteWindow),
+		wake:           make(chan struct{}, 1),
 	}
+	monitor.publishEvent = func(ctx context.Context, relay string, event *nostr.Event) error {
+		return publishSignedEvent(ctx, relay, event, relayPrivkey)
+	}
+	return monitor
+}
+
+func (dm *DMMonitor) WithFetcher(fetcher *PostFetcher) *DMMonitor {
+	dm.fetcher = fetcher
+	return dm
 }
 
 // WithBoardAdmin routes operator changes through the account publisher, which
@@ -112,7 +130,15 @@ func (dm *DMMonitor) Start(ctx context.Context) error {
 	//
 	// Proven rather than reasoned: subscribing to damus alone returns them,
 	// adding nostr.mom to the same call returns nothing at all.
+	dm.runner.Add(1)
 	go func() {
+		defer dm.runner.Done()
+		dm.runOutbox(ctx)
+	}()
+
+	dm.runner.Add(1)
+	go func() {
+		defer dm.runner.Done()
 		for event := range dm.subscribe(ctx, filters) {
 			if dm.storage.IsDMProcessed(event.ID) {
 				continue // Already processed
@@ -141,6 +167,10 @@ func (dm *DMMonitor) Start(ctx context.Context) error {
 		log.Printf("DM monitor started, listening for PROMOTE; no admin pubkey, so REMOVE is refused")
 	}
 	return nil
+}
+
+func (dm *DMMonitor) Wait() {
+	dm.runner.Wait()
 }
 
 // subscribe follows every relay independently and merges what they deliver.
@@ -318,39 +348,108 @@ func (dm *DMMonitor) processDM(ctx context.Context, event *nostr.Event) error {
 		sender, text = event.PubKey, decrypted
 	}
 
-	return dm.handleCommand(ctx, sender, strings.TrimSpace(text), replyTo, wrapped)
+	return dm.handleCommandEvent(ctx, sender, strings.TrimSpace(text), replyTo, wrapped, event.ID)
 }
 
 // handleCommand acts on the text of a message. Anything unrecognised is
 // ignored rather than answered: replying to every stray DM would make the relay
 // a way to send mail to strangers.
 func (dm *DMMonitor) handleCommand(ctx context.Context, sender, text, replyTo string, wrapped bool) error {
+	return dm.handleCommandEvent(ctx, sender, text, replyTo, wrapped, "")
+}
+
+func (dm *DMMonitor) handleCommandEvent(ctx context.Context, sender, text, replyTo string, wrapped bool, sourceID string) error {
 	verb := strings.ToUpper(firstWord(text))
 
 	switch verb {
 	case "REMOVE", "RESTORE":
 		return dm.handleAdminCommand(ctx, sender, verb, text, replyTo, wrapped)
 
+	case "YES":
+		notification, err := dm.storage.confirmNotification(sender, replyTo, "")
+		if err != nil {
+			return dm.reply(ctx, sender, err.Error(), replyTo, wrapped)
+		}
+		dm.Wake()
+		return dm.reply(ctx, sender, fmt.Sprintf(
+			"Done. I will send one DM when %s moves to Expired.", noteReference(notification.PostID)), replyTo, wrapped)
+
+	case "NOTIFY":
+		reference := extractEventIDFromText(text)
+		noteID := normalizeEventID(reference)
+		if !isHex64(noteID) {
+			return dm.reply(ctx, sender, "Use NOTIFY <note id>, or reply YES to the activation message.", replyTo, wrapped)
+		}
+		notification, err := dm.storage.confirmNotification(sender, replyTo, noteID)
+		if err != nil {
+			return dm.reply(ctx, sender, err.Error(), replyTo, wrapped)
+		}
+		dm.Wake()
+		return dm.reply(ctx, sender, fmt.Sprintf(
+			"Done. I will send one DM when %s moves to Expired.", noteReference(notification.PostID)), replyTo, wrapped)
+
 	case "PROMOTE":
 		postID, amountSats, ok := ParsePromoteCommand(text)
 		if !ok {
-			log.Printf("Not a valid PROMOTE command, ignoring")
-			return nil
+			return dm.reply(ctx, sender,
+				"Use PROMOTE <note id>, or PROMOTE <amount in sats> <note id>.", replyTo, wrapped)
 		}
 
 		amount := amountSats
 		if amount == 0 {
 			amount = dm.invoiceManager.defaultAmountSats
 		}
+		if amount < promoteMinSats || amount > promoteMaxSats {
+			return dm.reply(ctx, sender, fmt.Sprintf("Amount must be between %d and %d sats.", promoteMinSats, promoteMaxSats), replyTo, wrapped)
+		}
+
+		if existing, found := dm.storage.GetPendingInvoiceBySourceDM(sourceID); found {
+			return dm.reply(ctx, sender, invoiceMessage(&Invoice{
+				PaymentRequest: existing.Invoice, PaymentHash: existing.PaymentHash,
+				AmountSats: existing.AmountSats, ExpiresAt: existing.ExpiresAt,
+			}), replyTo, wrapped)
+		}
+		if pending := len(dm.storage.ListPendingInvoices()); pending >= promoteMaxPending {
+			return dm.reply(ctx, sender, "Too many invoices are waiting to be paid. Try again later.", replyTo, wrapped)
+		}
+
+		var event *nostr.Event
+		if post, exists := dm.storage.GetPost(postID); exists {
+			event = post.Event
+		}
+		if dm.storage.IsRemoved(postID) {
+			return dm.reply(ctx, sender, "This note was removed by the operator.", replyTo, wrapped)
+		}
+		hints, author := noteHints(extractEventIDFromText(text))
+		if event == nil {
+			if dm.fetcher == nil {
+				return dm.reply(ctx, sender, "I cannot look up that note right now. Try again later.", replyTo, wrapped)
+			}
+			var err error
+			event, _, err = dm.fetcher.FetchPostFromWithRelay(ctx, postID, hints, author)
+			if err != nil {
+				return dm.reply(ctx, sender, "I could not find that note on the relays Holoboard watches.", replyTo, wrapped)
+			}
+			if !isPromotable(event.Kind) {
+				return dm.reply(ctx, sender, "Holoboard promotes text notes and comments only.", replyTo, wrapped)
+			}
+		}
+		if !dm.limiter.allow(sender, time.Now()) {
+			return dm.reply(ctx, sender, "Too many invoices requested. Try again in a few minutes.", replyTo, wrapped)
+		}
 
 		log.Printf("PROMOTE request from %s for post %s (amount: %d sats)",
 			short(sender, 8), short(postID, 8), amount)
 
-		hints, author := noteHints(extractEventIDFromText(text))
-		invoice, err := dm.invoiceManager.GeneratePromotionInvoice(ctx, postID, amount, hints, author)
+		transport := dmTransportNIP04
+		if wrapped {
+			transport = dmTransportNIP17
+		}
+		contact := &PromotionContact{Pubkey: sender, Transport: transport, ReplyTo: replyTo}
+		invoice, err := dm.invoiceManager.GeneratePromotionInvoiceWithContact(ctx, postID, amount, hints, author, contact, sourceID, event)
 		if err != nil {
 			log.Printf("Failed to generate invoice: %v", err)
-			return err
+			return dm.reply(ctx, sender, "The wallet would not issue an invoice. Try again later.", replyTo, wrapped)
 		}
 		log.Printf("Generated invoice for post %s (payment_hash: %s, amount: %d sats)",
 			short(postID, 8), short(invoice.PaymentHash, 12), invoice.AmountSats)
@@ -446,45 +545,21 @@ If your client will not open that, copy the invoice itself:
 // message with a kind:4 would land somewhere the sender's client is no longer
 // looking, which is the whole reason this path was silent.
 func (dm *DMMonitor) reply(ctx context.Context, recipientPubkey, message, replyTo string, wrapped bool) error {
-	var event *nostr.Event
-
-	targets := dm.relays
-
+	_ = ctx
+	transport := dmTransportNIP04
 	if wrapped {
-		// NIP-17 delivers to the recipient's inbox, not the sender's, and says
-		// not to send at all when they have published none.
-		targets = dm.lookupInbox(ctx, recipientPubkey, dm.relays)
-		if len(targets) == 0 {
-			return fmt.Errorf("%s has no published inbox to reply to", short(recipientPubkey, 8))
-		}
-
-		wrap, err := wrapMessage(message, recipientPubkey, dm.relayPrivkey, replyTo)
-		if err != nil {
-			return fmt.Errorf("failed to wrap the reply: %w", err)
-		}
-		event = wrap
-	} else {
-		sharedSecret, err := nip04.ComputeSharedSecret(recipientPubkey, dm.relayPrivkey)
-		if err != nil {
-			return fmt.Errorf("failed to compute shared secret: %w", err)
-		}
-		encrypted, err := nip04.Encrypt(message, sharedSecret)
-		if err != nil {
-			return fmt.Errorf("failed to encrypt reply: %w", err)
-		}
-		event = &nostr.Event{
-			PubKey:    dm.relayPubkey,
-			CreatedAt: nostr.Now(),
-			Kind:      4,
-			Tags:      nostr.Tags{nostr.Tag{"p", recipientPubkey}},
-			Content:   encrypted,
-		}
-		if err := event.Sign(dm.relayPrivkey); err != nil {
-			return fmt.Errorf("failed to sign event: %w", err)
-		}
+		transport = dmTransportNIP17
 	}
-
-	return dm.publish(ctx, event, recipientPubkey, targets)
+	digest := sha256.Sum256([]byte(recipientPubkey + "\x00" + replyTo + "\x00" + message))
+	queued := &OutboundDM{
+		Key: fmt.Sprintf("reply:%x", digest[:]), Recipient: recipientPubkey,
+		Transport: transport, ReplyTo: replyTo, Content: message, CreatedAt: time.Now(),
+	}
+	if err := dm.storage.queueOutboundDM(queued); err != nil {
+		return fmt.Errorf("failed to queue reply: %w", err)
+	}
+	dm.Wake()
+	return nil
 }
 
 // signAuth answers a relay's NIP-42 challenge as the relay's own key, which is
@@ -519,5 +594,5 @@ func (dm *DMMonitor) publish(ctx context.Context, event *nostr.Event, recipientP
 // itself. Without this, delivering to a relay that protects direct messages
 // fails on exactly the relays most worth delivering to.
 func (dm *DMMonitor) publishTo(ctx context.Context, url string, event *nostr.Event) error {
-	return publishSignedEvent(ctx, url, event, dm.relayPrivkey)
+	return dm.publishEvent(ctx, url, event)
 }

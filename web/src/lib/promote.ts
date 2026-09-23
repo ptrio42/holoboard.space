@@ -71,12 +71,18 @@ export async function requestInvoice(
     amountSats: number,
     signal?: AbortSignal,
     appearance?: { billboard: BillboardConfig },
+    contactPubkey?: string,
 ): Promise<PromoteInvoice> {
     const response = await fetch(`${RELAY_HTTP}/api/promote`, {
         method: "POST",
         signal,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note, amount_sats: amountSats, ...(appearance ? { billboard: appearance.billboard } : {}) }),
+        body: JSON.stringify({
+            note,
+            amount_sats: amountSats,
+            ...(appearance ? { billboard: appearance.billboard } : {}),
+            ...(contactPubkey ? { notify_pubkey: contactPubkey } : {}),
+        }),
     });
 
     if (!response.ok) throw new Error(await readError(response));

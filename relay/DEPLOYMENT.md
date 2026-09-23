@@ -206,7 +206,8 @@ Non-secret settings live in `[env]` in `fly.toml` and take effect on the next
 | `LIGHTNING_BACKEND` | `nwc`, `mock`, `lnbits` or `zebedee`. Only `nwc` and `mock` are exercised. |
 | `INVOICE_CHECK_SECONDS` | How often to re-check invoices still waiting. |
 | `DEFAULT_PAYMENT_SATS` | Invoice amount when a `PROMOTE` DM names none. |
-| `FETCH_RELAYS` | Public relays watched for zaps, DMs and mentions. |
+| `FETCH_RELAYS` | Public relays watched for zaps and mentions, and used to fetch notes. |
+| `DM_RELAYS` | Optional NIP-17 inbox relays read and advertised by the service. |
 | `PUBLIC_BOARD_URL` | Public website linked from paid-promotion quotes. |
 
 Secrets go through `fly secrets set` and never into `fly.toml`: `RELAY_PRIVKEY`

@@ -64,6 +64,18 @@ export function toNpub(pubkey: string): string {
     }
 }
 
+/** Accept an npub or a bare hex public key and normalize it to hex. */
+export function parsePubkey(input: string): string | null {
+    const value = input.trim();
+    if (HEX64.test(value)) return value.toLowerCase();
+    try {
+        const decoded = nip19.decode(value.replace(/^nostr:/i, ""));
+        return decoded.type === "npub" ? decoded.data : null;
+    } catch {
+        return null;
+    }
+}
+
 /** npub1abcd...wxyz, for when a profile has no name to show. */
 export function shortNpub(pubkey: string): string {
     const npub = toNpub(pubkey);

@@ -31,6 +31,7 @@ type PaymentMonitor struct {
 	// board means the page has to be reloaded before you can see the promotion
 	// you just paid for.
 	broadcast func(*nostr.Event)
+	notify    func()
 }
 
 func (pm *PaymentMonitor) SetAccountPublisher(publisher *AccountPublisher) {
@@ -42,6 +43,10 @@ func (pm *PaymentMonitor) SetAccountPublisher(publisher *AccountPublisher) {
 // monitor is built.
 func (pm *PaymentMonitor) SetBroadcaster(broadcast func(*nostr.Event)) {
 	pm.broadcast = broadcast
+}
+
+func (pm *PaymentMonitor) SetNotificationWake(wake func()) {
+	pm.notify = wake
 }
 
 // announce pushes an event to live subscriptions, if anything is wired up.
@@ -111,6 +116,7 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 	var hints []string
 	var author string
 	var relayHint string
+	var contact *PromotionContact
 
 	// PRIORITY 1: Check if this is a zap to a promotional reply
 	// Look for 'e' tag in zap request to identify the zapped event
@@ -123,6 +129,9 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 	}
 
 	if zappedEventID != "" {
+		if requester, ok := pm.storage.GetPromotionRequester(zappedEventID); ok {
+			contact = &PromotionContact{Pubkey: requester, Transport: dmTransportNIP17}
+		}
 		// Try chain-chasing approach: fetch the zapped event and check if it's a promotional reply
 		promotedNoteID, chainHints, chainAuthor, err := pm.getPromotedNoteFromChain(zappedEventID)
 		if err == nil && promotedNoteID != "" {
@@ -205,7 +214,7 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 	if pm.accountPublisher != nil {
 		targets = pm.accountPublisher.Targets()
 	}
-	credited, err := pm.storage.CreditZapWithPublication(postID, amountSats, event, zapEvent.ID, details.PaymentHash, quote, targets)
+	credited, err := pm.storage.CreditZapWithPublicationAndContact(postID, amountSats, event, zapEvent.ID, details.PaymentHash, quote, targets, contact)
 	if err != nil {
 		return fmt.Errorf("failed to credit zap: %w", err)
 	}
@@ -213,6 +222,9 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 		pm.announce(event)
 		if quote != nil {
 			pm.accountPublisher.Wake()
+		}
+		if pm.notify != nil && contact != nil {
+			pm.notify()
 		}
 	}
 
@@ -271,6 +283,9 @@ func (pm *PaymentMonitor) ProcessInvoicePayment(paymentHash string, amountSats i
 	pm.announce(announced)
 	if quote != nil {
 		pm.accountPublisher.Wake()
+	}
+	if pm.notify != nil && invoice.Contact != nil {
+		pm.notify()
 	}
 
 	return nil

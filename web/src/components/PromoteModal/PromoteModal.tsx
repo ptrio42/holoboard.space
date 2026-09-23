@@ -8,6 +8,7 @@ import { Spinner } from "../ui/Spinner";
 import { LoginButton } from "../LoginButton/LoginButton";
 import TextRenderer from "../TextRenderer/TextRenderer";
 import { DirectPromote } from "./DirectPromote";
+import { DMPromote } from "./DMPromote";
 import { PromotionAmountPicker } from "./PromotionAmountPicker";
 import { usePromotionFlow, type Stage } from "./usePromotionFlow";
 import { RELAY_PUBKEY, RELAY_URL, ZAP_PRESETS } from "../../config";
@@ -55,7 +56,7 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
      * route publishes a mention as you, which is the only reason a signer is
      * involved at all; nothing about the board requires knowing who you are.
      */
-    const [mode, setMode] = useState<"direct" | "signed">("direct");
+    const [mode, setMode] = useState<"direct" | "signed" | "dm">("direct");
 
     // A link to the ranking explanation has to do three things, since the text
     // lives in a dialog that does not exist until something opens it: open the
@@ -91,10 +92,11 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
     return (
         <Modal isOpen onClose={onClose} title="Promote a note" panelClassName="max-w-3xl">
             <div className="space-y-6 text-sm text-cyan-100/85">
-                <div className="flex gap-2 font-pixel text-[9px] tracking-widest" role="tablist">
+                <div className="flex flex-wrap gap-2 font-pixel text-[9px] tracking-widest" role="tablist">
                     {([
                         ["direct", "Just pay"],
                         ["signed", "Use my nostr key"],
+                        ["dm", "Promote via DM"],
                     ] as const).map(([key, label]) => (
                         <button
                             key={key}
@@ -133,11 +135,14 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
                 </section>
 
                 {mode === "direct" && <DirectPromote initialReference={initialReference} currentWeight={currentWeight}
-                    rankingTargets={rankingTargets} onPaid={onPaid} />}
+                    rankingTargets={rankingTargets} defaultNotifyPubkey={user?.pubkey} onPaid={onPaid} />}
+
+                {mode === "dm" && <DMPromote initialReference={initialReference} currentWeight={currentWeight}
+                    rankingTargets={rankingTargets} />}
 
                 {mode === "signed" && (
                 <div className="space-y-6">
-                <p className="text-xs text-cyan-100/70">To buy billboard appearance with a preview, use the Just pay tab. Zaps here add ranking weight and preserve any active appearance.</p>
+                <p className="text-xs text-cyan-100/70">To buy billboard appearance with a preview, use the Just pay tab. Zaps here add ranking weight and preserve any active appearance. After payment, Holoboard can DM the command author to offer one expiry notification.</p>
                 <ol className="flex items-center gap-2 font-pixel text-[9px] tracking-widest">
                     {STEPS.map((step, index) => (
                         <li key={step.key} className="flex items-center gap-2">
@@ -368,9 +373,9 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
                                 This is the flow above, done by hand. Write a note that tags the
                                 relay's npub, below, and contains the note you want promoted. The
                                 relay answers with a promotional reply; zap that reply to put the
-                                note on the board. No keyword is needed, only the reference, and
-                                every client lets you tag someone in a note, which is not true of
-                                zap comments.
+                                note on the board. The complete <code>promote</code> command is
+                                required. Tagging works in clients that do not support promotion
+                                details in zap comments.
                             </p>
                         </div>
                         <div>
@@ -381,15 +386,6 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
                                 Zap the relay's pubkey from any client and put the note reference in
                                 the zap comment. <code>nostr:nevent1...</code>, <code>note1...</code>{" "}
                                 and a bare 64-character id all work.
-                            </p>
-                        </div>
-                        <div>
-                            <p className="mb-1 font-pixel text-[9px] tracking-widest text-neon-pink">
-                                DM the relay
-                            </p>
-                            <p className="text-cyan-100/70">
-                                Send <code>PROMOTE &lt;note id&gt;</code> as a direct message and the
-                                relay answers with a Lightning invoice.
                             </p>
                         </div>
                         <dl className="space-y-3">

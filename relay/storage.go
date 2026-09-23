@@ -85,13 +85,15 @@ type PendingInvoice struct {
 	// is fetched again when the invoice settles, and by then the reference the
 	// person pasted is long gone; without these, a note findable before payment
 	// can be unfindable after it.
-	RelayHints   []string         `json:"relay_hints,omitempty"`
-	Author       string           `json:"author,omitempty"`
-	Billboard    *BillboardConfig `json:"billboard,omitempty"`
-	BillboardFee int64            `json:"billboard_fee_sats,omitempty"`
-	StyleOnly    bool             `json:"style_only,omitempty"`
-	ActivityID   string           `json:"activity_id,omitempty"`
-	Event        *nostr.Event     `json:"event,omitempty"`
+	RelayHints   []string          `json:"relay_hints,omitempty"`
+	Author       string            `json:"author,omitempty"`
+	Billboard    *BillboardConfig  `json:"billboard,omitempty"`
+	BillboardFee int64             `json:"billboard_fee_sats,omitempty"`
+	StyleOnly    bool              `json:"style_only,omitempty"`
+	ActivityID   string            `json:"activity_id,omitempty"`
+	Event        *nostr.Event      `json:"event,omitempty"`
+	Contact      *PromotionContact `json:"contact,omitempty"`
+	SourceDMID   string            `json:"source_dm_id,omitempty"`
 }
 
 const (
@@ -127,8 +129,11 @@ type Storage struct {
 	processedMentions   map[string]bool   // mention_event_id -> processed (to reply only once)
 	removed             map[string]bool   // post_id -> taken off the board by the operator, and kept off
 	accountPublications map[string]*AccountPublication
-	mentionWatermark    int64 // newest mention seen, so a restart does not skip the gap
-	dmWatermark         int64 // same, for DMs
+	notifications       map[string]*PromotionNotification
+	dmOutbox            map[string]*OutboundDM
+	promotionRequesters map[string]string // promotional_reply_id -> command author pubkey
+	mentionWatermark    int64             // newest mention seen, so a restart does not skip the gap
+	dmWatermark         int64             // same, for DMs
 	dataFile            string
 }
 
@@ -144,6 +149,9 @@ func NewStorage(dataFile string) (*Storage, error) {
 		processedMentions:   make(map[string]bool),
 		removed:             make(map[string]bool),
 		accountPublications: make(map[string]*AccountPublication),
+		notifications:       make(map[string]*PromotionNotification),
+		dmOutbox:            make(map[string]*OutboundDM),
+		promotionRequesters: make(map[string]string),
 		dataFile:            dataFile,
 	}
 
@@ -170,17 +178,21 @@ func (s *Storage) CreditZap(postID string, amountSats int64, event *nostr.Event,
 // CreditZapWithPublication records the payment and, for a note the board has
 // never seen before, its account quote in the same durable write.
 func (s *Storage) CreditZapWithPublication(postID string, amountSats int64, event *nostr.Event, zapID, paymentHash string, quote *nostr.Event, targets []string) (bool, error) {
+	return s.CreditZapWithPublicationAndContact(postID, amountSats, event, zapID, paymentHash, quote, targets, nil)
+}
+
+func (s *Storage) CreditZapWithPublicationAndContact(postID string, amountSats int64, event *nostr.Event, zapID, paymentHash string, quote *nostr.Event, targets []string, contact *PromotionContact) (bool, error) {
 	if zapID == "" || paymentHash == "" {
 		return false, fmt.Errorf("missing zap payment identifier")
 	}
-	return s.addPaymentWithPublication(postID, amountSats, event, zapID, paymentHash, quote, targets)
+	return s.addPaymentWithPublication(postID, amountSats, event, zapID, paymentHash, quote, targets, contact)
 }
 
 func (s *Storage) addPayment(postID string, amountSats int64, event *nostr.Event, zapID, paymentHash string) (bool, error) {
-	return s.addPaymentWithPublication(postID, amountSats, event, zapID, paymentHash, nil, nil)
+	return s.addPaymentWithPublication(postID, amountSats, event, zapID, paymentHash, nil, nil, nil)
 }
 
-func (s *Storage) addPaymentWithPublication(postID string, amountSats int64, event *nostr.Event, zapID, paymentHash string, quote *nostr.Event, targets []string) (bool, error) {
+func (s *Storage) addPaymentWithPublication(postID string, amountSats int64, event *nostr.Event, zapID, paymentHash string, quote *nostr.Event, targets []string, contact *PromotionContact) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if zapID != "" {
@@ -217,6 +229,9 @@ func (s *Storage) addPaymentWithPublication(postID string, amountSats int64, eve
 		post.Billboard = nil
 		post.ActivityID = fmt.Sprintf("%d", now.UnixNano())
 	}
+	if post.ActivityID == "" {
+		post.ActivityID = fmt.Sprintf("%d", now.UnixNano())
+	}
 	post.TotalSatsPaid += amountSats
 	post.LastPaymentTimestamp = now
 	post.Payments = append(post.Payments, Payment{Sats: amountSats, At: now})
@@ -227,6 +242,16 @@ func (s *Storage) addPaymentWithPublication(postID string, amountSats int64, eve
 	if zapID != "" {
 		s.processedZaps[zapID] = true
 		s.settledInvoices[paymentHash] = &InvoiceReceipt{NoteID: postID, AmountSats: amountSats, PromotionSats: amountSats}
+	}
+	notificationKey := ""
+	var originalNotification *PromotionNotification
+	if contact != nil && contact.Pubkey != "" {
+		notification := newPromotionNotification(post, contact, amountSats)
+		notificationKey = notification.Key
+		originalNotification = s.notifications[notificationKey]
+		if originalNotification == nil {
+			s.notifications[notificationKey] = notification
+		}
 	}
 	if err := s.save(); err != nil {
 		if original == nil {
@@ -242,6 +267,13 @@ func (s *Storage) addPaymentWithPublication(postID string, amountSats int64, eve
 		if zapID != "" {
 			delete(s.processedZaps, zapID)
 			delete(s.settledInvoices, paymentHash)
+		}
+		if notificationKey != "" {
+			if originalNotification == nil {
+				delete(s.notifications, notificationKey)
+			} else {
+				s.notifications[notificationKey] = originalNotification
+			}
 		}
 		return false, fmt.Errorf("failed to save after adding payment: %w", err)
 	}
@@ -509,6 +541,20 @@ func (s *Storage) GetPendingInvoice(paymentHash string) (*PendingInvoice, bool) 
 	return invoice, exists
 }
 
+func (s *Storage) GetPendingInvoiceBySourceDM(sourceID string) (*PendingInvoice, bool) {
+	if sourceID == "" {
+		return nil, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, invoice := range s.pendingInvoices {
+		if invoice.SourceDMID == sourceID {
+			return invoice, true
+		}
+	}
+	return nil, false
+}
+
 // GetPendingInvoiceByBolt11 retrieves a pending invoice by bolt11 string
 func (s *Storage) GetPendingInvoiceByBolt11(bolt11 string) (*PendingInvoice, bool) {
 	s.mu.RLock()
@@ -606,17 +652,20 @@ func (s *Storage) Quiesce() {
 // save persists the storage to disk
 func (s *Storage) save() error {
 	data := struct {
-		Posts               map[string]*PromotedPost       `json:"posts"`
-		PendingInvoices     map[string]*PendingInvoice     `json:"pending_invoices"`
-		SettledInvoices     map[string]*InvoiceReceipt     `json:"settled_invoices,omitempty"`
-		ProcessedZaps       map[string]bool                `json:"processed_zaps"`
-		ProcessedDMs        map[string]bool                `json:"processed_dms"`
-		PromotionalReplies  map[string]string              `json:"promotional_replies"`
-		ProcessedMentions   map[string]bool                `json:"processed_mentions"`
-		Removed             map[string]bool                `json:"removed"`
-		AccountPublications map[string]*AccountPublication `json:"account_publications,omitempty"`
-		MentionWatermark    int64                          `json:"mention_watermark"`
-		DMWatermark         int64                          `json:"dm_watermark"`
+		Posts               map[string]*PromotedPost          `json:"posts"`
+		PendingInvoices     map[string]*PendingInvoice        `json:"pending_invoices"`
+		SettledInvoices     map[string]*InvoiceReceipt        `json:"settled_invoices,omitempty"`
+		ProcessedZaps       map[string]bool                   `json:"processed_zaps"`
+		ProcessedDMs        map[string]bool                   `json:"processed_dms"`
+		PromotionalReplies  map[string]string                 `json:"promotional_replies"`
+		ProcessedMentions   map[string]bool                   `json:"processed_mentions"`
+		Removed             map[string]bool                   `json:"removed"`
+		AccountPublications map[string]*AccountPublication    `json:"account_publications,omitempty"`
+		Notifications       map[string]*PromotionNotification `json:"notifications,omitempty"`
+		DMOutbox            map[string]*OutboundDM            `json:"dm_outbox,omitempty"`
+		PromotionRequesters map[string]string                 `json:"promotion_requesters,omitempty"`
+		MentionWatermark    int64                             `json:"mention_watermark"`
+		DMWatermark         int64                             `json:"dm_watermark"`
 	}{
 		Posts:               s.posts,
 		PendingInvoices:     s.pendingInvoices,
@@ -627,6 +676,9 @@ func (s *Storage) save() error {
 		ProcessedMentions:   s.processedMentions,
 		Removed:             s.removed,
 		AccountPublications: s.accountPublications,
+		Notifications:       s.notifications,
+		DMOutbox:            s.dmOutbox,
+		PromotionRequesters: s.promotionRequesters,
 		MentionWatermark:    s.mentionWatermark,
 		DMWatermark:         s.dmWatermark,
 	}
@@ -653,17 +705,20 @@ func (s *Storage) load() error {
 	}
 
 	var data struct {
-		Posts               map[string]*PromotedPost       `json:"posts"`
-		PendingInvoices     map[string]*PendingInvoice     `json:"pending_invoices"`
-		SettledInvoices     map[string]*InvoiceReceipt     `json:"settled_invoices,omitempty"`
-		ProcessedZaps       map[string]bool                `json:"processed_zaps"`
-		ProcessedDMs        map[string]bool                `json:"processed_dms"`
-		PromotionalReplies  map[string]string              `json:"promotional_replies"`
-		ProcessedMentions   map[string]bool                `json:"processed_mentions"`
-		Removed             map[string]bool                `json:"removed"`
-		AccountPublications map[string]*AccountPublication `json:"account_publications,omitempty"`
-		MentionWatermark    int64                          `json:"mention_watermark"`
-		DMWatermark         int64                          `json:"dm_watermark"`
+		Posts               map[string]*PromotedPost          `json:"posts"`
+		PendingInvoices     map[string]*PendingInvoice        `json:"pending_invoices"`
+		SettledInvoices     map[string]*InvoiceReceipt        `json:"settled_invoices,omitempty"`
+		ProcessedZaps       map[string]bool                   `json:"processed_zaps"`
+		ProcessedDMs        map[string]bool                   `json:"processed_dms"`
+		PromotionalReplies  map[string]string                 `json:"promotional_replies"`
+		ProcessedMentions   map[string]bool                   `json:"processed_mentions"`
+		Removed             map[string]bool                   `json:"removed"`
+		AccountPublications map[string]*AccountPublication    `json:"account_publications,omitempty"`
+		Notifications       map[string]*PromotionNotification `json:"notifications,omitempty"`
+		DMOutbox            map[string]*OutboundDM            `json:"dm_outbox,omitempty"`
+		PromotionRequesters map[string]string                 `json:"promotion_requesters,omitempty"`
+		MentionWatermark    int64                             `json:"mention_watermark"`
+		DMWatermark         int64                             `json:"dm_watermark"`
 	}
 
 	if err := json.Unmarshal(bytes, &data); err != nil {
@@ -713,6 +768,18 @@ func (s *Storage) load() error {
 	s.accountPublications = data.AccountPublications
 	if s.accountPublications == nil {
 		s.accountPublications = make(map[string]*AccountPublication)
+	}
+	s.notifications = data.Notifications
+	if s.notifications == nil {
+		s.notifications = make(map[string]*PromotionNotification)
+	}
+	s.dmOutbox = data.DMOutbox
+	if s.dmOutbox == nil {
+		s.dmOutbox = make(map[string]*OutboundDM)
+	}
+	s.promotionRequesters = data.PromotionRequesters
+	if s.promotionRequesters == nil {
+		s.promotionRequesters = make(map[string]string)
 	}
 
 	s.mentionWatermark = data.MentionWatermark
@@ -773,11 +840,35 @@ func (s *Storage) AdvanceDMWatermark(createdAt int64) error {
 
 // AddPromotionalReply stores a mapping from promotional reply ID to the note it promotes
 func (s *Storage) AddPromotionalReply(replyID, noteToPromoteID string) error {
+	return s.AddPromotionalReplyWithRequester(replyID, noteToPromoteID, "")
+}
+
+// AddPromotionalReplyWithRequester keeps the public command author beside the
+// reply that will later be zapped. Older records remain valid without one.
+func (s *Storage) AddPromotionalReplyWithRequester(replyID, noteToPromoteID, requester string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	previousNote, hadNote := s.promotionalReplies[replyID]
+	previousRequester, hadRequester := s.promotionRequesters[replyID]
 	s.promotionalReplies[replyID] = noteToPromoteID
-	return s.save()
+	if requester != "" {
+		s.promotionRequesters[replyID] = requester
+	}
+	if err := s.save(); err != nil {
+		if hadNote {
+			s.promotionalReplies[replyID] = previousNote
+		} else {
+			delete(s.promotionalReplies, replyID)
+		}
+		if hadRequester {
+			s.promotionRequesters[replyID] = previousRequester
+		} else {
+			delete(s.promotionRequesters, replyID)
+		}
+		return err
+	}
+	return nil
 }
 
 // GetPromotedNoteID gets the note ID that a promotional reply promotes
@@ -787,6 +878,13 @@ func (s *Storage) GetPromotedNoteID(replyID string) (string, bool) {
 
 	noteID, exists := s.promotionalReplies[replyID]
 	return noteID, exists
+}
+
+func (s *Storage) GetPromotionRequester(replyID string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	requester, exists := s.promotionRequesters[replyID]
+	return requester, exists
 }
 
 // MarkMentionProcessed marks a mention as processed

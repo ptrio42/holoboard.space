@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -59,10 +60,11 @@ const (
 )
 
 type promoteRequest struct {
-	Note       string           `json:"note"`
-	AmountSats int64            `json:"amount_sats"`
-	Billboard  *BillboardConfig `json:"billboard,omitempty"`
-	StyleOnly  bool             `json:"style_only,omitempty"`
+	Note         string           `json:"note"`
+	AmountSats   int64            `json:"amount_sats"`
+	Billboard    *BillboardConfig `json:"billboard,omitempty"`
+	StyleOnly    bool             `json:"style_only,omitempty"`
+	NotifyPubkey string           `json:"notify_pubkey,omitempty"`
 }
 
 type promoteResponse struct {
@@ -225,6 +227,15 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 				fmt.Sprintf("amount must be between %d and %d sats", promoteMinSats, promoteMaxSats))
 			return
 		}
+		var contact *PromotionContact
+		if strings.TrimSpace(req.NotifyPubkey) != "" {
+			pubkey, err := normalizePubkey(req.NotifyPubkey)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "notify_pubkey must be an npub or 64-character hex pubkey")
+				return
+			}
+			contact = &PromotionContact{Pubkey: pubkey, Transport: dmTransportNIP17}
+		}
 
 		if pending := len(storage.ListPendingInvoices()); pending >= promoteMaxPending {
 			log.Printf("Refusing to mint an invoice: %d already pending", pending)
@@ -293,9 +304,9 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 		var invoice *Invoice
 		var err error
 		if req.Billboard != nil {
-			invoice, err = invoices.GenerateBillboardInvoice(mintCtx, noteID, amount, hints, author, req.Billboard, req.StyleOnly, event)
+			invoice, err = invoices.GenerateBillboardInvoiceWithContact(mintCtx, noteID, amount, hints, author, req.Billboard, req.StyleOnly, event, contact)
 		} else {
-			invoice, err = invoices.GeneratePromotionInvoice(mintCtx, noteID, amount, hints, author)
+			invoice, err = invoices.GeneratePromotionInvoiceWithContact(mintCtx, noteID, amount, hints, author, contact, "", event)
 		}
 		if err != nil {
 			if errors.Is(err, errBillboardConflict) {

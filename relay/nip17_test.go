@@ -52,6 +52,32 @@ func TestGiftWrapRoundTrip(t *testing.T) {
 	}
 }
 
+func TestGiftWrapIncludesSenderHistoryCopy(t *testing.T) {
+	senderSK := nostr.GeneratePrivateKey()
+	senderPK, _ := nostr.GetPublicKey(senderSK)
+	recipientSK := nostr.GeneratePrivateKey()
+	recipientPK, _ := nostr.GetPublicKey(recipientSK)
+
+	recipientCopy, senderCopy, rumorID, err := wrapMessageCopies("hello", recipientPK, senderSK, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	received, err := unwrapGiftWrap(recipientCopy, recipientSK)
+	if err != nil {
+		t.Fatalf("recipient could not open their copy: %v", err)
+	}
+	sent, err := unwrapGiftWrap(senderCopy, senderSK)
+	if err != nil {
+		t.Fatalf("sender could not open their history copy: %v", err)
+	}
+	if received.ID != rumorID || sent.ID != rumorID || received.ID != sent.ID {
+		t.Fatalf("copies contain different rumors: recipient=%s sender=%s want=%s", received.ID, sent.ID, rumorID)
+	}
+	if !hasPubkeyTag(recipientCopy.Tags, recipientPK) || !hasPubkeyTag(senderCopy.Tags, senderPK) {
+		t.Fatal("gift-wrap copies are not routed to their respective recipients")
+	}
+}
+
 func TestSomebodyElseCannotReadIt(t *testing.T) {
 	senderSK := nostr.GeneratePrivateKey()
 	recipientPK, _ := nostr.GetPublicKey(nostr.GeneratePrivateKey())
@@ -182,6 +208,47 @@ func TestUnwrapRejectsTheWrongShapes(t *testing.T) {
 	fake.ID = fake.GetID()
 	if _, err := unwrapGiftWrap(fake, recipientSK); err == nil {
 		t.Error("a gift wrap with an invalid signature was accepted")
+	}
+}
+
+func TestUnwrapRejectsWrongRecipientAndTamperedRumor(t *testing.T) {
+	senderSK := nostr.GeneratePrivateKey()
+	recipientSK := nostr.GeneratePrivateKey()
+	recipientPK, _ := nostr.GetPublicKey(recipientSK)
+
+	wrongRecipient, err := wrapMessage("hello", recipientPK, senderSK, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongRecipient.Tags = nostr.Tags{{"p", strings.Repeat("ab", 32)}}
+	if err := wrongRecipient.Sign(nostr.GeneratePrivateKey()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := unwrapGiftWrap(wrongRecipient, recipientSK); err == nil {
+		t.Fatal("a gift wrap addressed to somebody else was accepted")
+	}
+
+	// A validly encrypted rumor still has to carry its own correct event ID.
+	senderPK, _ := nostr.GetPublicKey(senderSK)
+	rumor := nostr.Event{
+		ID: strings.Repeat("00", 32), PubKey: senderPK, CreatedAt: nostr.Now(), Kind: kindChatMessage,
+		Tags: nostr.Tags{{"p", recipientPK}}, Content: "hello",
+	}
+	sealKey, _ := nip44.GenerateConversationKey(recipientPK, senderSK)
+	sealedContent, _ := nip44Encrypt(mustJSON(rumor), sealKey)
+	seal := nostr.Event{PubKey: senderPK, CreatedAt: nostr.Now(), Kind: kindSeal, Tags: nostr.Tags{}, Content: sealedContent}
+	if err := seal.Sign(senderSK); err != nil {
+		t.Fatal(err)
+	}
+	ephemeral := nostr.GeneratePrivateKey()
+	wrapKey, _ := nip44.GenerateConversationKey(recipientPK, ephemeral)
+	wrappedContent, _ := nip44Encrypt(mustJSON(seal), wrapKey)
+	wrap := &nostr.Event{CreatedAt: nostr.Now(), Kind: kindGiftWrap, Tags: nostr.Tags{{"p", recipientPK}}, Content: wrappedContent}
+	if err := wrap.Sign(ephemeral); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := unwrapGiftWrap(wrap, recipientSK); err == nil || !strings.Contains(err.Error(), "invalid id") {
+		t.Fatalf("tampered rumor id was not rejected: %v", err)
 	}
 }
 

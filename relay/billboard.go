@@ -162,6 +162,9 @@ func (s *Storage) SettleInvoiceWithPublication(hash string, event *nostr.Event, 
 		post.Billboard = nil
 		post.ActivityID = fmt.Sprintf("%d", now.UnixNano())
 	}
+	if post.ActivityID == "" {
+		post.ActivityID = fmt.Sprintf("%d", now.UnixNano())
+	}
 	promotion := invoice.AmountSats - invoice.BillboardFee
 	applied := invoice.Billboard != nil && !active && !invoice.StyleOnly
 	converted := invoice.BillboardFee > 0 && !applied
@@ -183,6 +186,16 @@ func (s *Storage) SettleInvoiceWithPublication(hash string, event *nostr.Event, 
 	s.posts[invoice.PostID] = post
 	s.settledInvoices[hash] = receipt
 	delete(s.pendingInvoices, hash)
+	notificationKey := ""
+	var originalNotification *PromotionNotification
+	if invoice.Contact != nil && invoice.Contact.Pubkey != "" {
+		notification := newPromotionNotification(post, invoice.Contact, promotion)
+		notificationKey = notification.Key
+		originalNotification = s.notifications[notificationKey]
+		if originalNotification == nil {
+			s.notifications[notificationKey] = notification
+		}
+	}
 	if original == nil && !hadPublication && quote != nil {
 		s.accountPublications[quoteKey] = newAccountPublication(accountPublicationQuote, invoice.PostID, quote, targets)
 	}
@@ -194,6 +207,13 @@ func (s *Storage) SettleInvoiceWithPublication(hash string, event *nostr.Event, 
 		}
 		delete(s.settledInvoices, hash)
 		s.pendingInvoices[hash] = invoice
+		if notificationKey != "" {
+			if originalNotification == nil {
+				delete(s.notifications, notificationKey)
+			} else {
+				s.notifications[notificationKey] = originalNotification
+			}
+		}
 		if hadPublication {
 			s.accountPublications[quoteKey] = originalPublication
 		} else {

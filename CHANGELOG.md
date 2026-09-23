@@ -8,6 +8,11 @@ record deployment, not announcement publication.
 
 ### Added
 
+- Promote via DM is a first-class option in the promotion dialog. Holoboard
+  accepts NIP-17 and legacy NIP-04 `PROMOTE` commands and replies with a
+  Lightning invoice in the same conversation.
+- Promoters can opt into one DM when the current promotion moves to Expired.
+  A signed `YES` confirmation is required, and a revived promotion asks again.
 - Holoboard publishes one clearly labelled paid-promotion quote when a new note
   first reaches the board, with durable retry across relay outages and restarts.
 - Holoboard can be installed as a PWA and reopens its cached interface when
@@ -18,6 +23,8 @@ record deployment, not announcement publication.
 
 ### Changed
 
+- NIP-17 messages use durable per-relay delivery, sender history copies and a
+  kind 10050 inbox list limited to three working relays.
 - Board rows show the sats currently setting their rank, with historical paid
   totals available from the same figure.
 - Public promotion replies show the promoted note as a native quote, making the

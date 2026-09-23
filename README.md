@@ -18,9 +18,14 @@ weight without guaranteeing a particular position.
 
 ## Promote a note
 
-1. Open **Promote** and use **Just pay**. No login or Nostr key is needed.
-2. Paste a note link, `note1`, `nevent1` or event ID.
-3. Choose the promotion amount, request an invoice and pay it with Lightning.
+Open **Promote** and choose one of three routes:
+
+- **Just pay** needs no login or signer. Paste a note link, `note1`, `nevent1`
+  or event ID, choose the amount and pay the Lightning invoice.
+- **Use my nostr key** publishes a promotion command, waits for Holoboard's
+  public reply and zaps that reply.
+- **Promote via DM** prepares `PROMOTE <amount> <note>` for a private message to
+  the Holoboard npub. Holoboard answers in the same conversation with an invoice.
 
 Use **Load note & preview** to check the content and optionally choose a
 billboard appearance before paying. The payment result confirms your specific
@@ -33,7 +38,12 @@ a [NIP-09 deletion request](https://github.com/nostr-protocol/nips/blob/master/0
 for that quote, although Nostr cannot guarantee that every relay and client
 removes its copy.
 
-**Use my nostr key** offers the alternative mention, reply and zap flow.
+The payment form can optionally request an expiry notification for an npub.
+DM and public-command promotions request the same offer automatically. After
+payment, reply `YES` to Holoboard's activation DM. Holoboard then sends one DM
+when that promotion period moves to **Expired**. A later revival needs fresh
+consent.
+
 Promotions are also available through the [relay API](relay/API.md) and Nostr
 messages described in the [relay README](relay/README.md#promotion-through-nostr).
 

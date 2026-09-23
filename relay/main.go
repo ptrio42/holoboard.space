@@ -277,7 +277,9 @@ func main() {
 
 	dmMonitor := NewDMMonitor(dmRelays, relayPubkey, relayPrivkey, invoiceManager, storage).
 		WithAdmin(adminPubkey).
-		WithBoardAdmin(accountPublisher)
+		WithBoardAdmin(accountPublisher).
+		WithFetcher(fetcher)
+	monitor.SetNotificationWake(dmMonitor.Wake)
 	if err := dmMonitor.Start(ctx); err != nil {
 		log.Fatalf("Failed to start DM monitor: %v", err)
 	}
@@ -446,6 +448,7 @@ func main() {
 		// are trying to leave the ledger in a settled state.
 		cancel()
 		accountPublisher.Wait()
+		dmMonitor.Wait()
 
 		// Khatru creates its http.Server inside Start. Waiting for its startup
 		// notification keeps Shutdown from racing that initialization when a

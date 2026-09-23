@@ -129,15 +129,23 @@ func NewInvoiceManager(backend LightningBackend, storage *Storage, monitor *Paym
 // GeneratePromotionInvoice generates an invoice for promoting a post
 // If amountSats is 0, uses the default amount
 func (im *InvoiceManager) GeneratePromotionInvoice(ctx context.Context, postID string, amountSats int64, hints []string, author string) (*Invoice, error) {
+	return im.GeneratePromotionInvoiceWithContact(ctx, postID, amountSats, hints, author, nil, "", nil)
+}
+
+func (im *InvoiceManager) GeneratePromotionInvoiceWithContact(ctx context.Context, postID string, amountSats int64, hints []string, author string, contact *PromotionContact, sourceDMID string, event *nostr.Event) (*Invoice, error) {
 	if amountSats == 0 {
 		amountSats = im.defaultAmountSats
 	}
-	return im.generateInvoice(ctx, postID, amountSats, hints, author, nil, false, nil)
+	return im.generateInvoice(ctx, postID, amountSats, hints, author, nil, false, event, contact, sourceDMID)
 }
 
 // GenerateBillboardInvoice reserves the style while minting. Only one live
 // style invoice per note is offered, independently of ordinary boost invoices.
 func (im *InvoiceManager) GenerateBillboardInvoice(ctx context.Context, postID string, promotion int64, hints []string, author string, config *BillboardConfig, styleOnly bool, event *nostr.Event) (*Invoice, error) {
+	return im.GenerateBillboardInvoiceWithContact(ctx, postID, promotion, hints, author, config, styleOnly, event, nil)
+}
+
+func (im *InvoiceManager) GenerateBillboardInvoiceWithContact(ctx context.Context, postID string, promotion int64, hints []string, author string, config *BillboardConfig, styleOnly bool, event *nostr.Event, contact *PromotionContact) (*Invoice, error) {
 	im.billboardMu.Lock()
 	defer im.billboardMu.Unlock()
 	if styleOnly || promotion <= 0 {
@@ -151,10 +159,10 @@ func (im *InvoiceManager) GenerateBillboardInvoice(ctx context.Context, postID s
 			return nil, fmt.Errorf("%w: a billboard invoice for this note is already waiting for payment", errBillboardConflict)
 		}
 	}
-	return im.generateInvoice(ctx, postID, promotion+billboardFeeSats, hints, author, config, styleOnly, event)
+	return im.generateInvoice(ctx, postID, promotion+billboardFeeSats, hints, author, config, styleOnly, event, contact, "")
 }
 
-func (im *InvoiceManager) generateInvoice(ctx context.Context, postID string, amountSats int64, hints []string, author string, config *BillboardConfig, styleOnly bool, event *nostr.Event) (*Invoice, error) {
+func (im *InvoiceManager) generateInvoice(ctx context.Context, postID string, amountSats int64, hints []string, author string, config *BillboardConfig, styleOnly bool, event *nostr.Event, contact *PromotionContact, sourceDMID string) (*Invoice, error) {
 	memo := fmt.Sprintf("Promote Nostr post: %s", postID)
 	if config != nil {
 		memo = fmt.Sprintf("Holoboard: %d sats promotion + %d sats billboard: %s", amountSats-billboardFeeSats, billboardFeeSats, postID)
@@ -170,6 +178,7 @@ func (im *InvoiceManager) generateInvoice(ctx context.Context, postID string, am
 		PostID: postID, Invoice: invoice.PaymentRequest, PaymentHash: invoice.PaymentHash,
 		AmountSats: invoice.AmountSats, CreatedAt: time.Now(), ExpiresAt: invoice.ExpiresAt,
 		RelayHints: hints, Author: author, Billboard: cloneBillboard(config), StyleOnly: styleOnly, Event: event,
+		Contact: contact, SourceDMID: sourceDMID,
 	}
 	if config != nil {
 		pendingInvoice.BillboardFee = billboardFeeSats

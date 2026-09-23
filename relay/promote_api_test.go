@@ -74,6 +74,39 @@ func TestPromoteMintsAnInvoice(t *testing.T) {
 	}
 }
 
+func TestPromoteStoresOptionalNotificationContact(t *testing.T) {
+	handler, storage, postID := promoteFixture(t)
+	pubkey, _ := nostr.GetPublicKey(nostr.GeneratePrivateKey())
+	npub, err := nip19.EncodePublicKey(pubkey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := postPromote(t, handler, promoteRequest{
+		Note: postID, AmountSats: 21, NotifyPubkey: npub,
+	}, "1.1.1.2")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d, body %s", rec.Code, rec.Body.String())
+	}
+	var out promoteResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	pending, ok := storage.GetPendingInvoice(out.PaymentHash)
+	if !ok || pending.Contact == nil || pending.Contact.Pubkey != pubkey || pending.Contact.Transport != dmTransportNIP17 {
+		t.Fatalf("stored contact=%+v", pending.Contact)
+	}
+}
+
+func TestPromoteRejectsInvalidNotificationContact(t *testing.T) {
+	handler, _, postID := promoteFixture(t)
+	rec := postPromote(t, handler, promoteRequest{
+		Note: postID, AmountSats: 21, NotifyPubkey: "not-an-npub",
+	}, "1.1.1.3")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d, want 400, body %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestPromoteAcceptsBech32(t *testing.T) {
 	handler, _, postID := promoteFixture(t)
 

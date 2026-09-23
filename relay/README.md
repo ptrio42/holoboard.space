@@ -37,6 +37,7 @@ relay setup, use the [Docker guide](../docs/self-hosting.md).
 | `PORT` | HTTP and WebSocket port. Default: 3334. |
 | `DATA_FILE` | JSON storage path. Default: `relay_data.json`. |
 | `FETCH_RELAYS` | Relays used to fetch notes and watch mentions and zap receipts. |
+| `DM_RELAYS` | NIP-17 inbox relays the service reads and advertises in kind 10050. |
 | `PUBLIC_BOARD_URL` | Public website linked from paid-promotion quotes. |
 | `DEFAULT_PAYMENT_SATS` | Default invoice amount. Default: 1000. |
 | `INVOICE_CHECK_SECONDS` | Pending-invoice polling interval. Default: 60 seconds. |
@@ -88,10 +89,32 @@ use HTTP intentionally. The planned Nostr transport is described in the
   complete command `promote`.
 - Zap the relay directly with the target reference in the zap comment or invoice
   description.
-- Send `PROMOTE <note_id>` to the relay by DM to receive an invoice.
+- Send `PROMOTE <note_id>` or `PROMOTE <amount_sats> <note_id>` to the relay by
+  DM to receive an invoice in the same conversation.
 
 These flows add ranking weight and preserve any active billboard appearance.
 They do not purchase a new appearance.
+
+Private messages use
+[NIP-17](https://github.com/nostr-protocol/nips/blob/master/17.md) kind 14 chat
+rumors inside [NIP-59](https://github.com/nostr-protocol/nips/blob/master/59.md)
+gift wraps, encrypted with NIP-44. Legacy NIP-04 kind 4 requests still receive
+kind 4 replies. At startup, the service publishes a kind 10050 inbox list to
+discovery relays and listens on exactly the `DM_RELAYS` in that list. The
+default list contains three relays. NIP-17 replies go only to the recipient's
+own kind 10050 relays; no list means no speculative fallback delivery.
+
+After a DM invoice or public promotion reply is paid, Holoboard sends an
+activation DM to the requester. Reply `YES` to that message, or send
+`NOTIFY <note_id>`, to consent to one notification when the current activity
+period moves to Expired. Consent does not carry over after the note is promoted
+again. A direct zap has no authenticated requester and therefore creates no
+notification offer.
+
+Outgoing messages and their signed event IDs are stored before publication.
+Delivery is tracked per relay, failed relays are retried after restarts, and
+NIP-17 keeps a separately wrapped sender copy as required for sent-message
+history.
 
 ## Storage and deployment
 
@@ -111,5 +134,5 @@ make build
 
 Entry points: `main.go` for startup, `relay.go` for Nostr handlers,
 `storage.go` for persistence and ranking, `payment.go` for zaps,
-`lightning.go` for wallets, and `promote_api.go` / `billboard.go` for invoice
-promotions and appearance.
+`lightning.go` for wallets, `dm_monitor.go` / `nip17.go` for private messages,
+and `promote_api.go` / `billboard.go` for invoice promotions and appearance.

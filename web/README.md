@@ -51,7 +51,8 @@ instructions](../relay/DEPLOYMENT.md#updating-the-existing-deployment).
 - `src/pages/Billboard.tsx`: board and expired promotions.
 - `src/components/BoardRow/`: ranked note cards.
 - `src/components/BillboardScreen/`: shared billboard display for preview and feed.
-- `src/components/PromoteModal/`: invoice, preview and zap flows.
+- `src/components/PromoteModal/`: invoice, preview, signed zap and NIP-17 DM
+  promotion flows, including optional expiry notification consent.
 - `src/components/TextRenderer/`: note content, links and quote previews.
 - `src/components/ui/` and `src/index.css`: shared controls and styles.
 

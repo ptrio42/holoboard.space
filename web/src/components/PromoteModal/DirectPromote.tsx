@@ -13,7 +13,7 @@ import {
     requestInvoice,
     type PromoteInvoice,
 } from "../../lib/promote";
-import { formatSats } from "../../lib/nostr";
+import { formatSats, parsePubkey, toNpub } from "../../lib/nostr";
 import { ZAP_PRESETS } from "../../config";
 import type { RankingTarget } from "../../lib/ranking";
 import { PromotionAmountPicker } from "./PromotionAmountPicker";
@@ -36,14 +36,15 @@ const MAX_SATS = 10_000_000;
 type Phase =
     | { kind: "idle" }
     | { kind: "requesting" }
-    | { kind: "waiting"; invoice: PromoteInvoice }
-    | { kind: "paid"; sats: number; billboardApplied: boolean; feeConverted: boolean }
+    | { kind: "waiting"; invoice: PromoteInvoice; notificationRequested: boolean }
+    | { kind: "paid"; sats: number; billboardApplied: boolean; feeConverted: boolean; notificationRequested: boolean }
     | { kind: "failed"; message: string };
 
-export function DirectPromote({ initialReference = "", currentWeight, rankingTargets, onPaid }: {
+export function DirectPromote({ initialReference = "", currentWeight, rankingTargets, defaultNotifyPubkey, onPaid }: {
     initialReference?: string;
     currentWeight?: number;
     rankingTargets: RankingTarget[];
+    defaultNotifyPubkey?: string;
     onPaid?: () => void;
 }) {
     const [reference, setReference] = useState(initialReference);
@@ -54,6 +55,8 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     const [preview, setPreview] = useState<NotePreview | null>(null);
     const [previewLoading, setPreviewLoading] = useState(false);
     const [billboardEnabled, setBillboardEnabled] = useState(false);
+    const [notifyEnabled, setNotifyEnabled] = useState(false);
+    const [notifyPubkey, setNotifyPubkey] = useState(() => defaultNotifyPubkey ? toNpub(defaultNotifyPubkey) : "");
     const [config, setConfig] = useState<BillboardConfig>(() => initialBillboard(""));
     const promotionAmount = amount;
     const fee = billboardEnabled && !preview?.billboard ? preview?.billboardFeeSats ?? 0 : 0;
@@ -97,6 +100,11 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
             setPhase({ kind: "failed", message: "Paste a note reference first." });
             return;
         }
+        const contact = notifyEnabled ? parsePubkey(notifyPubkey) : null;
+        if (notifyEnabled && !contact) {
+            setPhase({ kind: "failed", message: "Enter a valid npub to request an expiry notification." });
+            return;
+        }
 
         abort.current?.abort();
         abort.current = new AbortController();
@@ -105,18 +113,18 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         try {
             const controller = abort.current;
             const invoice = await requestInvoice(note, promotionAmount, controller.signal,
-                billboardEnabled ? { billboard: config } : undefined);
-            if (!controller.signal.aborted) setPhase({ kind: "waiting", invoice });
+                billboardEnabled ? { billboard: config } : undefined, contact ?? undefined);
+            if (!controller.signal.aborted) setPhase({ kind: "waiting", invoice, notificationRequested: contact !== null });
         } catch (error) {
             if (!abort.current?.signal.aborted) setPhase({ kind: "failed", message: describeFailure(error) });
         }
-    }, [reference, promotionAmount, billboardEnabled, config]);
+    }, [reference, promotionAmount, billboardEnabled, config, notifyEnabled, notifyPubkey]);
 
     // Watch for the payment while a QR code is on screen.
     useEffect(() => {
         if (phase.kind !== "waiting") return;
 
-        const { invoice } = phase;
+        const { invoice, notificationRequested } = phase;
         const controller = new AbortController();
         let timer: number | undefined;
         const tick = async () => {
@@ -124,7 +132,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                 const progress = await checkProgress(invoice.paymentHash, invoice.noteId, controller.signal);
                 if (controller.signal.aborted) return;
                 if (progress.settled) {
-                    setPhase({ kind: "paid", sats: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted });
+                    setPhase({ kind: "paid", sats: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted, notificationRequested });
                     return;
                 }
                 if (!progress.pending || Date.now() >= invoice.expiresAt * 1000) {
@@ -150,6 +158,9 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                 </p>
                 {phase.billboardApplied && <p className="text-xs text-neon-cyan">Your billboard appearance is now active.</p>}
                 {phase.feeConverted && <p className="text-xs text-neon-gold">Appearance was no longer available. Its fee was credited to ranking promotion instead.</p>}
+                {phase.notificationRequested && <p className="text-xs leading-relaxed text-neon-cyan">
+                    Check your Nostr DMs. Reply YES to Holoboard's activation message to receive one notification when this promotion expires.
+                </p>}
                 <PixelButton onClick={() => { setPhase({ kind: "idle" }); setPreview(null); setBillboardEnabled(false); }}>
                     Promote another
                 </PixelButton>
@@ -236,6 +247,32 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                 <p className="text-neon-gold">Total: {formatSats(promotionAmount + fee)} sats</p>
                 {billboardEnabled && <p className="pt-2 leading-relaxed">If appearance becomes unavailable before settlement,
                     its fee goes toward ranking promotion instead. After the note expires, a new billboard purchase is required.</p>}
+            </div>
+
+            <div className="space-y-2 border-t-2 border-cyan-400/20 pt-3">
+                <label className="flex min-h-11 cursor-pointer items-center gap-3 text-xs text-cyan-100/80">
+                    <input
+                        type="checkbox"
+                        checked={notifyEnabled}
+                        onChange={(event) => setNotifyEnabled(event.target.checked)}
+                        className="h-4 w-4 accent-cyan-300"
+                    />
+                    Offer me one DM when this promotion expires
+                </label>
+                {notifyEnabled && <label className="block space-y-1">
+                    <span className="font-pixel text-[9px] tracking-widest text-cyan-300/50">Notification npub</span>
+                    <input
+                        value={notifyPubkey}
+                        onChange={(event) => setNotifyPubkey(event.target.value)}
+                        placeholder="npub1..."
+                        spellCheck={false}
+                        className="focus-pixel w-full border-2 border-cyan-400/30 bg-void p-2 text-xs
+                            text-cyan-100 placeholder:text-cyan-300/25"
+                    />
+                    <span className="block text-[11px] leading-relaxed text-cyan-300/50">
+                        After payment, Holoboard sends an activation DM. The signed reply YES proves this npub wants the reminder.
+                    </span>
+                </label>}
             </div>
 
             {phase.kind === "failed" && (

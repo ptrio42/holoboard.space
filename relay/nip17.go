@@ -59,6 +59,13 @@ func unwrapGiftWrap(giftWrap *nostr.Event, recipientPrivkey string) (*nostr.Even
 	if giftWrap == nil || giftWrap.Kind != kindGiftWrap {
 		return nil, fmt.Errorf("not a gift wrap")
 	}
+	recipientPubkey, err := nostr.GetPublicKey(recipientPrivkey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive the recipient pubkey: %w", err)
+	}
+	if !hasPubkeyTag(giftWrap.Tags, recipientPubkey) {
+		return nil, fmt.Errorf("gift wrap is not addressed to this recipient")
+	}
 
 	// The wrap's own signature says nothing about the sender, but a wrap that
 	// does not verify is malformed and not worth decrypting.
@@ -82,6 +89,9 @@ func unwrapGiftWrap(giftWrap *nostr.Event, recipientPrivkey string) (*nostr.Even
 	}
 	if seal.Kind != kindSeal {
 		return nil, fmt.Errorf("expected a seal, found kind %d", seal.Kind)
+	}
+	if len(seal.Tags) != 0 {
+		return nil, fmt.Errorf("the seal contains tags")
 	}
 
 	// This is the check the whole scheme rests on.
@@ -109,8 +119,26 @@ func unwrapGiftWrap(giftWrap *nostr.Event, recipientPrivkey string) (*nostr.Even
 	if rumor.PubKey != seal.PubKey {
 		return nil, fmt.Errorf("the message inside claims a different author than the seal")
 	}
+	if rumor.Sig != "" {
+		return nil, fmt.Errorf("the message inside is signed instead of being a rumor")
+	}
+	if rumor.ID == "" || rumor.ID != rumor.GetID() {
+		return nil, fmt.Errorf("the message inside has an invalid id")
+	}
+	if rumor.Kind == kindChatMessage && rumor.PubKey != recipientPubkey && !hasPubkeyTag(rumor.Tags, recipientPubkey) {
+		return nil, fmt.Errorf("the chat message is not addressed to this recipient")
+	}
 
 	return &rumor, nil
+}
+
+func hasPubkeyTag(tags nostr.Tags, pubkey string) bool {
+	for _, tag := range tags {
+		if len(tag) >= 2 && tag[0] == "p" && tag[1] == pubkey {
+			return true
+		}
+	}
+	return false
 }
 
 // wrapMessage builds a kind:1059 carrying a chat message to one recipient.
@@ -120,9 +148,24 @@ func unwrapGiftWrap(giftWrap *nostr.Event, recipientPrivkey string) (*nostr.Even
 // key that exists for this one message, so nothing on the outside links the
 // message to its sender.
 func wrapMessage(content, recipientPubkey, senderPrivkey, replyTo string) (*nostr.Event, error) {
+	message, _, err := wrapMessageDetails(content, recipientPubkey, senderPrivkey, replyTo)
+	return message, err
+}
+
+// wrapMessageDetails also returns the inner chat-message ID. Replies refer to
+// that ID, not to the encrypted gift wrap around it.
+func wrapMessageDetails(content, recipientPubkey, senderPrivkey, replyTo string) (*nostr.Event, string, error) {
+	recipientCopy, _, rumorID, err := wrapMessageCopies(content, recipientPubkey, senderPrivkey, replyTo)
+	return recipientCopy, rumorID, err
+}
+
+// wrapMessageCopies follows NIP-17's requirement to gift-wrap the same rumor
+// separately for the recipient and the sender. The latter is the sender's
+// encrypted history copy; both open to the same unsigned kind 14 event ID.
+func wrapMessageCopies(content, recipientPubkey, senderPrivkey, replyTo string) (*nostr.Event, *nostr.Event, string, error) {
 	senderPubkey, err := nostr.GetPublicKey(senderPrivkey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to derive the sender pubkey: %w", err)
+		return nil, nil, "", fmt.Errorf("failed to derive the sender pubkey: %w", err)
 	}
 
 	// The rumor. Never signed: NIP-59 leaves it unsigned so that a leaked
@@ -142,8 +185,23 @@ func wrapMessage(content, recipientPubkey, senderPrivkey, replyTo string) (*nost
 		Content:   content,
 	}
 	rumor.ID = rumor.GetID()
+	recipientCopy, err := wrapRumor(rumor, recipientPubkey, senderPrivkey)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	senderCopy, err := wrapRumor(rumor, senderPubkey, senderPrivkey)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return recipientCopy, senderCopy, rumor.ID, nil
+}
 
-	sealKey, err := nip44.GenerateConversationKey(recipientPubkey, senderPrivkey)
+func wrapRumor(rumor nostr.Event, envelopeRecipient, senderPrivkey string) (*nostr.Event, error) {
+	senderPubkey, err := nostr.GetPublicKey(senderPrivkey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive the sender pubkey: %w", err)
+	}
+	sealKey, err := nip44.GenerateConversationKey(envelopeRecipient, senderPrivkey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive the seal key: %w", err)
 	}
@@ -165,7 +223,7 @@ func wrapMessage(content, recipientPubkey, senderPrivkey, replyTo string) (*nost
 
 	// A key for this message and nothing else.
 	ephemeralPrivkey := nostr.GeneratePrivateKey()
-	wrapKey, err := nip44.GenerateConversationKey(recipientPubkey, ephemeralPrivkey)
+	wrapKey, err := nip44.GenerateConversationKey(envelopeRecipient, ephemeralPrivkey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive the wrap key: %w", err)
 	}
@@ -177,7 +235,7 @@ func wrapMessage(content, recipientPubkey, senderPrivkey, replyTo string) (*nost
 	giftWrap := &nostr.Event{
 		CreatedAt: backdated(),
 		Kind:      kindGiftWrap,
-		Tags:      nostr.Tags{nostr.Tag{"p", recipientPubkey}},
+		Tags:      nostr.Tags{nostr.Tag{"p", envelopeRecipient}},
 		Content:   wrappedContent,
 	}
 	if err := giftWrap.Sign(ephemeralPrivkey); err != nil {
@@ -211,14 +269,11 @@ func mustJSON(event nostr.Event) string {
 
 // defaultDMRelays is the inbox this relay advertises and reads.
 //
-// Deliberately not the same set as FETCH_RELAYS. Two of those, nos.lol and
-// nostr.mom, refuse NIP-42 with a server-side configuration error, so this
-// relay cannot read its own messages there; advertising them as an inbox
-// invites senders to deliver somewhere nothing will ever be collected. Every
-// relay here has been checked: damus serves the filter unauthenticated, and
-// auth.nostr1.com accepts our AUTH.
+// Deliberately not the same set as FETCH_RELAYS. nos.lol, nostr.mom and
+// relay.damus.io have all failed NIP-42 or availability checks, so advertising
+// them as inboxes would invite senders to deliver where messages are not read.
+// Keep this list at the NIP-17 recommendation of no more than three relays.
 var defaultDMRelays = []string{
-	"wss://relay.damus.io",
 	"wss://relay.primal.net",
 	"wss://offchain.pub",
 	"wss://auth.nostr1.com",
@@ -426,11 +481,16 @@ func recipientInbox(ctx context.Context, pubkey string, searchOn []string) []str
 			if err != nil || len(found) == 0 {
 				return
 			}
+			candidate := found[0]
+			valid, err := candidate.CheckSignature()
+			if err != nil || !valid || candidate.PubKey != pubkey || candidate.Kind != kindDMRelayList {
+				return
+			}
 
 			mu.Lock()
 			defer mu.Unlock()
-			if newest == nil || found[0].CreatedAt > newest.CreatedAt {
-				newest = found[0]
+			if newest == nil || candidate.CreatedAt > newest.CreatedAt {
+				newest = candidate
 			}
 		}(url)
 	}
