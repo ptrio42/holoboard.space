@@ -6,6 +6,8 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+## 2026-09-23
+
 ### Added
 
 - Promote via DM is a first-class option in the promotion dialog. Holoboard
