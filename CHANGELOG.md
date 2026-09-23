@@ -6,11 +6,6 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
-### Changed
-
-- Promotion forms and DM replies now describe the confirmation message and
-  explain how to request a later expiry notification.
-
 ## 2026-09-23
 
 ### Added
@@ -29,6 +24,8 @@ record deployment, not announcement publication.
 
 ### Changed
 
+- Promotion forms and DM replies now describe the confirmation message and
+  explain how to request a later expiry notification.
 - Removed the separate DM tab from the promotion dialog. DM promotions remain
   available directly from Nostr clients.
 - NIP-17 messages use durable per-relay delivery, sender history copies and a
