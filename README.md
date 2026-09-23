@@ -18,14 +18,16 @@ weight without guaranteeing a particular position.
 
 ## Promote a note
 
-Open **Promote** and choose one of three routes:
+Open **Promote** and choose one of two routes:
 
 - **Just pay** needs no login or signer. Paste a note link, `note1`, `nevent1`
   or event ID, choose the amount and pay the Lightning invoice.
 - **Use my nostr key** publishes a promotion command, waits for Holoboard's
   public reply and zaps that reply.
-- **Promote via DM** prepares `PROMOTE <amount> <note>` for a private message to
-  the Holoboard npub. Holoboard answers in the same conversation with an invoice.
+
+From a Nostr client, you can also DM `PROMOTE <amount> <note>` to the Holoboard
+npub. Holoboard answers in the same conversation with a Lightning invoice.
+The full command options are in the [relay README](relay/README.md#promotion-through-nostr).
 
 Use **Load note & preview** to check the content and optionally choose a
 billboard appearance before paying. The payment result confirms your specific

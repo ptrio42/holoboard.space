@@ -8,7 +8,6 @@ import { Spinner } from "../ui/Spinner";
 import { LoginButton } from "../LoginButton/LoginButton";
 import TextRenderer from "../TextRenderer/TextRenderer";
 import { DirectPromote } from "./DirectPromote";
-import { DMPromote } from "./DMPromote";
 import { PromotionAmountPicker } from "./PromotionAmountPicker";
 import { usePromotionFlow, type Stage } from "./usePromotionFlow";
 import { RELAY_PUBKEY, RELAY_URL, ZAP_PRESETS } from "../../config";
@@ -56,7 +55,7 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
      * route publishes a mention as you, which is the only reason a signer is
      * involved at all; nothing about the board requires knowing who you are.
      */
-    const [mode, setMode] = useState<"direct" | "signed" | "dm">("direct");
+    const [mode, setMode] = useState<"direct" | "signed">("direct");
 
     // A link to the ranking explanation has to do three things, since the text
     // lives in a dialog that does not exist until something opens it: open the
@@ -96,7 +95,6 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
                     {([
                         ["direct", "Just pay"],
                         ["signed", "Use my nostr key"],
-                        ["dm", "Promote via DM"],
                     ] as const).map(([key, label]) => (
                         <button
                             key={key}
@@ -136,9 +134,6 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
 
                 {mode === "direct" && <DirectPromote initialReference={initialReference} currentWeight={currentWeight}
                     rankingTargets={rankingTargets} defaultNotifyPubkey={user?.pubkey} onPaid={onPaid} />}
-
-                {mode === "dm" && <DMPromote initialReference={initialReference} currentWeight={currentWeight}
-                    rankingTargets={rankingTargets} />}
 
                 {mode === "signed" && (
                 <div className="space-y-6">

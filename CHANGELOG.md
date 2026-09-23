@@ -6,6 +6,11 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+### Changed
+
+- Removed the separate DM tab from the promotion dialog. DM promotions remain
+  available directly from Nostr clients.
+
 ## 2026-09-23
 
 ### Added
