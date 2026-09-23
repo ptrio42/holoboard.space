@@ -66,13 +66,23 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
 
     useEffect(() => {
         if (openSection !== RANKING_SECTION) return;
-        // After the next paint. The dialog's scroll container has not been laid
-        // out when this first runs, so scrolling now moves nothing.
-        const frame = requestAnimationFrame(() => {
+        // Open first, then scroll after React has laid out the expanded text
+        // and the dialog has placed its initial focus. Target the summary,
+        // rather than centring the entire tall disclosure midway through its
+        // explanation.
+        let scrollFrame = 0;
+        const openFrame = requestAnimationFrame(() => {
             setRankingOpen(true);
-            rankingRef.current?.scrollIntoView({ block: "center" });
+            scrollFrame = requestAnimationFrame(() => {
+                rankingRef.current
+                    ?.querySelector<HTMLElement>("summary")
+                    ?.scrollIntoView({ block: "start", inline: "nearest" });
+            });
         });
-        return () => cancelAnimationFrame(frame);
+        return () => {
+            cancelAnimationFrame(openFrame);
+            cancelAnimationFrame(scrollFrame);
+        };
     }, [openSection]);
 
     const busy = state.stage === "publishing" || state.stage === "awaiting-reply";

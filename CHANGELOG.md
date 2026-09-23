@@ -23,6 +23,11 @@ record deployment, not announcement publication.
 - Public promotion replies show the promoted note as a native quote, making the
   zap target clearer while keeping the original note easy to open.
 
+### Fixed
+
+- The footer's ranking link scrolls the promotion dialog to the start of the
+  ranking explanation.
+
 ## 2026-09-21
 
 ### Fixed
