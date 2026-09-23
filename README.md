@@ -40,11 +40,11 @@ a [NIP-09 deletion request](https://github.com/nostr-protocol/nips/blob/master/0
 for that quote, although Nostr cannot guarantee that every relay and client
 removes its copy.
 
-The payment form can optionally request an expiry notification for an npub.
-DM and public-command promotions request the same offer automatically. After
-payment, reply `YES` to Holoboard's activation DM. Holoboard then sends one DM
-when that promotion period moves to **Expired**. A later revival needs fresh
-consent.
+The payment form can optionally send a confirmation DM to an npub. DM and
+public-command promotions receive a confirmation automatically. Reply directly
+to that DM with `YES` to request one notification when the promotion moves to
+**Expired**. If your client cannot reply to a specific DM, send
+`NOTIFY <note id>` instead. A later revival needs fresh consent.
 
 Promotions are also available through the [relay API](relay/API.md) and Nostr
 messages described in the [relay README](relay/README.md#promotion-through-nostr).

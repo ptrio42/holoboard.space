@@ -8,16 +8,15 @@ record deployment, not announcement publication.
 
 ### Changed
 
-- Removed the separate DM tab from the promotion dialog. DM promotions remain
-  available directly from Nostr clients.
+- Promotion forms and DM replies now describe the confirmation message and
+  explain how to request a later expiry notification.
 
 ## 2026-09-23
 
 ### Added
 
-- Promote via DM is a first-class option in the promotion dialog. Holoboard
-  accepts NIP-17 and legacy NIP-04 `PROMOTE` commands and replies with a
-  Lightning invoice in the same conversation.
+- Holoboard accepts NIP-17 and legacy NIP-04 `PROMOTE` commands and replies
+  with a Lightning invoice in the same conversation.
 - Promoters can opt into one DM when the current promotion moves to Expired.
   A signed `YES` confirmation is required, and a revived promotion asks again.
 - Holoboard publishes one clearly labelled paid-promotion quote when a new note
@@ -30,6 +29,8 @@ record deployment, not announcement publication.
 
 ### Changed
 
+- Removed the separate DM tab from the promotion dialog. DM promotions remain
+  available directly from Nostr clients.
 - NIP-17 messages use durable per-relay delivery, sender history copies and a
   kind 10050 inbox list limited to three working relays.
 - Board rows show the sats currently setting their rank, with historical paid

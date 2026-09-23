@@ -378,7 +378,7 @@ func (dm *DMMonitor) handleCommandEvent(ctx context.Context, sender, text, reply
 
 	case "YES":
 		if wrapped && parentID == "" {
-			return dm.reply(ctx, sender, "Reply YES to the activation message, or send NOTIFY <note id>.", replyTo, wrapped)
+			return dm.reply(ctx, sender, "Reply directly with YES to the promotion confirmation DM, or send NOTIFY <note id>.", replyTo, wrapped)
 		}
 		notification, err := dm.storage.confirmNotification(sender, parentID, "")
 		if err != nil {
@@ -392,7 +392,7 @@ func (dm *DMMonitor) handleCommandEvent(ctx context.Context, sender, text, reply
 		reference := extractEventIDFromText(text)
 		noteID := normalizeEventID(reference)
 		if !isHex64(noteID) {
-			return dm.reply(ctx, sender, "Use NOTIFY <note id>, or reply YES to the activation message.", replyTo, wrapped)
+			return dm.reply(ctx, sender, "Use NOTIFY <note id>, or reply directly with YES to the promotion confirmation DM.", replyTo, wrapped)
 		}
 		notification, err := dm.storage.confirmNotification(sender, replyTo, noteID)
 		if err != nil {

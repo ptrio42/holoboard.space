@@ -137,7 +137,7 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
 
                 {mode === "signed" && (
                 <div className="space-y-6">
-                <p className="text-xs text-cyan-100/70">To buy billboard appearance with a preview, use the Just pay tab. Zaps here add ranking weight and preserve any active appearance. After payment, Holoboard can DM the command author to offer one expiry notification.</p>
+                <p className="text-xs text-cyan-100/70">To buy billboard appearance with a preview, use the Just pay tab. Zaps here add ranking weight and preserve any active appearance. After payment, Holoboard DMs the command author to confirm the promotion. Reply directly with YES to request one expiry notification.</p>
                 <ol className="flex items-center gap-2 font-pixel text-[9px] tracking-widest">
                     {STEPS.map((step, index) => (
                         <li key={step.key} className="flex items-center gap-2">

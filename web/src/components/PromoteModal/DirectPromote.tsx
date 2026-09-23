@@ -102,7 +102,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         }
         const contact = notifyEnabled ? parsePubkey(notifyPubkey) : null;
         if (notifyEnabled && !contact) {
-            setPhase({ kind: "failed", message: "Enter a valid npub to request an expiry notification." });
+            setPhase({ kind: "failed", message: "Enter a valid npub for the confirmation DM." });
             return;
         }
 
@@ -159,7 +159,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                 {phase.billboardApplied && <p className="text-xs text-neon-cyan">Your billboard appearance is now active.</p>}
                 {phase.feeConverted && <p className="text-xs text-neon-gold">Appearance was no longer available. Its fee was credited to ranking promotion instead.</p>}
                 {phase.notificationRequested && <p className="text-xs leading-relaxed text-neon-cyan">
-                    Check your Nostr DMs. Reply YES to Holoboard's activation message to receive one notification when this promotion expires.
+                    Check your Nostr DMs for confirmation. Reply directly with YES if you want an expiry notification.
                 </p>}
                 <PixelButton onClick={() => { setPhase({ kind: "idle" }); setPreview(null); setBillboardEnabled(false); }}>
                     Promote another
@@ -257,10 +257,10 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                         onChange={(event) => setNotifyEnabled(event.target.checked)}
                         className="h-4 w-4 accent-cyan-300"
                     />
-                    Offer me one DM when this promotion expires
+                    Send me a DM confirming the promotion
                 </label>
                 {notifyEnabled && <label className="block space-y-1">
-                    <span className="font-pixel text-[9px] tracking-widest text-cyan-300/50">Notification npub</span>
+                    <span className="font-pixel text-[9px] tracking-widest text-cyan-300/50">Npub for confirmation</span>
                     <input
                         value={notifyPubkey}
                         onChange={(event) => setNotifyPubkey(event.target.value)}
@@ -270,7 +270,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                             text-cyan-100 placeholder:text-cyan-300/25"
                     />
                     <span className="block text-[11px] leading-relaxed text-cyan-300/50">
-                        After payment, Holoboard sends an activation DM. The signed reply YES proves this npub wants the reminder.
+                        After payment, reply directly to the confirmation DM with YES if you want one notification when the note moves to Expired.
                     </span>
                 </label>}
             </div>

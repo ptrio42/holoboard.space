@@ -31,8 +31,7 @@ Omitting `amount_sats`, or passing zero for an ordinary promotion, uses
 `note_id`, `expires_at` (Unix seconds), total `amount_sats`, `promotion_sats` and
 `billboard_fee_sats`.
 
-To ask Holoboard to offer one expiry notification, add an npub or a
-64-character hex public key:
+To request a confirmation DM, add an npub or a 64-character hex public key:
 
 ```json
 {
@@ -43,10 +42,11 @@ To ask Holoboard to offer one expiry notification, add an npub or a
 ```
 
 The field is optional and does not authenticate the request. After settlement,
-Holoboard sends an activation DM using NIP-17. The recipient must reply `YES`,
-or send `NOTIFY <note_id>`, before one notification is scheduled for the
-current activity period. Invalid public keys return HTTP 400. The public key is
-kept in private relay storage and is not returned by board APIs.
+Holoboard sends a confirmation DM using NIP-17. The recipient must reply
+directly with `YES` to that DM, or send `NOTIFY <note_id>`, before one
+notification is scheduled for the current activity period. Invalid public keys
+return HTTP 400. The public key is kept in private relay storage and is not
+returned by board APIs.
 
 To buy appearance, add `billboard`:
 

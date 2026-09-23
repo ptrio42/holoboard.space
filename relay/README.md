@@ -106,8 +106,8 @@ reads the previously advertised Damus inbox during the transition. A custom
 go only to the recipient's own kind 10050 relays; no list means no speculative
 fallback delivery.
 
-After a DM invoice or public promotion reply is paid, Holoboard sends an
-activation DM to the requester. Reply `YES` to that message, or send
+After a DM invoice or public promotion reply is paid, Holoboard sends a
+confirmation DM to the requester. Reply directly to it with `YES`, or send
 `NOTIFY <note_id>`, to consent to one notification when the current activity
 period moves to Expired. Consent does not carry over after the note is promoted
 again. A direct zap has no authenticated requester and therefore creates no

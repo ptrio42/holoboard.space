@@ -441,7 +441,7 @@ func (s *Storage) confirmNotification(sender, replyTo, noteID string) (*Promotio
 		}
 	}
 	if len(matches) != 1 {
-		return nil, fmt.Errorf("I could not match that confirmation. Reply YES to the activation message, or send NOTIFY <note id>.")
+		return nil, fmt.Errorf("I could not match that promotion. Reply directly with YES to its confirmation DM, or send NOTIFY <note id>.")
 	}
 	originalOutbox := cloneDMOutbox(s.dmOutbox)
 	matches[0].State = notificationConfirmed
