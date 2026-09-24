@@ -11,15 +11,3 @@ interface ImportMetaEnv {
 interface ImportMeta {
     readonly env: ImportMetaEnv;
 }
-
-/** NIP-07 browser extension, and WebLN, both injected by wallets. */
-interface Window {
-    nostr?: {
-        getPublicKey(): Promise<string>;
-        signEvent(event: unknown): Promise<unknown>;
-    };
-    webln?: {
-        enable(): Promise<void>;
-        sendPayment(invoice: string): Promise<{ preimage: string }>;
-    };
-}

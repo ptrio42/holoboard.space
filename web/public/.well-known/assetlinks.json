@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "space.holoboard.app",
+        "sha256_cert_fingerprints": ["3D:65:11:57:D6:5A:C3:CA:CF:B2:D5:0A:3A:17:60:46:AC:FA:16:B3:56:8A:DD:69:D9:7D:FF:8F:29:A1:3E:F7"]
+      }
+    }]

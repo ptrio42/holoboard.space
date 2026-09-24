@@ -111,11 +111,7 @@ export default function Billboard() {
             </a>
 
             <header className="mb-10 space-y-6">
-                {/* No sign-in here on purpose. Reading the board needs no key,
-                    and neither does paying to promote; the only route that
-                    wants a signer is the "Use my nostr key" tab, which asks for
-                    one itself. A connect button on the way in advertised a
-                    requirement that does not exist. */}
+                {/* Reading the board and paying to promote need no key or account session. */}
                 <RelayBadge status={relayStatus} />
 
                 <div className="space-y-4 text-center">

@@ -1,0 +1,52 @@
+{
+  "packageId": "space.holoboard.app",
+  "host": "holoboard.space",
+  "name": "Holoboard",
+  "launcherName": "Holoboard",
+  "display": "standalone",
+  "themeColor": "#05010D",
+  "themeColorDark": "#000000",
+  "navigationColor": "#000000",
+  "navigationColorDark": "#000000",
+  "navigationDividerColor": "#000000",
+  "navigationDividerColorDark": "#000000",
+  "backgroundColor": "#05010D",
+  "enableNotifications": false,
+  "startUrl": "/",
+  "iconUrl": "https://holoboard.space/icons/pwa-512x512.png",
+  "maskableIconUrl": "https://holoboard.space/icons/pwa-maskable-512x512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./private/release.p12",
+    "alias": "holoboard"
+  },
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://holoboard.space/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://holoboard.space/",
+  "minSdkVersion": 21,
+  "orientation": "default",
+  "fingerprints": [
+    {
+      "name": "release",
+      "value": "3D:65:11:57:D6:5A:C3:CA:CF:B2:D5:0A:3A:17:60:46:AC:FA:16:B3:56:8A:DD:69:D9:7D:FF:8F:29:A1:3E:F7"
+    }
+  ],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": [],
+  "protocolHandlers": [],
+  "fileHandlers": [],
+  "launchHandlerClientMode": "",
+  "displayOverride": [],
+  "appVersion": "1.0.0"
+}

@@ -17,3 +17,14 @@ Thumbs.db
 # Docker Compose settings and local backups
 /.env
 /backups/
+
+# Android build outputs and local signing material
+/android/node_modules/
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/private/
+/android/local.properties
+/android/*.apk
+/android/*.aab
+/android/*.idsig

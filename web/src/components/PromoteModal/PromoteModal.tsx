@@ -1,17 +1,9 @@
-import { useEffect, useId, useRef, useState } from "react";
-import { useNDKCurrentUser } from "@nostr-dev-kit/react";
+import { useEffect, useRef, useState } from "react";
 import { Modal } from "../ui/Modal";
-import { PixelButton, PixelLink } from "../ui/PixelButton";
 import { CopyButton } from "../ui/CopyButton";
-import { QrCode } from "../ui/QrCode";
-import { Spinner } from "../ui/Spinner";
-import { LoginButton } from "../LoginButton/LoginButton";
-import TextRenderer from "../TextRenderer/TextRenderer";
 import { DirectPromote } from "./DirectPromote";
-import { PromotionAmountPicker } from "./PromotionAmountPicker";
-import { usePromotionFlow, type Stage } from "./usePromotionFlow";
-import { RELAY_PUBKEY, RELAY_URL, ZAP_PRESETS } from "../../config";
-import { formatSats, toNpub } from "../../lib/nostr";
+import { RELAY_PUBKEY, RELAY_URL } from "../../config";
+import { toNpub } from "../../lib/nostr";
 import type { RankingTarget } from "../../lib/ranking";
 
 /** The disclosure a link can point at, so it opens already unfolded. */
@@ -27,36 +19,8 @@ interface PromoteModalProps {
     onPaid?: () => void;
 }
 
-const STEPS: { key: string; label: string; stages: Stage[] }[] = [
-    { key: "mention", label: "Mention", stages: ["compose", "publishing"] },
-    { key: "reply", label: "Reply", stages: ["awaiting-reply"] },
-    { key: "zap", label: "Zap", stages: ["choose-amount", "invoice", "paid"] },
-];
-
 /** Rendered only while open; closing unmounts it, which is what clears the flow. */
 export function PromoteModal({ onClose, openSection, initialReference = "", currentWeight, rankingTargets = [], onPaid }: PromoteModalProps) {
-    const user = useNDKCurrentUser();
-    const { state, submitNote, zapReply } = usePromotionFlow();
-    const [reference, setReference] = useState(initialReference);
-    const paidCallback = useRef(onPaid);
-    useEffect(() => { paidCallback.current = onPaid; }, [onPaid]);
-    const notified = useRef(false);
-    useEffect(() => {
-        if (state.stage === "paid" && !notified.current) {
-            notified.current = true;
-            paidCallback.current?.();
-        }
-        if (state.stage !== "paid") notified.current = false;
-    }, [state.stage]);
-    const [amount, setAmount] = useState<number>(ZAP_PRESETS[1]);
-    const inputId = useId();
-    /*
-     * Two ways in, and the one that needs no key is the default. The other
-     * route publishes a mention as you, which is the only reason a signer is
-     * involved at all; nothing about the board requires knowing who you are.
-     */
-    const [mode, setMode] = useState<"direct" | "signed">("direct");
-
     // A link to the ranking explanation has to do three things, since the text
     // lives in a dialog that does not exist until something opens it: open the
     // dialog, unfold the section, and put it in view. The first is the caller's
@@ -85,36 +49,11 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
         };
     }, [openSection]);
 
-    const busy = state.stage === "publishing" || state.stage === "awaiting-reply";
-    const activeStep = STEPS.findIndex((step) => step.stages.includes(state.stage));
-
     return (
         <Modal isOpen onClose={onClose} title="Promote a note" panelClassName="max-w-3xl">
             <div className="space-y-6 text-sm text-cyan-100/85">
-                <div className="flex flex-wrap gap-2 font-pixel text-[9px] tracking-widest" role="tablist">
-                    {([
-                        ["direct", "Just pay"],
-                        ["signed", "Use my nostr key"],
-                    ] as const).map(([key, label]) => (
-                        <button
-                            key={key}
-                            type="button"
-                            role="tab"
-                            aria-selected={mode === key}
-                            onClick={() => setMode(key)}
-                            className={`focus-pixel border-2 px-3 py-1 ${
-                                mode === key
-                                    ? "border-neon-gold text-neon-gold"
-                                    : "border-cyan-400/25 text-cyan-300/50 hover:text-neon-cyan"
-                            }`}
-                        >
-                            {label}
-                        </button>
-                    ))}
-                </div>
-
                 {/*
-                 * Shown on both routes, above either of them, because the point
+                 * Shown above the payment form, because the point
                  * is to be read before the money moves rather than found
                  * afterwards. It names what comes down without promising that
                  * everything will be looked at: a claim to review every note
@@ -132,174 +71,8 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
                     </p>
                 </section>
 
-                {mode === "direct" && <DirectPromote initialReference={initialReference} currentWeight={currentWeight}
-                    rankingTargets={rankingTargets} defaultNotifyPubkey={user?.pubkey} onPaid={onPaid} />}
-
-                {mode === "signed" && (
-                <div className="space-y-6">
-                <p className="text-xs text-cyan-100/70">To buy billboard appearance with a preview, use the Just pay tab. Zaps here add ranking weight and preserve any active appearance. After payment, Holoboard DMs the command author to confirm the promotion. Reply directly with YES to request one expiry notification.</p>
-                <ol className="flex items-center gap-2 font-pixel text-[9px] tracking-widest">
-                    {STEPS.map((step, index) => (
-                        <li key={step.key} className="flex items-center gap-2">
-                            <span
-                                className={
-                                    index < activeStep
-                                        ? "text-neon-cyan"
-                                        : index === activeStep
-                                          ? "text-neon-gold"
-                                          : "text-cyan-300/30"
-                                }
-                            >
-                                {index + 1}. {step.label}
-                            </span>
-                            {index < STEPS.length - 1 && <span className="text-cyan-300/25">&gt;</span>}
-                        </li>
-                    ))}
-                </ol>
-
-                <p aria-live="polite" className="sr-only">
-                    {stageAnnouncement(state.stage)}
-                </p>
-
-                {state.error && (
-                    <p
-                        role="alert"
-                        className="border-2 border-neon-pink/60 bg-pink-950/30 p-3 leading-relaxed text-pink-200"
-                    >
-                        {state.error}
-                    </p>
-                )}
-
-                {(state.stage === "compose" || busy) && (
-                    <section className="space-y-4">
-                        <p className="leading-relaxed">
-                            Point at any note on Nostr. Holoboard mentions it for you, the relay
-                            answers with a promotional reply, and zapping that reply is what puts the
-                            note on the board. Rank is sats, and recent sats count for more, so a note
-                            nobody pays for slides down.
-                        </p>
-
-                        {!user ? (
-                            <div className="flex flex-col items-start gap-3 border-2 border-cyan-400/30 p-4">
-                                <p className="font-pixel text-[10px] leading-relaxed text-neon-gold">
-                                    Connect a signer to continue
-                                </p>
-                                <LoginButton />
-                            </div>
-                        ) : (
-                            <form
-                                className="space-y-3"
-                                onSubmit={(event) => {
-                                    event.preventDefault();
-                                    void submitNote(reference);
-                                }}
-                            >
-                                <label
-                                    htmlFor={inputId}
-                                    className="block font-pixel text-[10px] tracking-widest text-neon-pink"
-                                >
-                                    Note to promote
-                                </label>
-                                <input
-                                    id={inputId}
-                                    value={reference}
-                                    onChange={(event) => setReference(event.target.value)}
-                                    disabled={busy}
-                                    spellCheck={false}
-                                    autoComplete="off"
-                                    placeholder="note1... / nevent1... / 64-char id / njump link"
-                                    aria-describedby={`${inputId}-hint`}
-                                    className="focus-pixel w-full border-2 border-cyan-400/40 bg-void px-3 py-3
-                                        text-cyan-100 placeholder:text-cyan-300/30 disabled:opacity-50"
-                                />
-                                <p id={`${inputId}-hint`} className="text-xs text-cyan-300/50">
-                                    Anyone can promote anyone's note. It does not have to be yours.
-                                </p>
-                                <div className="flex items-center gap-3">
-                                    <PixelButton type="submit" disabled={busy || !reference.trim()}>
-                                        {state.stage === "publishing" ? "Publishing..." : "Promote"}
-                                    </PixelButton>
-                                    {busy && (
-                                        <span className="flex items-center gap-2 text-xs text-cyan-300/70">
-                                            <Spinner label="Working" />
-                                            {state.stage === "awaiting-reply"
-                                                ? "Waiting for the relay to answer"
-                                                : "Signing and publishing"}
-                                        </span>
-                                    )}
-                                </div>
-                            </form>
-                        )}
-                    </section>
-                )}
-
-                {state.stage === "choose-amount" && state.reply && (
-                    <section className="space-y-4">
-                        <div className="border-2 border-cyan-400/30 bg-void/60 p-4">
-                            <p className="mb-2 font-pixel text-[9px] tracking-widest text-neon-gold">
-                                The relay answered
-                            </p>
-                            <div className="max-h-80 overflow-y-auto text-xs leading-relaxed text-cyan-100/70">
-                                <TextRenderer text={state.reply.content.trim()} tags={state.reply.tags} ownId={state.reply.id} />
-                            </div>
-                        </div>
-
-                        <PromotionAmountPicker amount={amount}
-                            currentWeight={reference.trim() === initialReference ? currentWeight : 0}
-                            targets={rankingTargets} onChange={setAmount} />
-
-                        <PixelButton variant="accent" onClick={() => void zapReply(amount)}>
-                            Zap {formatSats(amount)} sats
-                        </PixelButton>
-                    </section>
-                )}
-
-                {state.stage === "invoice" && (
-                    <section className="space-y-4">
-                        <p className="font-pixel text-[10px] leading-relaxed text-neon-gold">
-                            Pay {formatSats(state.amountSats ?? 0)} sats
-                        </p>
-                        {state.invoice ? (
-                            <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
-                                <QrCode value={state.invoice} label="Lightning invoice QR code" />
-                                <div className="w-full space-y-3">
-                                    <code className="block max-h-24 overflow-y-auto border-2 border-cyan-400/30 bg-void p-2
-                                        text-[10px] break-all text-cyan-200/80 select-all">
-                                        {state.invoice}
-                                    </code>
-                                    <div className="flex flex-wrap gap-2">
-                                        <CopyButton value={state.invoice} label="Copy invoice" />
-                                        <PixelLink href={`lightning:${state.invoice}`} size="sm">
-                                            Open in wallet
-                                        </PixelLink>
-                                    </div>
-                                    <p className="flex items-center gap-2 text-xs text-cyan-300/70">
-                                        <Spinner label="Waiting for payment" />
-                                        Waiting for the zap receipt
-                                    </p>
-                                </div>
-                            </div>
-                        ) : (
-                            <p className="flex items-center gap-2 text-xs text-cyan-300/70">
-                                <Spinner label="Fetching invoice" /> Asking the relay's wallet for an invoice
-                            </p>
-                        )}
-                    </section>
-                )}
-
-                {state.stage === "paid" && (
-                    <section className="space-y-4">
-                        <p className="font-pixel text-xs leading-relaxed text-neon-gold">Paid</p>
-                        <p className="leading-relaxed">
-                            The zap receipt landed. The relay books the sats and the note joins the
-                            board at its new rank. Refresh in a moment if it is not there yet.
-                        </p>
-                        <PixelButton onClick={onClose}>Back to the board</PixelButton>
-                    </section>
-                )}
-
-                </div>
-                )}
+                <DirectPromote initialReference={initialReference} currentWeight={currentWeight}
+                    rankingTargets={rankingTargets} onPaid={onPaid} />
 
                 {/*
                  * Spelled out rather than summarised, because somebody about to
@@ -365,7 +138,7 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
                                 Mention the relay from any client
                             </p>
                             <p className="text-cyan-100/70">
-                                This is the flow above, done by hand. Write a note that tags the
+                                Write a note that tags the
                                 relay's npub, below, and contains the note you want promoted. The
                                 relay answers with a promotional reply; zap that reply to put the
                                 note on the board. The complete <code>promote</code> command is
@@ -410,21 +183,4 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
             </div>
         </Modal>
     );
-}
-
-function stageAnnouncement(stage: Stage): string {
-    switch (stage) {
-        case "publishing":
-            return "Publishing the mention.";
-        case "awaiting-reply":
-            return "Waiting for the relay to reply.";
-        case "choose-amount":
-            return "The relay replied. Choose an amount to zap.";
-        case "invoice":
-            return "Invoice ready. Waiting for payment.";
-        case "paid":
-            return "Payment received.";
-        default:
-            return "";
-    }
 }

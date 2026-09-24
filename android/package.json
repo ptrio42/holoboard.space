@@ -1,0 +1,10 @@
+{
+  "name": "holoboard-android",
+  "private": true,
+  "scripts": {
+    "build": "bubblewrap build"
+  },
+  "devDependencies": {
+    "@bubblewrap/cli": "1.25.0"
+  }
+}

@@ -13,7 +13,7 @@ import {
     requestInvoice,
     type PromoteInvoice,
 } from "../../lib/promote";
-import { formatSats, parsePubkey, toNpub } from "../../lib/nostr";
+import { formatSats, parsePubkey } from "../../lib/nostr";
 import { ZAP_PRESETS } from "../../config";
 import type { RankingTarget } from "../../lib/ranking";
 import { PromotionAmountPicker } from "./PromotionAmountPicker";
@@ -21,10 +21,7 @@ import { PromotionAmountPicker } from "./PromotionAmountPicker";
 /**
  * Promoting with nothing but a note and a payment.
  *
- * The other route in this dialog signs and publishes a mention as you, which is
- * why it needs an extension. Nothing about the board requires that: the relay
- * never checks who asked. This is the version for a phone, or for anybody who
- * would rather not connect a key to a website.
+ * The relay never checks who asked, so a note and a Lightning payment are enough.
  */
 
 /** How often to ask whether the invoice has been paid. */
@@ -40,11 +37,10 @@ type Phase =
     | { kind: "paid"; sats: number; billboardApplied: boolean; feeConverted: boolean; notificationRequested: boolean }
     | { kind: "failed"; message: string };
 
-export function DirectPromote({ initialReference = "", currentWeight, rankingTargets, defaultNotifyPubkey, onPaid }: {
+export function DirectPromote({ initialReference = "", currentWeight, rankingTargets, onPaid }: {
     initialReference?: string;
     currentWeight?: number;
     rankingTargets: RankingTarget[];
-    defaultNotifyPubkey?: string;
     onPaid?: () => void;
 }) {
     const [reference, setReference] = useState(initialReference);
@@ -56,7 +52,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     const [previewLoading, setPreviewLoading] = useState(false);
     const [billboardEnabled, setBillboardEnabled] = useState(false);
     const [notifyEnabled, setNotifyEnabled] = useState(false);
-    const [notifyPubkey, setNotifyPubkey] = useState(() => defaultNotifyPubkey ? toNpub(defaultNotifyPubkey) : "");
+    const [notifyPubkey, setNotifyPubkey] = useState("");
     const [config, setConfig] = useState<BillboardConfig>(() => initialBillboard(""));
     const promotionAmount = amount;
     const fee = billboardEnabled && !preview?.billboard ? preview?.billboardFeeSats ?? 0 : 0;

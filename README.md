@@ -18,16 +18,13 @@ weight without guaranteeing a particular position.
 
 ## Promote a note
 
-Open **Promote** and choose one of two routes:
+Open **Promote**, paste a note link, `note1`, `nevent1` or event ID, choose
+the amount and pay the Lightning invoice. No login or signer is needed.
 
-- **Just pay** needs no login or signer. Paste a note link, `note1`, `nevent1`
-  or event ID, choose the amount and pay the Lightning invoice.
-- **Use my nostr key** publishes a promotion command, waits for Holoboard's
-  public reply and zaps that reply.
-
-From a Nostr client, you can also DM `PROMOTE <amount> <note>` to the Holoboard
-npub. Holoboard answers in the same conversation with a Lightning invoice.
-The full command options are in the [relay README](relay/README.md#promotion-through-nostr).
+From a Nostr client, you can also mention Holoboard with a promotion command
+and zap its reply, zap the account with the note reference in the comment, or
+DM `PROMOTE <amount> <note>` to receive an invoice. The full command options
+are in the [relay README](relay/README.md#promotion-through-nostr).
 
 Use **Load note & preview** to check the content and optionally choose a
 billboard appearance before paying. The payment result confirms your specific
@@ -103,6 +100,7 @@ updates, troubleshooting and public hosting.
 
 - [web/](web/README.md): React frontend, setup, configuration and checks.
 - [relay/](relay/README.md): Go relay, payment processing and storage.
+- [Android release guide](docs/android-release.md): build and publish the Zapstore app.
 - [HTTP API](relay/API.md): integration reference for other clients.
 
 ## Nostr interoperability

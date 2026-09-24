@@ -6,6 +6,15 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+### Added
+
+- An Android app that opens Holoboard through the verified website.
+
+### Changed
+
+- The promotion dialog now has one invoice flow. Public promotion commands
+  and zaps remain available from Nostr clients.
+
 ## 2026-09-23
 
 ### Added
