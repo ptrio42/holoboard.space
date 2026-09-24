@@ -41,11 +41,11 @@ apksigner verify --print-certs android/app-release-signed.apk
 aapt dump badging android/app-release-signed.apk
 ```
 
-Confirm package ID `space.holoboard.app`, version `1.0.0` (code `1`) and the
-fingerprint above. Install the APK on Android with a browser that supports
-Trusted Web Activities, then check the board, invoice promotion, preview and
-external wallet links. The verified fullscreen experience requires the new
-`assetlinks.json` to be live first.
+Confirm package ID `space.holoboard.app`, the version name and code from
+`android/twa-manifest.json`, and the fingerprint above. Install the APK on
+Android with a browser that supports Trusted Web Activities, then check the
+board, invoice promotion, preview and external wallet links. The verified
+fullscreen experience requires the new `assetlinks.json` to be live first.
 
 ## Publish to Zapstore
 
@@ -53,17 +53,29 @@ The repository root contains `zapstore.yaml`. Its APK source is the locally
 built signed APK. Screenshots in `android/store/screenshots/` are store assets;
 update them when the UI changes.
 
-Install [`zsp`](https://zapstore.dev/docs/publish), then run from the repository
-root:
+Install [zsp v0.4.17](https://github.com/zapstore/zsp/releases/tag/v0.4.17),
+which supports the browser signer used for this release. A prebuilt binary is
+available for supported systems, or install it with Go 1.25:
+
+```bash
+go install github.com/zapstore/zsp@v0.4.17
+```
+
+Run from the repository root:
 
 ```bash
 zsp publish --check zapstore.yaml
+SIGN_WITH=browser zsp identity --link-key android/private/release.p12 --link-key-expiry 2y
 SIGN_WITH=browser zsp publish zapstore.yaml
 ```
 
-The first publish also links the Android signing certificate to the publisher
-Nostr identity. Use the `holoboard` keystore above when `zsp` requests it. The
-publisher key is public; the Nostr signing key stays in the browser signer.
+Run the identity command for the first release and renew the proof before it
+expires. It links the Android signing certificate to the publisher
+Nostr identity. Use the `holoboard` keystore above when `zsp` requests it and
+check that the displayed npub matches `zapstore.yaml` before publishing the
+proof. The publisher key is public; the Nostr signing key stays in the browser
+signer. After publication, check the app listing and compare the downloaded
+APK's SHA-256 hash with the signed local APK.
 
 Get approval before pushing to `main`, deploying the website, or publishing
 the Zapstore events. Deploy the website and verify its `assetlinks.json` before

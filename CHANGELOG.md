@@ -6,6 +6,8 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+## 2026-09-24
+
 ### Added
 
 - An Android app that opens Holoboard through the verified website.
