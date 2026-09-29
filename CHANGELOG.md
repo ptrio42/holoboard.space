@@ -6,6 +6,14 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+## 2026-09-29
+
+### Fixed
+
+- Public promotion requests recover after a relay refuses or drops a mention
+  subscription, including requests sent during a brief disconnect. Replies
+  retry delivery to relays that were temporarily unavailable.
+
 ## 2026-09-24
 
 ### Added

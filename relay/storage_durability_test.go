@@ -137,31 +137,6 @@ func TestMentionWatermarkSurvivesRestart(t *testing.T) {
 	}
 }
 
-func TestMentionResumePoint(t *testing.T) {
-	now := time.Unix(1_800_000_000, 0)
-	floor := now.Add(-maxMentionBacklog).Unix()
-
-	cases := []struct {
-		name      string
-		watermark int64
-		want      int64
-	}{
-		{"no watermark starts at the backlog floor", 0, floor},
-		{"a recent watermark is used as is", floor + 3600, floor + 3600},
-		{"an ancient watermark is clamped", 1, floor},
-		{"a negative watermark is ignored", -5, floor},
-		{"a watermark from the future is left alone", now.Unix() + 60, now.Unix() + 60},
-	}
-
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := mentionResumePoint(c.watermark, now); got != c.want {
-				t.Errorf("mentionResumePoint(%d) = %d, want %d", c.watermark, got, c.want)
-			}
-		})
-	}
-}
-
 // TestQuiesceReturnsWhenSavesAreDone is a smoke test: it must not deadlock, and
 // it must not return while the lock is held elsewhere.
 func TestQuiesceReturnsWhenSavesAreDone(t *testing.T) {

@@ -290,6 +290,7 @@ func main() {
 
 	// Start mention monitor to watch for relay pubkey tags (promotional flow)
 	mentionMonitor := NewMentionMonitor(relayPubkey, relayPrivkey, storage, fetcher, pool)
+	mentionMonitor.SetAccountPublisher(accountPublisher)
 	mentionMonitor.Start(ctx, fetchRelays)
 	log.Printf("Mention monitor started, watching for @relay mentions")
 
@@ -448,6 +449,7 @@ func main() {
 		cancel()
 		accountPublisher.Wait()
 		dmMonitor.Wait()
+		mentionMonitor.Wait()
 
 		// Khatru creates its http.Server inside Start. Waiting for its startup
 		// notification keeps Shutdown from racing that initialization when a

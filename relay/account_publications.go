@@ -23,6 +23,10 @@ func deletionPublicationKey(eventID string) string {
 	return "deletion:" + eventID
 }
 
+func replyPublicationKey(mentionID string) string {
+	return "reply:" + mentionID
+}
+
 func newAccountPublication(kind, noteID string, event *nostr.Event, targets []string) *AccountPublication {
 	return &AccountPublication{
 		Type:    kind,
@@ -94,6 +98,30 @@ func (s *Storage) QuotePublication(noteID string) (*AccountPublication, bool) {
 		return nil, false
 	}
 	return cloneAccountPublication(record), true
+}
+
+// QueuePromotionalReply commits the signed reply, its zap mapping and the
+// processed mention together. A retry must publish this same event ID.
+func (s *Storage) QueuePromotionalReply(mentionID, noteID, requester string, reply *nostr.Event, targets []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	key := replyPublicationKey(mentionID)
+	if _, exists := s.accountPublications[key]; exists {
+		return nil
+	}
+	s.accountPublications[key] = newAccountPublication(accountPublicationReply, noteID, reply, targets)
+	s.promotionalReplies[reply.ID] = noteID
+	s.promotionRequesters[reply.ID] = requester
+	s.processedMentions[mentionID] = true
+	if err := s.save(); err != nil {
+		delete(s.accountPublications, key)
+		delete(s.promotionalReplies, reply.ID)
+		delete(s.promotionRequesters, reply.ID)
+		delete(s.processedMentions, mentionID)
+		return fmt.Errorf("save promotional reply: %w", err)
+	}
+	return nil
 }
 
 func (s *Storage) PendingAccountPublications() []PendingAccountPublication {

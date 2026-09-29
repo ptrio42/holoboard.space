@@ -99,6 +99,7 @@ type PendingInvoice struct {
 const (
 	accountPublicationQuote    = "quote"
 	accountPublicationDeletion = "deletion"
+	accountPublicationReply    = "reply"
 )
 
 // AccountPublication is one signed event the board account must deliver.

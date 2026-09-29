@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -20,6 +21,8 @@ type MentionMonitor struct {
 	storage     *Storage
 	fetcher     *PostFetcher
 	pool        *nostr.SimplePool
+	publisher   *AccountPublisher
+	runner      sync.WaitGroup
 }
 
 // NewMentionMonitor creates a new mention monitor
@@ -33,43 +36,143 @@ func NewMentionMonitor(relayPubkey, relaySeckey string, storage *Storage, fetche
 	}
 }
 
+func (mm *MentionMonitor) SetAccountPublisher(publisher *AccountPublisher) {
+	mm.publisher = publisher
+}
+
 // Start begins monitoring for mentions
 func (mm *MentionMonitor) Start(ctx context.Context, relays []string) {
 	log.Printf("Starting mention monitor for pubkey %s", mm.relayPubkey)
 
-	// Resume from where the last run got to, so mentions sent during a restart
-	// or a deploy are not silently dropped. Bounded, because a relay that was
-	// off for a month should not wake up and replay a month of mentions at
-	// everyone who wrote to it.
-	since := nostr.Timestamp(mentionResumePoint(mm.storage.MentionWatermark(), time.Now()))
+	// Keep relay subscriptions independent. In go-nostr's SubMany, a CLOSED
+	// response from one relay cancels every subscription, leaving this monitor
+	// silent until the process restarts.
+	events := make(chan *nostr.Event)
+	var watchers sync.WaitGroup
+	for _, url := range relays {
+		watchers.Add(1)
+		go func(url string) {
+			defer watchers.Done()
+			mm.followRelay(ctx, url, events)
+		}(url)
+	}
+	go func() {
+		watchers.Wait()
+		close(events)
+	}()
+
+	mm.runner.Add(1)
+	go func() {
+		defer mm.runner.Done()
+		for event := range events {
+			// Process mention
+			if err := mm.ProcessMention(ctx, event); err != nil {
+				log.Printf("Failed to process mention from %s: %v", event.PubKey, err)
+			}
+			// Keep the newest event time for diagnostics. Reconnects use the
+			// bounded lookback instead of this watermark to catch late events.
+			if err := mm.storage.AdvanceMentionWatermark(int64(event.CreatedAt)); err != nil {
+				log.Printf("Failed to advance mention watermark: %v", err)
+			}
+		}
+		log.Printf("Mention monitor stopped")
+	}()
+
+	log.Printf("Mention monitor started, watching %d relays", len(relays))
+}
+
+func (mm *MentionMonitor) Wait() {
+	mm.runner.Wait()
+}
+
+// followRelay retries one relay without disrupting the others. Repeated quick
+// refusals back off, while a connection that lasted a minute starts over at
+// the shortest delay.
+func (mm *MentionMonitor) followRelay(ctx context.Context, url string, out chan<- *nostr.Event) {
+	const (
+		minBackoff = 3 * time.Second
+		maxBackoff = 2 * time.Minute
+	)
+	backoff := minBackoff
+
+	for ctx.Err() == nil {
+		started := time.Now()
+		mm.followOnce(ctx, url, out)
+		if ctx.Err() != nil {
+			return
+		}
+		if time.Since(started) >= time.Minute {
+			backoff = minBackoff
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+		if backoff < maxBackoff {
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		}
+	}
+}
+
+func (mm *MentionMonitor) followOnce(ctx context.Context, url string, out chan<- *nostr.Event) {
+	relay, err := nostr.RelayConnect(ctx, url)
+	if err != nil {
+		log.Printf("Mention monitor could not connect to %s: %v", url, err)
+		return
+	}
+	// Re-read a bounded window on every connection. A stored high watermark
+	// can otherwise hide an older mention delivered late by a different relay.
+	// ProcessMention ignores events already recorded in processed_mentions.
+	since := nostr.Timestamp(time.Now().Add(-maxMentionBacklog).Unix())
 	filter := nostr.Filter{
 		Kinds: []int{1},
 		Tags:  nostr.TagMap{"p": []string{mm.relayPubkey}},
 		Since: &since,
 	}
-	log.Printf("Mention monitor resuming from %s", time.Unix(int64(since), 0).Format(time.RFC3339))
+	sub, err := relay.Subscribe(ctx, []nostr.Filter{filter})
+	if err != nil {
+		log.Printf("Mention monitor could not subscribe on %s: %v", url, err)
+		relay.Close()
+		return
+	}
+	defer func() {
+		// go-nostr also calls Unsub from a goroutine when a context ends.
+		// Wait for that goroutine to finish before closing the connection,
+		// so its final CLOSE write cannot race with Relay.Close.
+		sub.Unsub()
+		for range sub.Events {
+		}
+		relay.Close()
+	}()
+	log.Printf("Mention monitor watching %s since %s", url, time.Unix(int64(since), 0).Format(time.RFC3339))
 
-	// go-nostr normalizes relay URLs in place. Keep the caller's slice immutable,
-	// because startup also uses it to publish relay metadata concurrently.
-	sub := mm.pool.SubMany(ctx, append([]string(nil), relays...), []nostr.Filter{filter})
-
-	go func() {
-		for event := range sub {
-			// Process mention
-			if err := mm.ProcessMention(ctx, event.Event); err != nil {
-				log.Printf("Failed to process mention from %s: %v", event.PubKey, err)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case reason := <-sub.ClosedReason:
+			log.Printf("Mention monitor subscription closed by %s: %s", url, reason)
+			return
+		case event, more := <-sub.Events:
+			if !more {
+				log.Printf("Mention monitor connection closed by %s", url)
+				return
 			}
-			// Move the watermark even when handling failed. A mention that
-			// cannot be processed now will not process any better on the next
-			// restart, and leaving the watermark behind would replay it
-			// forever.
-			if err := mm.storage.AdvanceMentionWatermark(int64(event.CreatedAt)); err != nil {
-				log.Printf("Failed to advance mention watermark: %v", err)
+			if event == nil {
+				continue
+			}
+			select {
+			case out <- event:
+			case <-ctx.Done():
+				return
 			}
 		}
-	}()
-
-	log.Printf("Mention monitor started, watching %d relays", len(relays))
+	}
 }
 
 // parsePromotionCommand recognizes a complete public command after optional
@@ -144,6 +247,9 @@ func (mm *MentionMonitor) ProcessMention(ctx context.Context, mentionEvent *nost
 	if err := mm.CreatePromotionalReply(ctx, mentionEvent, noteToPromote, relayHint); err != nil {
 		return fmt.Errorf("failed to create promotional reply: %w", err)
 	}
+	if mm.publisher != nil {
+		return nil // The reply and processed mention were committed together.
+	}
 
 	// Mark mention as processed
 	return mm.storage.MarkMentionProcessed(mentionEvent.ID)
@@ -191,6 +297,14 @@ func (mm *MentionMonitor) CreatePromotionalReply(ctx context.Context, mentionEve
 	// Sign the event
 	if err := replyEvent.Sign(mm.relaySeckey); err != nil {
 		return fmt.Errorf("failed to sign reply: %w", err)
+	}
+	if mm.publisher != nil {
+		if err := mm.storage.QueuePromotionalReply(mentionEvent.ID, noteToPromote.ID, mentionEvent.PubKey, &replyEvent, mm.publisher.Targets()); err != nil {
+			return err
+		}
+		mm.publisher.Wake()
+		log.Printf("Queued promotional reply %s for note %s", short(replyEvent.ID, 8), short(noteToPromote.ID, 8))
+		return nil
 	}
 
 	// Publish to relays
@@ -297,26 +411,17 @@ func (mm *MentionMonitor) SendErrorReply(ctx context.Context, mentionEvent *nost
 	return mm.storage.MarkMentionProcessed(mentionEvent.ID)
 }
 
-// maxMentionBacklog caps how far back a restart will look for missed mentions.
+// maxMentionBacklog caps how far back each connection looks for missed mentions.
 const maxMentionBacklog = 24 * time.Hour
 
-// resumePoint picks where a subscription should start: the stored watermark,
-// unless it is missing or so old that resuming from it would replay a flood.
-//
-// Every monitor that answers people needs this. Subscribing from now silently
-// drops whatever arrived during a restart; subscribing from the beginning
-// answers months of history all over again, which is exactly what the DM
-// monitor did on its first deploy.
+// resumePoint keeps DM subscriptions near their stored watermark without
+// replaying messages from before the bounded backlog.
 func resumePoint(watermark int64, now time.Time, maxBacklog time.Duration) int64 {
 	floor := now.Add(-maxBacklog).Unix()
 	if watermark <= 0 || watermark < floor {
 		return floor
 	}
 	return watermark
-}
-
-func mentionResumePoint(watermark int64, now time.Time) int64 {
-	return resumePoint(watermark, now, maxMentionBacklog)
 }
 
 // quotedEventID reads the NIP-18 quote tag.

@@ -2,12 +2,69 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
 )
+
+func TestPromotionalReplyRetriesUnavailableRelayWithSameEvent(t *testing.T) {
+	storage, publisher, note := accountPublicationFixture(t, "wss://one.example", "wss://two.example")
+	monitor := NewMentionMonitor(publisher.relayPubkey, publisher.relayPrivkey, storage, NewPostFetcher(nil), nostr.NewSimplePool(context.Background()))
+	monitor.SetAccountPublisher(publisher)
+	request := mention(t, "promote")
+
+	if err := monitor.CreatePromotionalReply(context.Background(), request, note, ""); err != nil {
+		t.Fatal(err)
+	}
+	jobs := storage.PendingAccountPublications()
+	if len(jobs) != 1 || jobs[0].Record.Type != accountPublicationReply || len(jobs[0].Pending) != 2 {
+		t.Fatalf("queued reply=%+v", jobs)
+	}
+	replyID := jobs[0].Record.Event.ID
+	if !storage.IsMentionProcessed(request.ID) {
+		t.Fatal("request was not marked processed with its queued reply")
+	}
+	if got, ok := storage.GetPromotedNoteID(replyID); !ok || got != note.ID {
+		t.Fatalf("reply mapping=%q, %v; want %q", got, ok, note.ID)
+	}
+
+	publisher.publish = func(_ context.Context, relay string, event *nostr.Event) error {
+		if event.ID != replyID {
+			t.Errorf("published new reply %s, want %s", event.ID, replyID)
+		}
+		if relay == "wss://two.example" {
+			return fmt.Errorf("temporarily unavailable")
+		}
+		return nil
+	}
+	if remaining := publisher.publishPending(context.Background()); remaining != 1 {
+		t.Fatalf("remaining relay targets=%d, want 1", remaining)
+	}
+
+	reloaded, err := NewStorage(storage.dataFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reloaded.IsMentionProcessed(request.ID) {
+		t.Fatal("processed request was lost after restart")
+	}
+	restarted, err := NewAccountPublisher(reloaded, publisher.relayPubkey, publisher.relayPrivkey, "", publisher.Targets())
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted.publish = func(_ context.Context, relay string, event *nostr.Event) error {
+		if relay != "wss://two.example" || event.ID != replyID {
+			t.Errorf("retried relay=%s event=%s", relay, event.ID)
+		}
+		return nil
+	}
+	if remaining := restarted.publishPending(context.Background()); remaining != 0 {
+		t.Fatalf("remaining relay targets after retry=%d, want 0", remaining)
+	}
+}
 
 // mentionFixture wires a monitor with no relays, so any attempt to reply fails
 // to publish rather than reaching the network. What is under test is whether a
