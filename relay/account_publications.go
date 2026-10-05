@@ -13,7 +13,7 @@ import (
 	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
-const promotionQuoteCopy = "Paid promotion on Holoboard."
+const promotionQuoteCopy = "Paid promotion on Holoboard. Zap this Holoboard post to boost the quoted note."
 
 func quotePublicationKey(noteID string) string {
 	return "quote:" + noteID
@@ -192,6 +192,7 @@ type AccountPublisher struct {
 	targets      []string
 	wake         chan struct{}
 	publish      accountPublishFunc
+	profile      func(context.Context, string, []string) (*nostr.Event, string)
 	retryStart   time.Duration
 	retryMax     time.Duration
 	runner       sync.WaitGroup
@@ -216,6 +217,7 @@ func NewAccountPublisher(storage *Storage, relayPubkey, relayPrivkey, boardURL s
 	publisher.publish = func(ctx context.Context, relay string, event *nostr.Event) error {
 		return publishSignedEvent(ctx, relay, event, relayPrivkey)
 	}
+	publisher.profile = findRecipientProfile
 	return publisher, nil
 }
 
@@ -236,6 +238,13 @@ func (publisher *AccountPublisher) Targets() []string {
 }
 
 func (publisher *AccountPublisher) BuildQuote(note *nostr.Event, relayHint string) (*nostr.Event, error) {
+	return publisher.BuildQuoteWithSplit(note, relayHint, defaultAuthorShare)
+}
+
+func (publisher *AccountPublisher) BuildQuoteWithSplit(note *nostr.Event, relayHint string, authorShare int) (*nostr.Event, error) {
+	if authorShare < 0 || authorShare > 99 {
+		return nil, fmt.Errorf("author share must be between 0 and 99 percent")
+	}
 	if note == nil || note.ID == "" || note.PubKey == "" {
 		return nil, fmt.Errorf("cannot quote a note without an id and author")
 	}
@@ -261,6 +270,43 @@ func (publisher *AccountPublisher) BuildQuote(note *nostr.Event, relayHint strin
 			{"p", note.PubKey},
 		},
 		Content: strings.Join(parts, "\n\n"),
+	}
+	// NIP-57 Appendix G requires the recipient's kind:0 source, not a relay
+	// merely used to publish this quote. Resolve recipients independently.
+	ctx, cancel := context.WithTimeout(context.Background(), profileFetchTimeout)
+	defer cancel()
+	sources := dedupe(append(relays, publisher.targets...))
+	var boardProfileRelay, authorProfileRelay string
+	var authorProfile *nostr.Event
+	var lookups sync.WaitGroup
+	lookups.Add(1)
+	go func() {
+		defer lookups.Done()
+		profile, source := publisher.profile(ctx, publisher.relayPubkey, sources)
+		if validRecipientProfile(profile, publisher.relayPubkey) && profileHasPaymentAddress(profile) {
+			boardProfileRelay = source
+		}
+	}()
+	if authorShare > 0 {
+		lookups.Add(1)
+		go func() {
+			defer lookups.Done()
+			authorProfile, authorProfileRelay = publisher.profile(ctx, note.PubKey, sources)
+		}()
+	}
+	lookups.Wait()
+	if validRecipientProfile(authorProfile, note.PubKey) && profileHasNoPaymentAddress(authorProfile) {
+		authorShare = 0
+	}
+	if !validRecipientProfile(authorProfile, note.PubKey) || !profileHasPaymentAddress(authorProfile) {
+		authorProfileRelay = ""
+	}
+	// An unavailable profile must not reject a paid promotion, fabricate a
+	// source, or change the split. Only confirmed absence of an address uses 100%
+	// visibility for a new quote. Existing campaign quotes are never replaced.
+	event.Tags = append(event.Tags, nostr.Tag{"zap", publisher.relayPubkey, boardProfileRelay, fmt.Sprint(100 - authorShare)})
+	if authorShare > 0 {
+		event.Tags = append(event.Tags, nostr.Tag{"zap", note.PubKey, authorProfileRelay, fmt.Sprint(authorShare)})
 	}
 	if err := event.Sign(publisher.relayPrivkey); err != nil {
 		return nil, fmt.Errorf("sign promotion quote: %w", err)

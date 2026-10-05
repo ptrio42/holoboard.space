@@ -48,25 +48,24 @@ export const PUBLIC_RELAYS = trimmed(
     .filter(Boolean);
 
 /**
- * The relay's plain HTTP origin. The relay serves its websocket and its JSON on
- * the same host, so this is derived rather than configured twice.
+ * The Holoboard HTTP API origin. By default it shares the relay's host.
+ * A separate origin allows a local backend with external Nostr relays.
  */
-export const RELAY_HTTP = RELAY_URL.replace(/^ws/, "http").replace(/\/+$/, "");
+export const RELAY_HTTP = trimmed(
+    import.meta.env.VITE_API_URL,
+    RELAY_URL.replace(/^ws/, "http"),
+).replace(/\/+$/, "");
 
 /**
  * Where the relay serves its payment ledger.
  *
- * Derived from RELAY_URL rather than configured separately: it is the same host
- * over plain HTTP, and two URLs that have to be kept in step is one more thing
- * to get wrong. Override only if the ledger ever moves somewhere else.
+ * Derived from the API origin, so all HTTP requests use the same backend.
+ * Override only when the ledger is served separately.
  */
 export const SATS_ENDPOINT = trimmed(
     import.meta.env.VITE_SATS_ENDPOINT,
     `${RELAY_HTTP}/api/board`,
 );
-
-/** How many ranked notes to ask the board for. */
-export const BOARD_LIMIT = Number(import.meta.env.VITE_BOARD_LIMIT ?? 50);
 
 /** Amounts offered in the zap step, in sats. */
 export const ZAP_PRESETS = [21, 210, 2_100, 21_000];

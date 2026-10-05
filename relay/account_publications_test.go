@@ -24,6 +24,9 @@ func accountPublicationFixture(t *testing.T, targets ...string) (*Storage, *Acco
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Most publication tests exercise signing and durable storage in isolation.
+	// Profile discovery is covered with real local relays in dedicated tests.
+	publisher.profile = func(context.Context, string, []string) (*nostr.Event, string) { return nil, "" }
 	note := &nostr.Event{Kind: 1, CreatedAt: nostr.Now(), Tags: nostr.Tags{}, Content: "Worth sharing"}
 	if err := note.Sign(nostr.GeneratePrivateKey()); err != nil {
 		t.Fatal(err)

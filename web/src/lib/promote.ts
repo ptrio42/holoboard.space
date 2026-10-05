@@ -27,7 +27,7 @@ export interface PromoteProgress {
     settled: boolean;
     feeConverted: boolean;
     billboardApplied: boolean;
-    /** What the note has collected right now. */
+    /** Visibility sats confirmed for this specific invoice. */
     satsPaid: number;
 }
 
@@ -72,6 +72,7 @@ export async function requestInvoice(
     signal?: AbortSignal,
     appearance?: { billboard: BillboardConfig },
     contactPubkey?: string,
+    authorShare?: number,
 ): Promise<PromoteInvoice> {
     const response = await fetch(`${RELAY_HTTP}/api/promote`, {
         method: "POST",
@@ -82,6 +83,7 @@ export async function requestInvoice(
             amount_sats: amountSats,
             ...(appearance ? { billboard: appearance.billboard } : {}),
             ...(contactPubkey ? { notify_pubkey: contactPubkey } : {}),
+            ...(authorShare !== undefined ? { author_share: authorShare } : {}),
         }),
     });
 
@@ -123,12 +125,13 @@ export async function checkProgress(
         settled: body.settled === true,
         feeConverted: isObject(body.receipt) && body.receipt.fee_converted === true,
         billboardApplied: isObject(body.receipt) && body.receipt.billboard_applied === true,
-        satsPaid: typeof body.sats_paid === "number" ? body.sats_paid : 0,
+        satsPaid: isObject(body.receipt) && typeof body.receipt.promotion_sats === "number" ? body.receipt.promotion_sats : 0,
     };
 }
 
 
 export interface NotePreview {
+    authorShare: number;
     event: NDKRawEvent;
     active: boolean;
     satsPaid: number;
@@ -155,6 +158,8 @@ export async function fetchNotePreview(note: string, signal?: AbortSignal): Prom
         throw new Error("The preview response was incomplete.");
     }
     return {
+        authorShare: typeof body.author_share === "number" ? body.author_share :
+            body.active === true || (typeof body.sats_paid === "number" && body.sats_paid > 0) ? 0 : 20,
         event: body.event as unknown as NDKRawEvent, active: body.active === true,
         satsPaid: typeof body.sats_paid === "number" ? body.sats_paid : 0,
         weight: typeof body.weight === "number" ? body.weight : 0,

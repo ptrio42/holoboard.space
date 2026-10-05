@@ -1,6 +1,6 @@
 # Upstream patches
 
-This directory holds patches applied to the vendored khatru dependency.
+This directory holds patches applied to vendored relay dependencies.
 
 ## khatru-listener-race.patch
 
@@ -70,30 +70,24 @@ error instead of racing the server and losing.
 `httptest`, which never applies the timeout that caused this. Putting the two
 seconds back makes it fail with `EOF`.
 
-## The other one, still open: go-nostr's client
+## go-nostr-connection-lifecycle.patch
 
-`go-nostr` v0.34.5 `Relay.Close()` (relay.go:495-500) writes
-`r.connectionContextCancel = nil` and `r.Connection = nil` with no
-synchronisation, while the write loop it started reads `r.Connection`
-(relay.go:196). Reproduced here on teardown, from both `NWCBackend.watchOnce`
-and the test wallet's cleanup.
+`go-nostr` v0.34.5 `Relay.Close()` cleared the connection pointer while the
+writer read it. This reproduced in NWC reconnects, test-wallet cleanup and
+short-lived recipient profile lookups, and could panic the backend.
 
-Failure mode is a nil dereference inside the write loop, which is a panic with
-nothing to catch it. It matters because the NWC watcher closes and reopens its
-connection on every reconnect.
+The local v0.34.5 copy retains a stable connection pointer and captures the
+socket in its workers. Shutdown cancels the context, closes the socket and
+waits for reader, writer and subscription cleanup. Workers use an internal
+shutdown method so they do not wait for themselves. Cancelling a pool now also
+closes its owned relay connections. Buffered write results and cancellable
+notice delivery keep shutdown from waiting on callers that stopped reading.
 
-No fix here yet, and one obvious idea does not work. Cancelling the per-attempt
-context instead of calling `Close()` looks appealing, because the cleanup
-goroutine at relay.go:167-179 runs on `connectionContext.Done()` without any of
-the racy nil writes. But that goroutine closes the notices channel, stops the
-ticker and unsubscribes, and never touches `r.Connection`. Only `Close()` closes
-the socket. Swapping one for the other trades a race for a connection leak on
-every reconnect, which is worse.
-
-What is left: the same in-tree copy treatment, or an upgrade. Unlike khatru,
-go-nostr is not archived, so checking whether a later release synchronises
-`Close()` is the first thing to try, bearing in mind the in-tree khatru requires
-go-nostr v0.34.x and would need adjusting alongside.
+The patch is applied through `go.mod`, without changes to the library's
+cryptography or the existing khatru patches. See
+[`../third_party/go-nostr/WHY.md`](../third_party/go-nostr/WHY.md) for provenance,
+the upgrade decision and regression commands. The tests verify closure using
+local socket acknowledgements, with the race detector enabled.
 
 ## khatru-nip11-accept.patch
 

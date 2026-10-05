@@ -18,6 +18,8 @@ interface BoardRowProps {
     expired?: boolean;
     onPromote?: () => void;
     lastPaidAt?: number;
+    firstPaidAt?: number;
+    hotSats?: number;
     /**
      * What this note has been paid. Undefined means the ledger has not answered
      * yet, which is not the same as zero and must not render as zero: every
@@ -62,7 +64,7 @@ function satsLabel(sats: number): string {
     return `${formatSats(sats)} ${sats === 1 ? "sat" : "sats"}`;
 }
 
-export function BoardRow({ event, rank, sats, weight, expired = false, onPromote, lastPaidAt, billboard, billboardPreviewSlide }: BoardRowProps) {
+export function BoardRow({ event, rank, sats, weight, expired = false, onPromote, lastPaidAt, firstPaidAt, hotSats, billboard, billboardPreviewSlide }: BoardRowProps) {
     const tier = !expired && rank ? TIERS[rank - 1] ?? DEFAULT_TIER : DEFAULT_TIER;
     const parent = parentOf(event);
     // Tapped open on a touch screen, which has no hover to ask with.
@@ -192,6 +194,8 @@ export function BoardRow({ event, rank, sats, weight, expired = false, onPromote
                         {expired && typeof lastPaidAt === "number" && lastPaidAt > 0 && <p className="text-xs text-cyan-300/40">
                             Last payment: <time dateTime={new Date(lastPaidAt * 1000).toISOString()}>{new Date(lastPaidAt * 1000).toLocaleDateString()}</time>
                         </p>}
+                        {typeof hotSats === "number" && <p className="text-xs text-cyan-300/60">{satsLabel(hotSats)} for visibility in the last 24 hours</p>}
+                        {typeof firstPaidAt === "number" && firstPaidAt > 0 && <p className="text-xs text-cyan-300/60">First promoted: <time dateTime={new Date(firstPaidAt * 1000).toISOString()}>{new Date(firstPaidAt * 1000).toLocaleDateString()}</time></p>}
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                             <a
                                 href={njumpUrl(event.id, "note")}

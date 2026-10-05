@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode, type Ref } from "react";
 
 interface ModalProps {
     isOpen: boolean;
@@ -7,6 +7,10 @@ interface ModalProps {
     children: ReactNode;
     /** Extra classes for the panel, mostly to widen or narrow it. */
     panelClassName?: string;
+    scrollBody?: boolean;
+    mobileFullScreen?: boolean;
+    compact?: boolean;
+    footerRef?: Ref<HTMLDivElement>;
 }
 
 const FOCUSABLE =
@@ -20,8 +24,9 @@ const FOCUSABLE =
  * The focusable list is re-read on every Tab rather than captured once, because
  * the promotion flow swaps its whole body out as it advances.
  */
-export function Modal({ isOpen, onClose, title, children, panelClassName = "" }: ModalProps) {
+export function Modal({ isOpen, onClose, title, children, panelClassName = "", scrollBody = false, mobileFullScreen = false, compact = false, footerRef }: ModalProps) {
     const panelRef = useRef<HTMLDivElement>(null);
+    const overlayRef = useRef<HTMLDivElement>(null);
     const backdropMouseDown = useRef(false);
     const titleId = useId();
 
@@ -53,23 +58,20 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "" }:
 
             const focusable = Array.from(
                 panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE),
-            ).filter((element) => element.offsetParent !== null);
+            ).filter((element) => element.offsetParent !== null && !element.matches(":disabled"));
             if (focusable.length === 0) {
                 event.preventDefault();
                 return;
             }
 
-            const first = focusable[0];
-            const last = focusable[focusable.length - 1];
-            const active = document.activeElement;
-
-            if (event.shiftKey && (active === first || !panelRef.current.contains(active))) {
-                last.focus();
-                event.preventDefault();
-            } else if (!event.shiftKey && active === last) {
-                first.focus();
-                event.preventDefault();
-            }
+            // Safari may skip buttons and links in its native Tab order.
+            // Cycle the dialog's controls explicitly so focus stays inside.
+            const activeIndex = focusable.indexOf(document.activeElement as HTMLElement);
+            const nextIndex = event.shiftKey
+                ? (activeIndex <= 0 ? focusable.length - 1 : activeIndex - 1)
+                : (activeIndex + 1) % focusable.length;
+            focusable[nextIndex].focus();
+            event.preventDefault();
         };
 
         document.addEventListener("keydown", onKeyDown, true);
@@ -86,12 +88,36 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "" }:
         };
     }, [isOpen]);
 
+    useEffect(() => {
+        const viewport = window.visualViewport;
+        if (!isOpen || !scrollBody || !viewport) return;
+        const fit = () => {
+            const overlay = overlayRef.current;
+            const panel = panelRef.current;
+            if (!overlay || !panel) return;
+            overlay.style.top = `${viewport.offsetTop}px`;
+            overlay.style.bottom = "auto";
+            overlay.style.height = `${viewport.height}px`;
+            const padding = getComputedStyle(overlay);
+            panel.style.maxHeight = `${viewport.height - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom)}px`;
+        };
+        fit();
+        viewport.addEventListener("resize", fit);
+        viewport.addEventListener("scroll", fit);
+        return () => {
+            viewport.removeEventListener("resize", fit);
+            viewport.removeEventListener("scroll", fit);
+        };
+    }, [isOpen, scrollBody, mobileFullScreen, compact]);
+
     if (!isOpen) return null;
 
     return (
         <div
-            className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto
-                bg-black/85 p-3 backdrop-blur-sm sm:items-center sm:p-6"
+            ref={overlayRef}
+            className={`fixed inset-0 z-40 flex justify-center bg-black/85 backdrop-blur-sm sm:items-center sm:p-6
+                ${compact ? "items-end" : "items-start"} ${mobileFullScreen ? "p-0" : "p-3"}
+                ${scrollBody ? "overflow-hidden" : "overflow-y-auto"}`}
             onMouseDown={(event) => {
                 backdropMouseDown.current = event.target === event.currentTarget;
             }}
@@ -105,11 +131,13 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "" }:
                 aria-modal="true"
                 aria-labelledby={titleId}
                 tabIndex={-1}
-                className={`pixel-frame my-auto w-full max-w-2xl bg-neon-cyan p-[3px]
-                    shadow-[0_0_50px_rgba(34,211,238,0.35)] ${panelClassName}`}
+                className={`pixel-frame w-full max-w-2xl bg-neon-cyan p-[3px]
+                    shadow-[0_0_50px_rgba(34,211,238,0.35)] ${compact ? "sm:my-auto" : "my-auto"}
+                    ${scrollBody ? "flex max-h-[calc(100dvh-24px)] flex-col sm:max-h-[calc(100dvh-48px)]" : ""}
+                    ${mobileFullScreen ? "h-dvh max-h-dvh sm:h-auto" : ""} ${panelClassName}`}
             >
-                <div className="pixel-frame bg-panel">
-                    <div className="flex items-start justify-between gap-4 border-b-2 border-cyan-400/25 p-5 sm:p-6">
+                <div className={`pixel-frame bg-panel ${scrollBody ? "flex min-h-0 flex-1 flex-col" : ""}`}>
+                    <div className="flex shrink-0 items-start justify-between gap-4 border-b-2 border-cyan-400/25 p-4 sm:p-5">
                         <h2
                             id={titleId}
                             className="font-pixel text-sm leading-relaxed tracking-wider text-neon-pink sm:text-base"
@@ -126,7 +154,8 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "" }:
                             X
                         </button>
                     </div>
-                    <div className="p-5 sm:p-6">{children}</div>
+                    <div data-modal-body className={scrollBody ? "min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-5" : "p-5 sm:p-6"}>{children}</div>
+                    {footerRef && <div ref={footerRef} className="shrink-0 border-t border-cyan-400/25 bg-panel px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-5 empty:hidden" />}
                 </div>
             </div>
         </div>

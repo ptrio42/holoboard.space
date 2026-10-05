@@ -63,6 +63,34 @@ quoted. Operator removal queues a
 [NIP-09](https://github.com/nostr-protocol/nips/blob/master/09.md) kind 5 deletion
 request for the quote.
 
+New quotes advertise Holoboard and author recipient weights using
+[NIP-57 zap tags](https://github.com/nostr-protocol/nips/blob/master/57.md#appendix-g-zap-tag-on-other-events).
+The first settled promotion fixes the split, defaulting to 80% visibility and
+20% author support. Boosts and revivals retain it. Existing campaigns without a
+saved split default to 100% visibility, including after revival or restart.
+Payers can opt into separate author support without changing that campaign
+default, its stored metadata or its public quote. A verified zap to the
+Holoboard share of the quote credits the original note once; author zaps never
+add visibility. Clients that support splits pay each recipient separately.
+Each zap tag uses a relay that supplied the recipient's signed kind:0 profile
+with a Lightning address. Discovery checks the note source, configured relays
+and the recipient's [NIP-65 write relays](https://github.com/nostr-protocol/nips/blob/master/65.md).
+It selects the latest valid profile across these sources, with the event-ID
+tie break from [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md).
+An older address-free cache cannot confirm absence when the advertised write
+relays are unavailable. If no profile is found within the bounded
+lookup, its relay hint stays empty; both recipients and their weights are kept.
+Existing public quotes are never rewritten to update hints or splits.
+Confirmed absence of a payment address in the author's signed profile makes a
+new campaign visibility only. Failed profile discovery or a temporary wallet
+outage preserves the requested split. Preview, invoice creation and the first
+public quote apply this distinction; settlement saves the quote's actual split.
+
+Promotional reply mappings retain the original note's relay hints and author
+across restarts. When reconstructing a payment target from a relay, the signed
+Holoboard reply or quote supplies these hints, with older mention chains as a
+fallback.
+
 Zaps additionally need a resolvable Lightning address in the relay's Nostr
 profile, its NWC connection or `ZAP_LNURL_ADDRESSES`. Receipts must be signed by
 the LNURL server receiving the payment.
@@ -70,8 +98,33 @@ the LNURL server receiving the payment.
 ## API and ranking
 
 The [HTTP API reference](API.md) covers preview, invoices, payment status,
-rankings, expired promotions and operator removal. Creating an invoice requires
-no Nostr key. Billboard purchases use this API.
+rankings, the waiting room, author support, expired promotions and operator
+removal. Creating an invoice requires no Nostr key. Billboard purchases use
+this API.
+
+The main board contains the highest 21 active ranks. The waiting room contains
+the remaining active notes, sorted by rank (Top), first promotion (New), or
+visibility payments over 24 hours (Hot). New records preserve their first paid
+time across boosts and revivals. For older records, New uses the earliest
+available payment timestamp; files without payment history use their last paid
+time. Existing quotes are not replaced to add split tags.
+
+Author support uses the author's signed kind 0 profile and
+[LNURL-pay](https://github.com/lnurl/luds/blob/luds/06.md). The service prepares
+invoices from the author's provider and verifies the amount, description hash
+and expiry. It cannot spend from the board wallet or forward funds. HTTPS
+endpoints must resolve to public addresses; redirects, private networks and
+nonstandard ports are rejected. Endpoint details are cached for five minutes.
+Profile discovery also checks note relay hints, stored quote sources and the
+author's NIP-65 write relays, using the same signed-profile lookup as quotes.
+Issued author invoices retain their recipient, invoice digest and provider key
+in durable storage. Receipt verification uses that snapshot across restarts,
+address changes and provider outages. Older invoices without a snapshot retain
+the current-provider fallback; wallet preimages remain independent of profiles.
+Optional signed NIP-57 requests produce public zaps. Wallet preimages or verified
+zap receipts prove author payment; ordinary external wallet payments without
+proof remain unverified. Author support endpoints share a limit of 20 requests
+per client address over ten minutes.
 
 Each promotion payment halves in ranking weight every 30 days. Ties use total
 promotion sats, then the latest payment and note creation time. Notes expire
@@ -137,6 +190,20 @@ Deployment instructions: [Docker](../docs/self-hosting.md) or
 make test
 make build
 ```
+
+Run application tests without cached results and include the locally patched
+go-nostr module, which `./...` does not traverse:
+
+```bash
+go test -count=1 ./...
+go test -count=1 -race ./...
+go test -count=1 -race github.com/nbd-wtf/go-nostr
+```
+
+Both khatru and go-nostr use local patches for safe concurrent operation. The
+go-nostr patch closes sockets and joins connection workers during shutdown;
+it fixes the previous `Relay.Close` race in wallet and profile connections.
+See the [patch reference](patches/README.md).
 
 Entry points: `main.go` for startup, `relay.go` for Nostr handlers,
 `storage.go` for persistence and ranking, `payment.go` for zaps,

@@ -1,298 +1,81 @@
-import { useEffect, useMemo, useState } from "react";
-import { NDKKind, NDKSubscriptionCacheUsage } from "@nostr-dev-kit/ndk";
-import { useSubscribe } from "@nostr-dev-kit/react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { NDKEvent } from "@nostr-dev-kit/ndk";
 import { BoardRow } from "../components/BoardRow/BoardRow";
 import { PromoteModal, RANKING_SECTION } from "../components/PromoteModal/PromoteModal";
 import { PixelButton } from "../components/ui/PixelButton";
 import { PixelPanel } from "../components/ui/PixelPanel";
-import { useRelayStatus } from "../hooks/useRelayStatus";
-import { useSatsMap } from "../hooks/useSatsMap";
-import { visibleBoardEvents } from "../lib/sats";
-import type { RankingTarget } from "../lib/ranking";
-import { BOARD_LIMIT, KIND_COMMENT, RELAY_URL, SATS_ENDPOINT } from "../config";
+import { fetchCampaigns, type CampaignPage, type CampaignView } from "../lib/campaigns";
+import { ndk } from "../lib/ndk";
 
 export default function Billboard() {
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [promotion, setPromotion] = useState<{ id: string; weight?: number } | null>(null);
-    /*
-     * Sections of the promote dialog are linkable, which means the address bar
-     * can ask for something that is not on the page yet. Read on arrival and on
-     * every later change, so a link works whether it was followed from outside
-     * or clicked while already here.
-     */
+    const waiting = window.location.pathname === "/waiting";
+    const selectedView = new URLSearchParams(window.location.search).get("view");
+    const [view, setView] = useState<CampaignView>(waiting ? selectedView === "new" || selectedView === "hot" ? selectedView : "top" : "board");
+    const [pages, setPages] = useState(1);
+    const [data, setData] = useState<CampaignPage | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+    const [nudge, setNudge] = useState(0);
+    const [promotion, setPromotion] = useState<{ id: string; weight: number } | null>(null);
+    const [open, setOpen] = useState(false);
     const [linkedSection, setLinkedSection] = useState("");
-
+    const refresh = useCallback(() => setNudge((value) => value+1), []);
     useEffect(() => {
-        const readHash = () => {
-            const section = window.location.hash.replace(/^#/, "");
-            if (section !== RANKING_SECTION) return;
-            setLinkedSection(section);
-            setIsModalOpen(true);
-        };
-
-        readHash();
-        window.addEventListener("hashchange", readHash);
+        const readHash = () => { if (window.location.hash === `#${RANKING_SECTION}`) { setLinkedSection(RANKING_SECTION); setOpen(true); } };
+        readHash(); window.addEventListener("hashchange", readHash);
         return () => window.removeEventListener("hashchange", readHash);
     }, []);
-    const { status: relayStatus, retry: retryRelay } = useRelayStatus(RELAY_URL);
-    const { sats, ranks, weights, billboards, totalSats, refresh: refreshSats } = useSatsMap(SATS_ENDPOINT);
-
-    /*
-     * The relay does the ranking and returns the board already ordered, so the
-     * only correct thing to do here is render it in the order it arrives.
-     *
-     * The three flags below are what keep that true. NDK fans every event it
-     * sees out to every subscription whose filter matches, so without
-     * `exclusiveRelay` a kind:1 pulled from a public relay for the promotion
-     * flow lands on the board with a rank nobody paid for, and without
-     * `skipOptimisticPublishEvent` so does the mention this app publishes
-     * itself. ONLY_RELAY covers the third route: cached events come back in
-     * whatever order IndexedDB feels like, which reshuffles the ranking.
-     */
-    const { events, eose } = useSubscribe(
-        // Comments as well as notes. NIP-22 gives a kind:1111 the same plain
-        // text content a kind:1 has, and the board already carried replies
-        // written as kind:1, so drawing the line at the kind number excluded
-        // nothing a reader would have noticed.
-        [{ kinds: [NDKKind.Text, KIND_COMMENT], limit: BOARD_LIMIT }],
-        {
-            subId: "board",
-            relayUrls: [RELAY_URL],
-            exclusiveRelay: true,
-            skipOptimisticPublishEvent: true,
-            cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY,
-            dontSaveToCache: true,
-            closeOnEose: false,
-        },
-    );
-
-    /*
-     * The relay serves the board already ranked, so arrival order is right on
-     * first load. It stops being right the moment somebody pays: the relay now
-     * broadcasts the promoted note to open subscriptions, but a broadcast
-     * arrives at the end of the stream regardless of where it belongs, and a
-     * note that merely gained sats does not arrive again at all.
-     *
-     * Order by the rank the ledger reports. After the first ledger answer,
-     * only its visible entries belong on screen; expired notes can still be
-     * present in the open subscription's event list.
-     */
-    const ordered = useMemo(() => {
-        const visible = visibleBoardEvents(events, ranks, weights, totalSats !== null);
-        if (ranks.size === 0) return visible;
-        const arrival = new Map(events.map((event, index) => [event.id, index]));
-        return visible.sort((a, b) => {
-            const ra = ranks.get(a.id) ?? Number.MAX_SAFE_INTEGER;
-            const rb = ranks.get(b.id) ?? Number.MAX_SAFE_INTEGER;
-            if (ra !== rb) return ra - rb;
-            return (arrival.get(a.id) ?? 0) - (arrival.get(b.id) ?? 0);
-        });
-    }, [events, ranks, weights, totalSats]);
-
-    // A note that just arrived is not in the ledger yet, and waiting out the
-    // poll would leave it sitting at the bottom with no sats beside it.
     useEffect(() => {
-        if (events.length > 0) refreshSats();
-    }, [events.length, refreshSats]);
-
-    const isOffline = relayStatus === "offline";
-    const isLoading = !isOffline && !eose && events.length === 0;
-    const isEmpty = !isOffline && eose && ordered.length === 0;
-    const rankingTargets = useMemo(() => Array.from(weights.entries())
-        .map(([id, weight]) => ({ rank: ranks.get(id), weight }))
-        .filter((target): target is RankingTarget => typeof target.rank === "number" && target.rank <= 3)
-        .sort((a, b) => a.rank - b.rank), [ranks, weights]);
-
-    return (
-        <div className="mx-auto min-h-dvh w-full max-w-5xl px-4 pt-6 pb-20 sm:px-6">
-            <a href="#board" className="skip-link pixel-frame focus-pixel border-2 border-neon-gold
-                bg-void px-4 py-2 font-pixel text-[10px] text-neon-gold">
-                Skip to the board
-            </a>
-
-            <header className="mb-10 space-y-6">
-                {/* Reading the board and paying to promote need no key or account session. */}
-                <RelayBadge status={relayStatus} />
-
-                <div className="space-y-4 text-center">
-                    <h1 className="font-pixel text-2xl leading-tight tracking-widest text-neon-pink
-                        [text-shadow:0_0_18px_rgba(236,72,153,0.55)] sm:text-4xl md:text-5xl">
-                        HOLOBOARD
-                    </h1>
-                    <p className="mx-auto max-w-xl text-xs leading-relaxed text-cyan-200/70 sm:text-sm">
-                        A bulletin board where the only ranking signal is sats. Recent sats count
-                        for more, so a note nobody pays for slides down the list.
-                    </p>
-                    <div className="flex justify-center">
-                        <PixelButton size="lg" variant="accent" onClick={() => setIsModalOpen(true)}>
-                            Promote a note
-                        </PixelButton>
-                    </div>
+        let controller: AbortController;
+        const load = async () => {
+            controller?.abort();
+            const request = new AbortController(); controller = request;
+            try {
+                const results = await Promise.all(Array.from({ length: pages }, (_, index) => fetchCampaigns(view, index+1, request.signal)));
+                if (request.signal.aborted) return;
+                const entries = [...new Map(results.flatMap((result) => result.entries).map((entry) => [entry.id, entry])).values()];
+                setData({ ...results[0], entries, hasMore: results[results.length-1].hasMore }); setError("");
+            } catch (failure) { if (!request.signal.aborted) setError(failure instanceof Error ? failure.message : "Could not load campaigns."); }
+            finally { if (!request.signal.aborted) setLoading(false); }
+        };
+        void load();
+        const timer = window.setInterval(() => void load(), 15000);
+        const onVisible = () => { if (document.visibilityState === "visible") void load(); };
+        document.addEventListener("visibilitychange", onVisible);
+        return () => { controller.abort(); window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+    }, [view, pages, nudge]);
+    const events = useMemo(() => data?.entries.map((entry) => ({ ...entry, note: new NDKEvent(ndk, entry.event) })) ?? [], [data]);
+    const chooseView = (next: CampaignView) => {
+        setView(next); setPages(1); setData(null); setLoading(true);
+        window.history.replaceState(null, "", `/waiting?view=${next}`);
+    };
+    return <div className="mx-auto min-h-dvh w-full max-w-5xl px-4 pt-6 pb-20 sm:px-6">
+        <a href="#board" className="skip-link pixel-frame focus-pixel border-2 border-neon-gold bg-void px-4 py-2 font-pixel text-[10px] text-neon-gold">Skip to notes</a>
+        <header className="mb-8 space-y-6 text-center">
+            <h1 className="font-pixel text-2xl leading-tight tracking-widest text-neon-pink [text-shadow:0_0_18px_rgba(236,72,153,0.55)] sm:text-4xl">HOLOBOARD</h1>
+            <p className="mx-auto max-w-xl text-xs leading-relaxed text-cyan-200/70 sm:text-sm">{waiting ? "Paid notes outside the top 21. Support the author and boost visibility to help a note reach the main board." : "The top 21 paid notes. Recent visibility sats count for more. Anyone can support an author and boost a note."}</p>
+            <nav aria-label="Board sections" className="flex flex-wrap justify-center gap-5 font-pixel text-[10px] text-cyan-300/60">
+                <a href="/" aria-current={!waiting ? "page" : undefined} className={`focus-pixel inline-flex min-h-11 items-center ${!waiting ? "text-neon-gold" : ""}`}>Top 21</a>
+                <a href="/waiting" aria-current={waiting ? "page" : undefined} className={`focus-pixel inline-flex min-h-11 items-center ${waiting ? "text-neon-gold" : ""}`}>Waiting room</a>
+                <a href="/expired" className="focus-pixel inline-flex min-h-11 items-center">Expired</a>
+            </nav>
+            <PixelButton variant="accent" onClick={() => { setPromotion(null); setOpen(true); }}>Promote a note</PixelButton>
+        </header>
+        <main id="board" tabIndex={-1} aria-busy={loading}>
+            {waiting && <div className="mb-6 space-y-3">
+                <div role="group" aria-label="Waiting room sort" className="flex flex-wrap gap-2">
+                    {(["top", "new", "hot"] as const).map((sort) => <PixelButton key={sort} size="sm" variant={view === sort ? "accent" : "ghost"} aria-pressed={view === sort} onClick={() => chooseView(sort)}>{sort === "top" ? "Top" : sort === "new" ? "New" : "Hot"}</PixelButton>)}
                 </div>
-            </header>
-
-            <main id="board" tabIndex={-1}>
-                <h2 className="sr-only">The board, ranked by sats paid, with recent sats counting for more</h2>
-
-                {isOffline && <RelayDown onRetry={retryRelay} />}
-                {isLoading && <LoadingRows />}
-                {isEmpty && <EmptyBoard onPromote={() => setIsModalOpen(true)} />}
-
-                {ordered.length > 0 && (
-                    <ul className="space-y-4">
-                        {ordered.map((event, index) => (
-                            <BoardRow
-                                key={event.id}
-                                event={event}
-                                rank={index + 1}
-                                sats={sats.get(event.id)}
-                                weight={weights.get(event.id)}
-                                billboard={billboards.get(event.id)}
-                                onPromote={() => {
-                                    setPromotion({ id: event.id, weight: weights.get(event.id) });
-                                    setIsModalOpen(true);
-                                }}
-                            />
-                        ))}
-                    </ul>
-                )}
-
-                {ordered.length > 0 && (
-                    <div className="mt-6">
-                        <OpenSlot rank={ordered.length + 1} onPromote={() => setIsModalOpen(true)} />
-                    </div>
-                )}
-                <div className="mt-8 text-center">
-                    <a href="/expired" className="focus-pixel inline-flex min-h-11 items-center font-pixel text-[9px] tracking-widest text-cyan-300/50 hover:text-neon-cyan">Expired &gt;</a>
-                </div>
-            </main>
-
-            <footer className="mt-16 border-t-2 border-cyan-400/15 pt-6 text-center">
-                <nav aria-label="Footer" className="mb-3 flex flex-wrap justify-center gap-x-5 gap-y-2
-                    font-pixel text-[9px] tracking-widest">
-                    <a href={`#${RANKING_SECTION}`} className="focus-pixel inline-flex min-h-11 items-center
-                        text-cyan-300/60 hover:text-neon-cyan">
-                        How ranking works
-                    </a>
-                    <a href="https://github.com/ptrio42/holoboard.space" target="_blank" rel="noopener noreferrer"
-                        className="focus-pixel inline-flex min-h-11 items-center text-cyan-300/60 hover:text-neon-cyan">
-                        GitHub
-                    </a>
-                </nav>
-                <p className="font-pixel text-[9px] leading-relaxed tracking-widest text-cyan-300/35">
-                    Served by {RELAY_URL.replace(/^wss?:\/\//, "")}
-                </p>
-            </footer>
-
-            {isModalOpen && (
-                <PromoteModal
-                    openSection={linkedSection}
-                    initialReference={promotion?.id}
-                    currentWeight={promotion?.weight}
-                    rankingTargets={rankingTargets}
-                    onPaid={refreshSats}
-                    onClose={() => {
-                        setIsModalOpen(false);
-                        setPromotion(null);
-                        setLinkedSection("");
-                        // Leave the address bar pointing at the board, or the
-                        // dialog springs back open on the next reload.
-                        if (window.location.hash) {
-                            window.history.replaceState(null, "", window.location.pathname);
-                        }
-                    }}
-                />
-            )}
-        </div>
-    );
-}
-
-function RelayBadge({ status }: { status: "connecting" | "connected" | "offline" }) {
-    const tone =
-        status === "connected"
-            ? { dot: "bg-neon-cyan", text: "text-cyan-300/70", label: "Relay online" }
-            : status === "connecting"
-              ? { dot: "bg-neon-gold animate-flicker", text: "text-amber-300/70", label: "Connecting" }
-              : { dot: "bg-neon-pink", text: "text-pink-300/80", label: "Relay offline" };
-
-    return (
-        <p className="flex items-center gap-2 font-pixel text-[9px] tracking-widest">
-            <span className={`block h-2 w-2 ${tone.dot}`} aria-hidden="true" />
-            <span className={tone.text}>{tone.label}</span>
-        </p>
-    );
-}
-
-function LoadingRows() {
-    return (
-        <ul className="space-y-4" aria-busy="true" aria-label="Loading the board">
-            {[0, 1, 2].map((row) => (
-                <li key={row}>
-                    <PixelPanel accent="rgba(34,211,238,0.2)">
-                        <div className="flex animate-pulse gap-5 p-5">
-                            <div className="h-6 w-6 bg-cyan-400/20" />
-                            <div className="flex-1 space-y-3">
-                                <div className="h-4 w-40 bg-cyan-400/20" />
-                                <div className="h-3 w-full bg-cyan-400/10" />
-                                <div className="h-3 w-4/5 bg-cyan-400/10" />
-                            </div>
-                        </div>
-                    </PixelPanel>
-                </li>
-            ))}
-        </ul>
-    );
-}
-
-function RelayDown({ onRetry }: { onRetry: () => void }) {
-    return (
-        <PixelPanel accent="#ec4899" glow="rgba(236,72,153,0.3)">
-            <div className="space-y-4 p-6 text-center" role="alert">
-                <p className="font-pixel text-xs leading-relaxed text-neon-pink">Cannot reach the relay</p>
-                <p className="text-sm leading-relaxed text-cyan-100/70">
-                    <code className="text-cyan-200">{RELAY_URL}</code> is not answering, so there is
-                    no board to show. This page cannot rank anything on its own.
-                </p>
-                <p className="text-xs text-cyan-300/50">Retrying every 15 seconds.</p>
-                <PixelButton size="sm" onClick={onRetry}>
-                    Try again now
-                </PixelButton>
-            </div>
-        </PixelPanel>
-    );
-}
-
-function EmptyBoard({ onPromote }: { onPromote: () => void }) {
-    return (
-        <PixelPanel accent="rgba(34,211,238,0.4)">
-            <div className="space-y-4 p-8 text-center">
-                <p className="font-pixel text-xs leading-relaxed text-neon-gold">The board is empty</p>
-                <p className="mx-auto max-w-md text-sm leading-relaxed text-cyan-100/70">
-                    Nothing has been paid for yet. The relay stores only what somebody bought, so an
-                    empty board means an empty ledger. First zap takes rank one.
-                </p>
-                <PixelButton variant="accent" onClick={onPromote}>
-                    Take rank 1
-                </PixelButton>
-            </div>
-        </PixelPanel>
-    );
-}
-
-function OpenSlot({ rank, onPromote }: { rank: number; onPromote: () => void }) {
-    return (
-        <PixelPanel accent="rgba(34,211,238,0.22)">
-            <div className="flex flex-wrap items-center justify-between gap-4 p-5">
-                <div className="flex items-center gap-5">
-                    <span className="font-pixel text-lg text-cyan-300/30" aria-hidden="true">
-                        {rank}
-                    </span>
-                    <p className="text-sm text-cyan-200/60">This slot is open. Any note, any sats.</p>
-                </div>
-                <PixelButton size="sm" onClick={onPromote}>
-                    Promote a note
-                </PixelButton>
-            </div>
-        </PixelPanel>
-    );
+                <p className="text-xs text-cyan-100/60">{view === "top" ? "Ordered by current ranking weight. Rank numbers continue from 22." : view === "new" ? "Ordered by first promotion on Holoboard. Boosts do not refresh this order." : "Ordered by visibility sats paid in the last 24 hours. Author tips and appearance fees do not count."}</p>
+            </div>}
+            {error && <div role="alert" className="mb-5 space-y-3 border-2 border-neon-pink/40 p-4 text-xs text-neon-pink"><p>{error}</p><PixelButton size="sm" variant="ghost" onClick={refresh}>Try again</PixelButton></div>}
+            {loading && !data && <p role="status" className="py-8 text-center font-pixel text-[10px] text-cyan-300/60">Loading notes...</p>}
+            {!loading && !error && events.length === 0 && <PixelPanel><div className="space-y-3 p-6 text-center"><h2 className="font-pixel text-xs text-cyan-200/70">{waiting ? view === "hot" ? "No recent boosts here" : "The waiting room is empty" : "The board is empty"}</h2><p className="text-sm text-cyan-100/60">{waiting ? "Active notes outside the top 21 appear here." : "Promote a note to start its campaign."}</p></div></PixelPanel>}
+            <ul className="space-y-4">{events.map((entry) => <BoardRow key={entry.id} event={entry.note} rank={entry.rank} sats={entry.satsPaid} weight={entry.weight} billboard={entry.billboard} hotSats={view === "hot" ? entry.hotSats : undefined} firstPaidAt={view === "new" ? entry.firstPaidAt : undefined} onPromote={() => { setPromotion({ id: entry.id, weight: entry.weight }); setOpen(true); }} />)}</ul>
+            {data?.hasMore && waiting && <div className="mt-6 flex justify-center"><PixelButton variant="ghost" disabled={loading} onClick={() => { setLoading(true); setPages((value) => value+1); }}>Load more</PixelButton></div>}
+            {!waiting && data && data.activePosts > 21 && <p className="mt-6 text-center text-xs text-cyan-100/60"><a href="/waiting" className="focus-pixel inline-flex min-h-11 items-center text-neon-cyan">Discover {data.activePosts-21} more paid notes in the waiting room &gt;</a></p>}
+        </main>
+        <footer className="mt-12 border-t-2 border-cyan-400/15 pt-6 text-center text-xs text-cyan-100/50"><div className="flex flex-wrap justify-center gap-6"><a href={`/help#${RANKING_SECTION}`} className="focus-pixel inline-flex min-h-11 items-center">How ranking works</a><a href="/help#other-ways-to-promote" className="focus-pixel inline-flex min-h-11 items-center">Other ways to promote</a><a href="https://github.com/ptrio42/holoboard.space" target="_blank" rel="noopener noreferrer" className="focus-pixel inline-flex min-h-11 items-center">GitHub</a></div><p>Only paid visibility affects rank. Each payment loses half its weight every 30 days.</p></footer>
+        {open && <PromoteModal initialReference={promotion?.id} currentWeight={promotion?.weight} rankingTargets={data?.targets ?? []} openSection={linkedSection} onPaid={refresh} onClose={() => { setOpen(false); setPromotion(null); setLinkedSection(""); if (window.location.hash) window.history.replaceState(null, "", window.location.pathname+window.location.search); }} />}
+    </div>;
 }

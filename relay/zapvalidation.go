@@ -241,6 +241,13 @@ func ValidateZapReceipt(receipt *nostr.Event, relayPubkey string, resolver *LNUR
 		return nil, fmt.Errorf("receipt is addressed to %s, not to this relay", short(recipient, 16))
 	}
 
+	if receipt.GetID() != receipt.ID {
+		return nil, fmt.Errorf("zap receipt id does not match its content")
+	}
+	if valid, err := receipt.CheckSignature(); err != nil || !valid {
+		return nil, fmt.Errorf("zap receipt is not validly signed")
+	}
+
 	bolt11 := firstTag(receipt, "bolt11")
 	if bolt11 == "" {
 		return nil, fmt.Errorf("receipt has no bolt11 tag")

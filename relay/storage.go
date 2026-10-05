@@ -33,9 +33,11 @@ type PromotedPost struct {
 	// Payments is the history TotalSatsPaid is the sum of. Posts stored before
 	// this existed have none, and are treated as a single payment on their last
 	// payment date.
-	Payments   []Payment        `json:"payments,omitempty"`
-	Billboard  *BillboardConfig `json:"billboard,omitempty"`
-	ActivityID string           `json:"activity_id,omitempty"`
+	Payments        []Payment        `json:"payments,omitempty"`
+	Billboard       *BillboardConfig `json:"billboard,omitempty"`
+	ActivityID      string           `json:"activity_id,omitempty"`
+	FirstPromotedAt time.Time        `json:"first_promoted_at,omitempty"`
+	AuthorShare     *int             `json:"author_share,omitempty"`
 }
 
 // rankHalfLife is how long it takes a payment to count for half of what it did.
@@ -94,6 +96,7 @@ type PendingInvoice struct {
 	Event        *nostr.Event      `json:"event,omitempty"`
 	Contact      *PromotionContact `json:"contact,omitempty"`
 	SourceDMID   string            `json:"source_dm_id,omitempty"`
+	AuthorShare  *int              `json:"author_share,omitempty"`
 }
 
 const (
@@ -124,9 +127,10 @@ type Storage struct {
 	posts               map[string]*PromotedPost   // post_id -> PromotedPost
 	pendingInvoices     map[string]*PendingInvoice // payment_hash -> PendingInvoice
 	settledInvoices     map[string]*InvoiceReceipt
+	authorInvoices      map[string]AuthorInvoiceContext
 	processedZaps       map[string]bool   // zap_event_id -> processed (for deduplication)
 	processedDMs        map[string]bool   // dm_event_id -> processed (to prevent duplicate invoice sends)
-	promotionalReplies  map[string]string // promotional_reply_id -> note_to_promote_id
+	promotionalReplies  map[string]string // promotional_reply_id -> note id or nevent reference
 	processedMentions   map[string]bool   // mention_event_id -> processed (to reply only once)
 	removed             map[string]bool   // post_id -> taken off the board by the operator, and kept off
 	accountPublications map[string]*AccountPublication
@@ -144,6 +148,7 @@ func NewStorage(dataFile string) (*Storage, error) {
 		posts:               make(map[string]*PromotedPost),
 		pendingInvoices:     make(map[string]*PendingInvoice),
 		settledInvoices:     make(map[string]*InvoiceReceipt),
+		authorInvoices:      make(map[string]AuthorInvoiceContext),
 		processedZaps:       make(map[string]bool),
 		processedDMs:        make(map[string]bool),
 		promotionalReplies:  make(map[string]string),
@@ -232,6 +237,10 @@ func (s *Storage) addPaymentWithPublication(postID string, amountSats int64, eve
 	}
 	if post.ActivityID == "" {
 		post.ActivityID = fmt.Sprintf("%d", now.UnixNano())
+	}
+	if original == nil {
+		post.FirstPromotedAt = now
+		post.AuthorShare = quoteAuthorShare(quote)
 	}
 	post.TotalSatsPaid += amountSats
 	post.LastPaymentTimestamp = now
@@ -656,6 +665,7 @@ func (s *Storage) save() error {
 		Posts               map[string]*PromotedPost          `json:"posts"`
 		PendingInvoices     map[string]*PendingInvoice        `json:"pending_invoices"`
 		SettledInvoices     map[string]*InvoiceReceipt        `json:"settled_invoices,omitempty"`
+		AuthorInvoices      map[string]AuthorInvoiceContext   `json:"author_invoices,omitempty"`
 		ProcessedZaps       map[string]bool                   `json:"processed_zaps"`
 		ProcessedDMs        map[string]bool                   `json:"processed_dms"`
 		PromotionalReplies  map[string]string                 `json:"promotional_replies"`
@@ -671,6 +681,7 @@ func (s *Storage) save() error {
 		Posts:               s.posts,
 		PendingInvoices:     s.pendingInvoices,
 		SettledInvoices:     s.settledInvoices,
+		AuthorInvoices:      s.authorInvoices,
 		ProcessedZaps:       s.processedZaps,
 		ProcessedDMs:        s.processedDMs,
 		PromotionalReplies:  s.promotionalReplies,
@@ -709,6 +720,7 @@ func (s *Storage) load() error {
 		Posts               map[string]*PromotedPost          `json:"posts"`
 		PendingInvoices     map[string]*PendingInvoice        `json:"pending_invoices"`
 		SettledInvoices     map[string]*InvoiceReceipt        `json:"settled_invoices,omitempty"`
+		AuthorInvoices      map[string]AuthorInvoiceContext   `json:"author_invoices,omitempty"`
 		ProcessedZaps       map[string]bool                   `json:"processed_zaps"`
 		ProcessedDMs        map[string]bool                   `json:"processed_dms"`
 		PromotionalReplies  map[string]string                 `json:"promotional_replies"`
@@ -734,6 +746,10 @@ func (s *Storage) load() error {
 	s.settledInvoices = data.SettledInvoices
 	if s.settledInvoices == nil {
 		s.settledInvoices = make(map[string]*InvoiceReceipt)
+	}
+	s.authorInvoices = data.AuthorInvoices
+	if s.authorInvoices == nil {
+		s.authorInvoices = make(map[string]AuthorInvoiceContext)
 	}
 
 	s.pendingInvoices = data.PendingInvoices
@@ -844,15 +860,15 @@ func (s *Storage) AddPromotionalReply(replyID, noteToPromoteID string) error {
 	return s.AddPromotionalReplyWithRequester(replyID, noteToPromoteID, "")
 }
 
-// AddPromotionalReplyWithRequester keeps the public command author beside the
-// reply that will later be zapped. Older records remain valid without one.
-func (s *Storage) AddPromotionalReplyWithRequester(replyID, noteToPromoteID, requester string) error {
+// AddPromotionalReplyWithRequester keeps the source reference and public command
+// author beside the reply. Older records with only a note ID remain valid.
+func (s *Storage) AddPromotionalReplyWithRequester(replyID, noteReference, requester string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	previousNote, hadNote := s.promotionalReplies[replyID]
 	previousRequester, hadRequester := s.promotionRequesters[replyID]
-	s.promotionalReplies[replyID] = noteToPromoteID
+	s.promotionalReplies[replyID] = noteReference
 	if requester != "" {
 		s.promotionRequesters[replyID] = requester
 	}
@@ -874,11 +890,30 @@ func (s *Storage) AddPromotionalReplyWithRequester(replyID, noteToPromoteID, req
 
 // GetPromotedNoteID gets the note ID that a promotional reply promotes
 func (s *Storage) GetPromotedNoteID(replyID string) (string, bool) {
+	id, _, _, exists := s.GetPromotedNoteReference(replyID)
+	return id, exists
+}
+
+// GetPromotedNoteReference reads retrieval hints from the durable signed event
+// or the legacy mapping. Both representations survive a storage reload.
+func (s *Storage) GetPromotedNoteReference(replyID string) (string, []string, string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	noteID, exists := s.promotionalReplies[replyID]
-	return noteID, exists
+	for _, publication := range s.accountPublications {
+		if publication != nil && (publication.Type == accountPublicationQuote || publication.Type == accountPublicationReply) && publication.Event != nil && publication.Event.ID == replyID {
+			id, hints, author := quotedNoteReference(publication.Event)
+			if id == publication.NoteID {
+				return id, hints, author, true
+			}
+			return publication.NoteID, nil, "", true
+		}
+	}
+	if reference, exists := s.promotionalReplies[replyID]; exists {
+		hints, author := noteHints(reference)
+		return normalizeEventID(reference), hints, author, true
+	}
+	return "", nil, "", false
 }
 
 func (s *Storage) GetPromotionRequester(replyID string) (string, bool) {

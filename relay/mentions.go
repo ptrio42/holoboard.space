@@ -326,7 +326,12 @@ func (mm *MentionMonitor) CreatePromotionalReply(ctx context.Context, mentionEve
 	}
 
 	// Store the mapping: promotional reply ID -> note to promote ID
-	if err := mm.storage.AddPromotionalReplyWithRequester(replyEvent.ID, noteToPromote.ID, mentionEvent.PubKey); err != nil {
+	_, hints, author := quotedNoteReference(&replyEvent)
+	reference, err := nip19.EncodeEvent(noteToPromote.ID, hints, author)
+	if err != nil {
+		return fmt.Errorf("encode promotional reply mapping: %w", err)
+	}
+	if err := mm.storage.AddPromotionalReplyWithRequester(replyEvent.ID, reference, mentionEvent.PubKey); err != nil {
 		return fmt.Errorf("failed to store promotional reply mapping: %w", err)
 	}
 
@@ -440,4 +445,34 @@ func quotedEventID(event *nostr.Event) string {
 		}
 	}
 	return ""
+}
+
+// quotedNoteReference preserves the source of a quote, including older replies
+// whose relay and author hints were only encoded in the matching nevent.
+func quotedNoteReference(event *nostr.Event) (string, []string, string) {
+	id := quotedEventID(event)
+	if id == "" {
+		return "", nil, ""
+	}
+	var hints []string
+	var author string
+	for _, tag := range event.Tags {
+		if len(tag) >= 2 && tag[0] == "q" && tag[1] == id {
+			if len(tag) > 2 && tag[2] != "" {
+				hints = append(hints, tag[2])
+			}
+			if len(tag) > 3 {
+				author = tag[3]
+			}
+			break
+		}
+	}
+	if reference := extractEventIDFromText(event.Content); normalizeEventID(reference) == id {
+		contentHints, contentAuthor := noteHints(reference)
+		hints = dedupe(append(hints, contentHints...))
+		if author == "" {
+			author = contentAuthor
+		}
+	}
+	return id, hints, author
 }

@@ -27,7 +27,7 @@ export function QrCode({ value, size = 220, label }: QrCodeProps) {
                 const qr = qrcode(0, "M");
                 // Bolt11 is case-insensitive, and uppercase lets the encoder use
                 // alphanumeric mode, which cuts the module count noticeably.
-                qr.addData(value.toUpperCase());
+                qr.addData(/^ln(?:bc|tb|bcrt)/i.test(value) ? value.toUpperCase() : value);
                 qr.make();
                 const count = qr.getModuleCount();
                 setMatrix(
@@ -58,7 +58,8 @@ export function QrCode({ value, size = 220, label }: QrCodeProps) {
     }
 
     const count = matrix.length;
-    const quiet = 2;
+    // DENSO's QR guidance requires four clear modules: https://www.qrcode.com/en/howto/code.html
+    const quiet = 4;
     const span = count + quiet * 2;
 
     return (

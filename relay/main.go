@@ -216,6 +216,8 @@ func main() {
 
 	// Initialize invoice manager
 	invoiceManager := NewInvoiceManager(lnBackend, storage, monitor, defaultPaymentSats)
+	authorSupport := NewAuthorSupport(storage, fetcher)
+	invoiceManager.authorSupport = authorSupport
 
 	// Start payment watcher
 	ctx, cancel := context.WithCancel(context.Background())
@@ -372,6 +374,7 @@ func main() {
 	// JSON route cannot collide with the websocket or the NIP-11 document, and
 	// Start() already wraps everything in permissive CORS for GET.
 	relay.Router().HandleFunc("/api/board", BoardHandler(storage))
+	relay.Router().HandleFunc("/api/board/campaigns", CampaignHandler(storage))
 	relay.Router().HandleFunc("/api/board/expired", ExpiredHandler(storage))
 	log.Printf("Board ledger served at /api/board")
 
@@ -380,7 +383,11 @@ func main() {
 	// consequence of the website automating the mention flow.
 	relay.Router().HandleFunc("/api/promote", PromoteHandler(storage, invoiceManager, fetcher))
 	relay.Router().HandleFunc("/api/promote/status", PromoteStatusHandler(storage, invoiceManager))
-	relay.Router().HandleFunc("/api/promote/preview", PreviewHandler(storage, fetcher))
+	relay.Router().HandleFunc("/api/promote/preview", PreviewHandler(storage, fetcher, authorSupport))
+	supportHandler := authorSupport.Handler()
+	relay.Router().HandleFunc("/api/support", supportHandler)
+	relay.Router().HandleFunc("/api/support/invoice", supportHandler)
+	relay.Router().HandleFunc("/api/support/verify", supportHandler)
 	log.Printf("No-login promotion served at /api/promote")
 
 	// Taking a note down. Registered only when a token exists, so a relay run

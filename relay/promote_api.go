@@ -61,6 +61,7 @@ const (
 
 type promoteRequest struct {
 	Note         string           `json:"note"`
+	AuthorShare  *int             `json:"author_share,omitempty"`
 	AmountSats   int64            `json:"amount_sats"`
 	Billboard    *BillboardConfig `json:"billboard,omitempty"`
 	StyleOnly    bool             `json:"style_only,omitempty"`
@@ -227,6 +228,10 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 				fmt.Sprintf("amount must be between %d and %d sats", promoteMinSats, promoteMaxSats))
 			return
 		}
+		if req.AuthorShare != nil && (*req.AuthorShare < 0 || *req.AuthorShare > 99) {
+			writeError(w, 400, "author_share must be between 0 and 99 percent")
+			return
+		}
 		var contact *PromotionContact
 		if strings.TrimSpace(req.NotifyPubkey) != "" {
 			pubkey, err := normalizePubkey(req.NotifyPubkey)
@@ -304,9 +309,9 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 		var invoice *Invoice
 		var err error
 		if req.Billboard != nil {
-			invoice, err = invoices.GenerateBillboardInvoiceWithContact(mintCtx, noteID, amount, hints, author, req.Billboard, req.StyleOnly, event, contact)
+			invoice, err = invoices.GenerateBillboardInvoiceWithContact(mintCtx, noteID, amount, hints, author, req.Billboard, req.StyleOnly, event, contact, req.AuthorShare)
 		} else {
-			invoice, err = invoices.GeneratePromotionInvoiceWithContact(mintCtx, noteID, amount, hints, author, contact, "", event)
+			invoice, err = invoices.GeneratePromotionInvoiceWithContact(mintCtx, noteID, amount, hints, author, contact, "", event, req.AuthorShare)
 		}
 		if err != nil {
 			if errors.Is(err, errBillboardConflict) {

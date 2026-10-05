@@ -6,9 +6,8 @@ RUN apk add --no-cache git ca-certificates
 
 WORKDIR /app
 
-# The in-tree copy of khatru has to be in place before `go mod download`,
-# because go.mod replaces the dependency with this directory. See
-# third_party/khatru/WHY.md.
+# The patched khatru and go-nostr copies must be present before resolving
+# modules. See their WHY.md files under third_party/.
 COPY third_party/ ./third_party/
 
 # Copy go mod files

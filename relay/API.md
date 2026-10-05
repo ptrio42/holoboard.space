@@ -15,8 +15,12 @@ responses use JSON. Promotion endpoints require no login.
 References can be a 64-character event ID, `note1`, `nevent1` or a link containing
 one. The response contains the signed original `event`, `active`, `sats_paid`,
 `weight`, `rank` (0 if inactive), optional `billboard`, `billboard_fee_sats` and
-`images`. Preview does not create an invoice or board entry. Fetching is rate
+`images`, plus `author_share` (integer percent, default 20 for new campaigns).
+Existing campaigns return their immutable public split, or 0 if no split was
+saved, including after expiry. Preview does not create an invoice or board entry. Fetching is rate
 limited; unpaid previews are cached in memory for one minute, up to 128 entries.
+For new campaigns, confirmed absence of an address in the author's signed
+profile returns `author_share: 0`. Failed discovery retains the default of 20.
 
 ## Create an invoice
 
@@ -30,6 +34,18 @@ Omitting `amount_sats`, or passing zero for an ordinary promotion, uses
 `DEFAULT_PAYMENT_SATS`. The response includes `invoice`, `payment_hash`,
 `note_id`, `expires_at` (Unix seconds), total `amount_sats`, `promotion_sats` and
 `billboard_fee_sats`.
+
+The visibility minimum is 1 sat; the API maximum is 10,000,000 sats. Optional
+`author_share` accepts integers from 0 to 99. It selects the public NIP-57 split
+on the first successful promotion, defaulting to 20% author and 80% Holoboard.
+The first settlement wins when multiple invoices are pending. Boosts and revivals
+cannot replace that split or the signed public quote. This field never redirects
+part of the Holoboard invoice: `amount_sats` is entirely visibility. Clients
+prepare author invoices separately using the support endpoints below.
+Confirmed absence of an author payment address makes the first public quote
+visibility only. This also applies to invoices prepared before the author
+removed their address; invoice amounts and separate author invoices stay fixed.
+Temporary lookup failures preserve the requested public split.
 
 To request a confirmation DM, add an npub or a 64-character hex public key:
 
@@ -136,6 +152,90 @@ excluded from promotion totals and ranking weight.
 Order by `rank`, not rounded `weight` or Nostr event arrival order. Original
 notes come through Nostr; explicit ranks and appearance intentionally use this
 API. See the [Nostr transport follow-up](../README.md#nostr-interoperability).
+
+## Read board and waiting-room campaigns
+
+`GET /api/board/campaigns?view=board&page=1`
+
+`view` accepts `board` (default), `top`, `new` or `hot`. `page` is 1-based, with
+21 entries per page. `board` contains only global positions 1 through 21. All
+waiting-room views contain only active, nonremoved ranks 22 and higher:
+
+- `top`: global rank ascending, starting at 22.
+- `new`: first paid promotion time descending. Boosts and revivals do not refresh it.
+- `hot`: visibility sats received in the last 24 hours descending, excluding
+  entries with no payments in that window. Equal values use global rank.
+
+The response includes `entries`, `targets` (global top three and rank 21),
+`total` (selected-view count), `active_posts`, `total_sats` (active visibility
+totals) and `has_more`. Each entry includes its signed `event`, existing ledger
+fields (`id`, `rank`, `weight`, `sats_paid`, `last_paid_at`, optional `billboard`),
+plus `first_paid_at`, `hot_sats` and `author_share`. Ranks stay global even when
+the view uses a different order. Author tips and applied appearance fees never
+enter these totals.
+
+Older files remain valid without a migration. Their first paid time is the
+earliest available payment, or the last paid time if no history exists. New
+campaigns persist a separate first paid timestamp. Existing public quotes keep
+their original tags.
+
+## Prepare direct author support
+
+`POST /api/support` with `{"note": "<note reference>"}` returns `available`,
+`author`, `min_sats`, `max_sats`, `allows_nostr` and optional `nostr_pubkey`.
+If the author has no usable Lightning address, `available` is false and `reason`
+explains the fallback. No invoice or payment is created by this lookup.
+`reason_code: "no_address"` means a valid signed profile contains neither
+Lightning Address nor LNURL after comparing discovered sources, including the
+author's [NIP-65 write relays](https://github.com/nostr-protocol/nips/blob/master/65.md).
+The newest valid profile wins, with the lowest event ID resolving equal
+timestamps as specified in [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md).
+Lookup has a five-second budget, shortened by the request's context. An older
+address-free profile from another source cannot establish absence when none of
+the advertised write relays responds with a profile.
+`reason_code: "unavailable"` covers lookup and
+provider failures. The client defaults new campaigns to visibility only for
+`no_address`; existing campaign splits remain unchanged.
+
+`POST /api/support/invoice`:
+
+```json
+{"note": "<note reference>", "amount_sats": 42}
+```
+
+This requests an invoice directly from the author's LNURL-pay provider. The
+response contains `invoice`, `payment_hash`, `amount_sats`, `expires_at`, `author`
+and `nostr_pubkey`. Optional `zap_request` accepts a signed NIP-57 kind 9734
+event with exactly one `p` for the author, one `e` for the original note and an
+`amount` tag matching the requested millisats. The author's provider must
+advertise Nostr support. Without this field, the invoice uses ordinary LNURL-pay
+and needs no signer.
+
+The service validates invoice amount, description hash, network and expiry.
+It never pays or forwards author funds, and this invoice never affects ranking.
+The client handles two independent recipient payments and their partial results.
+These endpoints share a limit of 20 requests per client address in ten minutes.
+
+## Verify author support
+
+`POST /api/support/verify` accepts either:
+
+```json
+{"invoice": "lnbc...", "preimage": "<64-character hex wallet proof>"}
+```
+
+or `{"note": "<note reference>", "invoice": "lnbc...", "receipt": <kind 9735 event>}`.
+Preimages must hash to the invoice payment hash. Zap receipts must have a valid
+signature from the author's advertised LNURL provider, match the invoice hash,
+author and original note, and contain a valid signed request and invoice
+description hash. A successful response is `{"verified": true}`. Verification
+adds no ranking credit and stores no author-payment history. Ordinary manual
+payments with no proof cannot be confirmed by this API.
+New invoices persist trusted verification context before being returned. A
+receipt uses the original recipient and provider key even after profile changes
+or restarts; a replacement invoice captures its own provider. Older invoices
+without this context use the current provider. Preimage verification needs no
+profile lookup. A storage failure returns HTTP 503 without offering the invoice.
 
 ## Read expired promotions
 

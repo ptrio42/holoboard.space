@@ -13,7 +13,7 @@ import (
 
 // PreviewHandler fetches unpaid content into a bounded, short-lived memory
 // cache. It never stores an unpaid note on the board or publishes it.
-func PreviewHandler(storage *Storage, fetcher *PostFetcher) http.HandlerFunc {
+func PreviewHandler(storage *Storage, fetcher *PostFetcher, support ...*AuthorSupport) http.HandlerFunc {
 	limiter := newRateLimiter(promoteBurst, promoteWindow)
 	type cached struct {
 		event   *nostr.Event
@@ -58,8 +58,10 @@ func PreviewHandler(storage *Storage, fetcher *PostFetcher) http.HandlerFunc {
 		active := false
 		var sats, weight int64
 		var rank int
+		share := defaultAuthorShare
 		if post, known := storage.GetPost(id); known {
 			event = post.Event
+			share = campaignAuthorShare(post)
 			weight = post.weight(time.Now())
 			active = weight > 0
 			sats = post.TotalSatsPaid
@@ -110,15 +112,20 @@ func PreviewHandler(storage *Storage, fetcher *PostFetcher) http.HandlerFunc {
 			cache[id] = cached{event: event, expires: time.Now().Add(time.Minute)}
 			mu.Unlock()
 		}
+		if !storage.HasPost(id) && len(support) > 0 && support[0] != nil {
+			hints, _ := noteHints(reference)
+			share = support[0].campaignShare(r.Context(), event, share, hints)
+		}
 		writeJSON(w, http.StatusOK, struct {
-			Event     *nostr.Event     `json:"event"`
-			Active    bool             `json:"active"`
-			Sats      int64            `json:"sats_paid"`
-			Weight    int64            `json:"weight"`
-			Rank      int              `json:"rank"`
-			Billboard *BillboardConfig `json:"billboard,omitempty"`
-			Fee       int64            `json:"billboard_fee_sats"`
-			Images    []string         `json:"images"`
-		}{event, active, sats, weight, rank, billboard, billboardFeeSats, billboardImages(event.Content)})
+			AuthorShare int              `json:"author_share"`
+			Event       *nostr.Event     `json:"event"`
+			Active      bool             `json:"active"`
+			Sats        int64            `json:"sats_paid"`
+			Weight      int64            `json:"weight"`
+			Rank        int              `json:"rank"`
+			Billboard   *BillboardConfig `json:"billboard,omitempty"`
+			Fee         int64            `json:"billboard_fee_sats"`
+			Images      []string         `json:"images"`
+		}{share, event, active, sats, weight, rank, billboard, billboardFeeSats, billboardImages(event.Content)})
 	}
 }

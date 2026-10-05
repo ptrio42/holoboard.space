@@ -478,3 +478,14 @@ body::after {
     .billboard-screen.billboard-screen--glitch .billboard-screen__text, .billboard-flap { animation: none !important; transform: none; filter: none; text-shadow: none; }
     .billboard-terminal-cursor::after { display: none; }
 }
+
+/* Compact zap amounts keep the pixel face legible on narrow phones. */
+.amount-preset .pixel-btn__face {
+    padding: 0.7rem 0.25rem;
+    font-size: 10px;
+}
+
+.allocation-slider {
+    cursor: pointer;
+    touch-action: pan-y;
+}

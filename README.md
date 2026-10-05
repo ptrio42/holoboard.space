@@ -9,8 +9,16 @@ See the [changelog](CHANGELOG.md) for user-facing updates.
 ## How the board works
 
 Promotion payments determine rank. Each payment loses half its ranking weight
-every 30 days, so recent payments count for more. Notes leave the board when
-their remaining weight rounds to zero sats.
+every 30 days, so recent payments count for more. The main board shows the top
+21 active notes. Other paid notes appear in the **Waiting room**:
+
+- **Top** follows the same ranking, starting at position 22.
+- **New** orders notes by their first paid promotion, without refreshing on a boost.
+- **Hot** orders notes by visibility sats paid in the last 24 hours.
+
+Notes move between the board and waiting room as ranks change. They move to
+**Expired** when their remaining weight rounds to zero sats. Unpaid notes do not
+enter either active view. The minimum visibility payment remains 1 sat.
 
 **Boost** adds another payment to an active note. **Expired** shows past
 promotions; **Promote again** brings one back after payment. A payment increases
@@ -18,21 +26,70 @@ weight without guaranteeing a particular position.
 
 ## Promote a note
 
-Open **Promote**, paste a note link, `note1`, `nevent1` or event ID, choose
-the amount and pay the Lightning invoice. No login or signer is needed.
+Open **Promote a note**, paste a note link, `note1`, `nevent1` or event ID, and
+choose a total amount. The editor previews the original note automatically.
+**Boost** on a note opens a compact amount picker with its saved split. Choose
+**Customize** for appearance, ranking targets and notifications. The main action
+stays visible while scrolling on a phone. The original note remains unchanged.
+
+New campaigns default to 80% for visibility and 20% for the original author.
+If the author's signed profile confirms no Lightning payment address, a new
+campaign defaults to visibility only. Temporary lookup or wallet failures do
+not change the chosen split.
+Boosts use the campaign's saved allocation. Older campaigns without a saved
+split default to 100% visibility. You can change your payment allocation or
+enable or disable **Support the author too** through **Adjust** beside the amounts.
+A slider shows the author's percentage and both recipient amounts. Turning support
+back on restores your selected share. Author sats round down, with at
+least 1 sat reserved for visibility. The form shows both amounts before payment.
+Author support goes directly to the Lightning address in the author's Nostr
+profile. If unavailable or outside that wallet's limits, choose another amount
+or explicitly switch to visibility only.
+
+The form shows the recipient amounts and invoice count before confirmation.
+**Pay & Boost** or **Pay & Promote** prepares and pays the invoices in sequence
+with a connected NWC or WebLN wallet. **Prepare invoices only** keeps manual
+payment available. Other wallets can open, copy or scan each invoice. No login
+or Nostr signer is needed for ordinary payments. **Wallet** and **Connect Nostr**
+are available in the app header and inside the promotion. They connect your NWC
+wallet, browser signer extension, or Amber and other remote signers.
+An optional signer lets author support use a public zap. That choice ends when
+the signer changes or reconnects, the form reopens, or the page refreshes.
+Existing invoices remain available; replacing one then uses ordinary author
+support. The two payments can succeed independently: the form keeps their separate
+statuses and unfinished invoices in the current browser tab after a refresh.
+Wallet payment proofs and valid zap receipts confirm author support. Manual
+author payments without a proof can only be marked paid by the payer; check your
+wallet before retrying. Closing the tab clears this local recovery state.
+Wallet connections also stay in the current tab. Connecting never sends a
+payment. A lost wallet response leaves the payment uncertain; NWC checks its
+status before retrying. You can disconnect at any time and use the invoice links.
 
 From a Nostr client, you can also mention Holoboard with a promotion command
 and zap its reply, zap the account with the note reference in the comment, or
 DM `PROMOTE <amount> <note>` to receive an invoice. The full command options
 are in the [relay README](relay/README.md#promotion-through-nostr).
 
-Use **Load note & preview** to check the content and optionally choose a
-billboard appearance before paying. The payment result confirms your specific
-invoice.
+Appearance, author support, ranking targets and notifications open their own
+panels without clearing your choices. Public zap consent is beside author support.
+[Help](https://holoboard.space/help) explains ranking and alternative promotion
+methods, with the Holoboard pubkey and relay URL available to copy. Contextual
+help returns to the editor without discarding its choices. The payment result
+confirms the visibility added by your specific invoice, rather than the note's
+total. Author support and appearance fees add no ranking or Hot weight.
 
 When a note is promoted for the first time, the Holoboard Nostr account
 publishes one quote labelled as a paid promotion. Boosts and later returns to
-the board do not create more quotes. Removing the note from Holoboard publishes
+the board do not create more quotes. New quotes include
+[NIP-57 zap split tags](https://github.com/nostr-protocol/nips/blob/master/57.md#appendix-g-zap-tag-on-other-events)
+for Holoboard and the author. The first successful promotion fixes this public
+split for the campaign. A later payer can change their own allocation without
+changing the campaign's split. Zapping the Holoboard share on this quote boosts
+the original note; the author share supports its author directly. External
+clients decide whether they support splits. These payments are separate and
+Holoboard does not forward author funds.
+
+Removing the note from Holoboard publishes
 a [NIP-09 deletion request](https://github.com/nostr-protocol/nips/blob/master/09.md)
 for that quote, although Nostr cannot guarantee that every relay and client
 removes its copy.

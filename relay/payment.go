@@ -132,9 +132,18 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 		if requester, ok := pm.storage.GetPromotionRequester(zappedEventID); ok {
 			contact = &PromotionContact{Pubkey: requester, Transport: dmTransportNIP17}
 		}
+		if target, sourceHints, sourceAuthor, ok := pm.storage.GetPromotedNoteReference(zappedEventID); ok {
+			postID, hints, author = target, sourceHints, sourceAuthor
+		}
 		// Try chain-chasing approach: fetch the zapped event and check if it's a promotional reply
-		promotedNoteID, chainHints, chainAuthor, err := pm.getPromotedNoteFromChain(zappedEventID)
-		if err == nil && promotedNoteID != "" {
+		var promotedNoteID string
+		var chainHints []string
+		var chainAuthor string
+		var err error
+		if postID == "" || (len(hints) == 0 && author == "" && !pm.storage.HasPost(postID)) {
+			promotedNoteID, chainHints, chainAuthor, err = pm.getPromotedNoteFromChain(zappedEventID)
+		}
+		if err == nil && promotedNoteID != "" && (postID == "" || postID == promotedNoteID) {
 			postID = promotedNoteID
 			hints, author = chainHints, chainAuthor
 			if len(hints) > 0 {
@@ -142,16 +151,7 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 			}
 			log.Printf("Zap to promotional reply %s -> promoting note %s (via chain)", short(zappedEventID, 8), short(postID, 8))
 		} else if err != nil {
-			log.Printf("Chain-chasing failed for %s: %v, trying storage fallback", short(zappedEventID, 8), err)
-		}
-
-		// Fallback to storage mapping (for older promotional replies)
-		if postID == "" {
-			promotedNoteIDFromStorage, isPromotionalReply := pm.storage.GetPromotedNoteID(zappedEventID)
-			if isPromotionalReply {
-				postID = normalizeEventID(promotedNoteIDFromStorage)
-				log.Printf("Zap to promotional reply %s -> promoting note %s (via storage)", short(zappedEventID, 8), short(postID, 8))
-			}
+			log.Printf("Chain-chasing failed for %s: %v, retaining any stored mapping", short(zappedEventID, 8), err)
 		}
 	}
 
@@ -267,7 +267,11 @@ func (pm *PaymentMonitor) ProcessInvoicePayment(paymentHash string, amountSats i
 	var quote *nostr.Event
 	if !known && pm.accountPublisher != nil {
 		var err error
-		quote, err = pm.accountPublisher.BuildQuote(event, relayHint)
+		share := defaultAuthorShare
+		if invoice.AuthorShare != nil {
+			share = *invoice.AuthorShare
+		}
+		quote, err = pm.accountPublisher.BuildQuoteWithSplit(event, relayHint, share)
 		if err != nil {
 			return fmt.Errorf("failed to build account quote: %w", err)
 		}
@@ -294,7 +298,8 @@ func (pm *PaymentMonitor) ProcessInvoicePayment(paymentHash string, amountSats i
 // getPromotedNoteFromChain reconstructs the promotion chain from events
 // Chain: Zap -> Promotional Reply -> Original Mention -> Extract Note ID
 func (pm *PaymentMonitor) getPromotedNoteFromChain(promotionalReplyID string) (string, []string, string, error) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
 
 	// Step 1: Fetch the promotional reply
 	promotionalReply, err := pm.fetchEvent(ctx, promotionalReplyID, []int{1}) // kind:1 notes
@@ -302,6 +307,16 @@ func (pm *PaymentMonitor) getPromotedNoteFromChain(promotionalReplyID string) (s
 		return "", nil, "", fmt.Errorf("failed to fetch promotional reply: %w", err)
 	}
 
+	if promotionalReply.PubKey != pm.relayPubkey || promotionalReply.GetID() != promotionalReply.ID {
+		return "", nil, "", fmt.Errorf("payment target is not a Holoboard post")
+	}
+	if valid, err := promotionalReply.CheckSignature(); err != nil || !valid {
+		return "", nil, "", fmt.Errorf("invalid Holoboard post signature")
+	}
+	quotedID, quotedHints, quotedAuthor := quotedNoteReference(promotionalReply)
+	if quotedID != "" && (len(quotedHints) > 0 || quotedAuthor != "") {
+		return quotedID, quotedHints, quotedAuthor, nil
+	}
 	// Step 2: Extract the mention ID from promotional reply's 'e' tag
 	var mentionID string
 	for _, tag := range promotionalReply.Tags {
@@ -312,6 +327,9 @@ func (pm *PaymentMonitor) getPromotedNoteFromChain(promotionalReplyID string) (s
 	}
 
 	if mentionID == "" {
+		if quotedID != "" {
+			return quotedID, quotedHints, quotedAuthor, nil
+		}
 		return "", nil, "", fmt.Errorf("promotional reply has no 'e' tag (no parent mention)")
 	}
 
@@ -320,11 +338,17 @@ func (pm *PaymentMonitor) getPromotedNoteFromChain(promotionalReplyID string) (s
 	// Step 3: Fetch the original mention
 	mention, err := pm.fetchEvent(ctx, mentionID, []int{1}) // kind:1 notes
 	if err != nil {
+		if quotedID != "" {
+			return quotedID, quotedHints, quotedAuthor, nil
+		}
 		return "", nil, "", fmt.Errorf("failed to fetch mention: %w", err)
 	}
 
 	// Step 4: Extract note ID from mention content
 	reference := extractEventIDFromText(mention.Content)
+	if quotedID != "" && normalizeEventID(reference) != quotedID {
+		return quotedID, quotedHints, quotedAuthor, nil
+	}
 	if reference == "" {
 		return "", nil, "", fmt.Errorf("no note ID found in mention content")
 	}
@@ -387,6 +411,8 @@ func (pm *PaymentMonitor) fetchEvent(ctx context.Context, eventID string, kinds 
 			}
 		case <-sub.EndOfStoredEvents:
 			log.Printf("Event %s not found on %s", short(eventID, 8), relayURL)
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
 	}
 
@@ -550,7 +576,7 @@ func authorWriteRelays(ctx context.Context, author string, searchOn []string) []
 
 			mu.Lock()
 			defer mu.Unlock()
-			if newest == nil || found[0].CreatedAt > newest.CreatedAt {
+			if newerReplaceableEvent(found[0], newest) {
 				newest = found[0]
 			}
 		}(url)

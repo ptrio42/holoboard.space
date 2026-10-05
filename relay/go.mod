@@ -79,3 +79,5 @@ require (
 )
 
 replace github.com/fiatjaf/khatru => ./third_party/khatru
+
+replace github.com/nbd-wtf/go-nostr => ./third_party/go-nostr

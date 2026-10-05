@@ -29,7 +29,6 @@ services:
         VITE_RELAY_URL: ${VITE_RELAY_URL:-ws://localhost:8080/relay}
         VITE_RELAY_PUBKEY: ${VITE_RELAY_PUBKEY:-}
         VITE_PUBLIC_RELAYS: ${FETCH_RELAYS:-wss://nos.lol,wss://relay.damus.io,wss://relay.primal.net,wss://nostr.mom,wss://offchain.pub}
-        VITE_BOARD_LIMIT: ${VITE_BOARD_LIMIT:-50}
         VITE_SATS_ENDPOINT: ${VITE_SATS_ENDPOINT:-}
     ports:
       - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-8080}:8080"

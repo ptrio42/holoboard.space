@@ -350,6 +350,15 @@ func TestPreviewFetchesUnpaidNoteAndBillboardSettlementSurvivesRestart(t *testin
 	if rec.Code != 200 {
 		t.Fatalf("unpaid preview: %d %s", rec.Code, rec.Body.String())
 	}
+	var allocation struct {
+		AuthorShare int `json:"author_share"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &allocation); err != nil {
+		t.Fatal(err)
+	}
+	if allocation.AuthorShare != 20 {
+		t.Fatal("new campaigns must default to 20% author support")
+	}
 	if storage.HasPost(note.ID) || len(storage.ListPendingInvoices()) != 0 || len(storage.Ledger()) != 0 {
 		t.Fatal("preview added unpaid content to board")
 	}
@@ -366,6 +375,10 @@ func TestPreviewFetchesUnpaidNoteAndBillboardSettlementSurvivesRestart(t *testin
 	var invoice promoteResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &invoice); err != nil {
 		t.Fatal(err)
+	}
+	pending, ok := storage.GetPendingInvoice(invoice.PaymentHash)
+	if !ok || pending.AuthorShare == nil || *pending.AuthorShare != 20 {
+		t.Fatal("new campaign invoice lost the default author split")
 	}
 	if storage.HasPost(note.ID) {
 		t.Fatal("minting an invoice published an unpaid note")

@@ -6,6 +6,60 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+### Fixed
+
+- Close wallet and profile relay connections safely, preventing a shutdown
+  race that could stop the backend.
+- Preserve original-note relay hints when settling promotion zaps, including
+  after a restart or reconstruction from a signed Holoboard reply.
+- Keep public zap consent bound to the selected signer connection, including
+  invoice replacement. Changing or reconnecting a signer or refreshing permits
+  ordinary author support without carrying consent to another session.
+- Handle invoice expiry and wallet confirmation separately for visibility and
+  support. A failed author payment confirmed by its original NWC wallet permits
+  invoice replacement after expiry without another charge.
+- Stop receipt watchers safely after fast wallet payment confirmation.
+- Use verified recipient profile sources in new promotion zap splits, while
+  retaining existing public quotes and campaign allocations.
+- Find author payment profiles through note hints and the author's relays.
+  Compare current profiles before creating splits, so a stale address-free
+  profile does not remove author support.
+  Confirm previously issued author invoices after provider changes or restarts.
+- Keep prepared invoices and wallet attempt protection when reopening the form
+  with browser storage blocked; explain the refresh limitation.
+
+### Added
+
+- A top 21 main board and a paid waiting room with Top, New and Hot views.
+- Direct author support alongside paid visibility, with adjustable allocations,
+  browser-wallet payments and separate recipient invoices and payment statuses.
+  If author support is unavailable, payers can review and choose visibility only.
+- Zap splits on new paid-promotion quotes. Zapping their Holoboard share boosts
+  the original note, while the author's share supports the author directly.
+- Optional NWC wallet connections and Nostr signers, including browser
+  extensions and Amber through a remote signer connection. Invoice links,
+  copying and QR payments remain available without an account.
+
+### Changed
+
+- New campaigns default to visibility only when the author's signed profile
+  has no Lightning payment address. Temporary outages preserve the chosen split.
+- Campaigns created before zap splits default to visibility-only boosts.
+  Author support remains optional; saved splits and prepared invoices keep
+  their allocations.
+- Boost opens a compact note and amount picker with its saved allocation.
+  Promotion tools and contextual help open separate panels without clearing
+  choices; the action stays visible on phones. Author shares use a slider.
+- Wallet and Nostr connections are available throughout the app. A connected
+  wallet can prepare and pay recipient invoices after one explicit confirmation,
+  while invoice links, copying and QR remain available without a connection.
+- A dedicated help page explains ranking, payments and promotion from Nostr,
+  with account and relay details available to copy.
+- Unfinished payments resume after a refresh in the same browser tab. Ranking
+  estimates account for the selected author share and include entry into the top 21.
+- Author support has a visible on/off switch that restores the selected share.
+  Uncertain wallet payments require a status check before another attempt.
+
 ## 2026-09-29
 
 ### Fixed

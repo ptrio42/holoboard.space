@@ -75,6 +75,7 @@ export default defineConfig({
         // not force everyone to re-download React and NDK.
         manualChunks(id: string) {
           if (!id.includes('node_modules')) return
+          if (/nostr-tools\/lib\/esm\/nip46\.js$/.test(id)) return 'signer'
           if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) return 'react'
           if (/node_modules\/(@nostr-dev-kit|nostr-tools|@noble|@scure|light-bolt11-decoder)\//.test(id))
             return 'nostr'

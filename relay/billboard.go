@@ -174,6 +174,13 @@ func (s *Storage) SettleInvoiceWithPublication(hash string, event *nostr.Event, 
 	if promotion < 0 {
 		return nil, fmt.Errorf("invalid stored invoice allocation")
 	}
+	if original == nil {
+		post.FirstPromotedAt = now
+		post.AuthorShare = invoice.AuthorShare
+		if quote != nil {
+			post.AuthorShare = quoteAuthorShare(quote)
+		}
+	}
 	if promotion > 0 {
 		post.TotalSatsPaid += promotion
 		post.LastPaymentTimestamp = now

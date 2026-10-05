@@ -1,0 +1,243 @@
+--- a/relay.go
++++ b/relay.go
+@@ -22,6 +22,8 @@
+ 
+ type Relay struct {
+ 	closeMutex sync.Mutex
++	closed     bool
++	workers    sync.WaitGroup
+ 
+ 	URL           string
+ 	RequestHeader http.Header // e.g. for origin header
+@@ -155,18 +157,35 @@
+ 		defer cancel()
+ 	}
+ 
++	ctx, stopDial := context.WithCancel(ctx)
++	defer stopDial()
++	stop := context.AfterFunc(r.connectionContext, stopDial)
++	defer stop()
+ 	conn, err := NewConnection(ctx, r.URL, r.RequestHeader, tlsConfig)
+ 	if err != nil {
+ 		return fmt.Errorf("error opening websocket to '%s': %w", r.URL, err)
+ 	}
++	r.closeMutex.Lock()
++	defer r.closeMutex.Unlock()
++	if r.closed || r.connectionContext.Err() != nil || r.Connection != nil {
++		conn.Close()
++		return fmt.Errorf("relay is closed or already connected")
++	}
+ 	r.Connection = conn
++	// Register workers before Close can wait. The connection pointer stays
++	// immutable after publication; workers use the captured socket directly.
++	r.workers.Add(3)
++	readerDone := make(chan struct{})
+ 
+ 	// ping every 29 seconds
+ 	ticker := time.NewTicker(29 * time.Second)
+ 
+ 	// to be used when the connection is closed
+ 	go func() {
++		defer r.workers.Done()
+ 		<-r.connectionContext.Done()
++		r.closeConnection()
++		<-readerDone
+ 		// close these things when the connection is closed
+ 		if r.notices != nil {
+ 			close(r.notices)
+@@ -175,25 +194,27 @@
+ 		ticker.Stop()
+ 		// close all subscriptions
+ 		r.Subscriptions.Range(func(_ string, sub *Subscription) bool {
+-			go sub.Unsub()
++			sub.Unsub()
++			<-sub.done
+ 			return true
+ 		})
+ 	}()
+ 
+ 	// queue all write operations here so we don't do mutex spaghetti
+ 	go func() {
++		defer r.workers.Done()
+ 		for {
+ 			select {
+ 			case <-ticker.C:
+-				err := wsutil.WriteClientMessage(r.Connection.conn, ws.OpPing, nil)
++				err := wsutil.WriteClientMessage(conn.conn, ws.OpPing, nil)
+ 				if err != nil {
+ 					InfoLogger.Printf("{%s} error writing ping: %v; closing websocket", r.URL, err)
+-					r.Close() // this should trigger a context cancelation
++					r.closeConnection()
+ 					return
+ 				}
+ 			case writeRequest := <-r.writeQueue:
+ 				// all write requests will go through this to prevent races
+-				if err := r.Connection.WriteMessage(r.connectionContext, writeRequest.msg); err != nil {
++				if err := conn.WriteMessage(r.connectionContext, writeRequest.msg); err != nil {
+ 					writeRequest.answer <- err
+ 				}
+ 				close(writeRequest.answer)
+@@ -206,13 +227,15 @@
+ 
+ 	// general message reader loop
+ 	go func() {
++		defer r.workers.Done()
++		defer close(readerDone)
+ 		buf := new(bytes.Buffer)
+ 
+ 		for {
+ 			buf.Reset()
+ 			if err := conn.ReadMessage(r.connectionContext, buf); err != nil {
+ 				r.ConnectionError = err
+-				r.Close()
++				r.closeConnection()
+ 				break
+ 			}
+ 
+@@ -227,7 +250,11 @@
+ 			case *NoticeEnvelope:
+ 				// see WithNoticeHandler
+ 				if r.notices != nil {
+-					r.notices <- string(*env)
++					select {
++					case r.notices <- string(*env):
++					case <-r.connectionContext.Done():
++						return
++					}
+ 				} else {
+ 					log.Printf("NOTICE from %s: '%s'\n", r.URL, string(*env))
+ 				}
+@@ -271,7 +298,12 @@
+ 				}
+ 			case *CountEnvelope:
+ 				if subscription, ok := r.Subscriptions.Load(string(env.SubscriptionID)); ok && env.Count != nil && subscription.countResult != nil {
+-					subscription.countResult <- *env.Count
++					select {
++					case subscription.countResult <- *env.Count:
++					case <-subscription.Context.Done():
++					case <-r.connectionContext.Done():
++						return
++					}
+ 				}
+ 			case *OKEnvelope:
+ 				if okCallback, exist := r.okCallbacks.Load(env.EventID); exist {
+@@ -288,11 +320,12 @@
+ 
+ // Write queues a message to be sent to the relay.
+ func (r *Relay) Write(msg []byte) <-chan error {
+-	ch := make(chan error)
++	ch := make(chan error, 1)
+ 	select {
+ 	case r.writeQueue <- writeRequest{msg: msg, answer: ch}:
+ 	case <-r.connectionContext.Done():
+-		go func() { ch <- fmt.Errorf("connection closed") }()
++		ch <- fmt.Errorf("connection closed")
++		close(ch)
+ 	}
+ 	return ch
+ }
+@@ -377,7 +410,11 @@
+ func (r *Relay) Subscribe(ctx context.Context, filters Filters, opts ...SubscriptionOption) (*Subscription, error) {
+ 	sub := r.PrepareSubscription(ctx, filters, opts...)
+ 
+-	if r.Connection == nil {
++	r.closeMutex.Lock()
++	connected := r.Connection != nil && !r.closed && r.connectionContext.Err() == nil
++	r.closeMutex.Unlock()
++	if !connected {
++		sub.Unsub()
+ 		return nil, fmt.Errorf("not connected to %s", r.URL)
+ 	}
+ 
+@@ -393,6 +430,8 @@
+ // Remember to cancel subscriptions, either by calling `.Unsub()` on them or ensuring their `context.Context` will be canceled at some point.
+ // Failure to do that will result in a huge number of halted goroutines being created.
+ func (r *Relay) PrepareSubscription(ctx context.Context, filters Filters, opts ...SubscriptionOption) *Subscription {
++	r.closeMutex.Lock()
++	defer r.closeMutex.Unlock()
+ 	current := subscriptionIDCounter.Add(1)
+ 	ctx, cancel := context.WithCancel(ctx)
+ 
+@@ -404,6 +443,7 @@
+ 		Events:            make(chan *Event),
+ 		EndOfStoredEvents: make(chan struct{}, 1),
+ 		ClosedReason:      make(chan string, 1),
++		done:              make(chan struct{}),
+ 		Filters:           filters,
+ 	}
+ 
+@@ -416,6 +456,9 @@
+ 
+ 	id := sub.GetID()
+ 	r.Subscriptions.Store(id, sub)
++	if r.closed || r.connectionContext.Err() != nil {
++		cancel()
++	}
+ 
+ 	// start handling events, eose, unsub etc:
+ 	go sub.start()
+@@ -483,21 +526,31 @@
+ }
+ 
+ func (r *Relay) Close() error {
++	err := r.closeConnection()
++	r.workers.Wait()
++	return err
++}
++
++// Workers request shutdown without waiting for themselves. Cancellation also
++// closes the socket, releasing blocked reads and writes before workers join.
++func (r *Relay) closeConnection() error {
+ 	r.closeMutex.Lock()
+ 	defer r.closeMutex.Unlock()
+ 
+-	if r.connectionContextCancel == nil {
++	if r.closed {
+ 		return fmt.Errorf("relay already closed")
+ 	}
+ 	r.connectionContextCancel()
+-	r.connectionContextCancel = nil
++	r.closed = true
+ 
+ 	if r.Connection == nil {
++		if r.notices != nil {
++			close(r.notices)
++		}
+ 		return fmt.Errorf("relay not connected")
+ 	}
+ 
+ 	err := r.Connection.Close()
+-	r.Connection = nil
+ 	if err != nil {
+ 		return err
+ 	}
+--- a/subscription.go
++++ b/subscription.go
+@@ -22,6 +22,7 @@
+ 	// will be closed when the subscription ends
+ 	Events chan *Event
+ 	mu     sync.Mutex
++	done   chan struct{}
+ 
+ 	// the EndOfStoredEvents channel gets closed when an EOSE comes for that subscription
+ 	EndOfStoredEvents chan struct{}
+@@ -68,6 +69,7 @@
+ }
+ 
+ func (sub *Subscription) start() {
++	defer close(sub.done)
+ 	<-sub.Context.Done()
+ 	// the subscription ends once the context is canceled (if not already)
+ 	sub.Unsub() // this will set sub.live to false
+--- a/pool.go
++++ b/pool.go
+@@ -156,7 +156,8 @@
+ 		opts = append(opts, WithSignatureChecker(pool.signatureChecker))
+ 	}
+ 
+-	if relay, err = RelayConnect(ctx, nm, opts...); err != nil {
++	relay = NewRelay(pool.Context, nm, opts...)
++	if err = relay.Connect(ctx); err != nil {
+ 		if pool.penaltyBox != nil {
+ 			// putting relay in penalty box
+ 			pool.penaltyBoxMu.Lock()

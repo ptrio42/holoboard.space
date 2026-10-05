@@ -109,6 +109,7 @@ type InvoiceManager struct {
 	storage           *Storage
 	paymentMonitor    *PaymentMonitor
 	defaultAmountSats int64
+	authorSupport     *AuthorSupport
 
 	billboardMu sync.Mutex
 	checkMu     sync.Mutex
@@ -132,11 +133,11 @@ func (im *InvoiceManager) GeneratePromotionInvoice(ctx context.Context, postID s
 	return im.GeneratePromotionInvoiceWithContact(ctx, postID, amountSats, hints, author, nil, "", nil)
 }
 
-func (im *InvoiceManager) GeneratePromotionInvoiceWithContact(ctx context.Context, postID string, amountSats int64, hints []string, author string, contact *PromotionContact, sourceDMID string, event *nostr.Event) (*Invoice, error) {
+func (im *InvoiceManager) GeneratePromotionInvoiceWithContact(ctx context.Context, postID string, amountSats int64, hints []string, author string, contact *PromotionContact, sourceDMID string, event *nostr.Event, authorShare ...*int) (*Invoice, error) {
 	if amountSats == 0 {
 		amountSats = im.defaultAmountSats
 	}
-	return im.generateInvoice(ctx, postID, amountSats, hints, author, nil, false, event, contact, sourceDMID)
+	return im.generateInvoice(ctx, postID, amountSats, hints, author, nil, false, event, contact, sourceDMID, authorShare...)
 }
 
 // GenerateBillboardInvoice reserves the style while minting. Only one live
@@ -145,7 +146,7 @@ func (im *InvoiceManager) GenerateBillboardInvoice(ctx context.Context, postID s
 	return im.GenerateBillboardInvoiceWithContact(ctx, postID, promotion, hints, author, config, styleOnly, event, nil)
 }
 
-func (im *InvoiceManager) GenerateBillboardInvoiceWithContact(ctx context.Context, postID string, promotion int64, hints []string, author string, config *BillboardConfig, styleOnly bool, event *nostr.Event, contact *PromotionContact) (*Invoice, error) {
+func (im *InvoiceManager) GenerateBillboardInvoiceWithContact(ctx context.Context, postID string, promotion int64, hints []string, author string, config *BillboardConfig, styleOnly bool, event *nostr.Event, contact *PromotionContact, authorShare ...*int) (*Invoice, error) {
 	im.billboardMu.Lock()
 	defer im.billboardMu.Unlock()
 	if styleOnly || promotion <= 0 {
@@ -159,10 +160,10 @@ func (im *InvoiceManager) GenerateBillboardInvoiceWithContact(ctx context.Contex
 			return nil, fmt.Errorf("%w: a billboard invoice for this note is already waiting for payment", errBillboardConflict)
 		}
 	}
-	return im.generateInvoice(ctx, postID, promotion+billboardFeeSats, hints, author, config, styleOnly, event, contact, "")
+	return im.generateInvoice(ctx, postID, promotion+billboardFeeSats, hints, author, config, styleOnly, event, contact, "", authorShare...)
 }
 
-func (im *InvoiceManager) generateInvoice(ctx context.Context, postID string, amountSats int64, hints []string, author string, config *BillboardConfig, styleOnly bool, event *nostr.Event, contact *PromotionContact, sourceDMID string) (*Invoice, error) {
+func (im *InvoiceManager) generateInvoice(ctx context.Context, postID string, amountSats int64, hints []string, author string, config *BillboardConfig, styleOnly bool, event *nostr.Event, contact *PromotionContact, sourceDMID string, authorShare ...*int) (*Invoice, error) {
 	memo := fmt.Sprintf("Promote Nostr post: %s", postID)
 	if config != nil {
 		memo = fmt.Sprintf("Holoboard: %d sats promotion + %d sats billboard: %s", amountSats-billboardFeeSats, billboardFeeSats, postID)
@@ -174,8 +175,18 @@ func (im *InvoiceManager) generateInvoice(ctx context.Context, postID string, am
 	if invoice.AmountSats != amountSats {
 		return nil, fmt.Errorf("wallet issued an invoice with an unexpected amount")
 	}
+	share := defaultAuthorShare
+	if len(authorShare) > 0 && authorShare[0] != nil {
+		share = *authorShare[0]
+	}
+	if post, ok := im.storage.GetPost(postID); ok {
+		share = campaignAuthorShare(post)
+	} else if im.authorSupport != nil {
+		share = im.authorSupport.campaignShare(ctx, event, share, hints)
+	}
 	pendingInvoice := &PendingInvoice{
-		PostID: postID, Invoice: invoice.PaymentRequest, PaymentHash: invoice.PaymentHash,
+		AuthorShare: &share,
+		PostID:      postID, Invoice: invoice.PaymentRequest, PaymentHash: invoice.PaymentHash,
 		AmountSats: invoice.AmountSats, CreatedAt: time.Now(), ExpiresAt: invoice.ExpiresAt,
 		RelayHints: hints, Author: author, Billboard: cloneBillboard(config), StyleOnly: styleOnly, Event: event,
 		Contact: contact, SourceDMID: sourceDMID,
