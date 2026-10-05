@@ -42,6 +42,8 @@ record deployment, not announcement publication.
 
 ### Changed
 
+- Compact the board header with shorter descriptions and tighter spacing,
+  bringing paid notes higher on the page on desktop and mobile.
 - New campaigns default to visibility only when the author's signed profile
   has no Lightning payment address. Temporary outages preserve the chosen split.
 - Campaigns created before zap splits default to visibility-only boosts.
