@@ -46,28 +46,34 @@ export default function Billboard() {
     }, [view, pages, nudge]);
     const events = useMemo(() => data?.entries.map((entry) => ({ ...entry, note: new NDKEvent(ndk, entry.event) })) ?? [], [data]);
     const chooseView = (next: CampaignView) => {
+        if (next === view) return;
         setView(next); setPages(1); setData(null); setLoading(true);
         window.history.replaceState(null, "", `/waiting?view=${next}`);
     };
     return <div className="mx-auto min-h-dvh w-full max-w-5xl px-4 pt-6 pb-20 sm:px-6">
         <a href="#board" className="skip-link pixel-frame focus-pixel border-2 border-neon-gold bg-void px-4 py-2 font-pixel text-[10px] text-neon-gold">Skip to notes</a>
-        <header className="mb-4 grid grid-cols-1 justify-items-center gap-y-2 text-center md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:justify-items-start md:gap-x-6 md:gap-y-3 md:text-left">
-            <h1 className="font-pixel text-xl leading-tight tracking-widest text-neon-pink [text-shadow:0_0_18px_rgba(236,72,153,0.55)] md:text-2xl">HOLOBOARD</h1>
-            <p className="max-w-xl text-xs leading-relaxed text-cyan-200/70 sm:text-sm md:col-span-2">{waiting ? "Paid notes below the top 21. Boost a note to move it up." : "Top 21 paid notes. Recent boosts carry more weight."}</p>
-            <nav aria-label="Board sections" className="flex flex-wrap justify-center gap-x-4 font-pixel text-[10px] text-cyan-200/80 md:col-span-2 md:justify-start">
-                <a href="/" aria-current={!waiting ? "page" : undefined} className={`focus-pixel inline-flex min-h-11 items-center ${!waiting ? "text-neon-gold" : "hover:text-neon-cyan"}`}>Top 21</a>
-                <a href="/waiting" aria-current={waiting ? "page" : undefined} className={`focus-pixel inline-flex min-h-11 items-center ${waiting ? "text-neon-gold" : "hover:text-neon-cyan"}`}>Waiting room</a>
-                <a href="/expired" className="focus-pixel inline-flex min-h-11 items-center hover:text-neon-cyan">Expired</a>
-            </nav>
-            <PixelButton variant="accent" className="md:col-start-2 md:row-start-1 md:justify-self-end" onClick={() => { setPromotion(null); setOpen(true); }}>Promote a note</PixelButton>
+        <header className="mb-4">
+            <div className="grid grid-cols-1 justify-items-center gap-y-2 text-center md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:justify-items-start md:gap-x-6 md:gap-y-3 md:text-left">
+                <h1 className="font-pixel text-xl leading-tight tracking-widest text-neon-pink [text-shadow:0_0_18px_rgba(236,72,153,0.55)] md:text-2xl">HOLOBOARD</h1>
+                <p className="max-w-xl text-xs leading-relaxed text-cyan-200/70 sm:text-sm md:col-span-2">{waiting ? "Paid notes below the top 21. Boost a note to move it up." : "Top 21 paid notes. Recent boosts carry more weight."}</p>
+                <PixelButton variant="accent" className="md:col-start-2 md:row-start-1 md:justify-self-end" onClick={() => { setPromotion(null); setOpen(true); }}>Promote a note</PixelButton>
+            </div>
+            <div className="mt-2 space-y-1 text-center md:text-left">
+                <nav aria-label="Board sections" className="flex flex-wrap justify-center gap-x-4 font-pixel text-[10px] text-cyan-200/80 md:justify-start">
+                    <a href="/" aria-current={!waiting ? "page" : undefined} className={`focus-pixel inline-flex min-h-11 items-center border-b-2 ${!waiting ? "border-neon-gold text-neon-gold" : "border-transparent hover:text-neon-cyan"}`}>Top 21</a>
+                    <a href="/waiting" aria-current={waiting ? "page" : undefined} className={`focus-pixel inline-flex min-h-11 items-center border-b-2 ${waiting ? "border-neon-gold text-neon-gold" : "border-transparent hover:text-neon-cyan"}`}>Waiting room</a>
+                    <a href="/expired" className="focus-pixel inline-flex min-h-11 items-center border-b-2 border-transparent hover:text-neon-cyan">Expired</a>
+                </nav>
+                {waiting && <div className="flex flex-col gap-1 md:flex-row md:flex-wrap md:items-center md:gap-x-4">
+                    <div role="group" aria-label="Waiting room sort" aria-describedby="waiting-room-sort-description" className="board-sort flex flex-wrap items-center justify-center gap-2 md:justify-start">
+                        <span className="mr-1 text-xs text-cyan-200/70">Sort</span>
+                        {(["top", "new", "hot"] as const).map((sort) => <PixelButton key={sort} size="sm" variant="ghost" aria-pressed={view === sort} onClick={() => chooseView(sort)}>{sort === "top" ? "Rank" : sort === "new" ? "New" : "Hot"}</PixelButton>)}
+                    </div>
+                    <p id="waiting-room-sort-description" className="text-xs text-cyan-100/60">{view === "top" ? "By ranking weight · positions 22+" : view === "new" ? "By first promotion. Boosts do not reset the order." : "By visibility sats in the last 24 hours."}</p>
+                </div>}
+            </div>
         </header>
         <main id="board" tabIndex={-1} aria-busy={loading}>
-            {waiting && <div className="mb-4 flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:gap-x-4">
-                <div role="group" aria-label="Waiting room sort" className="flex shrink-0 flex-wrap gap-2">
-                    {(["top", "new", "hot"] as const).map((sort) => <PixelButton key={sort} size="sm" variant={view === sort ? "accent" : "ghost"} aria-pressed={view === sort} onClick={() => chooseView(sort)}>{sort === "top" ? "Top" : sort === "new" ? "New" : "Hot"}</PixelButton>)}
-                </div>
-                <p className="text-xs text-cyan-100/60">{view === "top" ? "By ranking weight · positions 22+" : view === "new" ? "By first promotion. Boosts do not reset the order." : "By visibility sats in the last 24 hours."}</p>
-            </div>}
             {error && <div role="alert" className="mb-5 space-y-3 border-2 border-neon-pink/40 p-4 text-xs text-neon-pink"><p>{error}</p><PixelButton size="sm" variant="ghost" onClick={refresh}>Try again</PixelButton></div>}
             {loading && !data && <p role="status" className="py-8 text-center font-pixel text-[10px] text-cyan-300/60">Loading notes...</p>}
             {!loading && !error && events.length === 0 && <PixelPanel><div className="space-y-3 p-6 text-center"><h2 className="font-pixel text-xs text-cyan-200/70">{waiting ? view === "hot" ? "No recent boosts here" : "The waiting room is empty" : "The board is empty"}</h2><p className="text-sm text-cyan-100/60">{waiting ? "Active notes outside the top 21 appear here." : "Promote a note to start its campaign."}</p></div></PixelPanel>}

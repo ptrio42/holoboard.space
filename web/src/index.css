@@ -188,6 +188,20 @@ body::after {
     box-shadow: inset 0 0 0 3px var(--color-neon-gold);
 }
 
+.board-sort .pixel-btn__face {
+    min-height: 38px;
+    font-size: 10px;
+}
+
+.board-sort .pixel-btn[aria-pressed="true"] {
+    --edge: var(--color-neon-gold);
+    --ink: var(--color-neon-gold);
+}
+
+.board-sort .pixel-btn[aria-pressed="true"] .pixel-btn__face {
+    background-color: color-mix(in srgb, var(--color-neon-gold) 10%, var(--color-void));
+}
+
 /* Focus has to survive the clip-path, so it is drawn inside the element. */
 .focus-pixel:focus-visible {
     outline: none;

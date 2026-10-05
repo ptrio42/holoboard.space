@@ -42,8 +42,9 @@ record deployment, not announcement publication.
 
 ### Changed
 
-- Compact the board header with shorter descriptions and tighter spacing,
-  bringing paid notes higher on the page on desktop and mobile.
+- Compact the board header and group section navigation with readable Rank,
+  New and Hot sorting controls. Gold marks the selected section and sort;
+  selecting the current sort keeps the visible notes in place.
 - New campaigns default to visibility only when the author's signed profile
   has no Lightning payment address. Temporary outages preserve the chosen split.
 - Campaigns created before zap splits default to visibility-only boosts.
