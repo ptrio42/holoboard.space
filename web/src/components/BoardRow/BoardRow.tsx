@@ -1,14 +1,17 @@
 import type { BillboardConfig } from "../../lib/billboard";
 import { BillboardScreen } from "../BillboardScreen/BillboardScreen";
 import { NoteAttachments } from "../TextRenderer/NoteAttachments";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { NDKEvent } from "@nostr-dev-kit/ndk";
 import { PixelPanel } from "../ui/PixelPanel";
 import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
 import TextRenderer from "../TextRenderer/TextRenderer";
 import { Expandable } from "../ui/Expandable";
-import { formatSats, njumpUrl } from "../../lib/nostr";
+import { formatSats, njumpUrl, parseNoteReference } from "../../lib/nostr";
 import { parentOf } from "../../lib/parent";
+import { noteAttachments } from "../../lib/noteAttachments";
+import { NoteExternalLink } from "../ui/NoteControls";
+import { PixelButton } from "../ui/PixelButton";
 
 interface BoardRowProps {
     event: NDKEvent;
@@ -48,7 +51,6 @@ const TIERS = [
 const METER_BLOCKS = 5;
 
 const DEFAULT_TIER = { accent: "rgba(34,211,238,0.32)", glow: undefined, text: "text-cyan-300/60" };
-const FOOTER_ACTION = "note-action inline-flex cursor-pointer items-center";
 
 /**
  * The whole story for a screen reader, which has neither hover nor a bar.
@@ -67,6 +69,9 @@ function satsLabel(sats: number): string {
 export function BoardRow({ event, rank, sats, weight, expired = false, onPromote, lastPaidAt, firstPaidAt, hotSats, billboard, billboardPreviewSlide }: BoardRowProps) {
     const tier = !expired && rank ? TIERS[rank - 1] ?? DEFAULT_TIER : DEFAULT_TIER;
     const parent = parentOf(event);
+    const hasBillboard = !!billboard && !expired;
+    const quotedIds = useMemo(() => new Set(noteAttachments(event.content, event.tags, event.id).quotes.map(quote => quote.key)), [event.content, event.tags, event.id]);
+    const parentIsQuoted = parent && quotedIds.has(parseNoteReference(parent.href)?.id ?? "");
     // Tapped open on a touch screen, which has no hover to ask with.
     const [showWeight, setShowWeight] = useState(false);
 
@@ -108,15 +113,24 @@ export function BoardRow({ event, rank, sats, weight, expired = false, onPromote
                     </div>}
 
                     <div className="min-w-0 flex-1 space-y-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                            <h2 className="min-w-0 text-base font-normal">
-                                <span className="sr-only">
-                                    {expired ? "Expired note" : `Rank ${rank}`}
-                                    {typeof sats === "number" && `, paid ${satsLabel(sats)}`}, posted by{" "}
-                                </span>
-                                <UserProfileInline pubkey={event.pubkey} />
-                            </h2>
-                            <div className="flex shrink-0 items-center gap-3">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0">
+                                <h2 className="min-w-0 text-base font-normal">
+                                    <span className="sr-only">
+                                        {expired ? "Expired note" : `Rank ${rank}`}
+                                        {typeof sats === "number" && `, paid ${satsLabel(sats)}`}, posted by{" "}
+                                    </span>
+                                    <UserProfileInline pubkey={event.pubkey} />
+                                </h2>
+                                {parent && <div className="mt-1 text-xs text-cyan-100/50">
+                                    {parentIsQuoted ? <span>{parent.label} quoted note</span> : <a
+                                        href={parent.href} target="_blank" rel="noopener noreferrer"
+                                        className="note-context" title="Open conversation context">
+                                        {parent.label} <span aria-hidden="true">↗</span>
+                                    </a>}
+                                </div>}
+                            </div>
+                            <div className="flex min-h-7 shrink-0 items-center gap-3">
                                 {expired && <span className="font-pixel text-[8px] tracking-widest text-cyan-300/40">Expired</span>}
                                 {typeof sats === "number" && (
                                     <button
@@ -175,52 +189,35 @@ export function BoardRow({ event, rank, sats, weight, expired = false, onPromote
                             </div>
                         </div>
 
-                        {billboard && !expired && <BillboardScreen config={billboard} initialSlide={billboardPreviewSlide} sourceContent={event.content} />}
-                        {billboard && !expired && <NoteAttachments content={event.content} tags={event.tags} ownId={event.id} />}
-
-                        <div className="text-[13px] text-cyan-50/80 @xl/row:text-sm">
-                            {billboard && !expired ? (
-                                <details className="disclosure">
-                                    <summary className="note-action cursor-pointer py-2">Full note</summary>
-                                    <TextRenderer text={event.content} embedQuotes={false} />
-                                </details>
-                            ) : (
-                                <Expandable label={expired ? "expired note" : `note at rank ${rank}`}>
+                        {hasBillboard && <BillboardScreen config={billboard!} initialSlide={billboardPreviewSlide} sourceContent={event.content} />}
+                        <Expandable label={expired ? "expired note" : `note at rank ${rank}`}
+                            expandLabel={hasBillboard ? "Show original" : "Show more"}
+                            collapseLabel={hasBillboard ? "Hide original" : "Show less"}
+                            expandedContent={hasBillboard ? <div className="mt-3 border-t border-cyan-400/15 pt-3 text-[13px] text-cyan-50/80 @xl/row:text-sm">
+                                <p className="mb-2 text-xs text-cyan-100/50">Original text</p>
+                                <TextRenderer text={event.content} embedQuotes={false} />
+                            </div> : undefined}
+                            footer={control => <>
+                                {expired && typeof lastPaidAt === "number" && lastPaidAt > 0 && <p className="mt-3 text-xs text-cyan-300/40">
+                                    Last payment: <time dateTime={new Date(lastPaidAt * 1000).toISOString()}>{new Date(lastPaidAt * 1000).toLocaleDateString()}</time>
+                                </p>}
+                                {typeof hotSats === "number" && <p className="mt-3 text-xs text-cyan-300/60">{satsLabel(hotSats)} for visibility in the last 24 hours</p>}
+                                {typeof firstPaidAt === "number" && firstPaidAt > 0 && <p className="mt-3 text-xs text-cyan-300/60">First promoted: <time dateTime={new Date(firstPaidAt * 1000).toISOString()}>{new Date(firstPaidAt * 1000).toLocaleDateString()}</time></p>}
+                                <div className="note-footer">
+                                    {control}
+                                    <div className="ml-auto flex shrink-0 items-center gap-5">
+                                        <NoteExternalLink href={njumpUrl(event.id, "note")} />
+                                        {onPromote && <PixelButton size="sm" variant="ghost" onClick={onPromote} className="note-boost">
+                                            {expired ? "Promote again" : "Boost"}
+                                        </PixelButton>}
+                                    </div>
+                                </div>
+                            </>}>
+                            {hasBillboard ? <NoteAttachments content={event.content} tags={event.tags} ownId={event.id} /> :
+                                <div className="text-[13px] text-cyan-50/80 @xl/row:text-sm">
                                     <TextRenderer text={event.content} tags={event.tags} ownId={event.id} />
-                                </Expandable>
-                            )}
-                        </div>
-
-                        {expired && typeof lastPaidAt === "number" && lastPaidAt > 0 && <p className="text-xs text-cyan-300/40">
-                            Last payment: <time dateTime={new Date(lastPaidAt * 1000).toISOString()}>{new Date(lastPaidAt * 1000).toLocaleDateString()}</time>
-                        </p>}
-                        {typeof hotSats === "number" && <p className="text-xs text-cyan-300/60">{satsLabel(hotSats)} for visibility in the last 24 hours</p>}
-                        {typeof firstPaidAt === "number" && firstPaidAt > 0 && <p className="text-xs text-cyan-300/60">First promoted: <time dateTime={new Date(firstPaidAt * 1000).toISOString()}>{new Date(firstPaidAt * 1000).toLocaleDateString()}</time></p>}
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                            <a
-                                href={njumpUrl(event.id, "note")}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className={FOOTER_ACTION}
-                            >
-                                Open note
-                            </a>
-                            {onPromote && <button type="button" onClick={onPromote} className={`${FOOTER_ACTION} min-h-11 min-w-11`}>
-                                {expired ? "Promote again" : "Boost"}
-                            </button>}
-                            {/* Without this a comment reads as somebody talking
-                                to nobody, since what it answers is not here. */}
-                            {parent && (
-                                <a
-                                    href={parent.href}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className={FOOTER_ACTION}
-                                >
-                                    {parent.label} &gt;
-                                </a>
-                            )}
-                        </div>
+                                </div>}
+                        </Expandable>
                     </div>
                 </article>
             </PixelPanel>

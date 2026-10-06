@@ -53,9 +53,13 @@ record deployment, not announcement publication.
 
 ### Changed
 
-- Compact the board header and group section navigation with readable Rank,
-  New and Hot sorting controls. Gold marks the selected section and sort;
-  selecting the current sort keeps the visible notes in place.
+- Group note controls in a compact footer, with pixel styling, notched Boost
+  buttons and short Open links for notes and quotes. Move reply context beside
+  the author and expand quoted previews without cutting through their controls.
+- Group wallet, Nostr and help controls with the board heading in a consistent
+  pixel style. Give section navigation and Rank, New and Hot sorting more space,
+  with explanations available through contextual help. Gold marks the selected
+  section and sort; selecting the current sort keeps the visible notes in place.
 - New campaigns default to visibility only when the author's signed profile
   has no Lightning payment address. Temporary outages preserve the chosen split.
 - Campaigns created before zap splits default to visibility-only boosts.

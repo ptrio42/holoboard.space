@@ -135,7 +135,8 @@ limit of 160 characters.
 Slides use up to three fragments and change every three seconds. Animations
 pause on hover or tap and respect reduced-motion settings.
 Images also come from that note. Links and quoted-note previews stay visible
-below it. **Full note** opens the original content.
+below it. **Original** reveals the full text and any remaining attachments.
+**Open** opens a note in a Nostr viewer.
 
 Appearance costs an **introductory 100 sats**, deliberately low and subject to
 an increase. This fee is separate from the promotion amount and adds no ranking

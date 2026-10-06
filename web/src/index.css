@@ -281,16 +281,78 @@ body::after {
 /* Billboard content has a bounded footprint; paid style never buys taller rows. */
 .note-action {
     font-family: var(--font-pixel);
-    font-size: 9px;
-    line-height: 1.8;
-    letter-spacing: 0.1em;
-    color: rgba(103, 232, 249, 0.5);
+    font-size: 10px;
+    line-height: 1.5;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: rgba(165, 243, 252, 0.7);
 }
 .note-action:hover { color: var(--color-neon-cyan); }
-.note-action:focus-visible {
+.note-action:focus-visible, .note-open:focus-visible, .note-context:focus-visible {
     outline: 2px solid var(--color-neon-cyan);
-    outline-offset: 4px;
+    outline-offset: 2px;
 }
+.note-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    margin-top: 8px;
+    border-top: 1px solid rgb(34 211 238 / 0.12);
+    padding-top: 8px;
+}
+.note-disclosure {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+.note-open {
+    display: inline-flex;
+    min-width: 44px;
+    min-height: 44px;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-family: var(--font-pixel);
+    font-size: 10px;
+    line-height: 1.5;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: rgb(165 243 252 / 0.6);
+}
+.note-open svg, .note-disclosure svg { flex-shrink: 0; }
+.note-body a.note-open { color: rgb(165 243 252 / 0.6); }
+.note-open:hover, .note-body a.note-open:hover { color: var(--color-neon-cyan); }
+.note-boost {
+    --edge: rgb(251 191 36 / 0.5);
+    --ink: var(--color-neon-gold);
+    cursor: pointer;
+    box-shadow: none;
+}
+.note-boost .pixel-btn__face {
+    min-height: 38px;
+    padding-inline: 10px;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    background-color: color-mix(in srgb, var(--color-neon-gold) 5%, var(--color-void));
+}
+.note-boost:hover:not(:disabled) {
+    --edge: var(--color-neon-gold);
+    --ink: var(--color-neon-gold);
+    transform: none;
+}
+.note-boost:hover:not(:disabled) .pixel-btn__face {
+    background-color: color-mix(in srgb, var(--color-neon-gold) 10%, var(--color-void));
+}
+.note-context {
+    display: inline-flex;
+    min-height: 32px;
+    align-items: center;
+    gap: 4px;
+}
+.note-context:hover { color: var(--color-neon-cyan); }
 .note-quote {
     margin: 0.75rem 0;
     padding: 0.25rem 0 0.25rem 0.75rem;
@@ -298,7 +360,6 @@ body::after {
     overflow-wrap: anywhere;
 }
 .note-body .note-quote a { text-decoration: none; }
-.note-quote > a { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .note-quote__excerpt { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .note-quote__excerpt .note-body { display: inline; }
 .note-quote__media {

@@ -6,6 +6,7 @@ import { quoteImages, quotePreviewContent, type NoteQuoteReference } from "../..
 import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
 import { CompactNoteText } from "./CompactNoteText";
 import { QuoteMedia } from "./QuoteMedia";
+import { NoteExternalLink } from "../ui/NoteControls";
 
 /** One level of quotation only. A quote never imports another ranked row or its animations. */
 export function NoteQuote({ reference }: { reference: NoteQuoteReference }) {
@@ -43,20 +44,20 @@ export function NoteQuote({ reference }: { reference: NoteQuoteReference }) {
     }, [reference]);
 
     return (
-        <div ref={container} className="note-quote" aria-label="Quoted note">
-            <span className="font-pixel text-[8px] tracking-widest text-cyan-300/50">QUOTED NOTE</span>
+        <div ref={container} className="note-quote" aria-label="Quoted note" data-note-block>
+            <div className="flex items-center justify-between gap-2">
+                <span className="font-pixel text-[8px] tracking-widest text-cyan-300/50">QUOTED NOTE</span>
+                <NoteExternalLink href={href} label="Open quoted note" className="-my-2 shrink-0" />
+            </div>
             {event ? <>
                 <div className="mt-2"><UserProfileInline pubkey={event.pubkey} /></div>
                 <div className="note-quote__excerpt mt-2 text-[13px] leading-relaxed text-cyan-50/80">
                     <CompactNoteText text={quotePreviewContent(event.content)} />
                 </div>
                 <QuoteMedia images={quoteImages(event.content)} />
-                <a href={href} target="_blank" rel="noopener noreferrer nofollow"
-                    className="note-action mt-2 inline-block py-1">Open quoted note</a>
-            </> : <a href={href} target="_blank" rel="noopener noreferrer nofollow"
-                className="note-action mt-2 block py-2">
-                {unavailable ? "Open quoted note" : "Loading quoted note…"}
-            </a>}
+            </> : <p className="mt-2 text-xs text-cyan-100/50" role="status">
+                {unavailable ? "Preview unavailable" : "Loading preview…"}
+            </p>}
         </div>
     );
 }
