@@ -56,6 +56,7 @@ test("previous frontend works with current API and PWA updates preserve prepared
         if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
         let data: unknown;
         if (url.pathname === "/api/board") data = { entries: [entry], posts: 1, total_sats: 210, updated_at: 1700000000 };
+        else if (url.pathname === "/api/board/waiting-updates") data = { count: 0, note_ids: [], checked_at: Date.now() };
         else if (url.pathname === "/api/board/campaigns") data = { entries: [entry], targets: [entry], total: 1, active_posts: 1, total_sats: 210, has_more: false };
         else if (url.pathname === "/api/promote/preview") data = { event: note, active: true, sats_paid: 210, weight: 200, rank: 1, author_share: 0, billboard_fee_sats: 100, images: [] };
         else if (url.pathname === "/api/support") data = { available: false, author: note.pubkey, reason_code: "no_address", min_sats: 0, max_sats: 0, allows_nostr: false };

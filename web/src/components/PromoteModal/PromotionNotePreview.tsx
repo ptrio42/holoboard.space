@@ -3,6 +3,7 @@ import type { NotePreview } from "../../lib/promote";
 import { njumpUrl } from "../../lib/nostr";
 import { quoteImages, quotePreviewContent } from "../../lib/noteAttachments";
 import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
+import { NoteLinkPreview } from "../TextRenderer/NoteLinkPreview";
 import { CompactNoteText } from "../TextRenderer/CompactNoteText";
 
 const ACTION = "promotion-action focus-pixel inline-flex min-h-11 items-center text-cyan-200/60";
@@ -44,6 +45,7 @@ export function PromotionNotePreview({ preview, compact, expanded, onToggle, chi
             </div>
             {!expanded && images[0] && <PreviewImage key={images[0]} src={images[0]} compact={compact} expanded={false} />}
         </div>
+        {expanded && <NoteLinkPreview text={preview.event.content} />}
         {expanded && images.length > 0 && <div className="grid grid-cols-2 gap-2" aria-label="Original note images">
             {images.map((src) => <PreviewImage key={src} src={src} compact={compact} expanded />)}
         </div>}

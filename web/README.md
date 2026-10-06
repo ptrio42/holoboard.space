@@ -70,9 +70,15 @@ The restored anonymous invoice must remain usable through its wallet link,
 clipboard action and a decoded QR payload.
 
 These tests verify browser behavior and protocol exchanges. Before deployment,
-also check a real NWC wallet and Amber on Android, including returning to the
-website after approval. Device emulation does not verify app switching or OS
-link handling. The Android app opens this same frontend through a TWA.
+also check a real NWC wallet on Android. For a signer release, check Amber and
+returning to the website after approval. Device emulation does not verify app
+switching or OS link handling. The Android app opens this frontend through a TWA.
+
+Signer browser tests remain available in a separate run with the flag enabled:
+
+```bash
+VITE_ENABLE_NOSTR_CONNECT=true HOLOBOARD_TEST_PORT=4200 npm run test:e2e -- tests/payments.spec.ts --grep "signer|Amber|extension|public author zap|notification identity"
+```
 
 ## Configuration
 
@@ -82,6 +88,7 @@ link handling. The Android app opens this same frontend through a TWA.
 | `VITE_API_URL` | Optional HTTP API origin. Defaults to the WebSocket relay's host over HTTP(S). |
 | `VITE_RELAY_PUBKEY` | Board identity, used for promotion mentions and zaps. |
 | `VITE_PUBLIC_RELAYS` | Comma-separated relays for profiles, quoted notes, mentions and zaps. |
+| `VITE_ENABLE_NOSTR_CONNECT` | Enable held-back signer UI and remote-session restoration; defaults to `false`. |
 | `VITE_SATS_ENDPOINT` | Optional board API base URL, with a `/campaigns` subresource. Defaults to the HTTP API origin followed by `/api/board`. |
 
 These settings are included at build time. Rebuild to change a deployed website.
@@ -120,6 +127,22 @@ The public ledger provides totals and current weights, but it does not provide
 the individual payment dates needed to reproduce decay. Treating the total as
 one payment on the last-paid date can inflate a boosted note's local rank.
 
+Waiting-room updates poll `/api/board/waiting-updates` every 15 seconds and on
+return to the visible page. Its exact count and note IDs cover all waiting-room
+pages. The local visit checkpoint is scoped to `VITE_SATS_ENDPOINT`; the first
+successful check establishes a baseline. A successful visible waiting-room load
+acknowledges only the earlier of the campaign and update snapshot timestamps.
+New marks remain throughout that visit. Failed requests do not advance the
+checkpoint; blocked storage retains it in memory for the current page.
+
+Each note previews its first ordinary link, including quoted notes and billboard
+attachments. The compact promotion preview loads a card only when expanded.
+Deploy the updated backend before the frontend to enable both new endpoints.
+Older backends leave ordinary links usable and omit the waiting-room badge.
+Metadata comes from the backend with no third-party preview provider. Thumbnails
+load directly from their public source with no referrer; failed images leave a
+text card. Requests are lazy and shared by URL, with bounded browser caching.
+
 The payment form separates first promotion from a boost: campaign settings and
 active appearance stay fixed, while each payer chooses their own allocation.
 New campaigns default to 80% visibility and 20% author support. Boosts use the
@@ -135,9 +158,10 @@ A two-color slider connects the Holoboard and author amounts and percentages.
 Its handle divides the recipients; 100% Holoboard means visibility only.
 **Use campaign split** restores the saved allocation.
 Amount and Position use matching preset rows, ordered from lower to higher
-cost, with Custom or ranking help in the fifth slot. Switching modes preserves
-the selected amount. Target prices include the current author share and any
-appearance fee; selecting one fixes the amount rather than tracking later
+cost, with Custom in the fifth slot in both modes and ranking explanations in
+Help. A shared row keeps the picker height stable. Switching modes preserves
+the selected amount, allocation and open Custom field. Target prices include
+the current author share and any appearance fee; selecting one fixes the amount rather than tracking later
 estimate changes. The full editor uses **Promotion**, **Billboard** and
 **Payment options** tabs. Billboard appearance is available only for an inactive
 note starting a promotion period. **Payment options** groups wallet connection
@@ -171,16 +195,15 @@ Issued invoices remain payable; clearing local state
 cannot cancel them. An unavailable backend does not block an explicitly
 confirmed restart when no send attempt is recorded.
 Invoice status and payment attempt recovery use the same protections in both
-paths. Global **Wallet** and
-**Connect Nostr** controls are independent of promotion. Inside the form, wallet
-connection lives in **Payment options**, while signer controls appear with
-the expandable **Public author zap** control and notification identity. The legacy
+paths. Global **Wallet** is independent of promotion. Inside the form, wallet
+connection lives in **Payment options**. Nostr signer controls and automatic
+remote-session restoration are disabled for the current release; confirmation
+DMs still accept a manually entered npub. The legacy
 `#how-ranking-works` link opens contextual help; `/help` is the standalone guide.
 [WebLN](https://www.webln.guide/building-lightning-apps/webln-reference/webln.sendpayment)
 can pay the recipient invoices sequentially. The fallback exposes separate
-Lightning links, copies and QR codes. An optional
-[NIP-07 signer](https://github.com/nostr-protocol/nips/blob/master/07.md) signs a
-public author zap. No signer is needed for ordinary author invoices. Partial
+Lightning links, copies and QR codes. The current website prepares ordinary
+author invoices without a signer. Partial
 payments remain in session storage for the current tab; retry skips confirmed
 parts. Manual author payment is explicitly unverified unless a receipt arrives.
 If browser storage is blocked or full, payments stay in memory when reopening
@@ -191,6 +214,12 @@ the revised allocation before the payer requests a single visibility invoice.
 It never redirects the author's share without the payer's choice.
 
 ## Optional wallet and signer connections
+
+`VITE_ENABLE_NOSTR_CONNECT` defaults to `false`, keeping signer entry points,
+public-zap creation and remote-signer restoration out of this release. Set it to
+`true` only for signer development or a future release. The signer behavior below
+applies when that flag is enabled. Existing invoices and manual npub
+notifications work with either setting.
 
 Invoice links, copying and QR codes stay available without connecting anything.
 The payer's [NWC connection](https://github.com/nostr-protocol/nips/blob/master/47.md)

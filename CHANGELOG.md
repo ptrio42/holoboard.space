@@ -8,6 +8,9 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Keep the Amount and Position picker steady in Promote and Boost, with Custom
+  available in both modes and consistent pixel typography in the page footer.
+
 - Find notes through author outboxes while querying reference hints and board
   relays. Preserve hints in pasted links and include metadata discovery relays
   when looking up the author's Lightning payment profile.
@@ -40,6 +43,11 @@ record deployment, not announcement publication.
 
 ### Added
 
+- Preview the first ordinary page link in notes, quotes and expanded promotion
+  previews, with page metadata fetched by Holoboard and a usable link on failure.
+- Show new waiting-room promotions since the previous visit with a navigation
+  badge and New marks, counting all pages without treating boosts as new notes.
+
 - An NWC wallet panel with balance, reviewed invoice and Lightning Address
   payments, camera and image QR scanning, receiving invoices and filtered
   payment history. Show connection permissions and available spending budgets,
@@ -50,11 +58,14 @@ record deployment, not announcement publication.
   If author support is unavailable, payers can review and choose visibility only.
 - Zap splits on new paid-promotion quotes. Zapping their Holoboard share boosts
   the original note, while the author's share supports the author directly.
-- Optional NWC wallet connections and Nostr signers, including browser
-  extensions and Amber through a remote signer connection. Invoice links,
-  copying and QR payments remain available without an account.
+- Optional NWC wallet connections. Invoice links, copying and QR payments remain
+  available without an account. Nostr signer support is held for a later release.
 
 ### Changed
+
+- Label the main board TOP 21 and hold Nostr signer connections for a later
+  website release. Wallets, anonymous invoices and manual notification npubs
+  remain available.
 
 - Make the wallet balance prominent with Holoboard's pixel display, distinct
   Send and Receive actions, and clearer incoming and outgoing payment history.
@@ -63,7 +74,7 @@ record deployment, not announcement publication.
 - Group note controls in a compact footer, with pixel styling, notched Boost
   buttons and short Open links for notes and quotes. Move reply context beside
   the author and expand quoted previews without cutting through their controls.
-- Group wallet, Nostr and help controls with the board heading in a consistent
+- Group wallet and help controls with the board heading in a consistent
   pixel style. Give section navigation and Rank, New and Hot sorting more space,
   with explanations available through contextual help. Gold marks the selected
   section and sort; selecting the current sort keeps the visible notes in place.
@@ -73,9 +84,10 @@ record deployment, not announcement publication.
   Author support remains optional; saved splits and prepared invoices keep
   their allocations.
 - Boost opens a compact two-line note preview and amount picker with its saved
-  allocation. Custom stays in the preset row, with ranking help in the same slot
-  for position presets. Note previews keep images as bounded thumbnails and
-  Nostr references as links, with reading actions beside the author in boosts.
+  allocation. Custom stays in the fifth preset slot for both amount and position
+  presets. Ranking explanations remain in Help. Note previews keep images as
+  bounded thumbnails and Nostr references as links, with reading actions beside
+  the author in boosts.
   Switch between sat presets and ranking targets in the same picker, and adjust
   the split with one two-color control joining recipient amounts and percentages.
   Restore the campaign allocation at any time. The full editor has Promotion,
@@ -87,8 +99,9 @@ record deployment, not announcement publication.
   Contextual panels preserve choices, and the action stays visible on phones.
   Controls and short labels use consistent pixel typography, with readable
   monospace content, payment amounts and input values.
-- Wallet and Nostr connections are available throughout the app. A connected
-  wallet pays after reviewing prepared invoices in Promotion payment. Equal
+- Wallet connections are available throughout the app; Nostr signer UI is held
+  for a later release. A connected wallet pays after reviewing prepared invoices
+  in Promotion payment. Equal
   Wallet and Invoice / QR tabs keep both methods accessible, with recipient
   amounts, payment states and an immediately visible QR. Unpaid sessions can
   restart with their promotion choices preserved; unresolved wallet attempts

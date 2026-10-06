@@ -375,6 +375,8 @@ func main() {
 	// Start() already wraps everything in permissive CORS for GET.
 	relay.Router().HandleFunc("/api/board", BoardHandler(storage))
 	relay.Router().HandleFunc("/api/board/campaigns", CampaignHandler(storage))
+	relay.Router().HandleFunc("/api/board/waiting-updates", WaitingUpdatesHandler(storage))
+	relay.Router().HandleFunc("/api/link-preview", newLinkPreviews().Handler())
 	relay.Router().HandleFunc("/api/board/expired", ExpiredHandler(storage))
 	log.Printf("Board ledger served at /api/board")
 

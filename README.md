@@ -24,12 +24,20 @@ enter either active view. The minimum visibility payment remains 1 sat.
 promotions; **Promote again** brings one back after payment. A payment increases
 weight without guaranteeing a particular position.
 
+Waiting room shows a badge and marks notes first promoted since your previous
+visit. Boosts and older notes falling out of TOP 21 do not count as new. Visit
+history stays in this browser and is separate for each backend.
+
+Notes show a compact preview for the first ordinary page link, with its title,
+domain and available description or thumbnail. Other links remain clickable.
+Failed previews leave the original link available.
+
 ## Promote a note
 
 Open **Promote a note**, paste a note link, `note1`, `nevent1` or event ID, and
 choose a total amount. The editor previews the original note automatically.
 **Boost** on a note opens a compact two-line note preview and amount picker
-with its saved split. Custom stays beside the amount presets. Switch
+with its saved split. Custom stays in the fifth preset slot in both modes. Switch
 between **Amount** and **Position** to choose sat presets or estimated ranking
 targets with matching presets in the same picker. **Payment options** includes
 wallet connection and confirmation DMs. The full editor uses Promotion, Billboard
@@ -61,11 +69,10 @@ selected first when a connection exists; otherwise invoices come first.
 Wallet payment requires a separate explicit action. Invoice payments show one
 recipient's QR at a time, with Open in wallet and Copy invoice always available
 for that invoice. Select Holoboard or Author to change the displayed invoice.
-No login or Nostr signer is needed for ordinary payments. Global **Wallet** and
-**Connect Nostr** controls connect your NWC wallet, browser signer extension,
-or Amber and other remote signers. Inside promotion, **Payment options** offers
-wallet connection; Nostr connection is available beside public zap and
-notification settings.
+No login or Nostr signer is needed for payments. **Wallet** connects an optional
+NWC wallet; **Payment options** also offers that connection. Nostr connection
+is reserved for a later website release. Confirmation DMs still accept a manually
+entered npub.
 
 **Restart payment** returns an unpaid session to the same promotion choices
 without creating new invoices. Check your wallet before confirming: issued
@@ -79,10 +86,9 @@ connection grants access. Send accepts a Lightning invoice, a QR code or a
 Lightning Address and asks for confirmation after review. Receive creates an
 invoice to copy, share or scan. Read-only and receiving-only connections work;
 unavailable permissions are explained in the panel.
-An optional signer lets author support use a public zap. That choice ends when
-the signer changes or reconnects, the form reopens, or the page refreshes.
-Existing invoices remain available; replacing one then uses ordinary author
-support. The two payments can succeed independently: the form keeps their separate
+Author support uses ordinary invoices in the current website release. Existing
+public zap invoices remain usable; replacements use ordinary author support.
+The two payments can succeed independently: the form keeps their separate
 statuses and unfinished invoices in the current browser tab after a refresh.
 Wallet payment proofs and valid zap receipts confirm author support. Manual
 author payments without a proof can only be marked paid by the payer; check your
@@ -100,8 +106,8 @@ DM `PROMOTE <amount> <note>` to receive an invoice. The full command options
 are in the [relay README](relay/README.md#promotion-through-nostr).
 
 Amount, position and allocation controls share one form. Appearance, payment
-options and connection panels preserve the draft. Expand **Public author zap**
-beside the split to connect a signer and choose public author support.
+options and connection panels preserve the draft. Switching Amount and Position
+also preserves the amount, allocation and open Custom field.
 [Help](https://holoboard.space/help) explains ranking and alternative promotion
 methods, with the Holoboard pubkey and relay URL available to copy. Contextual
 help returns to the editor without discarding its choices. The payment result

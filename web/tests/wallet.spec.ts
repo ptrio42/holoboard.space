@@ -39,7 +39,8 @@ async function setup(context: BrowserContext, page: Page, options: { restoredPro
             data = url.pathname.startsWith("/.well-known/lnurlp/")
                 ? { tag: "payRequest", callback: "https://recipient.example/pay?token=test", minSendable: 1000, maxSendable: 1000000, metadata: addressMetadata }
                 : { pr: walletInvoice({ metadataHash: addressMetadataHash }) };
-        } else if (url.origin === "http://127.0.0.1:3334") data = { entries: [], targets: [], total: 0, active_posts: 0, has_more: false, total_sats: 0 };
+        } else if (url.origin === "http://127.0.0.1:3334" && url.pathname === "/api/board/waiting-updates") data = { count: 0, note_ids: [], checked_at: Date.now() };
+        else if (url.origin === "http://127.0.0.1:3334") data = { entries: [], targets: [], total: 0, active_posts: 0, has_more: false, total_sats: 0 };
         else return route.abort();
         return route.fulfill({ contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify(data) });
     });

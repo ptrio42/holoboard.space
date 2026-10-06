@@ -689,3 +689,26 @@ body::after {
 }
 
 .allocation-slider:disabled { opacity: 0.4; }
+
+/* A link card is an atomic note block when the original text is collapsed. */
+.note-link-preview {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 12px;
+    padding: 12px;
+    min-height: 64px;
+    border: 1px solid rgb(34 211 238 / 0.25);
+    text-decoration: none;
+    overflow-wrap: anywhere;
+}
+.note-link-preview:hover { border-color: var(--color-neon-cyan); }
+.note-link-preview img, .note-body .note-link-preview img {
+    width: 64px;
+    height: 64px;
+    min-width: 64px;
+    max-height: 64px;
+    margin: 0;
+    object-fit: cover;
+}
+.note-body a.note-link-preview { text-decoration: none; }

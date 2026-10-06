@@ -18,7 +18,7 @@ async function setup(context: BrowserContext, page: Page, options: { content?: s
         const url = new URL(route.request().url());
         if (url.origin === origin) return route.continue();
         if (url.origin !== "http://127.0.0.1:3334") return route.abort();
-        const data = url.pathname === "/api/board/expired" ? { entries: [entry] } :
+        const data = url.pathname === "/api/board/waiting-updates" ? { count: 0, note_ids: [], checked_at: Date.now() } : url.pathname === "/api/board/expired" ? { entries: [entry] } :
             { entries: [entry], targets: [entry], total: 1, active_posts: 31, has_more: false, total_sats: 210 };
         return route.fulfill({ contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify(data) });
     });
@@ -44,7 +44,7 @@ async function setup(context: BrowserContext, page: Page, options: { content?: s
 test("billboard controls share a footer and reveal complete quotes and original text", async ({ context, page }) => {
     const row = await setup(context, page, { tags: [["e", quotes[0].id, "", "reply"]] });
     const sections = page.getByRole("navigation", { name: "Board sections" });
-    await expect(sections.getByRole("link", { name: "Top 21" })).toHaveAttribute("aria-current", "page");
+    await expect(sections.getByRole("link", { name: "TOP 21" })).toHaveAttribute("aria-current", "page");
     const waitingLink = page.getByRole("link", { name: "Waiting room (10)", exact: true });
     await expect(waitingLink).toHaveAttribute("href", "/waiting");
     expect(await waitingLink.evaluate(element => getComputedStyle(element.querySelector("span")!).fontFamily)).toContain("PressStart2P");
@@ -120,7 +120,7 @@ test("expired notes retain their historical payment and promotion action", async
     await expect(page.getByRole("heading", { name: "HOLOBOARD", exact: true })).toBeVisible();
     const sections = page.getByRole("navigation", { name: "Board sections" });
     await expect(sections.getByRole("link", { name: "Expired", exact: true })).toHaveAttribute("aria-current", "page");
-    await expect(sections.getByRole("link", { name: "Top 21" })).toHaveAttribute("href", "/");
+    await expect(sections.getByRole("link", { name: "TOP 21" })).toHaveAttribute("href", "/");
     await expect(sections.getByRole("link", { name: "Waiting room" })).toHaveAttribute("href", "/waiting");
     await expect(page.getByRole("navigation", { name: "Connections and help" })).toHaveCount(1);
     await expect(page.getByRole("button", { name: "Promote a note", exact: true })).toBeVisible();

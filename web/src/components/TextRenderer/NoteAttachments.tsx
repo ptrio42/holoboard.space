@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { linkLabel, noteAttachments } from "../../lib/noteAttachments";
+import { NoteLinkPreview } from "./NoteLinkPreview";
 import { NoteQuote } from "./NoteQuote";
 
 export function NoteAttachments({ content, tags, ownId }: { content: string; tags: string[][]; ownId: string }) {
@@ -16,6 +17,7 @@ export function NoteAttachments({ content, tags, ownId }: { content: string; tag
                 </a>
             </li>)}
         </ul>}
+        <NoteLinkPreview text={content} />
         {attachments.quotes.map((reference) => <NoteQuote key={reference.key} reference={reference} />)}
     </div>;
 }

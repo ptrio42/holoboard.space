@@ -9,6 +9,7 @@ COPY . .
 ARG VITE_RELAY_URL=ws://localhost:8080/relay
 ARG VITE_RELAY_PUBKEY
 ARG VITE_PUBLIC_RELAYS=wss://nos.lol,wss://relay.damus.io,wss://relay.primal.net,wss://nostr.mom,wss://offchain.pub
+ARG VITE_ENABLE_NOSTR_CONNECT=false
 ARG VITE_SATS_ENDPOINT
 
 RUN npm run build

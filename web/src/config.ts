@@ -67,6 +67,9 @@ export const SATS_ENDPOINT = trimmed(
     `${RELAY_HTTP}/api/board`,
 );
 
+/** Signer UI is held for a later release. Wallet connections remain available. */
+export const ENABLE_NOSTR_CONNECT = import.meta.env.VITE_ENABLE_NOSTR_CONNECT === "true";
+
 /** Amounts offered in the zap step, in sats. */
 export const ZAP_PRESETS = [21, 210, 2_100, 21_000];
 

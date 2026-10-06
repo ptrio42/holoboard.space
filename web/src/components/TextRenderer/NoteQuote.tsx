@@ -5,6 +5,7 @@ import { ndk } from "../../lib/ndk";
 import { quoteImages, quotePreviewContent, type NoteQuoteReference } from "../../lib/noteAttachments";
 import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
 import { CompactNoteText } from "./CompactNoteText";
+import { NoteLinkPreview } from "./NoteLinkPreview";
 import { QuoteMedia } from "./QuoteMedia";
 import { NoteExternalLink } from "../ui/NoteControls";
 
@@ -55,6 +56,7 @@ export function NoteQuote({ reference }: { reference: NoteQuoteReference }) {
                     <CompactNoteText text={quotePreviewContent(event.content)} />
                 </div>
                 <QuoteMedia images={quoteImages(event.content)} />
+                <NoteLinkPreview text={event.content} />
             </> : <p className="mt-2 text-xs text-cyan-100/50" role="status">
                 {unavailable ? "Preview unavailable" : "Loading preview…"}
             </p>}

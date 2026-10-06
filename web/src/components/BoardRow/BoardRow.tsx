@@ -19,6 +19,7 @@ interface BoardRowProps {
     billboardPreviewSlide?: number;
     rank?: number;
     expired?: boolean;
+    isNew?: boolean;
     onPromote?: () => void;
     lastPaidAt?: number;
     firstPaidAt?: number;
@@ -66,7 +67,7 @@ function satsLabel(sats: number): string {
     return `${formatSats(sats)} ${sats === 1 ? "sat" : "sats"}`;
 }
 
-export function BoardRow({ event, rank, sats, weight, expired = false, onPromote, lastPaidAt, firstPaidAt, hotSats, billboard, billboardPreviewSlide }: BoardRowProps) {
+export function BoardRow({ event, rank, sats, weight, expired = false, isNew = false, onPromote, lastPaidAt, firstPaidAt, hotSats, billboard, billboardPreviewSlide }: BoardRowProps) {
     const tier = !expired && rank ? TIERS[rank - 1] ?? DEFAULT_TIER : DEFAULT_TIER;
     const parent = parentOf(event);
     const hasBillboard = !!billboard && !expired;
@@ -131,6 +132,7 @@ export function BoardRow({ event, rank, sats, weight, expired = false, onPromote
                                 </div>}
                             </div>
                             <div className="flex min-h-7 shrink-0 items-center gap-3">
+                                {isNew && <span className="font-pixel text-[8px] text-neon-gold" aria-label="New since your last visit">New</span>}
                                 {expired && <span className="font-pixel text-[8px] tracking-widest text-cyan-300/40">Expired</span>}
                                 {typeof sats === "number" && (
                                     <button
@@ -195,7 +197,7 @@ export function BoardRow({ event, rank, sats, weight, expired = false, onPromote
                             collapseLabel={hasBillboard ? "Hide original" : "Show less"}
                             expandedContent={hasBillboard ? <div className="mt-3 border-t border-cyan-400/15 pt-3 text-[13px] text-cyan-50/80 @xl/row:text-sm">
                                 <p className="mb-2 text-xs text-cyan-100/50">Original text</p>
-                                <TextRenderer text={event.content} embedQuotes={false} />
+                                <TextRenderer text={event.content} embedQuotes={false} previewLinks={false} />
                             </div> : undefined}
                             footer={control => <>
                                 {expired && typeof lastPaidAt === "number" && lastPaidAt > 0 && <p className="mt-3 text-xs text-cyan-300/40">

@@ -3,7 +3,7 @@ import { bytesToHex, hexToBytes } from "nostr-tools/utils";
 import type { BunkerSigner, BunkerPointer } from "nostr-tools/nip46";
 import type { AbstractSimplePool } from "nostr-tools/abstract-pool";
 import type { NWCClient } from "@getalby/sdk/nwc";
-import { PUBLIC_RELAYS } from "../config";
+import { ENABLE_NOSTR_CONNECT, PUBLIC_RELAYS } from "../config";
 import { PaymentRejected, withTimeout, type PaymentWallet } from "./walletPayment";
 import { attachWalletAccount, clearWalletAccount, refreshWalletAccount } from "./walletAccount";
 import { lookupWalletPayment } from "./walletLookup";
@@ -230,7 +230,7 @@ export function restoreConnections() {
     if (restored) return; restored = true;
     const wallet = read(WALLET_KEY), savedSigner = read(SIGNER_KEY);
     if (wallet) void connectWallet(wallet);
-    if (!savedSigner) return;
+    if (!ENABLE_NOSTR_CONNECT || !savedSigner) return;
     try {
         const saved = JSON.parse(savedSigner) as RemoteSession | { kind: "extension"; pubkey: string };
         if (saved.kind === "remote" && HEX.test(saved.clientKey) && HEX.test(saved.pubkey)) void connectRemote(undefined, saved);

@@ -14,10 +14,11 @@ const defaultAuthorShare = 20
 
 type CampaignEntry struct {
 	LedgerEntry
-	Event       *nostr.Event `json:"event"`
-	FirstPaidAt int64        `json:"first_paid_at"`
-	HotSats     int64        `json:"hot_sats"`
-	AuthorShare int          `json:"author_share"`
+	Event             *nostr.Event `json:"event"`
+	FirstPaidAt       int64        `json:"first_paid_at"`
+	HotSats           int64        `json:"hot_sats"`
+	AuthorShare       int          `json:"author_share"`
+	firstPaidAtMillis int64
 }
 
 func firstPromotionAt(post *PromotedPost) time.Time {
@@ -85,7 +86,7 @@ func (s *Storage) CampaignEntries(now time.Time) []CampaignEntry {
 		}
 		entries = append(entries, CampaignEntry{
 			LedgerEntry: LedgerEntry{ID: post.PostID, SatsPaid: post.TotalSatsPaid, Weight: post.weight(now), Rank: i + 1, LastPaidAt: post.LastPaymentTimestamp.Unix(), Billboard: cloneBillboard(post.Billboard)},
-			Event:       cloneNostrEvent(post.Event), FirstPaidAt: firstPromotionAt(post).Unix(), HotSats: hot, AuthorShare: campaignAuthorShare(post),
+			Event:       cloneNostrEvent(post.Event), FirstPaidAt: firstPromotionAt(post).Unix(), HotSats: hot, AuthorShare: campaignAuthorShare(post), firstPaidAtMillis: firstPromotionAt(post).UnixMilli(),
 		})
 	}
 	return entries
@@ -133,7 +134,8 @@ func CampaignHandler(storage *Storage) http.HandlerFunc {
 				return
 			}
 		}
-		all := storage.CampaignEntries(time.Now())
+		now := time.Now()
+		all := storage.CampaignEntries(now)
 		var total int64
 		for _, entry := range all {
 			total += entry.SatsPaid
@@ -169,6 +171,7 @@ func CampaignHandler(storage *Storage) http.HandlerFunc {
 			ActivePosts int             `json:"active_posts"`
 			TotalSats   int64           `json:"total_sats"`
 			HasMore     bool            `json:"has_more"`
-		}{selected[start:end], targets, count, len(all), total, end < count})
+			CheckedAt   int64           `json:"checked_at"`
+		}{selected[start:end], targets, count, len(all), total, end < count, now.UnixMilli()})
 	}
 }

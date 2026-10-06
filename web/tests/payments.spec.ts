@@ -30,7 +30,7 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
     if (options.blockStorage) await context.addInitScript(() => {
         Object.defineProperty(window, "sessionStorage", { get: () => { throw new DOMException("Storage blocked by this test", "SecurityError"); } });
     });
-    const state = { boardPaid: false, authorPaid: false, boardCharges: 0, authorCharges: 0, authorAttempts: 0, boardProofs: new Map<string, string>([["lnbc-visibility", boardPreimage]]), authorProofs: new Map<string, string>(), expectedSignerPubkey: getPublicKey(userKey), boardRequests: [] as Record<string, unknown>[], authorRequests: [] as Record<string, unknown>[], methods: [] as string[], signerMethods: [] as string[], errors: [] as string[], completeAuthorPayment: undefined as (() => void) | undefined, approveSigner: undefined as (() => Promise<void>) | undefined };
+    const state = { boardPaid: false, authorPaid: false, boardCharges: 0, authorCharges: 0, authorAttempts: 0, boardProofs: new Map<string, string>([["lnbc-visibility", boardPreimage]]), authorProofs: new Map<string, string>(), expectedSignerPubkey: getPublicKey(userKey), boardRequests: [] as Record<string, unknown>[], authorRequests: [] as Record<string, unknown>[], methods: [] as string[], signerMethods: [] as string[], linkPreviews: [] as string[], errors: [] as string[], completeAuthorPayment: undefined as (() => void) | undefined, approveSigner: undefined as (() => Promise<void>) | undefined };
     const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Allow-Methods": "GET,POST,OPTIONS" };
     await context.route("**/*", async (route) => {
         const url = new URL(route.request().url());
@@ -46,7 +46,9 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
         let data: unknown;
         let status = 200;
         const entry = { event: promotedNote, id: promotedNote.id, rank: options.rank ?? 1, sats_paid: 210, weight: 200, first_paid_at: 1700000000, hot_sats: 21, author_share: options.authorShare ?? 20 };
-        if (url.pathname === "/api/board/campaigns") data = { entries: [entry], targets: options.targets ?? [entry], total: 1, active_posts: 1, has_more: false, total_sats: 210 };
+        if (url.pathname === "/api/link-preview") { state.linkPreviews.push(url.searchParams.get("url")!); data = { url: url.searchParams.get("url"), title: "Linked page", description: "Page summary" }; }
+        else if (url.pathname === "/api/board/waiting-updates") data = { count: 0, note_ids: [], checked_at: Date.now() };
+        else if (url.pathname === "/api/board/campaigns") data = { entries: [entry], targets: options.targets ?? [entry], total: 1, active_posts: 1, has_more: false, total_sats: 210 };
         else if (url.pathname === "/api/promote/preview") data = { event: promotedNote, active: !options.newCampaign && !options.expiredCampaign, sats_paid: options.newCampaign ? 0 : 210, weight: options.newCampaign || options.expiredCampaign ? 0 : 200, rank: options.newCampaign || options.expiredCampaign ? 0 : options.rank ?? 1, billboard_fee_sats: 100, images: [], author_share: entry.author_share };
         else if (url.pathname === "/api/support") data = { available: !options.authorUnavailable, reason_code: options.authorUnavailable, reason: options.authorUnavailable === "no_address" ? "The author has no Lightning payment address." : "Author support is unavailable. Choose visibility only or try again later.", author: note.pubkey, min_sats: options.authorMinSats ?? 1, max_sats: 10000000, allows_nostr: true, nostr_pubkey: walletPubkey };
         else if (url.pathname === "/api/support/invoice") {
@@ -189,6 +191,7 @@ async function openPaymentOptions(page: Page) {
     else await page.getByRole("button", { name: "Payment options >", exact: true }).click();
 }
 async function openConnections(page: Page, section: "wallet" | "signer") {
+    test.skip(section === "signer" && process.env.VITE_ENABLE_NOSTR_CONNECT !== "true", "Signer UI is disabled for this release.");
     await backToForm(page);
     if (await page.getByRole("tab", { name: "Invoice / QR", exact: true }).isVisible()) {
         if (section === "wallet") {
@@ -953,6 +956,7 @@ test("amount modes and inline split preserve a boost draft across contextual pan
     await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "Reach rank 21, estimated total 251 sats", exact: true }).click();
     await page.getByRole("button", { name: "Amount", exact: true }).click();
+    await page.getByRole("button", { name: "Custom", exact: true }).click();
     await expect(page.getByRole("spinbutton", { name: "Custom total in sats" })).toHaveValue("251");
     await page.getByRole("button", { name: "Target position", exact: true }).click();
     await openSupport(page);
@@ -960,8 +964,8 @@ test("amount modes and inline split preserve a boost draft across contextual pan
     await expect(page.getByRole("region", { name: "Payment split" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Reach rank 21, estimated total 401 sats", exact: true })).toHaveAttribute("aria-pressed", "false");
     await expect(page.getByRole("button", { name: "Boost 251 sats", exact: true })).toBeEnabled();
-    await page.getByRole("button", { name: "How ranking works >", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "How ranking works", exact: true })).toBeFocused();
+    await page.getByRole("button", { name: "Help >", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "How ranking works", exact: true })).toBeVisible();
     await backToForm(page);
     await expect(page.getByRole("button", { name: "Target position", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("slider", { name: "Holoboard share in percent" })).toHaveValue("50");
@@ -987,6 +991,7 @@ test("amount modes and inline split preserve a boost draft across contextual pan
 });
 
 test("public author zap is reachable by keyboard without gating invoices", async ({ context, page }) => {
+    test.skip(process.env.VITE_ENABLE_NOSTR_CONNECT !== "true", "Signer UI is disabled for this release.");
     const state = await setup(context, page, { extension: true });
     const slider = page.getByRole("slider", { name: "Holoboard share in percent" });
     const disclosure = page.getByRole("region", { name: "Payment split" }).locator("summary");
@@ -1045,6 +1050,7 @@ test("boost payment options offer notifications without a settings list", async 
 });
 
 test("revived promotion offers appearance and contextual notification identity", async ({ context, page }) => {
+    test.skip(process.env.VITE_ENABLE_NOSTR_CONNECT !== "true", "Signer UI is disabled for this release.");
     const state = await setup(context, page, { expiredCampaign: true, extension: true });
     await expect(page.getByRole("tab", { name: /^Billboard/ })).toBeVisible();
     await openSupport(page);
@@ -1069,7 +1075,7 @@ test("unavailable and unaffordable positions preserve the amount path", async ({
     const options: Options = { targets: [{ rank: 1, weight: 100000000 }] };
     const state = await setup(context, page, options);
     await page.getByRole("button", { name: "Target position", exact: true }).click();
-    await expect(page.getByText("No higher target positions are available.", { exact: false })).toBeVisible();
+    await expect(page.getByText("No higher target positions available.", { exact: false })).toBeVisible();
     await page.getByRole("button", { name: "Amount", exact: true }).click();
     await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "Close dialog", exact: true }).click();
@@ -1684,4 +1690,57 @@ test("submitted NWC payment uses a neutral verification panel until confirmed", 
     await expect(page.getByRole("heading", { name: "Payment complete", exact: true })).toBeVisible({ timeout: 10000 });
     expect(state.boardCharges).toBe(1); expect(state.authorCharges).toBe(1); expect(state.authorAttempts).toBe(1);
     expect(state.errors).toEqual([]);
+});
+
+for (const viewport of [{ width: 320, height: 640 }, { width: 1280, height: 720 }]) for (const newCampaign of [false, true]) {
+    test(`amount picker stays still in ${newCampaign ? "promote" : "boost"} at ${viewport.width}px`, async ({ context, page }) => {
+        await page.setViewportSize(viewport);
+        const state = await setup(context, page, { newCampaign, rank: 25, targets: [{ rank: 21, weight: 400 }, { rank: 3, weight: 500 }, { rank: 2, weight: 600 }, { rank: 1, weight: 700 }] });
+        const legend = page.getByText("Amount in sats", { exact: true });
+        const custom = page.getByRole("button", { name: "Custom", exact: true });
+        const before = await legend.boundingBox();
+        const customBefore = await custom.boundingBox();
+        await page.getByRole("button", { name: "Target position", exact: true }).click();
+        expect((await legend.boundingBox())!.y).toBeCloseTo(before!.y, 0);
+        expect((await custom.boundingBox())!.y).toBeCloseTo(customBefore!.y, 0);
+        await expect(page.getByRole("button", { name: "How ranking works >", exact: true })).toHaveCount(0);
+        await custom.click();
+        await page.getByRole("spinbutton", { name: "Custom total in sats" }).fill("500");
+        const edited = await legend.boundingBox();
+        await page.getByRole("button", { name: "Amount", exact: true }).click();
+        expect((await legend.boundingBox())!.y).toBeCloseTo(edited!.y, 0);
+        await expect(page.getByRole("spinbutton", { name: "Custom total in sats" })).toHaveValue("500");
+        await expect(page.getByRole("slider", { name: "Holoboard share in percent" })).toHaveValue("80");
+        expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0); expect(state.errors).toEqual([]);
+    });
+}
+
+test("release UI hides all signer actions and retains manual npub and anonymous invoices", async ({ context, page }) => {
+    test.skip(process.env.VITE_ENABLE_NOSTR_CONNECT === "true", "This scenario verifies the release with signer UI disabled.");
+    await context.addInitScript(pubkey => sessionStorage.setItem("holoboard-signer", JSON.stringify({ kind: "remote", pubkey, clientKey: "1".repeat(64), pointer: { pubkey, relays: ["ws://127.0.0.1:3334"], secret: null } })), note.pubkey);
+    const state = await setup(context, page, { extension: true });
+    await expect(page.getByRole("button", { name: /Connect Nostr|Nostr signer settings|Use connected Nostr/ })).toHaveCount(0);
+    await expect(page.getByText(/^Public author zap/)).toHaveCount(0);
+    await openPaymentOptions(page);
+    await page.getByRole("checkbox", { name: "Send me a confirmation DM", exact: true }).check();
+    await page.getByRole("textbox", { name: "Npub for confirmation", exact: true }).fill(note.pubkey);
+    await expect(page.getByRole("button", { name: /Connect Nostr|Use connected Nostr/ })).toHaveCount(0);
+    await backToForm(page);
+    await prepareInvoices(page);
+    await expectSplitInvoices(page);
+    expect(state.authorRequests[0]).not.toHaveProperty("zap_request");
+    expect(state.signerMethods).toEqual([]); expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
+test("a promotion link card appears only after expanding its compact note preview", async ({ context, page }) => {
+    const state = await setup(context, page, { noteContent: "Read https://example.com/promotion-article for details." });
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.locator(".note-link-preview")).toHaveCount(0);
+    await page.getByRole("button", { name: "Show full text", exact: true }).click();
+    await expect(dialog.getByRole("link", { name: "Open link: Linked page", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Show less", exact: true }).click();
+    await expect(dialog.locator(".note-link-preview")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
+    expect(state.linkPreviews).toEqual(["https://example.com/promotion-article"]);
+    expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0); expect(state.errors).toEqual([]);
 });

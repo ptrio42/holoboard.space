@@ -26,6 +26,27 @@ author's [NIP-65 write relays](https://github.com/nostr-protocol/nips/blob/maste
 in parallel. Slow candidate relays do not postpone the outbox lookup until the
 request deadline. Hints are preserved when the reference is a client URL.
 
+## Preview a page link
+
+`GET /api/link-preview?url=<encoded HTTP(S) URL>`
+
+Returns `url` (the final fetched URL), `title`, optional `description` and
+optional `image_url`. Reads [Open Graph](https://ogp.me/) metadata with HTML
+title and description fallbacks. Relative thumbnails resolve against the final
+page URL; metadata cannot replace the card destination. No HTML is returned.
+Missing metadata or failed upstream content returns HTTP 502, so clients retain
+the original link. Invalid or private target URLs return HTTP 400.
+
+Fetches allow only public HTTP(S) targets on their default ports without
+credentials. DNS answers are checked and pinned before connection, and each
+redirect is validated, following the
+[OWASP SSRF guidance](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html).
+Limits are 5 seconds, 1 MiB of decoded HTML and 3 redirects. A bounded 512-entry
+memory cache retains successes for one hour and failures for one minute.
+Concurrent requests share a fetch; 60 uncached requests per client per minute
+are allowed, with at most 8 upstream fetches at once. Cached results remain
+available at the rate limit.
+
 ## Create an invoice
 
 `POST /api/promote`
@@ -172,7 +193,8 @@ waiting-room views contain only active, nonremoved ranks 22 and higher:
 
 The response includes `entries`, `targets` (global top three and rank 21),
 `total` (selected-view count), `active_posts`, `total_sats` (active visibility
-totals) and `has_more`. Each entry includes its signed `event`, existing ledger
+totals), `has_more` and `checked_at` (server snapshot time in Unix milliseconds).
+Each entry includes its signed `event`, existing ledger
 fields (`id`, `rank`, `weight`, `sats_paid`, `last_paid_at`, optional `billboard`),
 plus `first_paid_at`, `hot_sats` and `author_share`. Ranks stay global even when
 the view uses a different order. Author tips and applied appearance fees never
@@ -262,3 +284,15 @@ as `cursor` to retrieve another page. Operator-removed notes are excluded.
 Set `restore: true` to lift an earlier removal. The response includes `note_id`,
 `status` and, for removal, optional `sats_removed`. Removal does not refund
 payments. Without `ADMIN_TOKEN`, this route is not registered.
+
+## Check new waiting-room notes
+
+`GET /api/board/waiting-updates?since=<Unix milliseconds>`
+
+Returns `count`, `note_ids` and `checked_at` (Unix milliseconds). Counts all
+active, nonremoved notes currently below position 21 whose first paid promotion
+falls after `since` and at or before `checked_at`. Pagination, boosts and sorting
+do not affect this definition. Old notes dropping from TOP 21 are not new.
+Omitting `since` returns an empty result and the server checkpoint for an initial
+visit. Negative, malformed or future timestamps return HTTP 400. Responses use
+`Cache-Control: no-store`; no visit history is stored on the server.

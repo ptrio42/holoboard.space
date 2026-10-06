@@ -5,10 +5,12 @@ import { BoardRow } from "../components/BoardRow/BoardRow";
 import { PromoteModal } from "../components/PromoteModal/PromoteModal";
 import { PixelButton } from "../components/ui/PixelButton";
 import { PixelPanel } from "../components/ui/PixelPanel";
+import { useWaitingUpdates } from "../hooks/useWaitingUpdates";
 import { ndk } from "../lib/ndk";
 import { fetchExpired, type ExpiredEntry } from "../lib/expired";
 
 export default function Expired() {
+    const updates = useWaitingUpdates();
     const [entries, setEntries] = useState<ExpiredEntry[]>([]);
     const [cursor, setCursor] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
@@ -45,7 +47,7 @@ export default function Expired() {
         return () => controller.current?.abort();
     }, [load]);
 
-    return <BoardLayout section="expired" onPromote={() => { setSelected(null); setOpen(true); }}
+    return <BoardLayout newWaitingCount={updates.count} section="expired" onPromote={() => { setSelected(null); setOpen(true); }}
         headerContent={<p className="mt-4 text-center text-sm leading-relaxed text-cyan-100/60 md:text-left">Promotion has faded to zero. Promote a note again to return it to the board.</p>}>
         <main id="board" tabIndex={-1} aria-busy={loading}>
             {error && <div role="alert" className="mb-5 space-y-3 border-2 border-neon-pink/40 p-4 text-xs text-neon-pink">

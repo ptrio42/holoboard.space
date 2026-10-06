@@ -3,6 +3,7 @@ import { nip19 } from "@nostr-dev-kit/ndk";
 import { parseContent, type ContentToken } from "../../utils/textProcessing/parseContent";
 import { NostrMention } from "./NostrMention";
 import { noteAttachments, quoteReference } from "../../lib/noteAttachments";
+import { NoteLinkPreview } from "./NoteLinkPreview";
 import { NoteQuote } from "./NoteQuote";
 
 /**
@@ -24,6 +25,7 @@ interface Props {
     tags?: string[][];
     ownId?: string;
     embedQuotes?: boolean;
+    previewLinks?: boolean;
 }
 
 /** Text nodes carry the newlines, which JSX will not turn into breaks for us. */
@@ -105,7 +107,7 @@ function renderToken(token: ContentToken, key: string, embedQuotes: boolean, own
     }
 }
 
-export default function TextRenderer({ text, tags, ownId, embedQuotes = true }: Props) {
+export default function TextRenderer({ text, tags, ownId, embedQuotes = true, previewLinks = true }: Props) {
     const tokens = useMemo(() => parseContent(text), [text]);
     const taggedQuotes = useMemo(() => {
         const inline = new Set(noteAttachments(text).quotes.map((quote) => quote.key));
@@ -115,6 +117,7 @@ export default function TextRenderer({ text, tags, ownId, embedQuotes = true }: 
     return (
         <div className="note-body">
             {tokens.map((token, index) => renderToken(token, `t${index}`, embedQuotes, ownId))}
+            {previewLinks && <NoteLinkPreview text={text} />}
             {taggedQuotes.map((reference) => <NoteQuote key={reference.key} reference={reference} />)}
         </div>
     );

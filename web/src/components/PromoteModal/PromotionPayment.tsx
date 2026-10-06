@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ENABLE_NOSTR_CONNECT } from "../../config";
 import { CopyButton } from "../ui/CopyButton";
 import { PixelButton, PixelLink } from "../ui/PixelButton";
 import { QrCode } from "../ui/QrCode";
@@ -106,7 +107,7 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                 <p>A manual payment may not send a confirmation here. Check your wallet before trying again.</p>
                 <PixelButton size="sm" variant="ghost" disabled={busy} onClick={onReportAuthor}>I paid the author, checked my wallet</PixelButton>
             </div>}
-            {payment.publicZap && <button type="button" className={actionClass} disabled={busy} onClick={onSigner}>Nostr signer settings &gt;</button>}
+            {ENABLE_NOSTR_CONNECT && payment.publicZap && <button type="button" className={actionClass} disabled={busy} onClick={onSigner}>Nostr signer settings &gt;</button>}
             {error && <p role="alert" className="text-xs text-neon-pink">{error}</p>}
             {blocked && !busy && <p className="text-xs text-cyan-100/60">{blocked}</p>}
         </div>

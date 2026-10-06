@@ -10,7 +10,7 @@ import { checkProgress, fetchNotePreview, describeFailure, requestInvoice, type 
 import { parseNoteReference, parsePubkey } from "../../lib/nostr";
 import { PromotionNotePreview } from "./PromotionNotePreview";
 import { HelpContent } from "../Help/HelpContent";
-import { ZAP_PRESETS } from "../../config";
+import { ENABLE_NOSTR_CONNECT, ZAP_PRESETS } from "../../config";
 import type { RankingTarget } from "../../lib/ranking";
 import { PromotionAmountPicker, type AmountSelection } from "./PromotionAmountPicker";
 import { PromotionSplit } from "./PromotionSplit";
@@ -126,7 +126,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     const invalidTip = split.author > 0 && (!endpoint?.available || split.author < endpoint.min_sats || split.author > endpoint.max_sats);
     // Consent belongs to the selected connection in this form and is never
     // restored from a saved invoice's publicZap flag after a refresh.
-    const hasPublicZapConsent = () => !!publicZapSigner && publicZapSigner === browserSigner();
+    const hasPublicZapConsent = () => ENABLE_NOSTR_CONNECT && !!publicZapSigner && publicZapSigner === browserSigner();
     const usePublicZap = hasPublicZapConsent() && !!endpoint?.allows_nostr;
     const compact = boost && panel === "compose" && !payment;
     const finished = !!payment?.promotionPaid && (!payment.author || payment.tipStatus !== "pending");
@@ -160,7 +160,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     const openHelp = (section = "") => { setHelpSection(section); openPanel("help"); };
     const targets = rankingTargets.filter((target) => !boost || target.rank < (preview?.rank ?? 1000000));
     const actionClass = "promotion-action focus-pixel inline-flex min-h-11 items-center gap-2 text-cyan-200/75 hover:text-neon-cyan disabled:opacity-40";
-    const signerAction = <button type="button" className={actionClass} disabled={busy} onClick={() => openPanel("signer")}>
+    const signerAction = ENABLE_NOSTR_CONNECT && <button type="button" className={actionClass} disabled={busy} onClick={() => openPanel("signer")}>
         {browserSigner() ? "Nostr signer settings" : "Connect Nostr for a public zap"} &gt;
     </button>;
     const paymentOptions = <button type="button" className={actionClass} disabled={busy} onClick={() => openPanel("options")}>Payment options &gt;</button>;
@@ -451,11 +451,11 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                 <h4 className="promotion-label text-neon-cyan">Notifications <span className="text-cyan-100/50">/ optional</span></h4>
                 <label className="flex min-h-11 items-center gap-3"><input type="checkbox" checked={notifyEnabled} disabled={busy} onChange={(event) => { setNotifyEnabled(event.target.checked); setError(""); }} />Send me a confirmation DM</label>
                 {notifyEnabled && <><input aria-label="Npub for confirmation" className={FIELD} value={notifyPubkey} onChange={(event) => { setNotifyPubkey(event.target.value); setError(""); }} placeholder="npub1..." /><p>Reply YES to the confirmation DM to receive one expiry notification.</p></>}
-                {notifyEnabled && (browserSigner() ? <button type="button" className={actionClass} disabled={busy} onClick={() => setNotifyPubkey(connections.signerPubkey)}>Use connected Nostr identity</button> :
+                {ENABLE_NOSTR_CONNECT && notifyEnabled && (browserSigner() ? <button type="button" className={actionClass} disabled={busy} onClick={() => setNotifyPubkey(connections.signerPubkey)}>Use connected Nostr identity</button> :
                     <button type="button" className={actionClass} disabled={busy} onClick={() => openPanel("signer")}>Connect Nostr to use your npub &gt;</button>)}
             </section>}
         </div>
-        {(panel === "wallet" || panel === "signer") && <ConnectionSettings section={panel} embedded disabled={busy} />}
+        {(panel === "wallet" || ENABLE_NOSTR_CONNECT && panel === "signer") && <ConnectionSettings section={panel} embedded disabled={busy} />}
         {panel === "help" && <HelpContent section={helpSection} />}
     </div>;
     if (panel !== "compose") return <>
@@ -493,14 +493,14 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         </PromotionNotePreview>}
         {!boost && billboardEnabled && <p className="text-xs text-neon-gold">Billboard +{fee} sats, included in the total.</p>}
         <PromotionAmountPicker amount={amount} currentWeight={knownWeight} max={10000000} appearanceFee={fee} targets={targets} disabled={busy}
-            selection={amountSelection} onSelectionChange={setAmountSelection} onRankingHelp={() => openHelp("how-ranking-works")}
+            selection={amountSelection} onSelectionChange={setAmountSelection}
             totalForPromotion={(needed) => totalForPromotion(needed, authorShare)} onChange={setAmount} />
         <PromotionSplit author={preview?.event.pubkey} authorShare={authorShare} promotionSats={split.promotion} authorSats={split.author} disabled={busy} onChange={changeAuthorShare}>
             <div className="flex flex-wrap items-center justify-between gap-x-3 text-cyan-100/75">
                 {authorShare !== campaignShare && <button type="button" className={actionClass} disabled={busy} onClick={() => changeAuthorShare(campaignShare)} aria-label={existingCampaign ? "Use campaign split" : "Use default split"}>
                     <span className="sm:hidden">Reset</span><span className="hidden sm:inline">{existingCampaign ? "Use campaign split" : "Use default split"}</span>
                 </button>}
-                {endpoint?.allows_nostr && authorShare > 0 && <details className="disclosure">
+                {ENABLE_NOSTR_CONNECT && endpoint?.allows_nostr && authorShare > 0 && <details className="disclosure">
                     <summary tabIndex={0} className={`${actionClass} cursor-pointer`}>Public author zap{usePublicZap ? " on" : ""}</summary>
                     <div className="space-y-2 text-sm">
                         {browserSigner() && <label className="flex min-h-11 items-center gap-3"><input type="checkbox" checked={usePublicZap} disabled={busy} onChange={(event) => setPublicZapSigner(event.target.checked ? browserSigner() : undefined)} />Send author support as a public zap (asks your Nostr signer)</label>}

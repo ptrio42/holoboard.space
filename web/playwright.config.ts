@@ -14,6 +14,6 @@ export default defineConfig({
     webServer: {
         command: `npm run dev -- --host 127.0.0.1 --port ${process.env.HOLOBOARD_TEST_PORT ?? "4173"} --strictPort`,
         url: appOrigin, reuseExistingServer: !process.env.CI,
-        env: { VITE_RELAY_URL: "ws://127.0.0.1:3334", VITE_API_URL: "http://127.0.0.1:3334", VITE_PUBLIC_RELAYS: "ws://127.0.0.1:3334", VITE_SATS_ENDPOINT: "http://127.0.0.1:3334/api/board" },
+        env: { VITE_ENABLE_NOSTR_CONNECT: process.env.VITE_ENABLE_NOSTR_CONNECT ?? "false", VITE_RELAY_URL: "ws://127.0.0.1:3334", VITE_API_URL: "http://127.0.0.1:3334", VITE_PUBLIC_RELAYS: "ws://127.0.0.1:3334", VITE_SATS_ENDPOINT: "http://127.0.0.1:3334/api/board" },
     },
 });

@@ -9,7 +9,7 @@ export interface CampaignEntry {
     firstPaidAt: number; hotSats: number; authorShare: number; billboard?: BillboardConfig;
 }
 export interface CampaignPage {
-    entries: CampaignEntry[]; targets: RankingTarget[]; total: number; activePosts: number; hasMore: boolean;
+    entries: CampaignEntry[]; targets: RankingTarget[]; total: number; activePosts: number; hasMore: boolean; checkedAt?: number;
 }
 const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 export async function fetchCampaigns(view: CampaignView, page = 1, signal?: AbortSignal): Promise<CampaignPage> {
@@ -23,5 +23,5 @@ export async function fetchCampaigns(view: CampaignView, page = 1, signal?: Abor
             firstPaidAt: Number(item.first_paid_at), hotSats: Number(item.hot_sats), authorShare: Number(item.author_share ?? 20), billboard: parseBillboard(item.billboard) };
     });
     const targets = data.targets.flatMap((item: unknown) => record(item) && typeof item.rank === "number" && typeof item.weight === "number" ? [{ rank: item.rank, weight: item.weight }] : []);
-    return { entries, targets, total: Number(data.total), activePosts: Number(data.active_posts), hasMore: data.has_more === true };
+    return { entries, targets, total: Number(data.total), activePosts: Number(data.active_posts), hasMore: data.has_more === true, checkedAt: typeof data.checked_at === "number" && Number.isSafeInteger(data.checked_at) && data.checked_at > 0 ? data.checked_at : undefined };
 }

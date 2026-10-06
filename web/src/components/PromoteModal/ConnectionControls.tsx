@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ENABLE_NOSTR_CONNECT } from "../../config";
 import { useConnections } from "../../hooks/useConnections";
 import { shortNpub } from "../../lib/nostr";
 import { Modal } from "../ui/Modal";
@@ -13,10 +14,10 @@ export function ConnectionControls({ className = "mx-auto max-w-5xl justify-end 
             <button type="button" className="promotion-action focus-pixel inline-flex min-h-11 items-center gap-2 hover:text-neon-cyan" onClick={() => setSection("wallet")}>
                 Wallet {connections.walletStatus === "connected" && <span className="h-1.5 w-1.5 bg-neon-gold" aria-label="Connected" />}
             </button>
-            <button type="button" className="promotion-action focus-pixel inline-flex min-h-11 items-center gap-2 hover:text-neon-cyan" onClick={() => setSection("signer")}>
+            {ENABLE_NOSTR_CONNECT && <button type="button" className="promotion-action focus-pixel inline-flex min-h-11 items-center gap-2 hover:text-neon-cyan" onClick={() => setSection("signer")}>
                 {connections.signerStatus === "connected" ? shortNpub(connections.signerPubkey) : "Connect Nostr"}
                 {connections.signerStatus === "connected" && <span className="h-1.5 w-1.5 bg-neon-cyan" aria-label="Connected" />}
-            </button>
+            </button>}
             <a href="/help" className="promotion-action focus-pixel inline-flex min-h-11 items-center hover:text-neon-cyan">Help</a>
         </nav>
         {section && <Modal isOpen onClose={() => setSection(null)} title={section === "wallet" ? "Payment wallet" : "Connect Nostr"} scrollBody panelClassName="promotion-typography max-w-xl">
