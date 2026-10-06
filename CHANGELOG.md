@@ -83,13 +83,19 @@ record deployment, not announcement publication.
   across all three. Wallet connection and optional notifications share payment
   options; public zaps stay beside the split. Boosts keep the compact form.
   A shorter footer keeps the complete total on the action and moves ranking rules
-  into help. Connected-wallet boosts keep prepare-only invoices in payment options.
+  into help.
   Contextual panels preserve choices, and the action stays visible on phones.
   Controls and short labels use consistent pixel typography, with readable
   monospace content, payment amounts and input values.
 - Wallet and Nostr connections are available throughout the app. A connected
-  wallet can prepare and pay recipient invoices after one explicit confirmation,
-  while invoice links, copying and QR remain available without a connection.
+  wallet pays after reviewing prepared invoices in Promotion payment. Equal
+  Wallet and Invoice / QR tabs keep both methods accessible, with recipient
+  amounts, payment states and an immediately visible QR. Unpaid sessions can
+  restart with their promotion choices preserved; unresolved wallet attempts
+  and paid parts stay protected. Expired recipient invoices can be replaced
+  individually to finish a partially paid promotion. Completed payments end
+  with a clear summary and Done action. Wallet progress uses calmer status
+  panels, reserving warning accents for unresolved outcomes.
 - A dedicated help page explains ranking, payments and promotion from Nostr,
   with account and relay details available to copy.
 - Unfinished payments resume after a refresh in the same browser tab. Ranking

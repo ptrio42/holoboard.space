@@ -6,9 +6,7 @@ import { ndk } from "../../lib/ndk";
 import { BillboardEditor } from "./BillboardEditor";
 import { initialBillboard, validBillboard, type BillboardConfig } from "../../lib/billboard";
 import { PixelButton } from "../ui/PixelButton";
-import { CopyButton } from "../ui/CopyButton";
-import { QrCode } from "../ui/QrCode";
-import { checkProgress, fetchNotePreview, describeFailure, requestInvoice, type NotePreview, type PromoteInvoice } from "../../lib/promote";
+import { checkProgress, fetchNotePreview, describeFailure, requestInvoice, type NotePreview } from "../../lib/promote";
 import { parseNoteReference, parsePubkey } from "../../lib/nostr";
 import { PromotionNotePreview } from "./PromotionNotePreview";
 import { HelpContent } from "../Help/HelpContent";
@@ -20,21 +18,31 @@ import { PromotionTabs, type PromotionTab } from "./PromotionTabs";
 import { allocatePayment, totalForPromotion, browserSigner, browserWallet, fetchAuthorEndpoint, requestAuthorInvoice, verifyAuthorPayment, type AuthorEndpoint, type AuthorInvoice } from "../../lib/support";
 import { ConnectionSettings } from "./ConnectionSettings";
 import { useConnections } from "../../hooks/useConnections";
+import { hasSavedWalletConnection } from "../../lib/connections";
 import { canPayOrCheckInvoice, payInvoiceSafely, type WalletAttempt } from "../../lib/walletPayment";
 import { paymentSessionIsPersistent, readPaymentSession, removePaymentSession, savePaymentSession } from "../../lib/paymentSession";
 import { acknowledgeWalletFailure, getWalletAttempt, getWalletAttemptsSnapshot, subscribeWalletAttempts } from "../../lib/walletAttempts";
 import { isMockInvoice, MOCK_INVOICE_MESSAGE } from "../../lib/invoice";
 
-type TipStatus = "pending" | "confirmed" | "reported";
-interface Payment {
-    note: string; board: PromoteInvoice; author?: AuthorInvoice; tipStatus: TipStatus;
-    promotionPaid: boolean; added: number; authorShare: number; publicZap?: boolean; notificationRequested?: boolean; billboardApplied?: boolean; feeConverted?: boolean;
-    boardAttempt?: WalletAttempt; authorAttempt?: WalletAttempt;
-}
+import { PaymentTabs } from "./PaymentTabs";
+import { PromotionPayment } from "./PromotionPayment";
+import { PromotionPaymentResult } from "./PromotionPaymentResult";
+import { restartBlocked, type PromotionPayment as Payment, type PaymentMethod, type PaymentRecipient } from "./PaymentState";
+
 const FIELD = "focus-pixel w-full border-2 border-cyan-400/40 bg-void px-3 py-2 text-base text-cyan-100";
 const storageKey = (note: string) => `holoboard-payment:${parseNoteReference(note)?.id ?? note}`;
 function savePayment(payment: Payment) {
     return savePaymentSession(storageKey(payment.note), JSON.stringify(payment));
+}
+function updateSavedPayment(note: string, paymentHash: string, changes: Partial<Payment>) {
+    try {
+        const stored = readPaymentSession(storageKey(note));
+        if (!stored) return;
+        const current = JSON.parse(stored) as Payment;
+        // A closed payment view may finish a wallet request after another view
+        // replaces an invoice. Its callback must not restore the old session.
+        if (current.board.paymentHash === paymentHash) savePayment({ ...current, ...changes });
+    } catch { /* Shared wallet attempts still retain the payment proof. */ }
 }
 function restorePayment(note: string): Payment | null {
     try {
@@ -52,9 +60,9 @@ function restorePayment(note: string): Payment | null {
 
 type Panel = "compose" | "appearance" | "options" | "wallet" | "signer" | "help";
 
-export function DirectPromote({ initialReference = "", currentWeight, rankingTargets, onPaid, initialSection, footerHost, navigationHost, onPresentationChange }: {
+export function DirectPromote({ initialReference = "", currentWeight, rankingTargets, onPaid, onClose, initialSection, footerHost, navigationHost, onPresentationChange }: {
     initialReference?: string; currentWeight?: number; rankingTargets: RankingTarget[]; onPaid?: () => void;
-    initialSection?: string; footerHost: HTMLDivElement | null; navigationHost: HTMLDivElement | null;
+    onClose: () => void; initialSection?: string; footerHost: HTMLDivElement | null; navigationHost: HTMLDivElement | null;
     onPresentationChange: (value: { compact: boolean; boost: boolean; payment: boolean }) => void;
 }) {
     const connections = useConnections();
@@ -75,25 +83,34 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         authorAttempt: savedPayment.author ? attempts.get(savedPayment.author.payment_hash) ?? getWalletAttempt(savedPayment.author.payment_hash, savedPayment.authorAttempt) : undefined,
     } : null, [savedPayment, attempts]);
     const [reference, setReference] = useState(() => restorePayment(initialReference)?.note ?? initialReference);
-    const [amount, setAmount] = useState<number>(ZAP_PRESETS[1]);
-    const [amountSelection, setAmountSelection] = useState<AmountSelection>({ mode: "amount", rank: null, custom: false });
-    const [authorShare, setAuthorShare] = useState(20);
+    const recovered = useRef(restorePayment(initialReference));
+    const preferredWallet = hasSavedWalletConnection;
+    const [walletFirst, setWalletFirst] = useState(preferredWallet);
+    const [method, setMethod] = useState<PaymentMethod>(() => preferredWallet() ? "wallet" : "invoice");
+    const [recipient, setRecipient] = useState<PaymentRecipient>(() => recovered.current?.author && (recovered.current.promotionPaid || isMockInvoice(recovered.current.board.invoice)) ? "author" : "board");
+    const [restartConfirm, setRestartConfirm] = useState(false);
+    const restartedDraft = useRef<Payment | null>(null);
+    const [amount, setAmount] = useState<number>(recovered.current?.draft?.amount ?? (recovered.current ? (recovered.current.board.promotionSats ?? recovered.current.board.amountSats - (recovered.current.board.billboardFeeSats ?? 0)) + (recovered.current.author?.amount_sats ?? 0) : ZAP_PRESETS[1]));
+    const [amountSelection, setAmountSelection] = useState<AmountSelection>(recovered.current?.draft?.amountSelection ?? { mode: "amount", rank: null, custom: false });
+    const [authorShare, setAuthorShare] = useState(recovered.current?.draft?.authorShare ?? recovered.current?.authorShare ?? 20);
     const [preview, setPreview] = useState<NotePreview | null>(null);
     const [endpoint, setEndpoint] = useState<AuthorEndpoint | null>(null);
     const [loading, setLoading] = useState(false);
     const [busy, setBusy] = useState(false);
+    const [walletPart, setWalletPart] = useState<PaymentRecipient | null>(null);
     const [error, setError] = useState("");
     const [authorInvoiceError, setAuthorInvoiceError] = useState("");
-    const [billboardEnabled, setBillboardEnabled] = useState(false);
-    const [config, setConfig] = useState<BillboardConfig>(() => initialBillboard(""));
-    const [notifyEnabled, setNotifyEnabled] = useState(false);
-    const [notifyPubkey, setNotifyPubkey] = useState("");
+    const [billboardEnabled, setBillboardEnabled] = useState(recovered.current?.draft?.billboardEnabled ?? false);
+    const [config, setConfig] = useState<BillboardConfig>(() => recovered.current?.draft?.config ?? initialBillboard(""));
+    const [notifyEnabled, setNotifyEnabled] = useState(recovered.current?.draft?.notifyEnabled ?? false);
+    const [notifyPubkey, setNotifyPubkey] = useState(recovered.current?.draft?.notifyPubkey ?? "");
     const [publicZapSigner, setPublicZapSigner] = useState<ReturnType<typeof browserSigner>>();
-    const [expired, setExpired] = useState(false);
     const [actualRank, setActualRank] = useState<number | null>(null);
     const [now, setNow] = useState(Date.now);
     const [canResume, setCanResume] = useState(paymentSessionIsPersistent);
     const abort = useRef<AbortController | null>(null);
+    const latestPayment = useRef(payment);
+    useEffect(() => { latestPayment.current = payment; }, [payment]);
     const paidCallback = useRef(onPaid);
     useEffect(() => { paidCallback.current = onPaid; }, [onPaid]);
     const notified = useRef(false);
@@ -112,18 +129,31 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     const hasPublicZapConsent = () => !!publicZapSigner && publicZapSigner === browserSigner();
     const usePublicZap = hasPublicZapConsent() && !!endpoint?.allows_nostr;
     const compact = boost && panel === "compose" && !payment;
+    const finished = !!payment?.promotionPaid && (!payment.author || payment.tipStatus !== "pending");
     const hasTabs = !boost && !payment && (panel === "compose" || panel === "appearance" || panel === "options");
     const tabPanelProps = hasTabs ? { role: "tabpanel", id: `${navigationId}-panel`, "aria-labelledby": `${navigationId}-${panel}`, tabIndex: 0 } : {};
-    const navigation = hasTabs && navigationHost ? createPortal(<PromotionTabs id={navigationId} active={panel as PromotionTab}
+    const editorNavigation = hasTabs && navigationHost ? createPortal(<PromotionTabs id={navigationId} active={panel as PromotionTab}
         onChange={selectTab} disabled={busy} hasNote={!!preview} billboardEnabled={billboardEnabled} notificationsEnabled={notifyEnabled} />, navigationHost) : null;
+    const navigation = payment && !finished && panel === "compose" && navigationHost ? createPortal(
+        <PaymentTabs id={navigationId} active={method} walletFirst={walletFirst} onChange={setMethod} />, navigationHost) : editorNavigation;
+    const restoreDraft = (saved: Payment, loaded: NotePreview) => {
+        const draft = saved.draft;
+        setAmount(draft?.amount ?? (saved.board.promotionSats ?? saved.board.amountSats - (saved.board.billboardFeeSats ?? 0)) + (saved.author?.amount_sats ?? 0));
+        setAmountSelection(draft?.amountSelection ?? { mode: "amount", rank: null, custom: false });
+        setAuthorShare(draft?.authorShare ?? saved.authorShare ?? loaded.authorShare);
+        setConfig(draft?.config ?? loaded.billboard ?? initialBillboard(loaded.event.content));
+        setBillboardEnabled(draft?.billboardEnabled ?? false);
+        setNotifyEnabled(draft?.notifyEnabled ?? saved.notificationRequested ?? false);
+        setNotifyPubkey(draft?.notifyPubkey ?? "");
+    };
     useEffect(() => {
         const body = footerHost?.closest('[role="dialog"]')?.querySelector<HTMLElement>("[data-modal-body]");
         if (!body || (panel === "help" && helpSection)) return;
         body.scrollTop = 0;
         if (body.closest('[role="dialog"]')?.querySelector('[role="tablist"]')?.contains(document.activeElement)) return;
-        if (panel !== "compose") body.querySelector<HTMLElement>("h3")?.focus({ preventScroll: true });
+        if (panel !== "compose" || finished) body.querySelector<HTMLElement>("h3")?.focus({ preventScroll: true });
         else body.querySelector<HTMLElement>('input:not([disabled]), button:not([disabled]), a[href]')?.focus({ preventScroll: true });
-    }, [panel, footerHost, helpSection]);
+    }, [panel, method, finished, footerHost, helpSection]);
     useEffect(() => {
         onPresentationChange({ compact, boost, payment: payment !== null });
     }, [compact, boost, payment, onPresentationChange]);
@@ -146,12 +176,14 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                 setPreview(loaded); setConfig(loaded.billboard ?? initialBillboard(loaded.event.content));
                 setBillboardEnabled(false); setAuthorShare(loaded.authorShare);
                 const saved = restorePayment(loaded.event.id);
-                if (saved) setPayment(saved);
+                if (saved) { setPayment(saved); restoreDraft(saved, loaded); }
+                const restarted = restartedDraft.current;
+                if (!saved && restarted) { restoreDraft(restarted, loaded); restartedDraft.current = null; }
                 try {
                     const author = await fetchAuthorEndpoint(reference, controller.signal);
                     if (!controller.signal.aborted) {
                         setEndpoint(author);
-                        if (author.reason_code === "no_address" && !loaded.active && loaded.satsPaid === 0) setAuthorShare(0);
+                        if (!saved && !restarted && author.reason_code === "no_address" && !loaded.active && loaded.satsPaid === 0) setAuthorShare(0);
                     }
                 }
                 catch { if (!controller.signal.aborted) setEndpoint({ available: false, author: loaded.event.pubkey, reason: "Could not reach the author's wallet. Choose visibility only or try again later.", min_sats: 1, max_sats: 0, allows_nostr: false }); }
@@ -191,10 +223,9 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                 const progress = await checkProgress(invoice.paymentHash, invoice.noteId, controller.signal);
                 if (controller.signal.aborted) return;
                 if (progress.settled) {
-                    setPayment((current) => current ? { ...current, promotionPaid: true, added: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted } : current);
+                    setPayment((current) => current?.board.paymentHash === invoice.paymentHash ? { ...current, promotionPaid: true, added: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted } : current);
                     return;
                 }
-                setExpired(Date.now() >= invoice.expiresAt*1000);
             } catch { /* A lost response does not prove that a payment failed. */ }
             finally { checking = false; }
             if (!controller.signal.aborted) timer = window.setTimeout(() => void tick(), 3000);
@@ -253,7 +284,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         return () => { active = false; window.removeEventListener("pageshow", resume); document.removeEventListener("visibilitychange", resume); };
     }, [authorInvoice, paymentNote, authorProof, tipStatus, busy]);
 
-    const start = async (payNow = false) => {
+    const start = async () => {
         if (!preview || invalidTip) return;
         const contact = notifyEnabled ? parsePubkey(notifyPubkey) : null;
         if (notifyEnabled && !contact) { setError("Enter a valid npub for the confirmation DM."); selectTab("options"); return; }
@@ -272,47 +303,56 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
             }
             const board = await requestInvoice(reference, split.promotion, controller.signal, billboardEnabled ? { billboard: config } : undefined, contact ?? undefined, authorShare);
             if (!controller.signal.aborted) {
-                notified.current = false; setExpired(false); setActualRank(null);
-                const prepared: Payment = { note: reference, board, author, tipStatus: "pending", promotionPaid: false, added: 0, authorShare, publicZap: usePublicZap, notificationRequested: contact !== null };
+                notified.current = false; setActualRank(null);
+                const prepared: Payment = { note: reference, board, author, tipStatus: "pending", promotionPaid: false, added: 0, authorShare, publicZap: usePublicZap, notificationRequested: contact !== null,
+                    draft: { amount, amountSelection, authorShare, billboardEnabled, config, notifyEnabled, notifyPubkey } };
                 savePayment(prepared); setPayment(prepared); selectTab("compose");
-                if (payNow) await payWithWallet(prepared);
+                const first = preferredWallet(); setWalletFirst(first); setMethod(first ? "wallet" : "invoice");
+                setRecipient("board"); setRestartConfirm(false);
             }
         } catch (failure) { if (!controller.signal.aborted) setError(describeFailure(failure)); }
         finally { if (!controller.signal.aborted) setBusy(false); }
     };
-    const payWithWallet = async (prepared?: Payment) => {
-        const pending = prepared ?? payment;
-        const wallet = browserWallet(); if (!wallet || !pending || (!prepared && busy)) return;
+    const payWithWallet = async () => {
+        const pending = payment;
+        const wallet = browserWallet(); if (!wallet || !pending || busy) return;
         if (isMockInvoice(pending.board.invoice)) { setError(MOCK_INVOICE_MESSAGE); return; }
         setBusy(true); setError("");
-        let current = pending;
+        const controller = new AbortController(); abort.current = controller;
         const saveAttempt = (part: "boardAttempt" | "authorAttempt", attempt: WalletAttempt) => {
-            current = { ...current, [part]: attempt };
-            savePayment(current);
-            setPayment((latest) => latest ? { ...latest, [part]: attempt } : latest);
+            updateSavedPayment(pending.note, pending.board.paymentHash, { [part]: attempt });
+            setPayment((latest) => latest?.board.paymentHash === pending.board.paymentHash ? { ...latest, [part]: attempt } : latest);
         };
         const failures: string[] = [];
         try {
             await wallet.enable();
+            if (controller.signal.aborted) return;
             if (!pending.promotionPaid) {
                 try {
-                    const progress = await checkProgress(pending.board.paymentHash, pending.board.noteId);
+                    const progress = await checkProgress(pending.board.paymentHash, pending.board.noteId, controller.signal);
+                    if (controller.signal.aborted) return;
                     if (progress.settled) {
-                        current = { ...current, promotionPaid: true, added: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted };
-                        savePayment(current); setPayment(current);
+                        updateSavedPayment(pending.note, pending.board.paymentHash, { promotionPaid: true, added: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted });
+                        setPayment((latest) => latest?.board.paymentHash === pending.board.paymentHash ? { ...latest, promotionPaid: true, added: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted } : latest);
                     } else if (canPayOrCheckInvoice(wallet, pending.board.expiresAt, pending.boardAttempt)) {
+                        setWalletPart("board");
                         await payInvoiceSafely(wallet, pending.board.invoice, pending.board.paymentHash, pending.boardAttempt, (attempt) => saveAttempt("boardAttempt", attempt), pending.board.expiresAt);
                     }
                 } catch (failure) { failures.push(`Visibility: ${describeFailure(failure)}`); }
+                finally { setWalletPart(null); }
             }
-            if (pending.author && pending.tipStatus === "pending") {
+            if (controller.signal.aborted) return;
+            const latest = latestPayment.current;
+            if (pending.author && pending.tipStatus === "pending" && latest?.author?.payment_hash === pending.author.payment_hash && latest.tipStatus === "pending") {
                 try {
                     if (canPayOrCheckInvoice(wallet, pending.author.expires_at, pending.authorAttempt)) {
+                        setWalletPart("author");
                         const proof = await payInvoiceSafely(wallet, pending.author.invoice, pending.author.payment_hash, pending.authorAttempt, (attempt) => saveAttempt("authorAttempt", attempt), pending.author.expires_at);
-                        if (proof.preimage && await verifyAuthorPayment(pending.note, pending.author, { preimage: proof.preimage })) setPayment((current) => current ? { ...current, tipStatus: "confirmed" } : current);
+                        if (proof.preimage && await verifyAuthorPayment(pending.note, pending.author, { preimage: proof.preimage })) setPayment((current) => current?.author?.payment_hash === pending.author?.payment_hash ? { ...current!, tipStatus: "confirmed" } : current);
                         else failures.push("The wallet returned no verified payment proof. Check your wallet before retrying author support.");
                     }
                 } catch (failure) { failures.push(`Author support: ${describeFailure(failure)}`); }
+                finally { setWalletPart(null); }
             }
             if (failures.length) setError(`${failures.join(" ")} Any confirmed part is kept.`);
         } catch (failure) { setError(`${describeFailure(failure)} Any confirmed part is kept. Check your wallet before retrying.`); }
@@ -324,22 +364,67 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         try {
             const publicZap = !!payment.publicZap && hasPublicZapConsent() && endpoint.allows_nostr;
             const author = await requestAuthorInvoice(payment.note, payment.author.amount_sats, endpoint, publicZap, payment.board.noteId);
-            setPayment((current) => current ? { ...current, author, authorAttempt: undefined, publicZap } : current);
+            setPayment((current) => current?.author?.payment_hash === payment.author?.payment_hash ? { ...current!, author, authorAttempt: undefined, publicZap } : current);
         } catch (failure) { setError(describeFailure(failure)); }
         finally { setBusy(false); }
+    };
+    const replaceBoardInvoice = async () => {
+        if (!payment || payment.promotionPaid || busy || Date.now() < payment.board.expiresAt*1000 || (payment.boardAttempt && payment.boardAttempt.state !== "unpaid")) return;
+        setBusy(true); setError("");
+        const controller = new AbortController(); abort.current = controller;
+        try {
+            const progress = await checkProgress(payment.board.paymentHash, payment.board.noteId, controller.signal);
+            if (controller.signal.aborted) return;
+            if (progress.settled) {
+                setPayment((current) => current?.board.paymentHash === payment.board.paymentHash ? { ...current, promotionPaid: true, added: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted } : current);
+                return;
+            }
+            const attempt = getWalletAttempt(payment.board.paymentHash, payment.boardAttempt);
+            if (attempt && attempt.state !== "unpaid") return;
+            const draft = payment.draft;
+            const appearance = payment.board.billboardFeeSats > 0 ? { billboard: draft?.config ?? config } : undefined;
+            const contact = draft?.notifyEnabled ? parsePubkey(draft.notifyPubkey) ?? undefined : undefined;
+            const visibility = payment.board.promotionSats ?? payment.board.amountSats - (payment.board.billboardFeeSats ?? 0);
+            const board = await requestInvoice(payment.note, visibility, controller.signal, appearance, contact, payment.authorShare);
+            if (!controller.signal.aborted) setPayment((current) => current?.board.paymentHash === payment.board.paymentHash ? { ...current, board, boardAttempt: undefined, notificationRequested: !!contact } : current);
+        } catch (failure) { if (!controller.signal.aborted) setError(describeFailure(failure)); }
+        finally { if (!controller.signal.aborted) setBusy(false); }
     };
     const startAnother = () => {
         if (!payment) return;
         removePaymentSession(storageKey(payment.note));
-        setPayment(null); setError(""); setExpired(false); setActualRank(null); notified.current = false;
+        setPayment(null); setError(""); setActualRank(null); notified.current = false; setRestartConfirm(false); selectTab("compose");
+    };
+    const restartPayment = async () => {
+        if (!payment || busy || restartBlocked(payment)) return;
+        setBusy(true); setError("");
+        try {
+            if (!isMockInvoice(payment.board.invoice)) {
+                try {
+                    const progress = await checkProgress(payment.board.paymentHash, payment.board.noteId);
+                    if (progress.settled) {
+                        setPayment((current) => current?.board.paymentHash === payment.board.paymentHash ? { ...current, promotionPaid: true, added: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted } : current);
+                        setRestartConfirm(false); return;
+                    }
+                } catch { /* Explicit no-payment confirmation allows abandoning an unattempted session offline. */ }
+            }
+            const current = latestPayment.current;
+            if (!current || current.board.paymentHash !== payment.board.paymentHash) return;
+            const latest = { ...current, boardAttempt: getWalletAttempt(current.board.paymentHash, current.boardAttempt),
+                authorAttempt: current.author ? getWalletAttempt(current.author.payment_hash, current.authorAttempt) : undefined };
+            if (restartBlocked(latest)) { setPayment(latest); setRestartConfirm(false); return; }
+            if (preview) restoreDraft(payment, preview);
+            else restartedDraft.current = payment;
+            abort.current?.abort();
+            startAnother();
+        } finally { setBusy(false); }
     };
     const cannotPrepare = busy || loading || !preview || invalidTip || (billboardEnabled && !validBillboard(config, preview.event.content, preview.images));
     const submission = <div className="space-y-2">
         {error && <p role="alert" className="text-sm text-neon-pink">{error}</p>}
-        <PixelButton className="w-full min-h-11" variant="accent" disabled={cannotPrepare} onClick={() => void start(!!browserWallet())}>
-            {busy ? "Preparing payments" : `${browserWallet() ? "Pay & " : ""}${boost ? "Boost" : "Promote"} ${amount+fee} sats`}
+        <PixelButton className="w-full min-h-11" variant="accent" disabled={cannotPrepare} onClick={() => void start()}>
+            {busy ? "Preparing payments" : `${boost ? "Boost" : "Promote"} ${amount+fee} sats`}
         </PixelButton>
-        {browserWallet() && !boost && <button type="button" className="promotion-action focus-pixel min-h-11 w-full text-cyan-200/70" disabled={cannotPrepare} onClick={() => void start()}>Prepare invoices only</button>}
         <div className="flex flex-wrap items-center justify-between gap-x-3">
             {hasTabs ? panel !== "compose" && <button type="button" className={actionClass} disabled={busy} onClick={() => selectTab("compose")}> &lt; Back to promotion</button> : paymentOptions}
             <button type="button" className={actionClass} onClick={() => openHelp()}>Help &gt;</button>
@@ -360,7 +445,6 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                 <h4 className="promotion-label text-neon-cyan">Wallet</h4>
                 <p>Open, copy or scan invoices with any Lightning wallet. No connection is required.</p>
                 <button type="button" className={actionClass} disabled={busy} onClick={() => openPanel("wallet")}>{browserWallet() ? "Payment wallet settings" : "Connect wallet to pay here"} &gt;</button>
-                {boost && browserWallet() && !payment && <PixelButton size="sm" variant="ghost" disabled={cannotPrepare} onClick={() => { closePanel(); void start(); }}>Prepare invoices only</PixelButton>}
             </section>
             {payment?.publicZap && signerAction}
             {!payment && <section aria-label="Notifications" className="space-y-3 border-t border-cyan-400/20 pt-3">
@@ -380,63 +464,23 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         {footer(hasTabs ? submission : <button type="button" className={`${actionClass} w-full justify-center`} disabled={busy} onClick={closePanel}> &lt; Back to {panelHistory[panelHistory.length - 2] !== "compose" ? "settings" : payment ? "payment" : boost ? "boost" : "promotion"}</button>)}
     </>;
 
-    if (payment) {
-        const finished = payment.promotionPaid && (!payment.author || payment.tipStatus !== "pending");
-        const authorExpired = !!payment.author && payment.tipStatus === "pending" && now >= payment.author.expires_at*1000;
-        const boardExpired = !payment.promotionPaid && now >= payment.board.expiresAt*1000;
-        const wallet = browserWallet();
-        const mockPayment = isMockInvoice(payment.board.invoice);
-        const walletActionAvailable = !mockPayment && !!wallet && ((!payment.promotionPaid && canPayOrCheckInvoice(wallet, payment.board.expiresAt, payment.boardAttempt, now)) ||
-            (!!payment.author && payment.tipStatus === "pending" && canPayOrCheckInvoice(wallet, payment.author.expires_at, payment.authorAttempt, now)));
-        return <div className="space-y-4 text-sm leading-relaxed" aria-live="polite">
-            {mockPayment && <p role="alert" className="text-neon-gold">{MOCK_INVOICE_MESSAGE} The saved author invoice is separate; check its payment status before starting again.</p>}
-            {!payment.promotionPaid && <p className="text-sm text-cyan-100/75">{payment.author ? "Two recipient invoices. Pay each part separately, or use a connected wallet." : "One visibility invoice."}</p>}
-            {!canResume && <p className="text-xs text-neon-gold">This browser cannot save the payment for a refresh. Keep the invoices and check your wallet before refreshing or closing this tab.</p>}
-            <p className="promotion-section-title text-neon-gold">{payment.promotionPaid ? `Added ${payment.added} sats to visibility.` : payment.author ? "Pay for visibility and author support" : "Pay for visibility"}</p>
-            {payment.promotionPaid && payment.billboardApplied && <p className="text-xs text-neon-cyan">Your billboard appearance is active.</p>}
-            {payment.promotionPaid && payment.feeConverted && <p className="text-xs text-neon-gold">Appearance became unavailable. Its fee was added to visibility instead.</p>}
-            {payment.promotionPaid && payment.notificationRequested && <p className="text-xs text-cyan-100/70">Check your Nostr DMs. Reply YES to the confirmation for one expiry notification.</p>}
-            {actualRank !== null && <p className="text-xs text-cyan-100/70">{actualRank > 0 ? `Current position: #${actualRank}, ${actualRank <= 21 ? "main board" : "waiting room"}.` : "This note is currently inactive."}</p>}
-            {!payment.author && !payment.promotionPaid && !mockPayment && <p className="text-xs text-cyan-100/70">Open, copy or scan the visibility invoice. No account is required.</p>}
-            <div className="space-y-4">
-                {!payment.promotionPaid && !boardExpired && <InvoiceCard title="Holoboard visibility" amount={payment.board.amountSats} invoice={payment.board.invoice} />}
-                {payment.author && <div className="space-y-2">
-                    <p className="text-xs text-cyan-100/80">Author support: {payment.author.amount_sats} sats, {payment.tipStatus === "confirmed" ? "payment verified" : payment.tipStatus === "reported" ? "marked paid by you, not independently verified" : "awaiting payment confirmation"}.</p>
-                    {payment.tipStatus === "pending" && <>
-                        {!authorExpired && <InvoiceCard title="Support the original author" amount={payment.author.amount_sats} invoice={payment.author.invoice} />}
-                        {authorExpired && <><p className="text-xs text-neon-gold">The author invoice expired. Check your wallet before replacing it. The visibility payment stays unchanged.</p>
-                            {payment.publicZap && !hasPublicZapConsent() && <p className="text-xs text-cyan-100/70">Public zap consent ended with the previous signer session. A replacement will use an ordinary author invoice.</p>}
-                            <PixelButton size="sm" variant="ghost" disabled={busy || !endpoint?.available || (!!payment.authorAttempt && payment.authorAttempt.state !== "unpaid")} onClick={() => void replaceAuthorInvoice()}>Replace author invoice after checking wallet</PixelButton></>}
-                        <p className="text-xs text-cyan-100/60">A manual payment may not send a confirmation here. Check your wallet before trying again.</p>
-                        <PixelButton size="sm" variant="ghost" disabled={busy} onClick={() => setPayment({ ...payment, tipStatus: "reported" })}>I paid the author, checked my wallet</PixelButton>
-                    </>}
-                </div>}
-            </div>
-            {!finished && paymentOptions}
-            {!finished && wallet && footer(<PixelButton className="w-full min-h-11" variant="accent" disabled={busy || connections.walletStatus === "connecting" || !walletActionAvailable} onClick={() => void payWithWallet()}>{busy ? "Waiting for wallet" : wallet.kind === "nwc" ? "Pay remaining parts with NWC wallet" : "Pay remaining parts with browser wallet"}</PixelButton>)}
-            {(["board", "author"] as const).map((part) => {
-                const attempt = part === "board" ? payment.boardAttempt : payment.authorAttempt;
-                if (part === "board" && mockPayment) return null;
-                if (!attempt || (part === "board" ? payment.promotionPaid : payment.tipStatus !== "pending")) return null;
-                if (attempt.state === "submitted") return <p key={part} className="text-xs text-neon-gold">The wallet reported the {part === "board" ? "visibility" : "author"} payment as sent. Awaiting verification; another wallet payment will not be sent.</p>;
-                if (attempt.state !== "uncertain") return null;
-                return <div key={part} className="space-y-2 text-xs text-neon-gold">
-                    <p>The {part === "board" ? "visibility" : "author"} payment status is uncertain. Check your wallet history. NWC checks the original wallet before retrying.</p>
-                    <p>If the wallet still shows a pending payment, wait. Allow another attempt only after confirming that the earlier attempt failed or was cancelled.</p>
-                    <PixelButton size="sm" variant="ghost" disabled={busy} onClick={() => {
-                        const hash = part === "board" ? payment.board.paymentHash : payment.author!.payment_hash;
-                        const next = { ...payment, [part === "board" ? "boardAttempt" : "authorAttempt"]: acknowledgeWalletFailure(hash, attempt) };
-                        savePayment(next); setPayment(next); setError("");
-                    }}>I checked my wallet: {part === "board" ? "visibility" : "author support"} was not paid</PixelButton>
-                </div>;
-            })}
-            {expired && !payment.promotionPaid && !mockPayment && <p className="text-xs text-neon-gold">The visibility invoice expired. We still check for a delayed confirmation. Check your wallet before starting another payment.</p>}
-            {error && <p role="alert" className="text-xs text-neon-pink">{error}</p>}
-            {(finished || (expired && !payment.promotionPaid)) && <PixelButton variant="ghost" disabled={busy} onClick={startAnother}>{finished ? "Make another payment" : "Start another payment after checking wallet"}</PixelButton>}
-            <p className="text-xs text-cyan-100/50">Author support is paid directly to the author and adds no ranking weight. Paid parts are never automatically charged again.</p>
-            <button type="button" className={actionClass} onClick={() => openHelp("payments")}>Payment help &gt;</button>
-        </div>;
-    }
+    if (payment && finished) return <PromotionPaymentResult payment={payment} actualRank={actualRank} busy={busy}
+        onDone={onClose} onAnother={startAnother} onHelp={() => openHelp("payments")} footer={footer} />;
+    if (payment) return <>{navigation}<PromotionPayment id={navigationId} payment={payment} method={method} recipient={recipient}
+        onRecipient={setRecipient} wallet={browserWallet()} walletName={connections.walletName} connecting={connections.walletStatus === "connecting"}
+        busy={busy} walletPart={walletPart} now={now} canResume={canResume} error={error} actualRank={actualRank}
+        onPay={() => void payWithWallet()} onReplaceAuthor={() => void replaceAuthorInvoice()}
+        onReplaceBoard={() => void replaceBoardInvoice()}
+        onReportAuthor={() => setPayment({ ...payment, tipStatus: "reported" })}
+        onAcknowledge={(part) => {
+            const attempt = part === "board" ? payment.boardAttempt : payment.authorAttempt;
+            if (!attempt) return;
+            const hash = part === "board" ? payment.board.paymentHash : payment.author!.payment_hash;
+            const next = { ...payment, [part === "board" ? "boardAttempt" : "authorAttempt"]: acknowledgeWalletFailure(hash, attempt) };
+            savePayment(next); setPayment(next); setError("");
+        }}
+        onHelp={() => openHelp("payments")} onSigner={() => openPanel("signer")} onRestart={() => void restartPayment()}
+        restartConfirm={restartConfirm} onRestartConfirm={setRestartConfirm} hasPublicZapConsent={hasPublicZapConsent()} authorCanReplace={!!endpoint?.available} footer={footer} /></>;
     return <>{navigation}<div className={boost ? "space-y-2" : "space-y-4"} aria-busy={loading || busy} {...tabPanelProps}>
         {(!preview && !initialReference || changingReference) && <label className="block space-y-2">
             <span className="promotion-label text-cyan-200/70">Note link</span>
@@ -472,14 +516,4 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         </div>}
         {footer(submission)}
     </div></>;
-}
-
-function InvoiceCard({ title, amount, invoice }: { title: string; amount: number; invoice: string }) {
-    if (isMockInvoice(invoice)) return null;
-    return <section className="space-y-3 border-2 border-cyan-400/25 p-3">
-        <h3 className="promotion-section-title text-neon-cyan">{title}: {amount} sats</h3>
-        <a href={`lightning:${invoice}`} className="promotion-action focus-pixel inline-flex min-h-11 items-center text-neon-gold">Open in wallet</a>
-        <details className="disclosure"><summary className="promotion-action focus-pixel min-h-11 cursor-pointer text-cyan-300/70">Show QR code</summary><div className="flex justify-center py-3"><QrCode value={invoice} label={`${title} invoice QR code`} /></div></details>
-        <CopyButton value={invoice} label="Copy invoice" />
-    </section>;
 }

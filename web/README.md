@@ -98,6 +98,8 @@ instructions](../relay/DEPLOYMENT.md#updating-the-existing-deployment).
 - `src/components/BillboardScreen/`: shared billboard display for preview and feed.
 - `src/components/PromoteModal/`: compact boosts, promotion editor panels,
   billboard preview, optional connections and resumable recipient payments.
+  `PromotionPayment.tsx` presents payment methods; `PaymentState.ts` defines the
+  saved draft and restart eligibility.
 - `src/components/Help/`: shared help for `/help` and contextual promotion panels.
 - `src/lib/support.ts`: payment allocation, direct author invoices, optional NIP-07 zaps and proof verification.
 - `src/lib/connections.ts`: optional NWC, extension and remote signer sessions.
@@ -144,10 +146,30 @@ scrolling; switching tabs preserves the draft. Boosts keep the compact form.
 The footer shows the complete
 amount on the payment action; ranking and removal rules live in help. Contextual
 help and settings panels keep the amount mode and current draft in memory.
-A connected wallet can prepare and pay both invoices after one explicit action;
-**Prepare invoices only** preserves the manual path.
-For connected-wallet boosts, this action lives in **Payment options** to keep
-the main footer compact.
+Promote and Boost prepare invoices before opening **Promotion payment**.
+**Wallet** and **Invoice / QR** are equal payment methods; NWC is first when
+connected or restoring, otherwise the invoice method is first. WebLN remains
+available in Wallet. Method and recipient selection survive help and connection
+panels. Wallet payment needs an explicit action showing the amount that could
+be charged; submitted attempts can only be checked. The invoice method shows
+one recipient's QR immediately, with wallet link, copy and expandable invoice
+text. Confirmation keeps the selected recipient until the payer chooses the next.
+When all parts are complete, a result screen shows the credited visibility,
+recipient amounts and current position, with Done and another-payment actions.
+Manually reported author support stays explicitly unverified in that summary.
+Wallet progress and pending verification use cyan status panels; an unresolved
+result asks the payer to check their wallet after the request ends.
+
+**Restart payment** checks backend settlement before clearing an explicitly
+confirmed unpaid session and its last-payment pointer. It restores the saved
+promotion draft, without requesting new invoices or clearing shared wallet
+attempts and connections. Older sessions restore known amounts and allocation.
+Paid or reported parts and unresolved wallet attempts block a full restart,
+including after expiry. Expired recipient invoices can be replaced individually
+when their own wallet attempt is resolved, preserving the other part.
+Issued invoices remain payable; clearing local state
+cannot cancel them. An unavailable backend does not block an explicitly
+confirmed restart when no send attempt is recorded.
 Invoice status and payment attempt recovery use the same protections in both
 paths. Global **Wallet** and
 **Connect Nostr** controls are independent of promotion. Inside the form, wallet

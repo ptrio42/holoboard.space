@@ -55,15 +55,25 @@ profile. If unavailable or outside that wallet's limits, choose another amount
 or explicitly switch to visibility only.
 
 The form shows each recipient amount and the complete total before confirmation.
-**Pay & Boost** or **Pay & Promote** prepares and pays the invoices in sequence
-with a connected NWC or WebLN wallet. **Prepare invoices only** keeps manual
-payment available, under Payment options for connected-wallet boosts. Other
-wallets can open, copy or scan each invoice. No login
-or Nostr signer is needed for ordinary payments. Global **Wallet** and
+**Boost** or **Promote** prepares invoices and opens **Promotion payment**.
+Choose between equally available **Wallet** and **Invoice / QR** tabs. NWC is
+selected first when a connection exists; otherwise invoices come first.
+Wallet payment requires a separate explicit action. Invoice payments show one
+recipient's QR at a time, with Open in wallet and Copy invoice always available
+for that invoice. Select Holoboard or Author to change the displayed invoice.
+No login or Nostr signer is needed for ordinary payments. Global **Wallet** and
 **Connect Nostr** controls connect your NWC wallet, browser signer extension,
 or Amber and other remote signers. Inside promotion, **Payment options** offers
 wallet connection; Nostr connection is available beside public zap and
 notification settings.
+
+**Restart payment** returns an unpaid session to the same promotion choices
+without creating new invoices. Check your wallet before confirming: issued
+invoices are not cancelled. A paid, reported, sent or uncertain part blocks a
+full restart; finish or reconcile that session instead. An expired unpaid
+recipient invoice can be replaced while keeping the other part. Connections
+and shared wallet attempt protection are retained.
+
 The NWC wallet panel shows balance, Send, Receive and payment history when the
 connection grants access. Send accepts a Lightning invoice, a QR code or a
 Lightning Address and asks for confirmation after review. Receive creates an

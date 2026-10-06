@@ -4,6 +4,23 @@ beforeEach(() => vi.resetModules());
 afterEach(() => vi.unstubAllGlobals());
 
 describe("payment session persistence", () => {
+    it("does not resurrect a removed session when storage refuses removal", async () => {
+        const stored = new Map<string, string>();
+        vi.stubGlobal("sessionStorage", {
+            getItem: (key: string) => stored.get(key) ?? null,
+            setItem: (key: string, value: string) => stored.set(key, value),
+            removeItem: () => { throw new DOMException("Blocked", "SecurityError"); },
+        });
+        const session = await import("./paymentSession");
+        session.savePaymentSession("other", "another note");
+        session.savePaymentSession("payment", "old invoice");
+        session.removePaymentSession("payment");
+        expect(session.readPaymentSession()).toBeNull();
+        expect(session.readPaymentSession("payment")).toBeNull();
+        expect(session.readPaymentSession("other")).toBe("another note");
+        session.savePaymentSession("payment", "new invoice");
+        expect(session.readPaymentSession()).toBe("new invoice");
+    });
     it("retains the latest attempt in memory when storage refuses writes", async () => {
         const stored = new Map<string, string>([["payment", "old"]]);
         vi.stubGlobal("sessionStorage", {

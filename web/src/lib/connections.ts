@@ -41,6 +41,9 @@ let restored = false;
 const HEX = /^[0-9a-f]{64}$/;
 
 function read(key: string): string | null { try { return sessionStorage.getItem(key); } catch { return null; } }
+export function hasSavedWalletConnection(): boolean {
+    return state.walletStatus !== "disconnected" || !!read(WALLET_KEY);
+}
 function remember(key: string, value: string | null) {
     try { if (value === null) sessionStorage.removeItem(key); else sessionStorage.setItem(key, value); } catch { /* Connections still work until this page is closed. */ }
 }

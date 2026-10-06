@@ -151,7 +151,6 @@ test("previous frontend works with current API and PWA updates preserve prepared
         await page.getByRole("button", { name: "Copy invoice", exact: true }).click();
         await expect(page.getByRole("button", { name: "Copied", exact: true })).toBeVisible();
         expect(copiedInvoices).toEqual(["lnbc-compatibility-2"]);
-        await page.getByText("Show QR code", { exact: true }).click();
         const qr = page.getByRole("img", { name: "Holoboard visibility invoice QR code" });
         await expect(qr).toBeVisible();
         const png = PNG.sync.read(await qr.screenshot());

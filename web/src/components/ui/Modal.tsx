@@ -10,6 +10,8 @@ interface ModalProps {
     scrollBody?: boolean;
     mobileFullScreen?: boolean;
     compact?: boolean;
+    /** Keep scannable content clear of the decorative CRT overlay. */
+    aboveScanlines?: boolean;
     footerRef?: Ref<HTMLDivElement>;
     navigationRef?: Ref<HTMLDivElement>;
 }
@@ -25,7 +27,7 @@ const FOCUSABLE =
  * The focusable list is re-read on every Tab rather than captured once, because
  * the promotion flow swaps its whole body out as it advances.
  */
-export function Modal({ isOpen, onClose, title, children, panelClassName = "", scrollBody = false, mobileFullScreen = false, compact = false, footerRef, navigationRef }: ModalProps) {
+export function Modal({ isOpen, onClose, title, children, panelClassName = "", scrollBody = false, mobileFullScreen = false, compact = false, aboveScanlines = false, footerRef, navigationRef }: ModalProps) {
     const panelRef = useRef<HTMLDivElement>(null);
     const overlayRef = useRef<HTMLDivElement>(null);
     const backdropMouseDown = useRef(false);
@@ -116,7 +118,7 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
     return (
         <div
             ref={overlayRef}
-            className={`fixed inset-0 z-40 flex justify-center bg-black/85 backdrop-blur-sm sm:items-center sm:p-6
+            className={`fixed inset-0 ${aboveScanlines ? "z-[60]" : "z-40"} flex justify-center bg-black/85 backdrop-blur-sm sm:items-center sm:p-6
                 ${compact ? "items-end" : "items-start"} ${mobileFullScreen ? "p-0" : "p-3"}
                 ${scrollBody ? "overflow-hidden" : "overflow-y-auto"}`}
             onMouseDown={(event) => {

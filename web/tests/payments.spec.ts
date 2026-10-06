@@ -21,7 +21,7 @@ const boardPreimage = "b".repeat(64), authorPreimage = "c".repeat(64);
 const hash = (preimage: string) => createHash("sha256").update(Buffer.from(preimage, "hex")).digest("hex");
 const boardHash = hash(boardPreimage);
 const walletUri = `nostr+walletconnect://${walletPubkey}?relay=ws%3A%2F%2F127.0.0.1%3A3334&secret=${bytesToHex(clientKey)}`;
-type Options = { badAuthorProof?: boolean; validAuthorInvoice?: boolean; mockInvoice?: boolean; noteContent?: string; rank?: number; targets?: { rank: number; weight: number }[]; authorMinSats?: number; authorShare?: number; newCampaign?: boolean; expiredCampaign?: boolean; authorUnavailable?: "no_address" | "unavailable"; blockStorage?: boolean; encryption?: "nip44_v2" | "nip04"; failAuthor?: boolean; loseAuthorResponse?: boolean; failAuthorInvoice?: boolean; extension?: boolean; deferSigner?: boolean; authorExpiresIn?: number; boardExpiresIn?: number; webln?: boolean; lookupState?: "pending" | "unknown" };
+type Options = { deferAuthorResponse?: boolean; badAuthorProof?: boolean; validAuthorInvoice?: boolean; mockInvoice?: boolean; noteContent?: string; rank?: number; targets?: { rank: number; weight: number }[]; authorMinSats?: number; authorShare?: number; newCampaign?: boolean; expiredCampaign?: boolean; authorUnavailable?: "no_address" | "unavailable"; blockStorage?: boolean; encryption?: "nip44_v2" | "nip04"; failAuthor?: boolean; loseAuthorResponse?: boolean; failAuthorInvoice?: boolean; extension?: boolean; deferSigner?: boolean; authorExpiresIn?: number; boardExpiresIn?: number; webln?: boolean; lookupState?: "pending" | "unknown" };
 
 async function setup(context: BrowserContext, page: Page, options: Options = {}) {
     const appOrigin = new URL(test.info().project.use.baseURL!).origin;
@@ -30,7 +30,7 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
     if (options.blockStorage) await context.addInitScript(() => {
         Object.defineProperty(window, "sessionStorage", { get: () => { throw new DOMException("Storage blocked by this test", "SecurityError"); } });
     });
-    const state = { boardPaid: false, authorPaid: false, boardCharges: 0, authorCharges: 0, authorAttempts: 0, authorProofs: new Map<string, string>(), expectedSignerPubkey: getPublicKey(userKey), boardRequests: [] as Record<string, unknown>[], authorRequests: [] as Record<string, unknown>[], methods: [] as string[], signerMethods: [] as string[], errors: [] as string[], approveSigner: undefined as (() => Promise<void>) | undefined };
+    const state = { boardPaid: false, authorPaid: false, boardCharges: 0, authorCharges: 0, authorAttempts: 0, boardProofs: new Map<string, string>([["lnbc-visibility", boardPreimage]]), authorProofs: new Map<string, string>(), expectedSignerPubkey: getPublicKey(userKey), boardRequests: [] as Record<string, unknown>[], authorRequests: [] as Record<string, unknown>[], methods: [] as string[], signerMethods: [] as string[], errors: [] as string[], completeAuthorPayment: undefined as (() => void) | undefined, approveSigner: undefined as (() => Promise<void>) | undefined };
     const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Allow-Methods": "GET,POST,OPTIONS" };
     await context.route("**/*", async (route) => {
         const url = new URL(route.request().url());
@@ -113,7 +113,7 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
                 let result: unknown, error: unknown = null;
                 if (request.method === "get_info") result = { alias: "Test NWC wallet", network: "mainnet", methods: ["pay_invoice", "lookup_invoice", "get_info"] };
                 else if (request.method === "pay_invoice") {
-                    if (request.params.invoice === "lnbc-visibility") { state.boardCharges++; state.boardPaid = true; result = { preimage: boardPreimage }; }
+                    if (state.boardProofs.has(request.params.invoice)) { state.boardCharges++; state.boardPaid = true; result = { preimage: state.boardProofs.get(request.params.invoice) }; }
                     else {
                         state.authorAttempts++;
                         if (options.failAuthor && state.authorAttempts === 1) error = { code: "PAYMENT_FAILED", message: "Author payment failed" };
@@ -130,7 +130,11 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
                 else throw new Error(`Unexpected NWC method: ${request.method}`);
                 const plaintext = JSON.stringify({ result_type: request.method, result, error });
                 const content = encryption === "nip04" ? await nip04.encrypt(bytesToHex(walletKey), event.pubkey, plaintext) : nip44.encrypt(plaintext, key);
-                sendEvent(finalizeEvent({ kind: 23195, created_at: Math.floor(Date.now()/1000), tags: [["p", event.pubkey], ["e", event.id]], content }, walletKey));
+                const response = finalizeEvent({ kind: 23195, created_at: Math.floor(Date.now()/1000), tags: [["p", event.pubkey], ["e", event.id]], content }, walletKey);
+                if (options.deferAuthorResponse && request.method === "pay_invoice" && state.authorProofs.has(request.params.invoice) && state.authorAttempts === 1) {
+                    state.completeAuthorPayment = () => sendEvent(response); return;
+                }
+                sendEvent(response);
             } else if (event.kind === 24133) {
                 const key = nip44.getConversationKey(signerKey, event.pubkey);
                 const request = JSON.parse(nip44.decrypt(event.content, key)); state.signerMethods.push(request.method);
@@ -152,7 +156,7 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
     });
     if (options.webln) {
         await context.exposeFunction("testWalletPay", async (invoice: string) => {
-            if (invoice === "lnbc-visibility") { state.boardCharges++; state.boardPaid = true; return { preimage: boardPreimage }; }
+            if (state.boardProofs.has(invoice)) { state.boardCharges++; state.boardPaid = true; return { preimage: state.boardProofs.get(invoice) }; }
             expect(state.authorProofs.has(invoice)).toBe(true); state.authorAttempts++; state.authorCharges++; state.authorPaid = true;
             return { preimage: state.authorProofs.get(invoice) };
         });
@@ -164,10 +168,14 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
     page.on("pageerror", (error) => state.errors.push(error.message));
     await page.goto("/");
     await page.getByRole("button", { name: "Boost", exact: true }).first().click();
-    const submit = page.getByRole("button", { name: options.newCampaign || options.expiredCampaign ? /^(Pay & )?Promote 210 sats$/ : /^(Pay & )?Boost 210 sats$/ });
+    const submit = page.getByRole("button", { name: options.newCampaign || options.expiredCampaign ? /^Promote 210 sats$/ : /^Boost 210 sats$/ });
     if ((options.authorUnavailable && !(options.newCampaign && options.authorUnavailable === "no_address")) || (options.authorMinSats ?? 0) > 42) await expect(submit).toBeDisabled();
     else await expect(submit).toBeEnabled();
     return state;
+}
+function authorConfirmed(page: Page) {
+    return page.getByRole("button", { name: /^Author 42 sats Payment verified$/ })
+        .or(page.getByLabel("Author payment", { exact: true }).filter({ hasText: "Payment verified" }));
 }
 async function backToForm(page: Page) {
     const back = page.getByRole("button", { name: /^< Back to / });
@@ -182,6 +190,14 @@ async function openPaymentOptions(page: Page) {
 }
 async function openConnections(page: Page, section: "wallet" | "signer") {
     await backToForm(page);
+    if (await page.getByRole("tab", { name: "Invoice / QR", exact: true }).isVisible()) {
+        if (section === "wallet") {
+            await walletMethod(page);
+            const settings = page.getByText("Wallet settings", { exact: true });
+            if (await settings.isVisible()) await settings.click();
+        } else await page.getByRole("button", { name: "Nostr signer settings >", exact: true }).click();
+        return;
+    }
     const publicZap = page.getByText(/^Public author zap( on)?$/);
     if (section === "signer" && await publicZap.isVisible()) await openSupport(page);
     else await openPaymentOptions(page);
@@ -202,10 +218,25 @@ async function setAuthorShare(page: Page, share: number) {
 }
 async function prepareInvoices(page: Page) {
     await backToForm(page);
-    const manual = page.getByRole("button", { name: "Prepare invoices only", exact: true });
-    if (!await manual.isVisible() && await page.getByRole("button", { name: /^Pay & Boost / }).isVisible()) await openPaymentOptions(page);
-    if (await manual.isVisible()) await manual.click();
-    else await page.getByRole("button", { name: /^(Boost|Promote) 210 sats$/ }).click();
+    await page.getByRole("button", { name: /^(Boost|Promote) 210 sats$/ }).click();
+}
+async function invoiceMethod(page: Page) {
+    await page.getByRole("tab", { name: "Invoice / QR", exact: true }).click();
+}
+async function walletMethod(page: Page) {
+    await page.getByRole("tab", { name: "Wallet", exact: true }).click();
+}
+async function expectSplitInvoices(page: Page) {
+    const walletSelected = await page.getByRole("tab", { name: "Wallet", exact: true }).getAttribute("aria-selected") === "true";
+    await invoiceMethod(page);
+    await page.getByRole("button", { name: /^Holoboard \d+ sats/ }).click();
+    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", "lightning:lnbc-visibility");
+    await expect(page.getByRole("button", { name: "Copy invoice", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: /^Author \d+ sats/ }).click();
+    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", "lightning:lnbc-author");
+    await expect(page.getByRole("button", { name: "Copy invoice", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: /^Holoboard \d+ sats/ }).click();
+    if (walletSelected) await walletMethod(page);
 }
 async function connectNwc(page: Page) {
     await openConnections(page, "wallet");
@@ -215,6 +246,7 @@ async function connectNwc(page: Page) {
 }
 
 async function savedPayment(page: Page) {
+    await expect.poll(() => page.evaluate(() => sessionStorage.getItem("holoboard-last-payment"))).not.toBeNull();
     return page.evaluate(() => {
         const key = sessionStorage.getItem("holoboard-last-payment");
         if (!key) throw new Error("Expected an unfinished payment");
@@ -245,7 +277,7 @@ test("mock invoices are explained without sending NWC payments or lookup request
     const state = await setup(context, page, { mockInvoice: true, authorShare: 20 });
     await connectNwc(page);
     await backToForm(page);
-    await page.getByRole("button", { name: "Pay & Boost 210 sats", exact: true }).click();
+    await page.getByRole("button", { name: "Boost 210 sats", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("This preview uses test invoices");
     await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Copy invoice", exact: true })).toHaveCount(0);
@@ -280,7 +312,7 @@ test("a saved mock visibility invoice preserves an uncertain real author payment
     const state = await setup(context, page);
     await connectNwc(page);
     await prepareInvoices(page);
-    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveCount(2);
+    await expectSplitInvoices(page);
     await page.evaluate(() => {
         const key = sessionStorage.getItem("holoboard-last-payment")!;
         const payment = JSON.parse(sessionStorage.getItem(key)!);
@@ -292,7 +324,8 @@ test("a saved mock visibility invoice preserves an uncertain real author payment
     await page.reload();
     await page.getByRole("button", { name: "Boost", exact: true }).first().click();
     await expect(page.getByRole("alert")).toContainText("The saved author invoice is separate");
-    await expect(page.getByRole("button", { name: "Pay remaining parts with NWC wallet", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ })).toBeDisabled();
+    await invoiceMethod(page);
     await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", "lightning:lnbc-author");
     await expect(page.getByText("The author payment status is uncertain.", { exact: false })).toBeVisible();
     expect((await savedPayment(page)).authorAttempt?.state).toBe("uncertain");
@@ -308,7 +341,6 @@ test("blocked browser storage preserves anonymous invoices when the form reopens
     await expect(page.getByText("This browser cannot save the payment for a refresh.", { exact: false })).toBeVisible();
     await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", "lightning:lnbc-visibility");
     await expect(page.getByRole("button", { name: "Copy invoice", exact: true })).toBeVisible();
-    await page.getByText("Show QR code", { exact: true }).click();
     await expect(page.getByRole("img", { name: "Holoboard visibility invoice QR code" })).toBeVisible();
     await page.getByRole("button", { name: "Close dialog", exact: true }).click();
     await page.getByRole("button", { name: "Boost", exact: true }).first().click();
@@ -326,14 +358,14 @@ test("blocked storage keeps confirmed and uncertain wallet parts across form reo
     const state = await setup(context, page, { blockStorage: true, failAuthor: true });
     await connectNwc(page);
     await prepareInvoices(page);
-    await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
+    await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
     await expect(page.getByText("Added 168 sats to visibility.", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "I checked my wallet: author support was not paid", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Close dialog", exact: true }).click();
     await page.getByRole("button", { name: "Boost", exact: true }).first().click();
-    await expect(page.getByRole("button", { name: "Pay remaining parts with NWC wallet" })).toBeEnabled();
-    await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
-    await expect(page.getByText("Author support: 42 sats, payment verified.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ })).toBeEnabled();
+    await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
+    await expect(authorConfirmed(page)).toBeVisible();
     expect(state.methods).toContain("lookup_invoice");
     expect(state.boardCharges).toBe(1); expect(state.authorCharges).toBe(1); expect(state.authorAttempts).toBe(2);
     expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1); expect(state.errors).toEqual([]);
@@ -371,9 +403,8 @@ for (const supportAuthor of [false, true]) test(`legacy campaign defaults to vis
         await expect(page.getByRole("region", { name: "Payment split" }).locator('[aria-label="Holoboard visibility"]').getByText("168 sats", { exact: true })).toBeVisible();
     }
     await prepareInvoices(page);
-    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveCount(supportAuthor ? 2 : 1);
-    await expect(page.getByRole("button", { name: "Copy invoice", exact: true })).toHaveCount(supportAuthor ? 2 : 1);
-    await page.getByText("Show QR code", { exact: true }).first().click();
+    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Copy invoice", exact: true })).toHaveCount(1);
     await expect(page.getByRole("img", { name: "Holoboard visibility invoice QR code" })).toBeVisible();
     expect(state.boardRequests[0].amount_sats).toBe(supportAuthor ? 168 : 210);
     expect(state.boardRequests[0].author_share).toBe(supportAuthor ? 20 : 0);
@@ -402,7 +433,6 @@ test("anonymous single-invoice payment and restoring the campaign split", async 
     await prepareInvoices(page);
     await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", "lightning:lnbc-visibility");
     await expect(page.getByRole("button", { name: "Copy invoice", exact: true })).toBeVisible();
-    await page.getByText("Show QR code", { exact: true }).click();
     await expect(page.getByRole("img", { name: "Holoboard visibility invoice QR code" })).toBeVisible();
     expect(state.authorRequests).toHaveLength(0);
     expect(state.boardRequests[0].amount_sats).toBe(210);
@@ -415,9 +445,9 @@ for (const encryption of ["nip44_v2", "nip04"] as const) test(`NWC ${encryption}
     await connectNwc(page);
     expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0);
     await prepareInvoices(page);
-    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveCount(2);
-    await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
-    await expect(page.getByText("Author support: 42 sats, payment verified.", { exact: true })).toBeVisible();
+    await expectSplitInvoices(page);
+    await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
+    await expect(authorConfirmed(page)).toBeVisible();
     await expect(page.getByText("Added 168 sats to visibility.", { exact: true })).toBeVisible();
     expect(state.boardCharges).toBe(1); expect(state.authorCharges).toBe(1);
     expect(state.errors).toEqual([]);
@@ -426,14 +456,14 @@ test("NWC recovers a failed author payment after reload without paying visibilit
     const state = await setup(context, page, { failAuthor: true });
     await connectNwc(page);
     await prepareInvoices(page);
-    await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
+    await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
     await expect(page.getByText("Added 168 sats to visibility.", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "I checked my wallet: author support was not paid", exact: true })).toBeVisible();
     await page.reload();
     await page.getByRole("button", { name: "Boost", exact: true }).first().click();
-    await expect(page.getByRole("button", { name: "Pay remaining parts with NWC wallet" })).toBeEnabled();
-    await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
-    await expect(page.getByText("Author support: 42 sats, payment verified.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ })).toBeEnabled();
+    await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
+    await expect(authorConfirmed(page)).toBeVisible();
     expect(state.methods).toContain("lookup_invoice");
     expect(state.boardCharges).toBe(1); expect(state.authorCharges).toBe(1); expect(state.authorAttempts).toBe(2);
     expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1);
@@ -443,13 +473,13 @@ test("NWC recovers a paid author invoice after a lost response", async ({ contex
     const state = await setup(context, page, { loseAuthorResponse: true });
     await connectNwc(page);
     await prepareInvoices(page);
-    await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
+    await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
     await expect.poll(() => state.authorCharges).toBe(1);
     await page.reload();
     await page.getByRole("button", { name: "Boost", exact: true }).first().click();
-    await expect(page.getByRole("button", { name: "Pay remaining parts with NWC wallet" })).toBeEnabled();
-    await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
-    await expect(page.getByText("Author support: 42 sats, payment verified.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ })).toBeEnabled();
+    await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
+    await expect(authorConfirmed(page)).toBeVisible();
     expect(state.methods).toContain("lookup_invoice");
     expect(state.boardCharges).toBe(1); expect(state.authorCharges).toBe(1); expect(state.authorAttempts).toBe(1);
     expect(state.errors).toEqual([]);
@@ -457,7 +487,7 @@ test("NWC recovers a paid author invoice after a lost response", async ({ contex
 test("promotion and wallet Send share an uncertain author attempt after reload", async ({ context, page }) => {
     const state = await setup(context, page, { loseAuthorResponse: true, validAuthorInvoice: true });
     await connectNwc(page); await prepareInvoices(page);
-    await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
+    await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
     await expect.poll(() => state.authorCharges).toBe(1);
     const invoice = (await savedPayment(page)).author!.invoice;
     await page.reload(); await page.getByRole("button", { name: "Boost", exact: true }).first().click();
@@ -467,9 +497,9 @@ test("promotion and wallet Send share an uncertain author attempt after reload",
     await page.getByRole("button", { name: "Review payment", exact: true }).click();
     await expect(page.getByRole("button", { name: "Check payment status", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "Check payment status", exact: true }).click();
-    await expect(page.getByText("Payment confirmed.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Payment complete", exact: true })).toBeVisible({ timeout: 10000 });
     await backToForm(page);
-    await expect(page.getByText("Author support: 42 sats, payment verified.", { exact: true })).toBeVisible();
+    await expect(authorConfirmed(page)).toBeVisible();
     expect(state.authorAttempts).toBe(1); expect(state.authorCharges).toBe(1); expect(state.boardCharges).toBe(1);
     expect(state.methods.filter((method) => method === "lookup_invoice")).toHaveLength(1); expect(state.errors).toEqual([]);
 });
@@ -477,7 +507,7 @@ test("promotion and wallet Send share an uncertain author attempt after reload",
 test("an invalid promotion proof stays unconfirmed in wallet Send and lookup recovers without another charge", async ({ context, page }) => {
     const state = await setup(context, page, { badAuthorProof: true, validAuthorInvoice: true });
     await connectNwc(page); await prepareInvoices(page);
-    await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
+    await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
     await expect(page.getByRole("alert")).toContainText("valid payment proof");
     const saved = await savedPayment(page);
     expect(saved.authorAttempt?.state).toBe("uncertain");
@@ -488,7 +518,7 @@ test("an invalid promotion proof stays unconfirmed in wallet Send and lookup rec
     await expect(page.getByText("Payment confirmed.", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Check payment status", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "Check payment status", exact: true }).click();
-    await expect(page.getByText("Payment confirmed.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Payment complete", exact: true })).toBeVisible({ timeout: 10000 });
     expect(state.authorCharges).toBe(1); expect(state.authorAttempts).toBe(1); expect(state.boardCharges).toBe(1);
     expect(state.errors).toEqual([]);
 });
@@ -505,8 +535,8 @@ test("an author invoice paid in wallet Send is reused by promotion without anoth
     await page.getByRole("button", { name: "Send 42 sats", exact: true }).click();
     await expect(page.getByText("Payment confirmed.", { exact: true })).toBeVisible();
     await backToForm(page);
-    await expect(page.getByText("Author support: 42 sats, payment verified.", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
+    await expect(authorConfirmed(page)).toBeVisible();
+    await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
     await expect(page.getByText("Added 168 sats to visibility.", { exact: true })).toBeVisible();
     expect(state.authorAttempts).toBe(1); expect(state.authorCharges).toBe(1); expect(state.boardCharges).toBe(1);
     expect(state.errors).toEqual([]);
@@ -522,7 +552,7 @@ test("Amber connection signs a public author zap and restores after reload", asy
     await openSupport(page);
     await page.getByRole("checkbox", { name: "Send author support as a public zap", exact: false }).check();
     await prepareInvoices(page);
-    await expect(page.getByRole("heading", { name: "Support the original author: 42 sats" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Author 42 sats/ })).toBeVisible();
     expect(state.signerMethods).toContain("get_public_key"); expect(state.signerMethods).toContain("sign_event");
     expect(state.authorRequests[0]).toHaveProperty("zap_request");
     expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0);
@@ -536,7 +566,7 @@ test("browser extension connects explicitly and remains optional for invoice pay
     await openSupport(page);
     await page.getByRole("checkbox", { name: "Send author support as a public zap", exact: false }).check();
     await prepareInvoices(page);
-    await expect(page.getByRole("heading", { name: "Support the original author: 42 sats" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Author 42 sats/ })).toBeVisible();
     expect(state.authorRequests[0]).toHaveProperty("zap_request");
     expect(state.boardCharges).toBe(0);
     expect(state.errors).toEqual([]);
@@ -550,7 +580,7 @@ test("failed author invoice requires reviewing visibility-only allocation", asyn
     expect(state.boardRequests).toHaveLength(0);
     await expect(page.getByRole("region", { name: "Payment split" }).locator('[aria-label="Holoboard visibility"]').getByText("210 sats", { exact: true })).toBeVisible();
     await prepareInvoices(page);
-    await expect(page.getByRole("heading", { name: "Holoboard visibility: 210 sats" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Holoboard 210 sats/ })).toBeVisible();
     expect(state.boardRequests[0].amount_sats).toBe(210);
     expect(state.errors).toEqual([]);
 });
@@ -597,7 +627,7 @@ test("disconnecting signer permits ordinary author support", async ({ context, p
     await openSupport(page);
     await expect(page.getByRole("checkbox", { name: "Send author support as a public zap", exact: false })).toHaveCount(0);
     await prepareInvoices(page);
-    await expect(page.getByRole("heading", { name: "Support the original author: 42 sats" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Author 42 sats/ })).toBeVisible();
     expect(state.authorRequests[0]).not.toHaveProperty("zap_request");
     expect(state.boardRequests[0].amount_sats).toBe(168);
     expect(state.errors).toEqual([]);
@@ -608,7 +638,8 @@ for (const wallet of ["NWC", "WebLN"] as const) {
         const state = await setup(context, page, { webln: wallet === "WebLN", authorExpiresIn: expired === "author" ? -1 : 3600, boardExpiresIn: expired === "visibility" ? -1 : 3600 });
         if (wallet === "NWC") await connectNwc(page);
         await prepareInvoices(page);
-        const pay = page.getByRole("button", { name: wallet === "NWC" ? "Pay remaining parts with NWC wallet" : "Pay remaining parts with browser wallet" });
+        await walletMethod(page);
+        const pay = page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ });
         await expect(pay).toBeEnabled();
         await pay.click();
         if (expired === "author") {
@@ -616,7 +647,7 @@ for (const wallet of ["NWC", "WebLN"] as const) {
             await expect(page.getByText("The author invoice expired.", { exact: false })).toBeVisible();
             expect(state.boardCharges).toBe(1); expect(state.authorCharges).toBe(0); expect(state.authorAttempts).toBe(0);
         } else {
-            await expect(page.getByText("Author support: 42 sats, payment verified.", { exact: true })).toBeVisible();
+            await expect(authorConfirmed(page)).toBeVisible();
             expect(state.authorCharges).toBe(1); expect(state.boardCharges).toBe(0); expect(state.boardPaid).toBe(false);
         }
         await expect(pay).toBeDisabled();
@@ -629,9 +660,12 @@ test("NWC recovers a lost author response after invoice expiry and reload", asyn
     await page.clock.install();
     await connectNwc(page);
     await prepareInvoices(page);
-    await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
+    await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
     await expect.poll(() => state.authorCharges).toBe(1);
-    await page.clock.fastForward(12001);
+    await expect(page.getByRole("button", { name: "Restart payment", exact: true })).toBeDisabled();
+    await expect(page.getByRole("status").filter({ hasText: "Processing author support." })).toBeVisible();
+    await expect(page.getByRole("button", { name: "I checked my wallet: author support was not paid", exact: true })).toHaveCount(0);
+    await page.clock.fastForward(60001);
     await expect(page.getByRole("button", { name: "I checked my wallet: author support was not paid", exact: true })).toBeVisible();
     // Expire the invoice without also firing the board refresh just before
     // navigation, which leaves an intercepted WebKit request in flight.
@@ -642,9 +676,10 @@ test("NWC recovers a lost author response after invoice expiry and reload", asyn
     await page.getByRole("button", { name: "Boost", exact: true }).first().click();
     await expect(page.getByText("The author invoice expired.", { exact: false })).toBeVisible();
     await expect(page.getByRole("button", { name: "Replace author invoice after checking wallet" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Check payment status", exact: true })).toBeEnabled();
     const before = await savedPayment(page);
-    await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
-    await expect(page.getByText("Author support: 42 sats, payment verified.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
+    await expect(authorConfirmed(page)).toBeVisible();
     expect(state.methods).toContain("lookup_invoice");
     expect(state.boardCharges).toBe(1); expect(state.authorCharges).toBe(1); expect(state.authorAttempts).toBe(1);
     expect(state.authorRequests).toHaveLength(1); expect(state.errors).toEqual([]);
@@ -659,11 +694,11 @@ for (const lookupState of ["pending", "unknown"] as const) test(`NWC lookup ${lo
     await page.clock.install();
     await connectNwc(page);
     await prepareInvoices(page);
-    await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
+    await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
     await expect(page.getByRole("button", { name: "I checked my wallet: author support was not paid", exact: true })).toBeVisible();
     await page.clock.fastForward(3601000);
     await expect(page.getByText("The author invoice expired.", { exact: false })).toBeVisible();
-    await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
+    await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
     await expect(page.getByRole("alert")).toContainText("not confirmed that this payment failed");
     await expect(page.getByRole("button", { name: "Replace author invoice after checking wallet" })).toBeDisabled();
     expect(state.methods).toContain("lookup_invoice"); expect(state.boardCharges).toBe(1);
@@ -698,11 +733,11 @@ test("disconnected signer permits replacing an expired public zap with ordinary 
 test("anonymous split invoices remain accessible without wallet or signer", async ({ context, page }) => {
     const state = await setup(context, page);
     await prepareInvoices(page);
-    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveCount(2);
-    await expect(page.getByRole("button", { name: "Copy invoice", exact: true })).toHaveCount(2);
-    const toggles = page.getByText("Show QR code", { exact: true });
-    await toggles.nth(0).click(); await toggles.nth(1).click();
+    await expectSplitInvoices(page);
+
+    await page.getByRole("button", { name: /^Author \d+ sats/ }).click();
     await expect(page.getByRole("img", { name: "Support the original author invoice QR code" })).toBeVisible();
+    await page.getByRole("button", { name: /^Holoboard \d+ sats/ }).click();
     await expect(page.getByRole("img", { name: "Holoboard visibility invoice QR code" })).toBeVisible();
     expect(state.authorRequests[0]).not.toHaveProperty("zap_request");
     expect(state.boardRequests[0].amount_sats).toBe(168); expect(state.authorRequests[0].amount_sats).toBe(42);
@@ -715,12 +750,12 @@ test("failed expired author attempt permits replacement after NWC lookup", async
     await page.clock.install();
     await connectNwc(page);
     await prepareInvoices(page);
-    await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
+    await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
     await expect(page.getByText("Added 168 sats to visibility.", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "I checked my wallet: author support was not paid", exact: true })).toBeVisible();
     await page.clock.fastForward(3601000);
     await expect(page.getByText("The author invoice expired.", { exact: false })).toBeVisible();
-    await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
+    await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
     await expect(page.getByRole("alert")).toContainText("invoice expired");
     expect(state.methods).toContain("lookup_invoice");
     expect(state.authorCharges).toBe(0);
@@ -733,7 +768,7 @@ test("failed expired author attempt permits replacement after NWC lookup", async
     await expect(replacement).toBeEnabled();
     options.authorExpiresIn = 7200;
     await replacement.click();
-    await expect(page.getByRole("heading", { name: "Support the original author: 42 sats" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Author 42 sats/ })).toBeVisible();
     const replaced = await savedPayment(page);
     expect(replaced.board).toEqual(saved.board); expect(replaced.boardAttempt).toEqual(saved.boardAttempt);
     expect(replaced.promotionPaid).toBe(true); expect(replaced.tipStatus).toBe(saved.tipStatus);
@@ -761,7 +796,7 @@ for (const change of ["unchanged", "other account", "reconnected", "extension re
         await expect(page.getByText("The author invoice expired.", { exact: false })).toBeVisible();
         expect(state.authorRequests[0]).toHaveProperty("zap_request");
         if (change === "other account") {
-            await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
+            await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
             await expect(page.getByText("Added 168 sats to visibility.", { exact: true })).toBeVisible();
         }
         const before = await savedPayment(page);
@@ -792,7 +827,7 @@ for (const change of ["unchanged", "other account", "reconnected", "extension re
         const signaturesBefore = state.signerMethods.filter((method) => method.endsWith("sign_event")).length;
         options.authorExpiresIn = 3600;
         await page.getByRole("button", { name: "Replace author invoice after checking wallet" }).click();
-        await expect(page.getByRole("heading", { name: "Support the original author: 42 sats" })).toBeVisible();
+        await expect(page.getByRole("button", { name: /^Author 42 sats/ })).toBeVisible();
         expect(state.authorRequests).toHaveLength(2);
         if (change === "unchanged") expect(state.authorRequests[1]).toHaveProperty("zap_request.pubkey", getPublicKey(userKey));
         else expect(state.authorRequests[1]).not.toHaveProperty("zap_request");
@@ -851,11 +886,11 @@ for (const viewport of [{ width: 320, height: 640 }, { width: 1280, height: 720 
         const state = await setup(context, page, { webln: true, noteContent: `http://127.0.0.1:3334/preview-image.png ${"Original paragraph. ".repeat(120)}` });
         const body = page.getByRole("dialog").locator("[data-modal-body]");
         expect(await body.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeLessThanOrEqual(1);
-        await expect(page.getByRole("button", { name: "Pay & Boost 210 sats", exact: true })).toBeEnabled();
+        await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
         await expect(page.getByRole("button", { name: "Prepare invoices only", exact: true })).toHaveCount(0);
         await prepareInvoices(page);
-        await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveCount(2);
-        await expect(page.getByRole("button", { name: "Copy invoice", exact: true })).toHaveCount(2);
+        await expectSplitInvoices(page);
+
         expect(state.boardRequests[0]).toMatchObject({ amount_sats: 168, author_share: 20 });
         expect(state.authorRequests[0].amount_sats).toBe(42);
         expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
@@ -945,7 +980,7 @@ test("amount modes and inline split preserve a boost draft across contextual pan
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
     expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0);
     await page.getByRole("button", { name: "Boost 801 sats", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Holoboard visibility: 401 sats", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Holoboard 401 sats/ })).toBeVisible();
     expect(state.boardRequests[0]).toMatchObject({ amount_sats: 401, author_share: 50 });
     expect(state.authorRequests[0].amount_sats).toBe(400);
     expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
@@ -971,7 +1006,7 @@ test("public author zap is reachable by keyboard without gating invoices", async
     await page.getByRole("checkbox", { name: "Send author support as a public zap", exact: false }).check();
     await expect(disclosure).toHaveText("Public author zap on");
     await prepareInvoices(page);
-    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveCount(2);
+    await expectSplitInvoices(page);
     expect(state.authorRequests[0]).toHaveProperty("zap_request");
     expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
 });
@@ -992,7 +1027,7 @@ test("split bar responds to pointer input and bills the displayed recipients", a
     expect(visibility + author).toBe(210);
     await expect(slider).toHaveAttribute("aria-valuetext", `Holoboard ${visibilityShare}%, ${visibility} sats; author ${100 - visibilityShare}%, ${author} sats`);
     await page.getByRole("button", { name: "Boost 210 sats", exact: true }).click();
-    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveCount(2);
+    await expectSplitInvoices(page);
     expect(state.boardRequests[0]).toMatchObject({ amount_sats: visibility, author_share: 100 - visibilityShare });
     expect(state.authorRequests[0].amount_sats).toBe(author);
     expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
@@ -1093,7 +1128,7 @@ test("customization, contextual help and notifications preserve payment choices"
     await page.getByRole("tab", { name: /^Payment options/ }).click();
     await page.screenshot({ path: test.info().outputPath("promotion-payment-options.png") });
     await page.getByRole("button", { name: "Promote 600 sats", exact: true }).click();
-    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveCount(2);
+    await expectSplitInvoices(page);
     expect(state.boardRequests).toHaveLength(1);
     expect(state.boardRequests[0]).toMatchObject({ amount_sats: 325, author_share: 35, notify_pubkey: note.pubkey, billboard: { template: "neon", size: "large" } });
     expect(state.authorRequests[0].amount_sats).toBe(175);
@@ -1148,7 +1183,8 @@ test("promotion tabs keep the draft and payment action accessible", async ({ con
     expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0);
     await page.getByRole("button", { name: "Promote 600 sats", exact: true }).click();
     await expect(tabs).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveCount(2);
+    await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toBeVisible();
+    await expectSplitInvoices(page);
     expect(state.boardRequests[0]).toMatchObject({ amount_sats: 325, author_share: 35, notify_pubkey: note.pubkey, billboard: { template: "neon" } });
     expect(state.authorRequests[0].amount_sats).toBe(175);
     expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
@@ -1165,15 +1201,18 @@ test("author invoice limits are explained before a visibility-only choice", asyn
     expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0);
 });
 
-for (const wallet of ["NWC", "WebLN"] as const) test(`${wallet} quick boost pays both invoices with one explicit action`, async ({ context, page }) => {
+for (const wallet of ["NWC", "WebLN"] as const) test(`${wallet} quick boost prepares invoices before explicit payment`, async ({ context, page }) => {
     const state = await setup(context, page, { webln: wallet === "WebLN" });
     if (wallet === "NWC") await connectNwc(page);
     await backToForm(page);
     expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0);
-    await page.getByRole("button", { name: "Pay & Boost 210 sats", exact: true }).click();
+    await page.getByRole("button", { name: "Boost 210 sats", exact: true }).click();
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0);
+    await walletMethod(page);
+    await page.getByRole("button", { name: /^Pay 210 sats$/ }).click();
     // Settlement is polled every 3s, separately from the wallet's send response.
     await expect(page.getByText("Added 168 sats to visibility.", { exact: true })).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText("Author support: 42 sats, payment verified.", { exact: true })).toBeVisible();
+    await expect(authorConfirmed(page)).toBeVisible();
     expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1);
     expect(state.boardCharges).toBe(1); expect(state.authorCharges).toBe(1); expect(state.errors).toEqual([]);
 });
@@ -1226,4 +1265,423 @@ test("allocation bounds and panel focus remain usable with a smaller viewport", 
     await back.click();
     await expect(slider).toHaveValue("100");
     expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0); expect(state.errors).toEqual([]);
+});
+
+for (const wallet of ["none", "NWC", "WebLN"] as const) test(`payment methods default and preserve selection with ${wallet}`, async ({ context, page }) => {
+    await page.setViewportSize({ width: 320, height: 740 });
+    const state = await setup(context, page, { webln: wallet === "WebLN" });
+    if (wallet === "NWC") await connectNwc(page);
+    await prepareInvoices(page);
+    const tabs = page.getByRole("tablist", { name: "Payment method", exact: true });
+    await expect(tabs.getByRole("tab").first()).toHaveText(wallet === "NWC" ? "Wallet" : "Invoice / QR");
+    await expect(tabs.getByRole("tab").first()).toHaveAttribute("aria-selected", "true");
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0);
+    await expectSplitInvoices(page);
+    await invoiceMethod(page);
+    await page.getByRole("button", { name: /^Author 42 sats/ }).click();
+    const before = await savedPayment(page);
+    await page.getByRole("button", { name: "Payment help >", exact: true }).click();
+    await backToForm(page);
+    await expect(tabs.getByRole("tab", { name: "Invoice / QR", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", "lightning:lnbc-author");
+    await tabs.getByRole("tab", { name: "Invoice / QR", exact: true }).focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(tabs.getByRole("tab", { name: "Wallet", exact: true })).toBeFocused();
+    await expect(tabs.getByRole("tab", { name: "Wallet", exact: true })).toHaveAttribute("aria-selected", "true");
+    await invoiceMethod(page);
+    await expect(page.getByRole("img", { name: "Support the original author invoice QR code", exact: true })).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath(`payment-invoice-${wallet}-320.png`) });
+    const qrBounds = await page.getByRole("img", { name: "Support the original author invoice QR code", exact: true }).boundingBox();
+    const footerTop = (await page.getByRole("link", { name: "Open in wallet", exact: true }).boundingBox())!.y;
+    expect(qrBounds!.y + qrBounds!.height).toBeLessThanOrEqual(footerTop);
+    const linkBounds = await page.getByRole("link", { name: "Open in wallet", exact: true }).boundingBox();
+    expect(linkBounds!.y + linkBounds!.height).toBeLessThanOrEqual(740);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+    const after = await savedPayment(page);
+    expect(after.board).toEqual(before.board); expect(after.author).toEqual(before.author);
+    expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
+test("connecting and disconnecting inside payment preserves invoices and tab order", async ({ context, page }) => {
+    const state = await setup(context, page);
+    await prepareInvoices(page);
+    const before = await savedPayment(page);
+    await walletMethod(page);
+    await page.getByLabel("NWC connection string").fill(walletUri);
+    await page.getByRole("button", { name: "Connect NWC wallet", exact: true }).click();
+    await expect(page.getByText("NWC: Test NWC wallet", { exact: true })).toBeVisible();
+    await expect(page.getByRole("tablist", { name: "Payment method", exact: true }).getByRole("tab").first()).toHaveText("Invoice / QR");
+    await page.getByText("Wallet settings", { exact: true }).click();
+    await page.getByRole("button", { name: "Disconnect wallet", exact: true }).click();
+    await expect(page.getByRole("tab", { name: "Wallet", exact: true })).toHaveAttribute("aria-selected", "true");
+    await invoiceMethod(page);
+    await expectSplitInvoices(page);
+    expect((await savedPayment(page)).board).toEqual(before.board);
+    expect((await savedPayment(page)).author).toEqual(before.author);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
+for (const reopen of ["persistent", "blocked storage", "offline"] as const) test(`restart before expiry clears an unpaid session with ${reopen}`, async ({ context, page }) => {
+    const state = await setup(context, page, { blockStorage: reopen === "blocked storage" });
+    await setAuthorShare(page, 35);
+    await prepareInvoices(page);
+    await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+    await page.getByRole("button", { name: "Boost", exact: true }).first().click();
+    await expect(page.getByRole("button", { name: "Restart payment", exact: true })).toBeEnabled();
+    if (reopen === "offline") await context.route("**/api/promote/status?**", (route) => route.abort());
+    await page.getByRole("button", { name: "Restart payment", exact: true }).click();
+    await expect(page.getByText("Check your wallet first.", { exact: false })).toBeVisible();
+    await page.getByRole("button", { name: "I haven't paid, restart", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
+    await expect(page.getByRole("slider", { name: "Holoboard share in percent" })).toHaveValue("65");
+    await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toHaveCount(0);
+    if (reopen !== "blocked storage") {
+        expect(await page.evaluate(() => sessionStorage.getItem("holoboard-last-payment"))).toBeNull();
+        expect(await page.evaluate(() => Object.keys(sessionStorage).filter((key) => key.startsWith("holoboard-payment:")))).toEqual([]);
+    }
+    expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1);
+    await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+    await page.getByRole("button", { name: "Boost", exact: true }).first().click();
+    await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
+    expect(state.boardRequests).toHaveLength(1);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
+test("restart restores amount, allocation, appearance and notifications after reload", async ({ context, page }) => {
+    await page.setViewportSize({ width: 320, height: 740 });
+    const state = await setup(context, page, { newCampaign: true });
+    await page.getByRole("button", { name: "Custom", exact: true }).click();
+    await page.getByRole("spinbutton", { name: "Custom total in sats", exact: true }).fill("500");
+    await setAuthorShare(page, 35);
+    await page.getByRole("tab", { name: /^Billboard/ }).click();
+    await page.getByRole("button", { name: "Billboard / +100 sats", exact: true }).click();
+    await page.getByRole("button", { name: "Neon sign", exact: true }).click();
+    await openPaymentOptions(page);
+    await page.getByRole("checkbox", { name: "Send me a confirmation DM", exact: true }).check();
+    await page.getByRole("textbox", { name: "Npub for confirmation", exact: true }).fill(note.pubkey);
+    await page.getByRole("button", { name: "Promote 600 sats", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Restart payment", exact: true })).toBeEnabled();
+    await page.reload();
+    await page.getByRole("button", { name: "Boost", exact: true }).first().click();
+    await page.getByRole("button", { name: "Restart payment", exact: true }).click();
+    await page.screenshot({ path: test.info().outputPath("payment-restart-320.png") });
+    await page.getByRole("button", { name: "I haven't paid, restart", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Promote 600 sats", exact: true })).toBeEnabled();
+    await expect(page.getByRole("spinbutton", { name: "Custom total in sats", exact: true })).toHaveValue("500");
+    await expect(page.getByRole("slider", { name: "Holoboard share in percent" })).toHaveValue("65");
+    await page.getByRole("tab", { name: /^Billboard/ }).click();
+    await expect(page.getByRole("button", { name: "Neon sign", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await openPaymentOptions(page);
+    await expect(page.getByRole("checkbox", { name: "Send me a confirmation DM", exact: true })).toBeChecked();
+    await expect(page.getByRole("textbox", { name: "Npub for confirmation", exact: true })).toHaveValue(note.pubkey);
+    expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
+for (const part of ["board", "author"] as const) for (const stateName of ["submitted", "uncertain", "paid", "reported"] as const) {
+    if (part === "board" && stateName === "reported") continue;
+    test(`restart stays blocked for expired ${part} ${stateName}`, async ({ context, page }) => {
+        const state = await setup(context, page, { boardExpiresIn: -1, authorExpiresIn: -1 });
+        await prepareInvoices(page);
+        await expect(page.getByRole("button", { name: "Restart payment", exact: true })).toBeEnabled();
+        // Close the live view before seeding recovery state, so its pending
+        // persistence effect cannot overwrite the fixture with an older snapshot.
+        await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        await page.evaluate(({ part, stateName }) => {
+            const key = sessionStorage.getItem("holoboard-last-payment")!;
+            const payment = JSON.parse(sessionStorage.getItem(key)!);
+            if (stateName === "paid") { if (part === "board") payment.promotionPaid = true; else payment.tipStatus = "confirmed"; }
+            else if (stateName === "reported") payment.tipStatus = "reported";
+            else payment[part === "board" ? "boardAttempt" : "authorAttempt"] = { state: stateName, walletId: "previous-wallet" };
+            sessionStorage.setItem(key, JSON.stringify(payment));
+        }, { part, stateName });
+        await page.reload();
+        await page.getByRole("button", { name: "Boost", exact: true }).first().click();
+        await expect(page.getByRole("button", { name: "Restart payment", exact: true })).toBeDisabled();
+        await walletMethod(page);
+        await expect(page.getByRole("button", { name: "Restart payment", exact: true })).toBeDisabled();
+        expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1);
+        expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+    });
+}
+
+test("restart checks settlement and retains an already paid visibility invoice", async ({ context, page }) => {
+    const state = await setup(context, page);
+    await prepareInvoices(page);
+    await page.getByRole("button", { name: "Restart payment", exact: true }).click();
+    state.boardPaid = true;
+    await page.getByRole("button", { name: "I haven't paid, restart", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Restart payment", exact: true })).toBeDisabled();
+    await expect(page.getByText("Added 168 sats to visibility.", { exact: true })).toBeVisible();
+    expect((await savedPayment(page)).promotionPaid).toBe(true);
+    expect(state.boardRequests).toHaveLength(1); expect(state.errors).toEqual([]);
+});
+
+test("invoice confirmation keeps its recipient until the next invoice is selected", async ({ context, page }) => {
+    const state = await setup(context, page);
+    await prepareInvoices(page);
+    state.boardPaid = true;
+    await expect(page.getByRole("button", { name: "Next invoice: Author", exact: true })).toBeVisible();
+    await expect(page.getByRole("img", { name: "Support the original author invoice QR code", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Next invoice: Author", exact: true }).click();
+    await expect(page.getByRole("img", { name: "Support the original author invoice QR code", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "I paid the author, checked my wallet", exact: true }).click();
+    await expect(page.getByLabel("Author payment", { exact: true }).filter({ hasText: "Marked paid by you, unverified" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Promotion active", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Payment complete", exact: true })).toHaveCount(0);
+    await expect(page.getByLabel("Payment summary")).toContainText(/Invoice total\s*210 sats/);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
+test("a late settlement response from an abandoned session cannot confirm new invoices", async ({ context, page }) => {
+    const state = await setup(context, page);
+    let release: (() => void) | undefined;
+    let checks = 0;
+    await page.route("**/api/promote/status?**", async (route) => {
+        if (++checks !== 1) return route.fallback();
+        await new Promise<void>((resolve) => { release = resolve; });
+        try {
+            await route.fulfill({ contentType: "application/json", body: JSON.stringify({ settled: true, receipt: { promotion_sats: 999 } }) });
+        } catch { /* The abandoned session aborts its poll request. */ }
+    });
+    await prepareInvoices(page);
+    await expect.poll(() => !!release).toBe(true);
+    await page.getByRole("button", { name: "Restart payment", exact: true }).click();
+    await page.getByRole("button", { name: "I haven't paid, restart", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
+    await prepareInvoices(page);
+    await expect(page.getByRole("button", { name: "Restart payment", exact: true })).toBeEnabled();
+    release!();
+    await expect(page.getByRole("button", { name: /^Holoboard 168 sats Awaiting payment$/ })).toBeVisible();
+    expect((await savedPayment(page)).promotionPaid).toBe(false);
+    expect(state.boardRequests).toHaveLength(2); expect(state.authorRequests).toHaveLength(2);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
+test("legacy sessions restart with known amount and allocation", async ({ context, page }) => {
+    const state = await setup(context, page);
+    await setAuthorShare(page, 35);
+    await page.getByRole("button", { name: "Custom", exact: true }).click();
+    await page.getByRole("spinbutton", { name: "Custom total in sats", exact: true }).fill("500");
+    await page.getByRole("button", { name: "Boost 500 sats", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Restart payment", exact: true })).toBeEnabled();
+    await page.evaluate(() => {
+        const key = sessionStorage.getItem("holoboard-last-payment")!;
+        const payment = JSON.parse(sessionStorage.getItem(key)!);
+        delete payment.draft;
+        sessionStorage.setItem(key, JSON.stringify(payment));
+    });
+    await page.reload();
+    await page.getByRole("button", { name: "Boost", exact: true }).first().click();
+    await page.getByRole("button", { name: "Restart payment", exact: true }).click();
+    await page.getByRole("button", { name: "I haven't paid, restart", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Boost 500 sats", exact: true })).toBeEnabled();
+    await expect(page.getByRole("slider", { name: "Holoboard share in percent" })).toHaveValue("65");
+    expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1); expect(state.errors).toEqual([]);
+});
+
+test("restart preserves NWC connection and unrelated shared payment protection", async ({ context, page }) => {
+    const state = await setup(context, page);
+    await connectNwc(page);
+    await prepareInvoices(page);
+    await expect(page.getByRole("button", { name: "Restart payment", exact: true })).toBeEnabled();
+    const protectedHash = "d".repeat(64);
+    const protectedRecord = { attempt: { state: "uncertain", walletId: "other-wallet" }, invoice: "lnbc-other" };
+    await page.evaluate(({ protectedHash, protectedRecord }) => {
+        sessionStorage.setItem("holoboard-wallet-attempts", JSON.stringify({ [protectedHash]: protectedRecord }));
+    }, { protectedHash, protectedRecord });
+    await page.reload();
+    await page.getByRole("button", { name: "Boost", exact: true }).first().click();
+    await expect(page.getByRole("tablist", { name: "Payment method", exact: true }).getByRole("tab").first()).toHaveText("Wallet");
+    await page.getByRole("button", { name: "Restart payment", exact: true }).click();
+    await page.getByRole("button", { name: "I haven't paid, restart", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
+    expect(await page.evaluate(() => sessionStorage.getItem("holoboard-nwc"))).toBe(walletUri);
+    expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("holoboard-wallet-attempts")!))).toEqual({ [protectedHash]: protectedRecord });
+    expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
+test("closing before WebLN enable completes prevents a later automatic send", async ({ context, page }) => {
+    const state = await setup(context, page, { webln: true });
+    await page.evaluate(() => {
+        const target = window as unknown as { webln: { enable(): Promise<void> }; finishEnable(): void };
+        target.webln.enable = () => new Promise<void>((resolve) => { target.finishEnable = resolve; });
+    });
+    await prepareInvoices(page);
+    await walletMethod(page);
+    await page.getByRole("button", { name: "Pay 210 sats", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Restart payment", exact: true })).toBeDisabled();
+    await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+    await page.getByRole("button", { name: "Boost", exact: true }).first().click();
+    await page.getByRole("button", { name: "Restart payment", exact: true }).click();
+    await page.getByRole("button", { name: "I haven't paid, restart", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
+    await page.evaluate(() => (window as unknown as { finishEnable(): void }).finishEnable());
+    await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
+test("each anonymous recipient can be scanned and copied without a connection", async ({ context, page }) => {
+    const state = await setup(context, page);
+    await page.evaluate(() => {
+        const target = window as unknown as { copiedInvoices: string[] };
+        target.copiedInvoices = [];
+        Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+            writeText: async (value: string) => { target.copiedInvoices.push(value); },
+        } });
+    });
+    await prepareInvoices(page);
+    for (const part of [{ name: /^Holoboard 168 sats/, invoice: "lnbc-visibility", label: "Holoboard visibility" }, { name: /^Author 42 sats/, invoice: "lnbc-author", label: "Support the original author" }]) {
+        await page.getByRole("button", { name: part.name }).click();
+        await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", `lightning:${part.invoice}`);
+        const qr = page.getByRole("img", { name: `${part.label} invoice QR code`, exact: true });
+        await expect(qr).toBeVisible();
+        const png = PNG.sync.read(await qr.screenshot({ path: test.info().outputPath(`qr-${part.invoice}.png`) }));
+        expect(jsQR(new Uint8ClampedArray(png.data), png.width, png.height)?.data.toLowerCase()).toBe(part.invoice);
+        await page.getByRole("button", { name: "Copy invoice", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Copied", exact: true })).toBeVisible();
+    }
+    expect(await page.evaluate(() => (window as unknown as { copiedInvoices: string[] }).copiedInvoices)).toEqual(["lnbc-visibility", "lnbc-author"]);
+    expect(state.methods).toEqual([]); expect(state.signerMethods).toEqual([]);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+    await page.screenshot({ path: test.info().outputPath("promotion-payment-invoice.png") });
+    await walletMethod(page);
+    await page.screenshot({ path: test.info().outputPath("promotion-payment-wallet.png") });
+});
+
+for (const wallet of ["NWC", "WebLN"] as const) test(`${wallet} replaces expired visibility without charging confirmed author support again`, async ({ context, page }) => {
+    const state = await setup(context, page, { boardExpiresIn: -1, webln: wallet === "WebLN" });
+    if (wallet === "NWC") await connectNwc(page);
+    await prepareInvoices(page);
+    await walletMethod(page);
+    await page.getByRole("button", { name: "Pay 42 sats", exact: true }).click();
+    await expect(authorConfirmed(page)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Restart payment", exact: true })).toBeDisabled();
+    const before = await savedPayment(page);
+    const newProof = "e".repeat(64), newHash = hash(newProof), newInvoice = "lnbc-visibility-replaced";
+    state.boardProofs.set(newInvoice, newProof);
+    await page.route("**/api/promote", async (route) => {
+        if (route.request().method() === "OPTIONS") return route.fallback();
+        const body = route.request().postDataJSON();
+        state.boardRequests.push(body);
+        await route.fulfill({ headers: { "Access-Control-Allow-Origin": "*" }, contentType: "application/json", body: JSON.stringify({
+            invoice: newInvoice, payment_hash: newHash, amount_sats: body.amount_sats,
+            promotion_sats: body.amount_sats, note_id: note.id, expires_at: Math.floor(Date.now()/1000)+3600, billboard_fee_sats: 0,
+        }) });
+    });
+    await page.getByRole("button", { name: "Replace visibility invoice after checking wallet", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Pay 168 sats", exact: true })).toBeEnabled();
+    const replaced = await savedPayment(page);
+    expect(replaced.board.paymentHash).toBe(newHash);
+    expect(replaced.author).toEqual(before.author); expect(replaced.authorAttempt).toEqual(before.authorAttempt);
+    expect(replaced.tipStatus).toBe("confirmed"); expect(state.authorCharges).toBe(1); expect(state.boardCharges).toBe(0);
+    await page.getByRole("button", { name: "Pay 168 sats", exact: true }).click();
+    await expect(page.getByText("Added 168 sats to visibility.", { exact: true })).toBeVisible();
+    expect(state.authorCharges).toBe(1); expect(state.authorAttempts).toBe(1); expect(state.boardCharges).toBe(1);
+    expect(state.authorRequests).toHaveLength(1); expect(state.boardRequests).toHaveLength(2); expect(state.errors).toEqual([]);
+});
+
+test("a late wallet response cannot overwrite a replacement visibility invoice after reopening", async ({ context, page }) => {
+    const state = await setup(context, page, { boardExpiresIn: -1, deferAuthorResponse: true });
+    await connectNwc(page); await prepareInvoices(page);
+    await page.getByRole("button", { name: "Pay 42 sats", exact: true }).click();
+    await expect.poll(() => !!state.completeAuthorPayment).toBe(true);
+    const before = await savedPayment(page);
+    expect(before.authorAttempt?.state).toBe("uncertain");
+    await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+    await page.getByRole("button", { name: "Boost", exact: true }).first().click();
+    const newHash = hash("e".repeat(64));
+    await page.route("**/api/promote", async (route) => {
+        if (route.request().method() === "OPTIONS") return route.fallback();
+        const body = route.request().postDataJSON(); state.boardRequests.push(body);
+        await route.fulfill({ headers: { "Access-Control-Allow-Origin": "*" }, contentType: "application/json", body: JSON.stringify({
+            invoice: "lnbc-visibility-replaced", payment_hash: newHash, amount_sats: body.amount_sats,
+            promotion_sats: body.amount_sats, note_id: note.id, expires_at: Math.floor(Date.now()/1000)+3600, billboard_fee_sats: 0,
+        }) });
+    });
+    await page.getByRole("button", { name: "Replace visibility invoice after checking wallet", exact: true }).click();
+    await expect.poll(async () => (await savedPayment(page)).board.paymentHash).toBe(newHash);
+    state.completeAuthorPayment!();
+    await expect(authorConfirmed(page)).toBeVisible();
+    const after = await savedPayment(page);
+    expect(after.board.paymentHash).toBe(newHash); expect(after.promotionPaid).toBe(false);
+    expect(after.author).toEqual(before.author); expect(after.authorAttempt?.state).toBe("submitted");
+    expect(state.authorCharges).toBe(1); expect(state.authorAttempts).toBe(1); expect(state.boardCharges).toBe(0);
+    expect(state.boardRequests).toHaveLength(2); expect(state.authorRequests).toHaveLength(1); expect(state.errors).toEqual([]);
+});
+
+test("NWC progress stays calm and a complete payment ends with Done", async ({ context, page }, testInfo) => {
+    const state = await setup(context, page, { deferAuthorResponse: true });
+    await connectNwc(page); await prepareInvoices(page);
+    await page.getByRole("button", { name: "Pay 210 sats", exact: true }).click();
+    await expect.poll(() => !!state.completeAuthorPayment).toBe(true);
+    const progress = page.getByRole("status").filter({ hasText: "Processing author support." });
+    await expect(progress).toBeVisible();
+    await expect(progress.locator('[class*="text-neon-gold"]')).toHaveCount(0);
+    await expect(page.getByText("The author payment status is uncertain.", { exact: false })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Payment complete", exact: true })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("nwc-progress.png") });
+    state.completeAuthorPayment!();
+    const heading = page.getByRole("heading", { name: "Payment complete", exact: true });
+    await expect(heading).toBeVisible({ timeout: 10000 });
+    await expect(heading).toBeFocused();
+    await expect(page.getByLabel("Payment summary")).toContainText(/Total paid\s*210 sats/);
+    await expect(page.getByRole("tab", { name: "Wallet", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Restart payment", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Done", exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("payment-complete.png") });
+    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.getByRole("button", { name: "Boost", exact: true }).first().click();
+    await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
+    expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1);
+    expect(state.boardCharges).toBe(1); expect(state.authorCharges).toBe(1); expect(state.errors).toEqual([]);
+});
+
+test("anonymous invoice completion can return to a new boost without issuing invoices", async ({ context, page }) => {
+    const state = await setup(context, page, { authorShare: 0 });
+    await prepareInvoices(page);
+    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toBeVisible();
+    state.boardPaid = true;
+    await expect(page.getByRole("heading", { name: "Payment complete", exact: true })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByLabel("Payment summary")).toContainText(/Total paid\s*210 sats/);
+    await expect(page.getByRole("img", { name: /invoice QR code$/ })).toHaveCount(0);
+    await page.getByRole("button", { name: "Make another payment", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
+    expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(0);
+    expect(state.boardCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
+test("WebLN completion survives contextual help", async ({ context, page }) => {
+    const state = await setup(context, page, { webln: true });
+    await prepareInvoices(page); await walletMethod(page);
+    await page.getByRole("button", { name: "Pay 210 sats", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Payment complete", exact: true })).toBeVisible({ timeout: 10000 });
+    await page.getByRole("button", { name: "Payment help >", exact: true }).click();
+    await backToForm(page);
+    await expect(page.getByRole("heading", { name: "Payment complete", exact: true })).toBeFocused();
+    await expect(page.getByRole("button", { name: "Done", exact: true })).toBeVisible();
+    expect(state.boardCharges).toBe(1); expect(state.authorCharges).toBe(1); expect(state.errors).toEqual([]);
+});
+
+test("submitted NWC payment uses a neutral verification panel until confirmed", async ({ context, page }) => {
+    const state = await setup(context, page);
+    let allowVerification = false;
+    await page.route("**/api/support/verify", (route) => allowVerification ? route.fallback() : route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Verification temporarily unavailable" }) }));
+    await connectNwc(page); await prepareInvoices(page);
+    await page.getByRole("button", { name: "Pay 210 sats", exact: true }).click();
+    const progress = page.getByRole("status").filter({ hasText: "Verifying author support" });
+    await expect(progress).toBeVisible();
+    await expect(progress.locator('[class*="text-neon-gold"]')).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Payment complete", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Restart payment", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Check payment status", exact: true })).toBeEnabled();
+    allowVerification = true;
+    await page.evaluate(() => window.dispatchEvent(new Event("pageshow")));
+    await expect(page.getByRole("heading", { name: "Payment complete", exact: true })).toBeVisible({ timeout: 10000 });
+    expect(state.boardCharges).toBe(1); expect(state.authorCharges).toBe(1); expect(state.authorAttempts).toBe(1);
+    expect(state.errors).toEqual([]);
 });
