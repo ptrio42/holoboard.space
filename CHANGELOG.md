@@ -53,6 +53,8 @@ record deployment, not announcement publication.
 
 ### Changed
 
+- Make the wallet balance prominent with Holoboard's pixel display, distinct
+  Send and Receive actions, and clearer incoming and outgoing payment history.
 - Group note controls in a compact footer, with pixel styling, notched Boost
   buttons and short Open links for notes and quotes. Move reply context beside
   the author and expand quoted previews without cutting through their controls.

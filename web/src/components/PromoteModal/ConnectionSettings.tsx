@@ -14,13 +14,15 @@ export function ConnectionSettings({ disabled = false, section = "all", embedded
     const [bunkerUri, setBunkerUri] = useState("");
     const [expanded, setExpanded] = useState(false);
     const content = <div className="promotion-typography space-y-5 text-sm leading-relaxed text-cyan-100/75">
-            <p className="text-xs">Invoice links, copying and QR payments work without connecting.</p>
+            {connections.walletStatus !== "connected" && <p className="text-xs">Invoice links, copying and QR payments work without connecting.</p>}
             {section !== "signer" && <section className="space-y-3" aria-label="Payment wallet">
                 {section === "all" && <h3 className="promotion-section-title text-neon-cyan">Payment wallet</h3>}
                 {connections.walletStatus === "connected" ? <>
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                        <p role="status">Connected: {connections.walletName}.</p>
-                        <PixelButton size="sm" variant="ghost" className="min-h-11" disabled={disabled} onClick={disconnectWallet}>Disconnect wallet</PixelButton>
+                    <div className="wallet-connection-header">
+                        <p role="status"><span className="wallet-connection-light" aria-hidden="true" />Connected: {connections.walletName}.</p>
+                        <button type="button" className="wallet-icon-button focus-pixel" aria-label="Disconnect wallet" title="Disconnect wallet" disabled={disabled} onClick={disconnectWallet}>
+                            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" shapeRendering="crispEdges"><path d="M1 1h8v2H3v10h6v2H1zM8 7h5V5h2v2h1v2h-1v2h-2V9H8z" /></svg>
+                        </button>
                     </div>
                     <WalletPanel disabled={disabled} />
                 </> : connections.walletStatus === "connecting" ? <>

@@ -16,7 +16,9 @@ describe("wallet invoice review", () => {
     it("rejects mocks, testnet, bad checksums and expired invoices", () => {
         expect(() => readWalletInvoice("lnbc21...mock_invoice")).toThrow("test invoices");
         expect(() => readWalletInvoice(walletInvoice({ network: "tb" }))).toThrow("mainnet");
-        expect(() => readWalletInvoice(walletInvoice().slice(0, -1) + "q")).toThrow();
+        const invoice = walletInvoice();
+        const corrupted = invoice.slice(0, -1) + (invoice.endsWith("q") ? "p" : "q");
+        expect(() => readWalletInvoice(corrupted)).toThrow();
         expect(() => readWalletInvoice(walletInvoice({ timestamp: 1000 }))).toThrow("expired");
     });
     it("keeps millisatoshi precision and rejects invalid amounts", () => {
