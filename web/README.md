@@ -22,6 +22,11 @@ To use a local HTTP backend while keeping external Nostr relays, set
 promotion and author-support HTTP requests then use the local backend.
 Leave `VITE_SATS_ENDPOINT` empty so the ledger follows that backend too.
 Use a separate data file and a mock Lightning backend for local previews.
+Mock invoices cannot be paid; the form reports test mode before sending any
+wallet payment. To test real payments, configure the local backend's receiving
+wallet using the [self-hosting guide](../docs/self-hosting.md#connect-a-wallet-for-real-payments).
+The browser's NWC connection is a separate payer connection. Prepare a new
+invoice after switching the backend; existing mock placeholders remain invalid.
 
 ## Check changes
 
@@ -115,13 +120,33 @@ author support available as an opt-in. Prepared invoices keep their allocations.
 If a signed profile confirms no author payment address, new campaigns default
 to visibility only. Temporary profile or provider failures preserve the split
 and require an explicit visibility-only choice.
-The author-support slider and switch live in **Adjust** beside the allocation.
-The switch restores the last nonzero share when enabled again. Editor panels,
-contextual help and connection panels keep the current draft in memory.
+The compact boost preview keeps reading actions beside the author, with at most
+two text lines and one fixed-size image thumbnail. Nostr references remain
+working links; expanding the note reveals its full text and images.
+A two-color slider connects the Holoboard and author amounts and percentages.
+Its handle divides the recipients; 100% Holoboard means visibility only.
+**Use campaign split** restores the saved allocation.
+Amount and Position use matching preset rows, ordered from lower to higher
+cost, with Custom or ranking help in the fifth slot. Switching modes preserves
+the selected amount. Target prices include the current author share and any
+appearance fee; selecting one fixes the amount rather than tracking later
+estimate changes. The full editor uses **Promotion**, **Billboard** and
+**Payment options** tabs. Billboard appearance is available only for an inactive
+note starting a promotion period. **Payment options** groups wallet connection
+and optional notification DMs. Tabs and the payment action stay visible while
+scrolling; switching tabs preserves the draft. Boosts keep the compact form.
+The footer shows the complete
+amount on the payment action; ranking and removal rules live in help. Contextual
+help and settings panels keep the amount mode and current draft in memory.
 A connected wallet can prepare and pay both invoices after one explicit action;
-**Prepare invoices only** preserves the manual path. Invoice status and payment
-attempt recovery use the same protections in both paths. Global **Wallet** and
-**Connect Nostr** controls are independent of promotion. The legacy
+**Prepare invoices only** preserves the manual path.
+For connected-wallet boosts, this action lives in **Payment options** to keep
+the main footer compact.
+Invoice status and payment attempt recovery use the same protections in both
+paths. Global **Wallet** and
+**Connect Nostr** controls are independent of promotion. Inside the form, wallet
+connection lives in **Payment options**, while signer controls appear with
+the expandable **Public author zap** control and notification identity. The legacy
 `#how-ranking-works` link opens contextual help; `/help` is the standalone guide.
 [WebLN](https://www.webln.guide/building-lightning-apps/webln-reference/webln.sendpayment)
 can pay the recipient invoices sequentially. The fallback exposes separate
@@ -188,10 +213,11 @@ Use a preview or deployment with the matching relay API. Choose an existing
 note whose author has a working Lightning address and an amount accepted by
 that wallet. Real payments cost sats, so use a small explicit test budget.
 
-1. Without connecting anything, disable author support and prepare an invoice.
+1. Without connecting anything, set the author share to 0% and prepare an invoice.
    Open it in a wallet, then return to Holoboard and check the visibility credit.
-2. Set a custom author share, switch support off and on, and check that the
-   selected share returns without changing the total.
+2. Set a custom author share and restore the campaign split. Switch between
+   Amount and Position; check that toggling does not change the total and that
+   target estimates account for the split.
 3. Connect a limited NWC wallet. Confirm that connection alone pays nothing,
    then pay a split and check both recipients and the credited visibility amount.
 4. Connect Amber using the link or QR, return to Holoboard, and enable a public
@@ -208,6 +234,10 @@ Use the pixel font for headings, controls and ranks; note bodies use a system
 monospace font. Promotion amounts use a compact picker, while original-note text
 and editor panel explanations use a readable body size. The modal scrolls its
 body independently of the action footer, including on small phone screens.
+Promotion actions and short labels share a 10px pixel style; panel headings use
+12px. Note content, status messages and payment totals use 14px monospace text,
+helper text uses 12px, and editable values use 16px. Connection controls use the
+same action style in the app header and promotion panels.
 Card frames show rank: gold, cyan and pink for the top three, then dim cyan.
 Paid billboard text has its own selected color inside that frame.
 

@@ -8,6 +8,8 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Detect mock invoices before offering payment or contacting a wallet, and
+  ignore saved visibility-only test invoices when reopening the form.
 - Close wallet and profile relay connections safely, preventing a shutdown
   race that could stop the backend.
 - Preserve original-note relay hints when settling promotion zaps, including
@@ -50,9 +52,21 @@ record deployment, not announcement publication.
 - Campaigns created before zap splits default to visibility-only boosts.
   Author support remains optional; saved splits and prepared invoices keep
   their allocations.
-- Boost opens a compact note and amount picker with its saved allocation.
-  Promotion tools and contextual help open separate panels without clearing
-  choices; the action stays visible on phones. Author shares use a slider.
+- Boost opens a compact two-line note preview and amount picker with its saved
+  allocation. Custom stays in the preset row, with ranking help in the same slot
+  for position presets. Note previews keep images as bounded thumbnails and
+  Nostr references as links, with reading actions beside the author in boosts.
+  Switch between sat presets and ranking targets in the same picker, and adjust
+  the split with one two-color control joining recipient amounts and percentages.
+  Restore the campaign allocation at any time. The full editor has Promotion,
+  Billboard and Payment options tabs, with the total and payment action available
+  across all three. Wallet connection and optional notifications share payment
+  options; public zaps stay beside the split. Boosts keep the compact form.
+  A shorter footer keeps the complete total on the action and moves ranking rules
+  into help. Connected-wallet boosts keep prepare-only invoices in payment options.
+  Contextual panels preserve choices, and the action stays visible on phones.
+  Controls and short labels use consistent pixel typography, with readable
+  monospace content, payment amounts and input values.
 - Wallet and Nostr connections are available throughout the app. A connected
   wallet can prepare and pay recipient invoices after one explicit confirmation,
   while invoice links, copying and QR remain available without a connection.
@@ -60,8 +74,7 @@ record deployment, not announcement publication.
   with account and relay details available to copy.
 - Unfinished payments resume after a refresh in the same browser tab. Ranking
   estimates account for the selected author share and include entry into the top 21.
-- Author support has a visible on/off switch that restores the selected share.
-  Uncertain wallet payments require a status check before another attempt.
+- Uncertain wallet payments require a status check before another attempt.
 
 ## 2026-09-29
 

@@ -5,6 +5,15 @@ function wallet(overrides: Partial<PaymentWallet> = {}): PaymentWallet {
     return { id: "wallet-a", kind: "nwc", enable: async () => {}, sendPayment: vi.fn(async () => ({ preimage: "proof" })), ...overrides };
 }
 describe("wallet payment recovery", () => {
+    it.each([undefined, "uncertain", "submitted"] as const)("never sends or looks up a mock invoice with saved state %s", async (state) => {
+        const payer = wallet({ lookupPayment: vi.fn(async () => ({ state: "unknown" as const })) });
+        const save = vi.fn();
+        const previous = state ? { state, walletId: payer.id } : undefined;
+        await expect(payInvoiceSafely(payer, "LNBC21...MOCK_INVOICE", "hash", previous, save)).rejects.toThrow("test invoices");
+        expect(payer.sendPayment).not.toHaveBeenCalled();
+        expect(payer.lookupPayment).not.toHaveBeenCalled();
+        expect(save).not.toHaveBeenCalled();
+    });
     it("records uncertainty before sending and retains the wallet proof", async () => {
         const saved: WalletAttempt[] = [];
         const payer = wallet({ sendPayment: vi.fn(async () => {

@@ -493,13 +493,129 @@ body::after {
     .billboard-terminal-cursor::after { display: none; }
 }
 
+/* Promotion controls share a face; content and editable values stay readable. */
+.promotion-typography {
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.65;
+}
+
+.promotion-action,
+.promotion-label,
+.promotion-typography .pixel-btn__face {
+    font-family: var(--font-pixel);
+    font-size: 10px;
+    line-height: 1.5;
+    letter-spacing: 0.05em;
+}
+
+.promotion-section-title {
+    font-family: var(--font-pixel);
+    font-size: 12px;
+    line-height: 1.65;
+    letter-spacing: 0.025em;
+}
+
+.promotion-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.promotion-tab {
+    position: relative;
+    display: flex;
+    min-height: 56px;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 0;
+    letter-spacing: normal;
+    color: var(--color-neon-cyan);
+    opacity: 0.65;
+}
+
+.promotion-tab:hover { opacity: 1; }
+.promotion-tab:disabled { opacity: 0.3; }
+.promotion-tab[aria-selected="true"] { color: var(--color-neon-gold); opacity: 1; }
+.promotion-tab[aria-selected="true"]::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    background: var(--color-neon-gold);
+    clip-path: polygon(3px 0, calc(100% - 3px) 0, calc(100% - 3px) 1px, 100% 1px, 100% 3px, 0 3px, 0 1px, 3px 1px);
+}
+.promotion-tab__indicator {
+    position: absolute;
+    top: 8px;
+    right: 2px;
+    width: 4px;
+    height: 4px;
+    flex-shrink: 0;
+    background: var(--color-neon-pink);
+}
+
+.promotion-typography input:not([type="checkbox"]):not([type="range"]),
+.promotion-typography select,
+.promotion-typography textarea {
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.5;
+    letter-spacing: normal;
+}
+
 /* Compact zap amounts keep the pixel face legible on narrow phones. */
 .amount-preset .pixel-btn__face {
-    padding: 0.7rem 0.25rem;
+    padding: 0.25rem 0;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     font-size: 10px;
+    letter-spacing: normal;
 }
 
 .allocation-slider {
+    appearance: none;
+    height: 44px;
+    margin: 0;
+    padding: 0;
+    background: transparent;
     cursor: pointer;
     touch-action: pan-y;
 }
+
+.allocation-slider::-webkit-slider-runnable-track {
+    height: 12px;
+    background: linear-gradient(to right, var(--color-neon-cyan) 0% var(--split-position), var(--color-neon-pink) var(--split-position) 100%);
+}
+
+.allocation-slider::-moz-range-track {
+    height: 12px;
+    background: linear-gradient(to right, var(--color-neon-cyan) 0% var(--split-position), var(--color-neon-pink) var(--split-position) 100%);
+}
+
+.allocation-slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 16px;
+    height: 28px;
+    margin-top: -8px;
+    border: 3px solid var(--color-void);
+    border-radius: 0;
+    background: var(--color-neon-gold);
+    box-shadow: 0 0 0 2px var(--color-neon-gold);
+}
+
+.allocation-slider::-moz-range-thumb {
+    width: 10px;
+    height: 22px;
+    border: 3px solid var(--color-void);
+    border-radius: 0;
+    background: var(--color-neon-gold);
+    box-shadow: 0 0 0 2px var(--color-neon-gold);
+}
+
+.allocation-slider:disabled { opacity: 0.4; }

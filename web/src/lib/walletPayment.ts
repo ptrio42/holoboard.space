@@ -1,3 +1,5 @@
+import { isMockInvoice, MOCK_INVOICE_MESSAGE } from "./invoice";
+
 export interface WalletProof { preimage?: string }
 export interface WalletLookup extends WalletProof { state: "paid" | "unpaid" | "pending" | "unknown" }
 export interface PaymentWallet {
@@ -25,6 +27,7 @@ export async function payInvoiceSafely(
     previous: WalletAttempt | undefined, save: (attempt: WalletAttempt) => void,
     expiresAt = Infinity,
 ): Promise<WalletProof> {
+    if (isMockInvoice(invoice)) throw new PaymentRejected(MOCK_INVOICE_MESSAGE);
     if (previous?.state === "submitted") {
         if (!previous.preimage && previous.walletId === wallet.id && wallet.lookupPayment) {
             const status = await wallet.lookupPayment(paymentHash);

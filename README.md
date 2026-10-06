@@ -28,31 +28,42 @@ weight without guaranteeing a particular position.
 
 Open **Promote a note**, paste a note link, `note1`, `nevent1` or event ID, and
 choose a total amount. The editor previews the original note automatically.
-**Boost** on a note opens a compact amount picker with its saved split. Choose
-**Customize** for appearance, ranking targets and notifications. The main action
-stays visible while scrolling on a phone. The original note remains unchanged.
+**Boost** on a note opens a compact two-line note preview and amount picker
+with its saved split. Custom stays beside the amount presets. Switch
+between **Amount** and **Position** to choose sat presets or estimated ranking
+targets with matching presets in the same picker. **Payment options** includes
+wallet connection and confirmation DMs. The full editor uses Promotion, Billboard
+and Payment options tabs. Appearance is available in Billboard when starting a
+promotion period, including after expiry. Note images have bounded thumbnails,
+and Nostr references remain clickable. Expand the note to read its full content.
+The main action stays visible while scrolling on a phone. The original note
+remains unchanged.
 
 New campaigns default to 80% for visibility and 20% for the original author.
 If the author's signed profile confirms no Lightning payment address, a new
 campaign defaults to visibility only. Temporary lookup or wallet failures do
 not change the chosen split.
 Boosts use the campaign's saved allocation. Older campaigns without a saved
-split default to 100% visibility. You can change your payment allocation or
-enable or disable **Support the author too** through **Adjust** beside the amounts.
-A slider shows the author's percentage and both recipient amounts. Turning support
-back on restores your selected share. Author sats round down, with at
-least 1 sat reserved for visibility. The form shows both amounts before payment.
+split default to 100% visibility. A two-color slider joins the recipient amounts
+and percentages into one control. Move its boundary fully toward the author
+side for 100% Holoboard visibility and 0% author support, or choose
+**Use campaign split** to restore the campaign's allocation. Changes apply to
+your payment; the campaign's public split stays fixed. Author sats round down,
+with at least 1 sat reserved for visibility. The form shows both amounts before payment.
 Author support goes directly to the Lightning address in the author's Nostr
 profile. If unavailable or outside that wallet's limits, choose another amount
 or explicitly switch to visibility only.
 
-The form shows the recipient amounts and invoice count before confirmation.
+The form shows each recipient amount and the complete total before confirmation.
 **Pay & Boost** or **Pay & Promote** prepares and pays the invoices in sequence
 with a connected NWC or WebLN wallet. **Prepare invoices only** keeps manual
-payment available. Other wallets can open, copy or scan each invoice. No login
-or Nostr signer is needed for ordinary payments. **Wallet** and **Connect Nostr**
-are available in the app header and inside the promotion. They connect your NWC
-wallet, browser signer extension, or Amber and other remote signers.
+payment available, under Payment options for connected-wallet boosts. Other
+wallets can open, copy or scan each invoice. No login
+or Nostr signer is needed for ordinary payments. Global **Wallet** and
+**Connect Nostr** controls connect your NWC wallet, browser signer extension,
+or Amber and other remote signers. Inside promotion, **Payment options** offers
+wallet connection; Nostr connection is available beside public zap and
+notification settings.
 An optional signer lets author support use a public zap. That choice ends when
 the signer changes or reconnects, the form reopens, or the page refreshes.
 Existing invoices remain available; replacing one then uses ordinary author
@@ -70,8 +81,9 @@ and zap its reply, zap the account with the note reference in the comment, or
 DM `PROMOTE <amount> <note>` to receive an invoice. The full command options
 are in the [relay README](relay/README.md#promotion-through-nostr).
 
-Appearance, author support, ranking targets and notifications open their own
-panels without clearing your choices. Public zap consent is beside author support.
+Amount, position and allocation controls share one form. Appearance, payment
+options and connection panels preserve the draft. Expand **Public author zap**
+beside the split to connect a signer and choose public author support.
 [Help](https://holoboard.space/help) explains ranking and alternative promotion
 methods, with the Holoboard pubkey and relay URL available to copy. Contextual
 help returns to the editor without discarding its choices. The payment result
@@ -148,7 +160,8 @@ docker compose up --build -d --wait
 ```
 
 Open http://localhost:8080. The default mock backend creates fake invoices that
-cannot be paid. Keep `.env` private and reuse the keys after updates.
+cannot be paid; the frontend reports test mode instead of offering them to a
+wallet. Keep `.env` private and reuse the keys after updates.
 
 The [self-hosting guide](docs/self-hosting.md) covers real payments, backups,
 updates, troubleshooting and public hosting.

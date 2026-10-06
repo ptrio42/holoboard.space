@@ -6,7 +6,7 @@ import type { NotePreview } from "../../lib/promote";
 import { BoardRow } from "../BoardRow/BoardRow";
 import { PixelButton } from "../ui/PixelButton";
 
-const FIELD = "focus-pixel w-full border-2 border-cyan-400/30 bg-void p-2 text-xs text-cyan-100";
+const FIELD = "focus-pixel w-full border-2 border-cyan-400/30 bg-void p-2 text-base text-cyan-100";
 
 export function BillboardEditor({ preview, config, onChange, enabled, onEnabledChange, amount }: {
     preview: NotePreview; config: BillboardConfig; onChange: (config: BillboardConfig) => void;
@@ -75,26 +75,26 @@ export function BillboardEditor({ preview, config, onChange, enabled, onEnabledC
                         disabled={template.id === "image-led" && !preview.images.length}
                         onClick={() => chooseTemplate(template.id)}>
                         <span className="billboard-template__sample" aria-hidden="true">{template.id === "image-led" && !preview.images.length ? "NO IMAGE" : template.sample}</span>
-                        <span className="block text-xs text-cyan-100">{template.name}</span>
-                        <span className="mt-1 hidden text-[10px] leading-relaxed text-cyan-100/60 sm:block">
+                        <span className="promotion-label block text-cyan-100">{template.name}</span>
+                        <span className="mt-1 hidden text-xs leading-relaxed text-cyan-100/60 sm:block">
                             {template.id === "image-led" && !preview.images.length ? "Needs an image in the note" : template.caption}
                         </span>
                     </button>)}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                    <label className="space-y-1 text-xs">Text size
+                    <label className="promotion-label space-y-1">Text size
                         <select aria-label="Text size" className={FIELD} value={config.size} onChange={(e) => onChange({ ...config, size: e.target.value as BillboardConfig["size"] })}>
                             <option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option>
                         </select>
                     </label>
-                    <fieldset className="space-y-1"><legend className="text-xs">Color</legend>
+                    <fieldset className="space-y-1"><legend className="promotion-label">Color</legend>
                         <div className="flex flex-wrap gap-2">{Object.entries(BILLBOARD_COLORS).map(([color, ink]) => (
                             <PixelButton key={color} size="sm" variant="ghost" aria-pressed={config.color === color}
                                 onClick={() => onChange({ ...config, color: color as BillboardConfig["color"] })}
                                 className={config.color === color ? "billboard-color--selected" : "opacity-60"} style={{ "--edge": ink, "--ink": ink } as CSSProperties}>{color}</PixelButton>
                         ))}</div>
                     </fieldset>
-                    {["led", "image-led", "terminal"].includes(config.template) && <label className="space-y-1 text-xs">{config.template === "terminal" ? "Typing speed" : "Scroll speed"}
+                    {["led", "image-led", "terminal"].includes(config.template) && <label className="promotion-label space-y-1">{config.template === "terminal" ? "Typing speed" : "Scroll speed"}
                         <select aria-label={config.template === "terminal" ? "Typing speed" : "Scroll speed"} className={FIELD} value={config.speed}
                             onChange={(e) => onChange({ ...config, speed: e.target.value as BillboardConfig["speed"] })}>
                             <option value="slow">Slow</option><option value="normal">Normal</option><option value="fast">Fast</option>
@@ -113,19 +113,19 @@ export function BillboardEditor({ preview, config, onChange, enabled, onEnabledC
                             }}>Add slide</PixelButton>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                        <button type="button" className="note-action min-h-11 disabled:opacity-40" disabled={slideIndex === 0}
+                        <button type="button" className="promotion-action note-action min-h-11 disabled:opacity-40" disabled={slideIndex === 0}
                             onClick={() => {
                                 const slides = [...config.slides!];
                                 [slides[slideIndex - 1], slides[slideIndex]] = [slides[slideIndex], slides[slideIndex - 1]];
                                 onChange({ ...config, slides, text: slides[0] }); setEditingSlide(slideIndex - 1);
                             }}>Move earlier</button>
-                        <button type="button" className="note-action min-h-11 disabled:opacity-40" disabled={slideIndex === (config.slides?.length ?? 1) - 1}
+                        <button type="button" className="promotion-action note-action min-h-11 disabled:opacity-40" disabled={slideIndex === (config.slides?.length ?? 1) - 1}
                             onClick={() => {
                                 const slides = [...config.slides!];
                                 [slides[slideIndex + 1], slides[slideIndex]] = [slides[slideIndex], slides[slideIndex + 1]];
                                 onChange({ ...config, slides, text: slides[0] }); setEditingSlide(slideIndex + 1);
                             }}>Move later</button>
-                        <button type="button" className="note-action min-h-11 disabled:opacity-40" disabled={(config.slides?.length ?? 0) <= 1}
+                        <button type="button" className="promotion-action note-action min-h-11 disabled:opacity-40" disabled={(config.slides?.length ?? 0) <= 1}
                             onClick={() => {
                                 const slides = config.slides!.filter((_, index) => index !== slideIndex);
                                 onChange({ ...config, slides, text: slides[0] }); setEditingSlide(Math.max(0, slideIndex - 1));
@@ -134,7 +134,7 @@ export function BillboardEditor({ preview, config, onChange, enabled, onEnabledC
                     <p className="text-xs leading-relaxed text-cyan-100/60">Up to 3 original fragments, 160 characters total. Slides change every 3 seconds and can be switched manually.</p>
                 </div>}
                 <div className="space-y-2">
-                    <label className="block space-y-1 text-xs">Original note
+                    <label className="promotion-label block space-y-1">Original note
                         <textarea ref={originalInput} readOnly value={preview.event.content} rows={5}
                             aria-describedby={selectionHint} className={`${FIELD} resize-y`}
                             onSelect={(e) => {
@@ -151,14 +151,14 @@ export function BillboardEditor({ preview, config, onChange, enabled, onEnabledC
                             : "Highlight the fragment you want to advertise."}</p>
                         <span className="shrink-0" aria-label="Selected character count">{billboardCharacterCount(config)}/{BILLBOARD_MAX_TEXT}</span>
                     </div>
-                    <p className="text-xs text-cyan-100/80">Selected fragment:
+                    <p className="text-sm text-cyan-100/80"><span className="promotion-label">Selected fragment:</span>
                         <span className="mt-1 block max-h-24 overflow-y-auto whitespace-pre-wrap break-words">{fragment || "No fragment selected"}</span>
                     </p>
                     {!valid && <p className="text-xs text-neon-pink" role="alert">
                         {config.template === "slides" ? `Choose non-empty original fragments of up to ${BILLBOARD_MAX_TEXT} characters in total.` : `Choose a non-empty original fragment of up to ${BILLBOARD_MAX_TEXT} characters.`}
                     </p>}
                 </div>
-                {(config.template === "image-led" || (config.template === "poster" && preview.images.length > 0)) && <label className="block space-y-1 text-xs">Image from the note
+                {(config.template === "image-led" || (config.template === "poster" && preview.images.length > 0)) && <label className="promotion-label block space-y-1">Image from the note
                     <select aria-label="Image from the note" className={FIELD} value={config.image ?? ""} onChange={(e) => onChange({ ...config, image: e.target.value || undefined })}>
                         {config.template === "poster" && <option value="">No image</option>}
                         {preview.images.map((src, index) => <option key={`${src}-${index}`} value={src}>Image {index + 1}: {src}</option>)}
@@ -166,16 +166,16 @@ export function BillboardEditor({ preview, config, onChange, enabled, onEnabledC
                 </label>}
             </>}
             <div className="flex items-center justify-between gap-3">
-                <span className="font-pixel text-[9px] text-neon-cyan">LIVE PREVIEW</span>
+                <span className="promotion-label text-neon-cyan">LIVE PREVIEW</span>
                 <button type="button" aria-pressed={mobile} onClick={() => setMobile((value) => !value)}
-                    className="note-action min-h-9">{mobile ? "Use full width" : "Use phone width"}</button>
+                    className="promotion-action note-action min-h-11">{mobile ? "Use full width" : "Use phone width"}</button>
             </div>
             <div className={mobile ? "mx-auto w-full max-w-[360px]" : "w-full"}>
                 <ul><BoardRow event={event} rank={preview.rank || undefined} sats={preview.satsPaid + amount}
                     weight={preview.weight + amount} billboard={selected}
                     billboardPreviewSlide={!locked && enabled && config.template === "slides" ? slideIndex : undefined} /></ul>
             </div>
-            <p className="text-[11px] leading-relaxed text-cyan-100/50">
+            <p className="text-xs leading-relaxed text-cyan-100/50">
                 Preview shows appearance, not a guaranteed rank. Full note remains available in every Nostr client.
             </p>
         </section>

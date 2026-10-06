@@ -67,8 +67,10 @@ minute while the relay connects to Nostr. A new board starts with a welcome
 note; posts from the public holoboard deployment are not copied into it.
 
 The default setting, `LIGHTNING_BACKEND=mock`, lets you try the interface.
-Its invoices are fake and cannot be paid. To receive real payments, follow
-the wallet steps below.
+Its invoices are fake and cannot be paid. The frontend reports test mode and
+does not send these placeholders to a wallet. To receive real payments, follow
+the wallet steps below. Connecting a payer's wallet in the website does not
+configure the backend's receiving wallet.
 
 The website is available only on your computer by default. Keep Docker running
 while using it. Closing the terminal does not stop the board.
@@ -92,6 +94,10 @@ Paste the complete connection string supplied by your wallet, beginning with
 ```bash
 docker compose up -d --wait
 ```
+
+Prepare a new invoice after switching from the mock backend. Old mock invoices
+cannot become payable. Unfinished real payments remain protected when reopening
+the dialog; check your wallet before replacing them.
 
 Use the website's Promote dialog to request an invoice for a Nostr note, pay it,
 and wait for the note to appear. Invoice promotion works without a Nostr profile
