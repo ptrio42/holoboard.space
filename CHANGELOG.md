@@ -55,6 +55,8 @@ record deployment, not announcement publication.
 
 - Make the wallet balance prominent with Holoboard's pixel display, distinct
   Send and Receive actions, and clearer incoming and outgoing payment history.
+- Use the same board heading, section navigation, connections and footer for
+  expired notes. Shorten the waiting-room link and use the shared pixel button.
 - Group note controls in a compact footer, with pixel styling, notched Boost
   buttons and short Open links for notes and quotes. Move reply context beside
   the author and expand quoted previews without cutting through their controls.

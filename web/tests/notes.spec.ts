@@ -19,7 +19,7 @@ async function setup(context: BrowserContext, page: Page, options: { content?: s
         if (url.origin === origin) return route.continue();
         if (url.origin !== "http://127.0.0.1:3334") return route.abort();
         const data = url.pathname === "/api/board/expired" ? { entries: [entry] } :
-            { entries: [entry], targets: [entry], total: 1, active_posts: 1, has_more: false, total_sats: 210 };
+            { entries: [entry], targets: [entry], total: 1, active_posts: 31, has_more: false, total_sats: 210 };
         return route.fulfill({ contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify(data) });
     });
     await context.routeWebSocket("**/*", socket => {
@@ -43,6 +43,12 @@ async function setup(context: BrowserContext, page: Page, options: { content?: s
 
 test("billboard controls share a footer and reveal complete quotes and original text", async ({ context, page }) => {
     const row = await setup(context, page, { tags: [["e", quotes[0].id, "", "reply"]] });
+    const sections = page.getByRole("navigation", { name: "Board sections" });
+    await expect(sections.getByRole("link", { name: "Top 21" })).toHaveAttribute("aria-current", "page");
+    const waitingLink = page.getByRole("link", { name: "Waiting room (10)", exact: true });
+    await expect(waitingLink).toHaveAttribute("href", "/waiting");
+    expect(await waitingLink.evaluate(element => getComputedStyle(element.querySelector("span")!).fontFamily)).toContain("PressStart2P");
+    expect((await waitingLink.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await expect(row.locator(".note-quote__excerpt").first()).toContainText("Quoted source 1");
     await expect(row.getByText("In reply to quoted note", { exact: true })).toBeVisible();
     await expect(row.locator(".note-context")).toHaveCount(0);
@@ -71,6 +77,11 @@ test("billboard controls share a footer and reveal complete quotes and original 
     await expect(row.getByText("Original text", { exact: true })).toHaveCount(0);
     await expect.poll(() => row.locator(".note-quote[inert]").count()).toBeGreaterThan(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await waitingLink.click();
+    await page.waitForURL("**/waiting", { waitUntil: "domcontentloaded" });
+    await expect(sections.getByRole("link", { name: "Waiting room", exact: true })).toHaveAttribute("aria-current", "page", { timeout: 15000 });
+    await expect(page.getByRole("group", { name: "Waiting room sort" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Waiting room (10)", exact: true })).toHaveCount(0);
 });
 
 test("long plain notes restore hidden quote actions when expanded", async ({ context, page }) => {
@@ -106,6 +117,14 @@ test("short replies keep conversation context near the author", async ({ context
 test("expired notes retain their historical payment and promotion action", async ({ context, page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
     const row = await setup(context, page, { expired: true, billboard: false, content: "An expired paragraph.\n".repeat(24) });
+    await expect(page.getByRole("heading", { name: "HOLOBOARD", exact: true })).toBeVisible();
+    const sections = page.getByRole("navigation", { name: "Board sections" });
+    await expect(sections.getByRole("link", { name: "Expired", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(sections.getByRole("link", { name: "Top 21" })).toHaveAttribute("href", "/");
+    await expect(sections.getByRole("link", { name: "Waiting room" })).toHaveAttribute("href", "/waiting");
+    await expect(page.getByRole("navigation", { name: "Connections and help" })).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Promote a note", exact: true })).toBeVisible();
+    await expect(page.locator("footer").getByRole("link", { name: "How ranking works" })).toBeVisible();
     await expect(row.getByText(/Last payment:/)).toBeVisible();
     await expect(row.getByRole("button", { name: "Promote again", exact: true })).toBeVisible();
     await expect(row.getByRole("link", { name: "Open note", exact: true })).toBeVisible();
