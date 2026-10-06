@@ -113,6 +113,11 @@ refreshing every 15 seconds. Each page contains up to 21 notes. Public relays
 provide profiles, quoted notes and zap receipts. Ranking and payment decisions
 belong to the relay.
 
+Local copies of production storage must retain each note's payment history.
+The public ledger provides totals and current weights, but it does not provide
+the individual payment dates needed to reproduce decay. Treating the total as
+one payment on the last-paid date can inflate a boosted note's local rank.
+
 The payment form separates first promotion from a boost: campaign settings and
 active appearance stay fixed, while each payer chooses their own allocation.
 New campaigns default to 80% visibility and 20% author support. Boosts use the

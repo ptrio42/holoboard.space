@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { NDKEvent } from "@nostr-dev-kit/ndk";
 import { BoardRow } from "../components/BoardRow/BoardRow";
 import { PromoteModal, RANKING_SECTION } from "../components/PromoteModal/PromoteModal";
-import { ConnectionControls } from "../components/PromoteModal/ConnectionControls";
-import { PixelButton } from "../components/ui/PixelButton";
+import { BoardLayout } from "../components/BoardLayout/BoardLayout";
+import { PixelLink, PixelButton } from "../components/ui/PixelButton";
 import { PixelPanel } from "../components/ui/PixelPanel";
 import { fetchCampaigns, type CampaignPage, type CampaignView } from "../lib/campaigns";
 import { ndk } from "../lib/ndk";
@@ -51,36 +51,20 @@ export default function Billboard() {
         setView(next); setPages(1); setData(null); setLoading(true);
         window.history.replaceState(null, "", `/waiting?view=${next}`);
     };
-    return <div className="mx-auto min-h-dvh w-full max-w-5xl px-4 pt-6 pb-20 sm:px-6">
-        <a href="#board" className="skip-link pixel-frame focus-pixel border-2 border-neon-gold bg-void px-4 py-2 font-pixel text-[10px] text-neon-gold">Skip to notes</a>
-        <header className="mb-6">
-            <div className="grid grid-cols-1 justify-items-center gap-y-4 text-center md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:justify-items-start md:gap-x-6 md:text-left">
-                <h1 className="font-pixel text-xl leading-tight tracking-widest text-neon-pink [text-shadow:0_0_18px_rgba(236,72,153,0.55)] md:text-2xl">HOLOBOARD</h1>
-                <ConnectionControls className="justify-center md:justify-end md:justify-self-end" />
-            </div>
-            <div className="mt-5 flex flex-col-reverse items-center gap-5 md:flex-row md:justify-between">
-                <nav aria-label="Board sections" className="flex flex-wrap justify-center gap-x-4 font-pixel text-[10px] text-cyan-200/80 md:justify-start">
-                    <a href="/" aria-current={!waiting ? "page" : undefined} className={`focus-pixel inline-flex min-h-11 items-center border-b-2 ${!waiting ? "border-neon-gold text-neon-gold" : "border-transparent hover:text-neon-cyan"}`}>Top 21</a>
-                    <a href="/waiting" aria-current={waiting ? "page" : undefined} className={`focus-pixel inline-flex min-h-11 items-center border-b-2 ${waiting ? "border-neon-gold text-neon-gold" : "border-transparent hover:text-neon-cyan"}`}>Waiting room</a>
-                    <a href="/expired" className="focus-pixel inline-flex min-h-11 items-center border-b-2 border-transparent hover:text-neon-cyan">Expired</a>
-                </nav>
-                <PixelButton variant="accent" onClick={() => { setPromotion(null); setOpen(true); }}>Promote a note</PixelButton>
-            </div>
-            {waiting && <div role="group" aria-label="Waiting room sort" className="board-sort mt-4 flex flex-wrap items-center justify-center gap-2 md:justify-start">
+    return <BoardLayout section={waiting ? "waiting" : "board"} onPromote={() => { setPromotion(null); setOpen(true); }}
+        headerContent={waiting && <div role="group" aria-label="Waiting room sort" className="board-sort mt-4 flex flex-wrap items-center justify-center gap-2 md:justify-start">
                 <span className="mr-1 hidden text-xs text-cyan-200/70 min-[360px]:inline">Sort</span>
                 {(["top", "new", "hot"] as const).map((sort) => <PixelButton key={sort} size="sm" variant="ghost" aria-pressed={view === sort} onClick={() => chooseView(sort)}>{sort === "top" ? "Rank" : sort === "new" ? "New" : "Hot"}</PixelButton>)}
                 <button type="button" aria-label="How sorting works" className="focus-pixel inline-flex min-h-11 min-w-11 items-center justify-center font-pixel text-[10px] text-cyan-200/70 hover:text-neon-cyan" onClick={() => { setPromotion(null); setLinkedSection(RANKING_SECTION); setOpen(true); }}>?</button>
-            </div>}
-        </header>
+            </div>}>
         <main id="board" tabIndex={-1} aria-busy={loading}>
             {error && <div role="alert" className="mb-5 space-y-3 border-2 border-neon-pink/40 p-4 text-xs text-neon-pink"><p>{error}</p><PixelButton size="sm" variant="ghost" onClick={refresh}>Try again</PixelButton></div>}
             {loading && !data && <p role="status" className="py-8 text-center font-pixel text-[10px] text-cyan-300/60">Loading notes...</p>}
             {!loading && !error && events.length === 0 && <PixelPanel><div className="space-y-3 p-6 text-center"><h2 className="font-pixel text-xs text-cyan-200/70">{waiting ? view === "hot" ? "No recent boosts here" : "The waiting room is empty" : "The board is empty"}</h2><p className="text-sm text-cyan-100/60">{waiting ? "Active notes outside the top 21 appear here." : "Promote a note to start its campaign."}</p></div></PixelPanel>}
             <ul className="space-y-4">{events.map((entry) => <BoardRow key={entry.id} event={entry.note} rank={entry.rank} sats={entry.satsPaid} weight={entry.weight} billboard={entry.billboard} hotSats={view === "hot" ? entry.hotSats : undefined} firstPaidAt={view === "new" ? entry.firstPaidAt : undefined} onPromote={() => { setPromotion({ id: entry.id, weight: entry.weight }); setOpen(true); }} />)}</ul>
             {data?.hasMore && waiting && <div className="mt-6 flex justify-center"><PixelButton variant="ghost" disabled={loading} onClick={() => { setLoading(true); setPages((value) => value+1); }}>Load more</PixelButton></div>}
-            {!waiting && data && data.activePosts > 21 && <p className="mt-6 text-center text-xs text-cyan-100/60"><a href="/waiting" className="focus-pixel inline-flex min-h-11 items-center text-neon-cyan">Discover {data.activePosts-21} more paid notes in the waiting room &gt;</a></p>}
+            {!waiting && data && data.activePosts > 21 && <div className="mt-6 flex justify-center"><PixelLink href="/waiting" variant="ghost" className="[&>span]:min-h-11">Waiting room ({data.activePosts-21})</PixelLink></div>}
         </main>
-        <footer className="mt-12 border-t-2 border-cyan-400/15 pt-6 text-center text-xs text-cyan-100/50"><div className="flex flex-wrap justify-center gap-6"><a href={`/help#${RANKING_SECTION}`} className="focus-pixel inline-flex min-h-11 items-center">How ranking works</a><a href="/help#other-ways-to-promote" className="focus-pixel inline-flex min-h-11 items-center">Other ways to promote</a><a href="https://github.com/ptrio42/holoboard.space" target="_blank" rel="noopener noreferrer" className="focus-pixel inline-flex min-h-11 items-center">GitHub</a></div><p>Only paid visibility affects rank. Each payment loses half its weight every 30 days.</p></footer>
         {open && <PromoteModal initialReference={promotion?.id} currentWeight={promotion?.weight} rankingTargets={data?.targets ?? []} openSection={linkedSection} onPaid={refresh} onClose={() => { setOpen(false); setPromotion(null); setLinkedSection(""); if (window.location.hash) window.history.replaceState(null, "", window.location.pathname+window.location.search); }} />}
-    </div>;
+    </BoardLayout>;
 }
