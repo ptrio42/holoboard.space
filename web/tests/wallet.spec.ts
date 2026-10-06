@@ -12,14 +12,20 @@ const walletPubkey = getPublicKey(walletKey);
 const uri = `nostr+walletconnect://${walletPubkey}?relay=ws%3A%2F%2F127.0.0.1%3A3334&secret=${bytesToHex(clientKey)}`;
 const methods = ["get_info", "get_balance", "get_budget", "pay_invoice", "make_invoice", "lookup_invoice", "list_transactions"];
 
-async function setup(context: BrowserContext, page: Page, options: { methods?: string[]; loseResponse?: boolean; historySize?: number; balanceFailure?: boolean; notifications?: boolean } = {}) {
+async function setup(context: BrowserContext, page: Page, options: { restoredProof?: string | null; methods?: string[]; loseResponse?: boolean; historySize?: number; balanceFailure?: boolean; notifications?: boolean } = {}) {
     const origin = new URL(test.info().project.use.baseURL!).origin;
     const permissions = options.methods ?? methods;
     const sentInvoice = walletInvoice();
+    if (options.restoredProof !== undefined) await context.addInitScript(({ invoice, hash, walletId, proof }) => {
+        const key = "holoboard-wallet-attempts";
+        if (!sessionStorage.getItem(key)) sessionStorage.setItem(key, JSON.stringify({ [hash]: {
+            attempt: { state: "submitted", walletId, preimage: proof, proofVerified: true }, invoice, amountMsats: 21000,
+        } }));
+    }, { invoice: sentInvoice, hash: paymentHash, walletId: `nwc:${walletPubkey}:${getPublicKey(clientKey)}`, proof: options.restoredProof });
     const state = {
         balance: 100001, charges: 0, attempts: 0, received: false, paid: false,
         methods: [] as string[], historyRequests: [] as Record<string, number | string>[],
-        balanceFailure: !!options.balanceFailure, lookupState: "settled", receiveInvoice: "",
+        balanceFailure: !!options.balanceFailure, lookupState: "settled", lookupPreimage: preimage, receiveInvoice: "",
         permissions, errors: [] as string[], notify: (type: "payment_received" | "payment_sent") => { void type; },
     };
     const outgoing = { type: "outgoing", state: "settled", payment_hash: paymentHash, amount: 21000, fees_paid: 1001, description: "Fixture outgoing payment", created_at: 1700000000, settled_at: 1700000001, invoice: sentInvoice };
@@ -90,7 +96,7 @@ async function setup(context: BrowserContext, page: Page, options: { methods?: s
             } else if (request.method === "lookup_invoice") {
                 if (request.params.payment_hash === incomingHash) result = incoming();
                 else if (state.lookupState === "unknown") error = { code: "NOT_FOUND", message: "Unknown fixture payment" };
-                else result = { ...outgoing, payment_hash: request.params.payment_hash, state: state.lookupState, settled_at: state.lookupState === "settled" ? Math.floor(Date.now()/1000) : 0, preimage: state.lookupState === "settled" ? preimage : undefined };
+                else result = { ...outgoing, payment_hash: request.params.payment_hash, state: state.lookupState, settled_at: state.lookupState === "settled" ? Math.floor(Date.now()/1000) : 0, preimage: state.lookupState === "settled" ? state.lookupPreimage : undefined };
             }
             const content = nip44.encrypt(JSON.stringify({ result_type: request.method, result, error }), key);
             publish(finalizeEvent({ kind: 23195, created_at: Math.floor(Date.now()/1000), tags: [["p", event.pubkey], ["e", event.id]], content }, walletKey));
@@ -278,6 +284,32 @@ test("a connection without lookup can review another invoice and retain the prot
     await page.getByRole("button", { name: "Review unresolved payment", exact: true }).click();
     await expect(page.getByRole("button", { name: "Check payment status", exact: true })).toBeDisabled();
     expect(state.charges).toBe(1); expect(state.errors).toEqual([]);
+});
+
+for (const restoredProof of [null, "ff".repeat(32)]) test(`restored submitted proof ${restoredProof === null ? "missing" : "mismatched"} is checked without resending`, async ({ context, page }) => {
+    const { state } = await setup(context, page, { restoredProof, methods: ["get_info", "lookup_invoice"] });
+    await page.getByRole("navigation", { name: "Wallet views" }).getByRole("button", { name: "Send", exact: true }).click();
+    await page.getByRole("button", { name: "Review unresolved payment", exact: true }).click();
+    await expect(page.getByText("Payment confirmed.", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("its proof is not verified", { exact: false })).toBeVisible();
+    state.lookupPreimage = "ff".repeat(32);
+    await page.getByRole("button", { name: "Check payment status", exact: true }).click();
+    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(page.getByText("Payment confirmed.", { exact: true })).toHaveCount(0);
+    state.lookupState = "failed";
+    await page.getByRole("button", { name: "Check payment status", exact: true }).click();
+    await expect.poll(() => state.methods.filter((method) => method === "lookup_invoice").length).toBe(2);
+    await expect(page.getByRole("button", { name: "Check payment status", exact: true })).toBeEnabled();
+    await expect(page.getByText("Payment confirmed.", { exact: true })).toHaveCount(0);
+    state.lookupState = "settled"; state.lookupPreimage = preimage;
+    await page.getByRole("button", { name: "Check payment status", exact: true }).click();
+    await expect(page.getByText("Payment confirmed.", { exact: true })).toBeVisible();
+    await page.reload();
+    await page.getByRole("navigation", { name: "Connections and help" }).getByRole("button", { name: /^Wallet/ }).click();
+    await expect(page.getByText("Connected: Fixture wallet.", { exact: false })).toBeVisible();
+    await page.getByRole("navigation", { name: "Wallet views" }).getByRole("button", { name: "Send", exact: true }).click();
+    await expect(page.getByText("Payment confirmed.", { exact: true })).toBeVisible();
+    expect(state.charges).toBe(0); expect(state.errors).toEqual([]);
 });
 
 test("QR image input populates a reviewed invoice without sending", async ({ context, page }) => {

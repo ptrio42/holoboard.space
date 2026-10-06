@@ -8,6 +8,8 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Verify payment proofs before confirming wallet payments, including promotion
+  payments and restored attempts. Keep unverified reports protected from resending.
 - Keep uncertain and confirmed invoice payments protected across NWC connections
   and between promotion and the wallet panel. Allow status recovery with lookup
   permission alone and new invoices while unresolved payments remain protected.

@@ -20,7 +20,7 @@ const boardPreimage = "b".repeat(64), authorPreimage = "c".repeat(64);
 const hash = (preimage: string) => createHash("sha256").update(Buffer.from(preimage, "hex")).digest("hex");
 const boardHash = hash(boardPreimage);
 const walletUri = `nostr+walletconnect://${walletPubkey}?relay=ws%3A%2F%2F127.0.0.1%3A3334&secret=${bytesToHex(clientKey)}`;
-type Options = { validAuthorInvoice?: boolean; mockInvoice?: boolean; noteContent?: string; rank?: number; targets?: { rank: number; weight: number }[]; authorMinSats?: number; authorShare?: number; newCampaign?: boolean; authorUnavailable?: "no_address" | "unavailable"; blockStorage?: boolean; encryption?: "nip44_v2" | "nip04"; failAuthor?: boolean; loseAuthorResponse?: boolean; failAuthorInvoice?: boolean; extension?: boolean; deferSigner?: boolean; authorExpiresIn?: number; boardExpiresIn?: number; webln?: boolean; lookupState?: "pending" | "unknown" };
+type Options = { badAuthorProof?: boolean; validAuthorInvoice?: boolean; mockInvoice?: boolean; noteContent?: string; rank?: number; targets?: { rank: number; weight: number }[]; authorMinSats?: number; authorShare?: number; newCampaign?: boolean; authorUnavailable?: "no_address" | "unavailable"; blockStorage?: boolean; encryption?: "nip44_v2" | "nip04"; failAuthor?: boolean; loseAuthorResponse?: boolean; failAuthorInvoice?: boolean; extension?: boolean; deferSigner?: boolean; authorExpiresIn?: number; boardExpiresIn?: number; webln?: boolean; lookupState?: "pending" | "unknown" };
 
 async function setup(context: BrowserContext, page: Page, options: Options = {}) {
     const appOrigin = new URL(test.info().project.use.baseURL!).origin;
@@ -111,7 +111,7 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
                     else {
                         state.authorAttempts++;
                         if (options.failAuthor && state.authorAttempts === 1) error = { code: "PAYMENT_FAILED", message: "Author payment failed" };
-                        else { state.authorCharges++; state.authorPaid = true; result = { preimage: state.authorProofs.get(request.params.invoice) }; }
+                        else { state.authorCharges++; state.authorPaid = true; result = { preimage: options.badAuthorProof ? "ff".repeat(32) : state.authorProofs.get(request.params.invoice) }; }
                         if (options.loseAuthorResponse && state.authorAttempts === 1) return;
                     }
                 } else if (request.method === "lookup_invoice") {
@@ -448,6 +448,25 @@ test("promotion and wallet Send share an uncertain author attempt after reload",
     await expect(page.getByText("Author support: 42 sats, payment verified.", { exact: true })).toBeVisible();
     expect(state.authorAttempts).toBe(1); expect(state.authorCharges).toBe(1); expect(state.boardCharges).toBe(1);
     expect(state.methods.filter((method) => method === "lookup_invoice")).toHaveLength(1); expect(state.errors).toEqual([]);
+});
+
+test("an invalid promotion proof stays unconfirmed in wallet Send and lookup recovers without another charge", async ({ context, page }) => {
+    const state = await setup(context, page, { badAuthorProof: true, validAuthorInvoice: true });
+    await connectNwc(page); await prepareInvoices(page);
+    await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
+    await expect(page.getByRole("alert")).toContainText("valid payment proof");
+    const saved = await savedPayment(page);
+    expect(saved.authorAttempt?.state).toBe("uncertain");
+    await openConnections(page, "wallet");
+    await page.getByRole("navigation", { name: "Wallet views" }).getByRole("button", { name: "Send", exact: true }).click();
+    await page.getByLabel("Invoice or Lightning Address").fill(saved.author!.invoice);
+    await page.getByRole("button", { name: "Review payment", exact: true }).click();
+    await expect(page.getByText("Payment confirmed.", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Check payment status", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Check payment status", exact: true }).click();
+    await expect(page.getByText("Payment confirmed.", { exact: true })).toBeVisible();
+    expect(state.authorCharges).toBe(1); expect(state.authorAttempts).toBe(1); expect(state.boardCharges).toBe(1);
+    expect(state.errors).toEqual([]);
 });
 
 test("an author invoice paid in wallet Send is reused by promotion without another charge", async ({ context, page }) => {

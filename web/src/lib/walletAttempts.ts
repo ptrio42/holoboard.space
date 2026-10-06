@@ -1,13 +1,42 @@
 import type { WalletAttempt } from "./walletPayment";
+import { validWalletPreimage } from "./walletInvoice";
 
 interface AttemptRecord { attempt: WalletAttempt; invoice?: string; amountMsats?: number }
 const KEY = "holoboard-wallet-attempts";
 const records = new Map<string, AttemptRecord>();
 const active = new Set<string>();
 const listeners = new Set<() => void>();
+const proofChecks = new Map<string, Promise<boolean>>();
+const verifiedProofs = new Set<string>();
 let loaded = false, persistent = true;
 let snapshot: ReadonlyMap<string, WalletAttempt> = new Map();
 const refreshSnapshot = () => { snapshot = new Map([...records].map(([hash, record]) => [hash, record.attempt])); };
+const notify = () => { refreshSnapshot(); listeners.forEach((listener) => listener()); };
+const proofKey = (hash: string, preimage: string) => `${hash}:${preimage.toLowerCase()}`;
+
+/** Verification is kept in memory and recomputed after restoring tab storage. */
+export function verifyWalletPaymentProof(hash: string, preimage: string | undefined): Promise<boolean> {
+    if (typeof preimage !== "string") return Promise.resolve(false);
+    const key = proofKey(hash, preimage);
+    const existing = proofChecks.get(key);
+    if (existing) return existing;
+    const check = validWalletPreimage(preimage, hash).catch(() => false).then((valid) => {
+        if (valid) {
+            verifiedProofs.add(key);
+            const attempt = records.get(hash)?.attempt;
+            if (attempt?.state === "submitted" && typeof attempt.preimage === "string" && proofKey(hash, attempt.preimage) === key) notify();
+        }
+        return valid;
+    });
+    proofChecks.set(key, check);
+    return check;
+}
+export function walletAttemptIsConfirmed(hash: string, attempt?: WalletAttempt): boolean {
+    return attempt?.state === "submitted" && typeof attempt.preimage === "string" && verifiedProofs.has(proofKey(hash, attempt.preimage));
+}
+function checkRestoredProof(hash: string, attempt: WalletAttempt) {
+    if (attempt.state === "submitted") void verifyWalletPaymentProof(hash, attempt.preimage);
+}
 
 export const walletAttemptsArePersistent = () => persistent;
 export const getWalletAttemptsSnapshot = () => { load(); return snapshot; };
@@ -48,15 +77,16 @@ function load() {
         }
     } catch { persistent = false; }
     refreshSnapshot();
+    records.forEach((record, hash) => checkRestoredProof(hash, record.attempt));
 }
 export function getWalletAttempt(hash: string, previous?: WalletAttempt): WalletAttempt | undefined {
     load();
-    if (!records.has(hash) && previous) { records.set(hash, { attempt: previous }); refreshSnapshot(); }
+    if (!records.has(hash) && previous) { records.set(hash, { attempt: previous }); refreshSnapshot(); checkRestoredProof(hash, previous); }
     return records.get(hash)?.attempt;
 }
 export function getPendingWalletAttempts() {
     load();
-    return [...records].filter(([, record]) => record.attempt.state === "uncertain" && typeof record.invoice === "string")
+    return [...records].filter(([hash, record]) => (record.attempt.state === "uncertain" || (record.attempt.state === "submitted" && !walletAttemptIsConfirmed(hash, record.attempt))) && typeof record.invoice === "string")
         .map(([paymentHash, record]) => ({ paymentHash, ...record }));
 }
 export function saveWalletAttempt(hash: string, attempt: WalletAttempt, invoice?: string, amountMsats?: number) {
@@ -64,7 +94,7 @@ export function saveWalletAttempt(hash: string, attempt: WalletAttempt, invoice?
     records.set(hash, { ...records.get(hash), attempt, ...(invoice ? { invoice } : {}), ...(amountMsats === undefined ? {} : { amountMsats }) });
     try { sessionStorage.setItem(KEY, JSON.stringify(Object.fromEntries(records))); }
     catch { persistent = false; }
-    refreshSnapshot(); listeners.forEach((listener) => listener());
+    checkRestoredProof(hash, attempt); notify();
 }
 export function acquireWalletAttempt(hash: string): () => void {
     if (active.has(hash)) throw new Error("This payment already has a send or status check in progress.");

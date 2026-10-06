@@ -53,7 +53,7 @@ export async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string>
 }
 
 export async function validWalletPreimage(preimage: string | undefined, hash: string): Promise<boolean> {
-    if (!preimage || !/^[0-9a-f]{64}$/i.test(preimage)) return false;
+    if (typeof preimage !== "string" || !/^[0-9a-f]{64}$/i.test(preimage)) return false;
     const bytes = Uint8Array.from(preimage.match(/../g)!, (pair) => parseInt(pair, 16));
     return await sha256Hex(bytes) === hash;
 }

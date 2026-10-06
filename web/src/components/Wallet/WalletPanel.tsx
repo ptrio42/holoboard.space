@@ -69,8 +69,9 @@ export function WalletPanel({ disabled = false }: { disabled?: boolean }) {
         return () => { clearInterval(timer); window.removeEventListener("focus", focus); document.removeEventListener("visibilitychange", focus); };
     }, []);
     const draft = account.send;
-    const uncertain = draft?.attempt?.state === "uncertain";
-    const sent = draft?.attempt?.state === "submitted";
+    const reported = draft?.attempt?.state === "submitted" && !account.sendConfirmed;
+    const uncertain = reported || draft?.attempt?.state === "uncertain";
+    const sent = account.sendConfirmed;
     const originalConnection = draft?.attempt?.walletId === account.id;
     const expired = draft ? draft.expiresAt * 1000 <= now : false;
     const received = account.receive?.state === "settled";
@@ -104,7 +105,7 @@ export function WalletPanel({ disabled = false }: { disabled?: boolean }) {
                     <div><dt className={LABEL}>Expires</dt><dd className="text-xs">{date(draft.expiresAt)}</dd></div>
                     {draft.feesMsats !== undefined && <div><dt className={LABEL}>Routing fee</dt><dd>{formatSats(draft.feesMsats)} sats</dd></div>}
                 </dl>
-                {sent ? <p role="status" className="text-neon-gold">Payment confirmed.</p> : uncertain ? <p role="status">Payment status is uncertain. This invoice stays protected while you work on other payments. A status check sends no payment.</p> : expired ? <p role="status" className="text-neon-pink">This invoice has expired.</p> : <p className="text-xs text-cyan-100/60">Your wallet may charge a routing fee. Send confirms this payment.</p>}
+                {sent ? <p role="status" className="text-neon-gold">Payment confirmed.</p> : reported ? <p role="status">The wallet reported this payment as sent, but its proof is not verified. Check its status. This invoice remains protected.</p> : uncertain ? <p role="status">Payment status is uncertain. This invoice stays protected while you work on other payments. A status check sends no payment.</p> : expired ? <p role="status" className="text-neon-pink">This invoice has expired.</p> : <p className="text-xs text-cyan-100/60">Your wallet may charge a routing fee. Send confirms this payment.</p>}
                 {!sent && <PixelButton variant="accent" className="w-full min-h-11" disabled={busy || (uncertain ? !can("lookup_invoice") || !originalConnection : expired || !can("pay_invoice"))} onClick={() => void submitWalletSend()}>{account.busy === "check" ? "Checking payment" : account.busy === "send" ? "Waiting for wallet" : uncertain ? "Check payment status" : `Send ${formatSats(draft.amountMsats)} sats`}</PixelButton>}
                 {uncertain && <p className="text-xs text-cyan-100/70">Original connection: {connectionLabel(draft.attempt!.walletId)}. {!originalConnection && "Reconnect that connection to check its status."}</p>}
                 {!uncertain && !sent && !can("pay_invoice") && <p className="text-xs text-neon-pink">Sending is not allowed by this connection. Reconnect with invoice payment permission to send.</p>}

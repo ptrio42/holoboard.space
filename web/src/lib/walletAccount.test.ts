@@ -182,6 +182,31 @@ describe("wallet sends", () => {
             expect(send).toHaveBeenCalledTimes(1); expect(lookup).toHaveBeenCalledOnce();
         } finally { now.mockRestore(); }
     });
+    it.each([undefined, "ff".repeat(32)])("does not confirm a restored promotion proof %s and recovers through lookup only", async (badProof) => {
+        const original = attach(["pay_invoice", "lookup_invoice"]);
+        const originalId = getWalletAccount().id;
+        const { saveWalletAttempt } = await import("./walletAttempts");
+        saveWalletAttempt(paymentHash, { state: "submitted", walletId: originalId, preimage: badProof }, walletInvoice());
+        await prepareWalletSend(walletInvoice(), "");
+        expect(getWalletAccount().sendConfirmed).toBe(false);
+        lookup.mockResolvedValueOnce({ ...tx(), preimage: badProof }); await submitWalletSend();
+        expect(getWalletAccount().sendConfirmed).toBe(false); expect(send).not.toHaveBeenCalled();
+        lookup.mockResolvedValueOnce({ ...tx(), state: "failed" }); await submitWalletSend();
+        expect(getWalletAccount().send?.attempt?.state).toBe("submitted"); expect(send).not.toHaveBeenCalled();
+        clearWalletAccount(); attachWalletAccount(original, info(["lookup_invoice"]));
+        await submitWalletSend();
+        expect(getWalletAccount().sendConfirmed).toBe(true);
+        expect(getWalletAccount().send?.attempt?.preimage).toBe(preimage); expect(send).not.toHaveBeenCalled();
+    });
+    it("does not export an invalid promotion send as confirmed to the wallet panel", async () => {
+        attach(["pay_invoice", "lookup_invoice"]);
+        send.mockResolvedValueOnce({ preimage: "ff".repeat(32) });
+        await expect(payInvoiceSafely({ ...payer, id: getWalletAccount().id }, walletInvoice(), paymentHash, undefined, vi.fn())).rejects.toThrow("valid payment proof");
+        await prepareWalletSend(walletInvoice(), "");
+        expect(getWalletAccount().sendConfirmed).toBe(false); expect(getWalletAccount().send?.attempt?.state).toBe("uncertain");
+        await submitWalletSend();
+        expect(getWalletAccount().sendConfirmed).toBe(true); expect(send).toHaveBeenCalledTimes(1); expect(lookup).toHaveBeenCalledOnce();
+    });
     it("allows an explicit rejection to be reviewed again", async () => {
         attach(["pay_invoice"]); await prepareWalletSend(walletInvoice(), "");
         send.mockRejectedValueOnce(new PaymentRejected("Quota exceeded")); await submitWalletSend();

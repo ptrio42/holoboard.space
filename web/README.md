@@ -195,6 +195,15 @@ hash protected. New payment allows a different invoice while unresolved hashes
 stay protected and available for review. Blocked storage preserves protection
 in memory; the Send view explains that it cannot survive refresh.
 
+The shared payment path verifies the returned preimage against the invoice hash
+before storing a new submitted attempt. Saved proofs are verified again after
+refresh; persisted confirmation flags are never trusted. The panel distinguishes
+a wallet's report of sending from a verified payment. An older submitted attempt
+with a missing or incorrect proof remains protected and can recover its proof
+through lookup on the original connection, including a read-only connection.
+Failed, pending or unknown lookup results never release a previously submitted
+attempt or trigger another send.
+
 Wallet and remote signer credentials are stored in `sessionStorage`, never in
 the page URL, `localStorage` or requests to the Holoboard backend. Connection inputs
 are masked and cleared after submission. Disconnect deletes those credentials;
