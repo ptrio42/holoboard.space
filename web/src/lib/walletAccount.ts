@@ -1,5 +1,7 @@
 import type { NWCClient, Nip47GetInfoResponse, Nip47GetBudgetResponse, Nip47Transaction } from "@getalby/sdk/nwc";
 import { payInvoiceSafely, withTimeout, type PaymentWallet, type WalletAttempt } from "./walletPayment";
+import { acquireWalletAttempt, getPendingWalletAttempts, getWalletAttempt, saveWalletAttempt, subscribeWalletAttempts, walletAttemptsArePersistent } from "./walletAttempts";
+import { lookupWalletPayment } from "./walletLookup";
 import { prepareWalletInvoice, readWalletInvoice, satsToMsats, validWalletPreimage, type WalletInvoice } from "./walletInvoice";
 
 export type WalletTransaction = Omit<Partial<Nip47Transaction>, "state"> & {
@@ -9,7 +11,7 @@ export type WalletTransaction = Omit<Partial<Nip47Transaction>, "state"> & {
 export type HistoryFilter = "all" | "incoming" | "outgoing";
 export interface WalletSend extends WalletInvoice { attempt?: WalletAttempt; feesMsats?: number }
 export interface WalletReceive extends WalletInvoice { state: "pending" | "settled" | "expired" }
-interface WalletSession { send: WalletSend | null; receive: WalletReceive | null; attempts: Record<string, WalletAttempt> }
+interface WalletSession { send: WalletSend | null; receive: WalletReceive | null }
 export interface WalletAccount {
     id: string; methods: string[]; address: string;
     balance: number | null; balanceUpdatedAt: number; balanceError: string;
@@ -18,6 +20,7 @@ export interface WalletAccount {
     historyError: string; hasMore: boolean; refreshing: boolean; loadingMore: boolean;
     notifications: "unavailable" | "connecting" | "active" | "failed";
     send: WalletSend | null; receive: WalletReceive | null;
+    pendingSends: ReturnType<typeof getPendingWalletAttempts>;
     busy: "prepare" | "send" | "receive" | "check" | null;
     actionError: string; receiveError: string; storageAvailable: boolean;
 }
@@ -25,7 +28,7 @@ const empty = (): WalletAccount => ({
     id: "", methods: [], address: "", balance: null, balanceUpdatedAt: 0, balanceError: "",
     budget: null, budgetError: "", history: [], historyFilter: "all", historyLoaded: false,
     historyError: "", hasMore: false, refreshing: false, loadingMore: false,
-    notifications: "unavailable", send: null, receive: null, busy: null,
+    notifications: "unavailable", send: null, receive: null, pendingSends: [], busy: null,
     actionError: "", receiveError: "", storageAvailable: true,
 });
 let state = empty();
@@ -46,22 +49,14 @@ function validInvoice(value: unknown): value is WalletInvoice {
     const invoice = value as WalletInvoice;
     return typeof invoice.invoice === "string" && /^lnbc/i.test(invoice.invoice) && /^[0-9a-f]{64}$/.test(invoice.paymentHash) && Number.isSafeInteger(invoice.amountMsats) && invoice.amountMsats > 0 && Number.isSafeInteger(invoice.expiresAt) && typeof invoice.amountless === "boolean" && typeof invoice.recipient === "string" && typeof invoice.description === "string" && typeof invoice.descriptionHash === "string";
 }
-function validAttempt(value: unknown): value is WalletAttempt {
-    if (!value || typeof value !== "object") return false;
-    const attempt = value as WalletAttempt;
-    return ["unpaid", "uncertain", "submitted"].includes(attempt.state) && typeof attempt.walletId === "string";
-}
 function session(id: string): WalletSession {
     const existing = sessions.get(id);
     if (existing) return existing;
-    const result: WalletSession = { send: null, receive: null, attempts: {} };
+    const result: WalletSession = { send: null, receive: null };
     try {
         const saved = JSON.parse(sessionStorage.getItem(storageKey(id)) ?? "null");
         if (saved) {
-            if (saved.attempts && typeof saved.attempts === "object") for (const [hash, attempt] of Object.entries(saved.attempts)) {
-                if (/^[0-9a-f]{64}$/.test(hash) && validAttempt(attempt) && attempt.walletId === id) result.attempts[hash] = attempt;
-            }
-            if (validInvoice(saved.send)) result.send = { ...saved.send, attempt: result.attempts[saved.send.paymentHash] };
+            if (validInvoice(saved.send)) result.send = { ...saved.send, attempt: getWalletAttempt(saved.send.paymentHash, saved.send.attempt) };
             if (validInvoice(saved.receive) && ["pending", "settled", "expired"].includes(saved.receive.state)) result.receive = saved.receive;
         }
     } catch { /* In-memory attempts still protect this page when storage is blocked. */ }
@@ -93,8 +88,10 @@ export function attachWalletAccount(wallet: NWCClient, info: Nip47GetInfoRespons
     clearWalletAccount();
     client = wallet; payer = paymentWallet;
     const id = `nwc:${wallet.walletPubkey}:${wallet.publicKey}`;
+    const pendingSends = getPendingWalletAttempts();
     const stored = session(id);
-    update({ id, methods: [...info.methods], address: typeof info.lud16 === "string" && info.lud16 ? info.lud16 : address, send: stored.send, receive: stored.receive });
+    if (stored.send) stored.send = { ...stored.send, attempt: getWalletAttempt(stored.send.paymentHash, stored.send.attempt) };
+    update({ pendingSends, storageAvailable: walletAttemptsArePersistent(), id, methods: [...info.methods], address: typeof info.lud16 === "string" && info.lud16 ? info.lud16 : address, send: stored.send, receive: stored.receive });
     const current = generation;
     void refreshWalletAccount();
     const types = (Array.isArray(info.notifications) ? info.notifications : []).filter((type) => type === "payment_received" || type === "payment_sent");
@@ -184,44 +181,69 @@ export async function loadMoreWalletHistory() {
 export async function prepareWalletSend(input: string, amount: string) {
     if (state.busy) return;
     const { id, current } = requireAccount("pay_invoice");
-    if (state.send?.attempt?.state === "uncertain") throw new Error("Check the current payment before preparing another one.");
     update({ busy: "prepare", actionError: "" });
     try {
         const invoice = await prepareWalletInvoice(input, amount);
         if (!currentAccount(current)) return;
         const stored = session(id);
-        stored.send = { ...invoice, attempt: stored.attempts[invoice.paymentHash] };
+        stored.send = { ...invoice, attempt: getWalletAttempt(invoice.paymentHash) };
         save(id); update({ send: stored.send });
     } catch (failure) { if (currentAccount(current)) update({ actionError: failure instanceof Error ? failure.message : "Could not prepare this payment." }); }
     finally { if (currentAccount(current)) update({ busy: null }); }
 }
 
 export function resetWalletSend() {
-    if (!state.id || state.busy || state.send?.attempt?.state === "uncertain") return;
+    if (!state.id || state.busy) return;
     session(state.id).send = null; save(state.id); update({ send: null, actionError: "" });
 }
 
+/** Reopen a protected invoice without needing permission to send. */
+export function reviewWalletSendAttempt(paymentHash: string) {
+    if (!state.id || state.busy) return;
+    const record = getPendingWalletAttempts().find((entry) => entry.paymentHash === paymentHash);
+    if (!record?.invoice) return;
+    try {
+        const invoice = readWalletInvoice(record.invoice, record.amountMsats === undefined ? "" : String(record.amountMsats / 1000), true);
+        if (invoice.paymentHash !== paymentHash) throw new Error("Mismatched invoice");
+        const send = { ...invoice, attempt: record.attempt };
+        session(state.id).send = send; save(state.id); update({ send, actionError: "" });
+    } catch { update({ actionError: "Paste the original invoice and amount to review this payment." }); }
+}
+
+subscribeWalletAttempts(() => {
+    if (!state.id) return;
+    const send = state.send ? { ...state.send, attempt: getWalletAttempt(state.send.paymentHash) } : null;
+    session(state.id).send = send;
+    update({ send, pendingSends: getPendingWalletAttempts(), storageAvailable: state.storageAvailable && walletAttemptsArePersistent() });
+});
+
 /** Checking an uncertain send never sends another payment in the same action. */
 export async function submitWalletSend() {
-    if (state.busy || !state.send || !payer) return;
-    const { id, current } = requireAccount("pay_invoice");
-    const draft = state.send, paymentWallet = payer, stored = session(id);
+    if (state.busy || !state.send) return;
+    const draft = { ...state.send, attempt: getWalletAttempt(state.send.paymentHash, state.send.attempt) };
     if (draft.attempt?.state === "submitted") return;
-    update({ busy: draft.attempt?.state === "uncertain" ? "check" : "send", actionError: "" });
+    const checking = draft.attempt?.state === "uncertain";
+    const { wallet, id, current } = requireAccount(checking ? "lookup_invoice" : "pay_invoice");
+    const paymentWallet = payer, stored = session(id);
+    update({ busy: checking ? "check" : "send", actionError: "" });
     const saveAttempt = (attempt: WalletAttempt) => {
-        stored.attempts[draft.paymentHash] = attempt;
         stored.send = { ...draft, attempt }; save(id);
         if (currentAccount(current)) update({ send: stored.send });
     };
+    let release: (() => void) | undefined;
     try {
-        if (draft.attempt?.state === "uncertain") {
-            if (!paymentWallet.lookupPayment || draft.attempt.walletId !== id) throw new Error("This connection cannot check the payment. Check the original wallet history.");
-            const status = await paymentWallet.lookupPayment(draft.paymentHash);
-            if (status.state === "paid" && await validWalletPreimage(status.preimage, draft.paymentHash)) saveAttempt({ state: "submitted", walletId: id, preimage: status.preimage });
-            else if (status.state === "unpaid") saveAttempt({ state: "unpaid", walletId: id });
+        if (checking) {
+            if (draft.attempt!.walletId !== id) throw new Error("Reconnect the original wallet connection to check this payment. Switching wallets does not allow another send.");
+            release = acquireWalletAttempt(draft.paymentHash);
+            const status = await lookupWalletPayment(wallet, draft.paymentHash);
+            let attempt: WalletAttempt;
+            if (status.state === "paid" && await validWalletPreimage(status.preimage, draft.paymentHash)) attempt = { state: "submitted", walletId: id, preimage: status.preimage };
+            else if (status.state === "unpaid") attempt = { state: "unpaid", walletId: id };
             else throw new Error("Payment status is still uncertain. Check again later or check the original wallet history.");
+            saveWalletAttempt(draft.paymentHash, attempt, draft.invoice, draft.amountMsats); saveAttempt(attempt);
             return;
         }
+        if (!paymentWallet) throw new Error("This connection does not allow sending payments.");
         const decoded = readWalletInvoice(draft.invoice, String(draft.amountMsats / 1000));
         if (decoded.paymentHash !== draft.paymentHash || decoded.amountMsats !== draft.amountMsats || decoded.amountless !== draft.amountless || decoded.expiresAt !== draft.expiresAt) throw new Error("The saved payment details do not match this invoice. Review it again.");
         const guarded: PaymentWallet = { ...paymentWallet, sendPayment: async (invoice) => {
@@ -230,9 +252,9 @@ export async function submitWalletSend() {
             if (msats(proof.feesPaidMsats)) draft.feesMsats = proof.feesPaidMsats;
             return proof;
         } };
-        await payInvoiceSafely(guarded, draft.invoice, draft.paymentHash, draft.attempt, saveAttempt, draft.expiresAt);
+        await payInvoiceSafely(guarded, draft.invoice, draft.paymentHash, draft.attempt, saveAttempt, draft.expiresAt, draft.amountMsats);
     } catch (failure) { if (currentAccount(current)) update({ actionError: failure instanceof Error ? failure.message : "The wallet did not confirm this payment." }); }
-    finally { if (currentAccount(current)) { update({ busy: null }); void refreshWalletAccount(); } }
+    finally { release?.(); if (currentAccount(current)) { update({ busy: null }); void refreshWalletAccount(); } }
 }
 
 export async function createWalletReceive(amount: string, description: string) {

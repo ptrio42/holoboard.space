@@ -8,6 +8,9 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Keep uncertain and confirmed invoice payments protected across NWC connections
+  and between promotion and the wallet panel. Allow status recovery with lookup
+  permission alone and new invoices while unresolved payments remain protected.
 - Detect mock invoices before offering payment or contacting a wallet, and
   ignore saved visibility-only test invoices when reopening the form.
 - Close wallet and profile relay connections safely, preventing a shutdown

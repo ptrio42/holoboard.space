@@ -1,5 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
-import { canPayOrCheckInvoice, PaymentRejected, payInvoiceSafely, type PaymentWallet, type WalletAttempt } from "./walletPayment";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PaymentWallet, WalletAttempt } from "./walletPayment";
+let { canPayOrCheckInvoice, PaymentRejected, payInvoiceSafely } = await import("./walletPayment");
+beforeEach(async () => {
+    vi.resetModules();
+    ({ canPayOrCheckInvoice, PaymentRejected, payInvoiceSafely } = await import("./walletPayment"));
+});
 
 function wallet(overrides: Partial<PaymentWallet> = {}): PaymentWallet {
     return { id: "wallet-a", kind: "nwc", enable: async () => {}, sendPayment: vi.fn(async () => ({ preimage: "proof" })), ...overrides };
@@ -66,7 +71,7 @@ describe("wallet payment recovery", () => {
         const payer = wallet({ lookupPayment: vi.fn(async () => ({ state: "paid" as const, preimage: "recovered" })) });
         expect(await payInvoiceSafely(payer, "invoice", "hash", { state: "submitted", walletId: payer.id }, vi.fn())).toEqual({ preimage: "recovered" });
         expect(payer.sendPayment).not.toHaveBeenCalled();
-        expect(await payInvoiceSafely(payer, "invoice", "hash", { state: "submitted", walletId: payer.id, preimage: "saved" }, vi.fn())).toEqual({ preimage: "saved" });
+        expect(await payInvoiceSafely(payer, "invoice", "hash", { state: "submitted", walletId: payer.id, preimage: "saved" }, vi.fn())).toEqual({ preimage: "recovered" });
         expect(payer.lookupPayment).toHaveBeenCalledTimes(1);
     });
     it.each([undefined, "unpaid"] as const)("never sends an expired invoice with previous state %s", async (state) => {

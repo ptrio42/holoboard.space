@@ -1,4 +1,5 @@
 import { isMockInvoice, MOCK_INVOICE_MESSAGE } from "./invoice";
+import { acquireWalletAttempt, getWalletAttempt, saveWalletAttempt } from "./walletAttempts";
 
 export interface WalletProof { preimage?: string; feesPaidMsats?: number }
 export interface WalletLookup extends WalletProof { state: "paid" | "unpaid" | "pending" | "unknown" }
@@ -23,6 +24,23 @@ export function canPayOrCheckInvoice(wallet: PaymentWallet, expiresAt: number, p
 
 /** Persist the attempt before sending, so leaving the page cannot erase it. */
 export async function payInvoiceSafely(
+    wallet: PaymentWallet, invoice: string, paymentHash: string,
+    previous: WalletAttempt | undefined, save: (attempt: WalletAttempt) => void,
+    expiresAt = Infinity, amountMsats?: number,
+): Promise<WalletProof> {
+    if (isMockInvoice(invoice)) throw new PaymentRejected(MOCK_INVOICE_MESSAGE);
+    const release = acquireWalletAttempt(paymentHash);
+    try {
+        const attempt = getWalletAttempt(paymentHash, previous);
+        if (attempt && attempt !== previous) save(attempt);
+        return await executePayment(wallet, invoice, paymentHash, attempt, (next) => {
+            saveWalletAttempt(paymentHash, next, invoice, amountMsats);
+            save(next);
+        }, expiresAt);
+    } finally { release(); }
+}
+
+async function executePayment(
     wallet: PaymentWallet, invoice: string, paymentHash: string,
     previous: WalletAttempt | undefined, save: (attempt: WalletAttempt) => void,
     expiresAt = Infinity,

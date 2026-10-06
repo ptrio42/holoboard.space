@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { noteEncode } from "nostr-tools/nip19";
-import { checkWalletReceive, createWalletReceive, getWalletAccount, loadMoreWalletHistory, prepareWalletSend, refreshWalletAccount, resetWalletSend, setWalletHistoryFilter, submitWalletSend, subscribeWalletAccount, transactionStatus, type HistoryFilter, type WalletTransaction } from "../../lib/walletAccount";
+import { checkWalletReceive, createWalletReceive, getWalletAccount, loadMoreWalletHistory, prepareWalletSend, refreshWalletAccount, resetWalletSend, reviewWalletSendAttempt, setWalletHistoryFilter, submitWalletSend, subscribeWalletAccount, transactionStatus, type HistoryFilter, type WalletTransaction } from "../../lib/walletAccount";
 import { formatSats } from "../../lib/walletInvoice";
 import { CopyButton } from "../ui/CopyButton";
 import { PixelButton, PixelLink } from "../ui/PixelButton";
@@ -9,6 +9,7 @@ import { WalletQrScanner } from "./WalletQrScanner";
 
 const FIELD = "focus-pixel w-full border-2 border-cyan-400/40 bg-void px-3 py-2 text-cyan-100";
 const LABEL = "promotion-label block mb-2 text-cyan-200/70";
+const connectionLabel = (id: string) => id.startsWith("nwc:") ? `${id.split(":")[1].slice(0, 8)} / ${id.split(":")[2].slice(0, 8)}` : id;
 const date = (seconds: number) => new Date(seconds * 1000).toLocaleString();
 const permissions = [
     ["get_balance", "Balance"], ["pay_invoice", "Send"], ["make_invoice", "Receive"],
@@ -70,6 +71,7 @@ export function WalletPanel({ disabled = false }: { disabled?: boolean }) {
     const draft = account.send;
     const uncertain = draft?.attempt?.state === "uncertain";
     const sent = draft?.attempt?.state === "submitted";
+    const originalConnection = draft?.attempt?.walletId === account.id;
     const expired = draft ? draft.expiresAt * 1000 <= now : false;
     const received = account.receive?.state === "settled";
     const receiveExpired = account.receive ? account.receive.expiresAt * 1000 <= now : false;
@@ -94,7 +96,7 @@ export function WalletPanel({ disabled = false }: { disabled?: boolean }) {
         </nav>
         {tab === "send" && <section className="space-y-4" aria-label="Send payment">
             <h4 className="promotion-section-title text-neon-cyan">Send</h4>
-            {!can("pay_invoice") ? <p>This connection does not allow sending. Enable invoice payments in your wallet and reconnect.</p> : draft ? <>
+            {draft ? <>
                 <dl className="space-y-3 border border-cyan-400/25 bg-void p-4">
                     <div><dt className={LABEL}>Amount</dt><dd className="text-neon-gold">{formatSats(draft.amountMsats)} sats</dd></div>
                     {draft.recipient && <div><dt className={LABEL}>To</dt><dd className="break-all">{draft.recipient}</dd></div>}
@@ -102,18 +104,28 @@ export function WalletPanel({ disabled = false }: { disabled?: boolean }) {
                     <div><dt className={LABEL}>Expires</dt><dd className="text-xs">{date(draft.expiresAt)}</dd></div>
                     {draft.feesMsats !== undefined && <div><dt className={LABEL}>Routing fee</dt><dd>{formatSats(draft.feesMsats)} sats</dd></div>}
                 </dl>
-                {sent ? <p role="status" className="text-neon-gold">Payment confirmed.</p> : uncertain ? <p role="status">Payment status is uncertain. Check its status before another attempt. A status check sends no payment.</p> : expired ? <p role="status" className="text-neon-pink">This invoice has expired.</p> : <p className="text-xs text-cyan-100/60">Your wallet may charge a routing fee. Send confirms this payment.</p>}
-                {!sent && <PixelButton variant="accent" className="w-full min-h-11" disabled={busy || (uncertain ? !can("lookup_invoice") : expired)} onClick={() => void submitWalletSend()}>{account.busy === "check" ? "Checking payment" : account.busy === "send" ? "Waiting for wallet" : uncertain ? "Check payment status" : `Send ${formatSats(draft.amountMsats)} sats`}</PixelButton>}
+                {sent ? <p role="status" className="text-neon-gold">Payment confirmed.</p> : uncertain ? <p role="status">Payment status is uncertain. This invoice stays protected while you work on other payments. A status check sends no payment.</p> : expired ? <p role="status" className="text-neon-pink">This invoice has expired.</p> : <p className="text-xs text-cyan-100/60">Your wallet may charge a routing fee. Send confirms this payment.</p>}
+                {!sent && <PixelButton variant="accent" className="w-full min-h-11" disabled={busy || (uncertain ? !can("lookup_invoice") || !originalConnection : expired || !can("pay_invoice"))} onClick={() => void submitWalletSend()}>{account.busy === "check" ? "Checking payment" : account.busy === "send" ? "Waiting for wallet" : uncertain ? "Check payment status" : `Send ${formatSats(draft.amountMsats)} sats`}</PixelButton>}
+                {uncertain && <p className="text-xs text-cyan-100/70">Original connection: {connectionLabel(draft.attempt!.walletId)}. {!originalConnection && "Reconnect that connection to check its status."}</p>}
+                {!uncertain && !sent && !can("pay_invoice") && <p className="text-xs text-neon-pink">Sending is not allowed by this connection. Reconnect with invoice payment permission to send.</p>}
                 {uncertain && !can("lookup_invoice") && <p className="text-xs text-neon-pink">Payment checks are not allowed by this connection. Check the original wallet history.</p>}
-                {!uncertain && <PixelButton size="sm" variant="ghost" disabled={busy} onClick={resetWalletSend}>{sent ? "New payment" : "Edit payment"}</PixelButton>}
+                <PixelButton size="sm" variant="ghost" disabled={busy} onClick={resetWalletSend}>{sent || uncertain ? "New payment" : "Edit payment"}</PixelButton>
                 <details className="disclosure"><summary className="promotion-action focus-pixel min-h-11 cursor-pointer">Payment details</summary><div className="space-y-3"><p className="break-all text-xs">{draft.paymentHash}</p><CopyButton value={draft.invoice} label="Copy invoice" /></div></details>
-            </> : <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void prepareWalletSend(destination, sendAmount); }}>
+            </> : !can("pay_invoice") ? <p>This connection does not allow sending. Enable invoice payments in your wallet and reconnect.</p> : <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void prepareWalletSend(destination, sendAmount); }}>
                 <label className="block"><span className={LABEL}>Invoice or Lightning Address</span><textarea className={FIELD} value={destination} onChange={(event) => setDestination(event.target.value)} rows={3} autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder="lnbc... or name@domain.com" disabled={busy} required /></label>
                 <WalletQrScanner disabled={busy} onScan={setDestination} />
                 <label className="block"><span className={LABEL}>Amount (sats)</span><input className={FIELD} type="text" inputMode="numeric" autoComplete="off" value={sendAmount} onChange={(event) => setSendAmount(event.target.value)} placeholder="For an address or amountless invoice" disabled={busy} /></label>
                 <p className="text-xs text-cyan-100/60">Fixed-amount invoices use their own amount. Review prepares the payment; you confirm sending on the next screen.</p>
                 <PixelButton type="submit" variant="accent" className="w-full min-h-11" disabled={busy || !destination.trim()}>{account.busy === "prepare" ? "Preparing payment" : "Review payment"}</PixelButton>
             </form>}
+            {account.pendingSends.some((entry) => entry.paymentHash !== draft?.paymentHash) && <div className="space-y-3 border-t border-cyan-400/25 pt-4" aria-label="Unresolved payments">
+                <h4 className="promotion-label text-neon-gold">Unresolved payments</h4>
+                <p className="text-xs text-cyan-100/70">These invoices stay protected across wallet connections. Reconnect each original connection to check its payment.</p>
+                {account.pendingSends.filter((entry) => entry.paymentHash !== draft?.paymentHash).map((entry) => <div key={entry.paymentHash} className="space-y-2">
+                    <p className="break-all text-xs">Hash: {entry.paymentHash}<br />Original connection: {connectionLabel(entry.attempt.walletId)}</p>
+                    <PixelButton size="sm" variant="ghost" disabled={busy} onClick={() => reviewWalletSendAttempt(entry.paymentHash)}>Review unresolved payment</PixelButton>
+                </div>)}
+            </div>}
             {account.actionError && <p role="alert" className="text-neon-pink">{account.actionError}</p>}
             {!account.storageAvailable && <p className="text-xs text-neon-pink">Browser storage is blocked. Keep this page open until the payment is confirmed; its status cannot be restored after refresh.</p>}
         </section>}

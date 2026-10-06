@@ -21,7 +21,7 @@ beforeEach(() => {
     vi.stubGlobal("window", {});
     mock.info.mockResolvedValue({ alias: "Test wallet", network: "mainnet", methods: ["pay_invoice", "lookup_invoice"] });
     mock.pay.mockResolvedValue({ preimage: "proof" });
-    mock.lookup.mockResolvedValue({ payment_hash: "hash", state: "settled", preimage: "proof" });
+    mock.lookup.mockResolvedValue({ type: "outgoing", payment_hash: "hash", state: "settled", preimage: "proof" });
 });
 afterEach(() => { disconnectWallet(); disconnectSigner(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 

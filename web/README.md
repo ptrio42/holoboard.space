@@ -101,7 +101,8 @@ instructions](../relay/DEPLOYMENT.md#updating-the-existing-deployment).
 - `src/components/Help/`: shared help for `/help` and contextual promotion panels.
 - `src/lib/support.ts`: payment allocation, direct author invoices, optional NIP-07 zaps and proof verification.
 - `src/lib/connections.ts`: optional NWC, extension and remote signer sessions.
-- `src/lib/walletPayment.ts`: persisted attempts and safe payment recovery.
+- `src/lib/walletPayment.ts`: safe payment submission and recovery.
+- `src/lib/walletAttempts.ts`: shared protection by invoice hash across wallet connections and payment views.
 - `src/components/TextRenderer/`: note content, links and quote previews.
 - `src/components/ui/` and `src/index.css`: shared controls and styles.
 
@@ -182,14 +183,17 @@ data also refreshes every 20 seconds and incoming status is checked every five
 seconds when `lookup_invoice` is allowed. Returning to the page refreshes data.
 Successful promotion payments refresh the same wallet balance and history.
 
-The current send, its attempt protection and the latest receive invoice stay
-in tab storage under the original NWC connection identity. Balance and history
-remain in memory. Closing or disconnecting the panel does not erase uncertain
-payment protection; reconnecting the original connection restores it. A status
-check never sends another payment. A confirmed failure requires a separate
-Send action to retry, while missing status or an invalid proof keeps the
-attempt protected. Blocked storage preserves protection in memory and the Send
-view explains that it cannot survive refresh.
+The current send and latest receive invoice stay in tab storage under the NWC
+connection identity. A shared tab-level registry protects each payment hash
+across connections, promotion payments and the wallet panel. Balance and history
+remain in memory. Closing or disconnecting does not erase uncertain payment
+protection. Reconnect the original connection with `lookup_invoice` to check
+its status, even if `pay_invoice` permission has been removed. A status check
+in the wallet panel never sends another payment. A confirmed failure requires
+a separate Send action to retry; missing status or an invalid proof keeps the
+hash protected. New payment allows a different invoice while unresolved hashes
+stay protected and available for review. Blocked storage preserves protection
+in memory; the Send view explains that it cannot survive refresh.
 
 Wallet and remote signer credentials are stored in `sessionStorage`, never in
 the page URL, `localStorage` or requests to the Holoboard backend. Connection inputs
@@ -212,7 +216,7 @@ ends that consent, even when the same account reconnects. Prepared invoices
 remain available; replacements use ordinary author invoices after consent ends.
 
 Every wallet attempt is stored before sending. A timeout or disconnect leaves
-it uncertain. Retry checks the original NWC wallet first; missing lookup results
+it uncertain. Retry checks the original NWC connection first; missing lookup results
 never imply failure. A reported payment is not sent again, even while the relay
 or author proof verifier is unavailable. Without usable wallet lookup, the payer
 must check their wallet and explicitly allow another attempt. WebLN has the

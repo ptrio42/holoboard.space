@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NWCClient, Nip47GetInfoResponse, Nip47Notification } from "@getalby/sdk/nwc";
 import { incomingHash, paymentHash, preimage, walletInvoice } from "../../tests/helpers/walletFixture";
-import { attachWalletAccount, checkWalletReceive, clearWalletAccount, createWalletReceive, getWalletAccount, loadMoreWalletHistory, prepareWalletSend, refreshWalletAccount, resetWalletSend, setWalletHistoryFilter, submitWalletSend } from "./walletAccount";
-import { PaymentRejected, type PaymentWallet } from "./walletPayment";
+import { sha256Hex } from "./walletInvoice";
+import type { PaymentWallet } from "./walletPayment";
+let { attachWalletAccount, checkWalletReceive, clearWalletAccount, createWalletReceive, getWalletAccount, loadMoreWalletHistory, prepareWalletSend, refreshWalletAccount, resetWalletSend, reviewWalletSendAttempt, setWalletHistoryFilter, submitWalletSend } = await import("./walletAccount");
+let { PaymentRejected, payInvoiceSafely } = await import("./walletPayment");
 
 let storage: Map<string, string>;
 const balance = vi.fn(), history = vi.fn(), budget = vi.fn(), make = vi.fn(), lookup = vi.fn(), send = vi.fn(), paymentLookup = vi.fn(), stop = vi.fn();
@@ -16,12 +18,17 @@ const walletId = `nwc:${fake.walletPubkey}:${fake.publicKey}`;
 const payer: PaymentWallet = { id: walletId, kind: "nwc", enable: async () => {}, sendPayment: send, lookupPayment: paymentLookup };
 const info = (methods: string[], notifications: string[] = []) => ({ methods, notifications }) as Nip47GetInfoResponse;
 const tx = (hash = paymentHash) => ({ type: "outgoing", payment_hash: hash, amount: 21000, state: "settled" });
-beforeEach(() => {
-    vi.clearAllMocks();
+beforeEach(async () => {
+    vi.resetModules();
+    ({ attachWalletAccount, checkWalletReceive, clearWalletAccount, createWalletReceive, getWalletAccount, loadMoreWalletHistory, prepareWalletSend, refreshWalletAccount, resetWalletSend, reviewWalletSendAttempt, setWalletHistoryFilter, submitWalletSend } = await import("./walletAccount"));
+    ({ PaymentRejected, payInvoiceSafely } = await import("./walletPayment"));
+    vi.resetAllMocks();
+    fake.subscribeNotifications = vi.fn(async (callback) => { notify = callback; return stop; });
     storage = new Map();
     vi.stubGlobal("sessionStorage", { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) });
     balance.mockResolvedValue({ balance: 100001 }); history.mockResolvedValue({ transactions: [tx()] });
     budget.mockResolvedValue({ used_budget: 21000, total_budget: 100000, renewal_period: "daily" });
+    lookup.mockResolvedValue({ ...tx(), preimage });
     send.mockResolvedValue({ preimage, feesPaidMsats: 2 }); paymentLookup.mockResolvedValue({ state: "paid", preimage });
 });
 afterEach(() => { clearWalletAccount(); vi.unstubAllGlobals(); });
@@ -91,24 +98,89 @@ describe("wallet sends", () => {
         await prepareWalletSend(walletInvoice(), "");
         send.mockRejectedValueOnce(new Error("Response lost")); await submitWalletSend();
         expect(getWalletAccount().send?.attempt?.state).toBe("uncertain");
-        resetWalletSend(); expect(getWalletAccount().send).not.toBeNull();
+        resetWalletSend(); expect(getWalletAccount().send).toBeNull();
+        reviewWalletSendAttempt(paymentHash);
         clearWalletAccount(); attachWalletAccount(client, info(["pay_invoice", "lookup_invoice"]), { ...payer, id: `nwc:${client.walletPubkey}:${client.publicKey}` });
         await submitWalletSend();
-        expect(paymentLookup).toHaveBeenCalledWith(paymentHash); expect(send).toHaveBeenCalledTimes(1);
+        expect(lookup).toHaveBeenCalledWith({ payment_hash: paymentHash }); expect(send).toHaveBeenCalledTimes(1);
         expect(getWalletAccount().send?.attempt?.state).toBe("submitted");
     });
     it("checks confirmed failure separately from a new send", async () => {
         attach(["pay_invoice", "lookup_invoice"]); await prepareWalletSend(walletInvoice(), "");
         send.mockRejectedValueOnce(new Error("Response lost")); await submitWalletSend();
-        paymentLookup.mockResolvedValueOnce({ state: "unpaid" }); await submitWalletSend();
+        lookup.mockResolvedValueOnce({ ...tx(), state: "failed" }); await submitWalletSend();
         expect(send).toHaveBeenCalledTimes(1); expect(getWalletAccount().send?.attempt?.state).toBe("unpaid");
         await submitWalletSend(); expect(send).toHaveBeenCalledTimes(2);
     });
     it("does not allow missing lookup results or invalid proofs to trigger another charge", async () => {
         attach(["pay_invoice", "lookup_invoice"]); await prepareWalletSend(walletInvoice(), "");
         send.mockResolvedValueOnce({ preimage: "ff".repeat(32) }); await submitWalletSend();
-        paymentLookup.mockResolvedValueOnce({ state: "unknown" }); await submitWalletSend();
+        lookup.mockRejectedValueOnce(new Error("NOT_FOUND")); await submitWalletSend();
         expect(send).toHaveBeenCalledTimes(1); expect(getWalletAccount().send?.attempt?.state).toBe("uncertain");
+    });
+    it("blocks the same uncertain invoice after switching connection and keeps its original identity", async () => {
+        const original = attach(["pay_invoice", "lookup_invoice"]);
+        const originalId = getWalletAccount().id;
+        await prepareWalletSend(walletInvoice(), "");
+        send.mockRejectedValueOnce(new Error("Response lost")); await submitWalletSend();
+        attach(["pay_invoice", "lookup_invoice"]);
+        await prepareWalletSend(walletInvoice(), ""); await submitWalletSend();
+        expect(send).toHaveBeenCalledTimes(1); expect(lookup).not.toHaveBeenCalled();
+        expect(getWalletAccount().send?.attempt).toMatchObject({ state: "uncertain", walletId: originalId });
+        expect(getWalletAccount().actionError).toContain("original wallet connection");
+        clearWalletAccount(); attachWalletAccount(original, info(["lookup_invoice"]));
+        await submitWalletSend();
+        expect(lookup).toHaveBeenCalledOnce(); expect(send).toHaveBeenCalledTimes(1);
+        expect(getWalletAccount().send?.attempt?.state).toBe("submitted");
+    });
+    it("uses promotion attempts when reviewing the same invoice in the wallet panel", async () => {
+        attach(["pay_invoice", "lookup_invoice"]);
+        const promotionWallet = { ...payer, id: getWalletAccount().id };
+        send.mockRejectedValueOnce(new Error("Response lost"));
+        await expect(payInvoiceSafely(promotionWallet, walletInvoice(), paymentHash, undefined, vi.fn())).rejects.toThrow("Response lost");
+        await prepareWalletSend(walletInvoice(), ""); await submitWalletSend();
+        expect(send).toHaveBeenCalledTimes(1); expect(lookup).toHaveBeenCalledOnce();
+        expect(getWalletAccount().send?.attempt?.state).toBe("submitted");
+    });
+    it("uses panel attempts in promotion instead of sending from a second wallet", async () => {
+        attach(["pay_invoice"]); await prepareWalletSend(walletInvoice(), "");
+        send.mockRejectedValueOnce(new Error("Response lost")); await submitWalletSend();
+        await expect(payInvoiceSafely({ ...payer, id: "other-wallet" }, walletInvoice(), paymentHash, undefined, vi.fn())).rejects.toThrow("original wallet");
+        expect(send).toHaveBeenCalledTimes(1); expect(paymentLookup).not.toHaveBeenCalled();
+    });
+    it("checks an uncertain payment with lookup permission and no payer", async () => {
+        const original = attach(["pay_invoice", "lookup_invoice"]);
+        await prepareWalletSend(walletInvoice(), ""); send.mockRejectedValueOnce(new Error("Response lost")); await submitWalletSend();
+        clearWalletAccount(); attachWalletAccount(original, info(["lookup_invoice"]));
+        await submitWalletSend();
+        expect(lookup).toHaveBeenCalledWith({ payment_hash: paymentHash }); expect(send).toHaveBeenCalledTimes(1);
+        expect(getWalletAccount().send?.attempt?.state).toBe("submitted");
+    });
+    it("allows another hash without lookup while retaining protection and a recovery entry", async () => {
+        attach(["pay_invoice"]); await prepareWalletSend(walletInvoice(), "");
+        send.mockRejectedValueOnce(new Error("Response lost")); await submitWalletSend();
+        resetWalletSend(); expect(getWalletAccount().send).toBeNull();
+        expect(getWalletAccount().pendingSends).toHaveLength(1);
+        const otherPreimage = "43".repeat(32);
+        const otherHash = await sha256Hex(new Uint8Array(32).fill(0x43));
+        send.mockResolvedValueOnce({ preimage: otherPreimage });
+        await prepareWalletSend(walletInvoice({ hash: otherHash }), ""); await submitWalletSend();
+        expect(send).toHaveBeenCalledTimes(2); expect(getWalletAccount().send?.attempt?.state).toBe("submitted");
+        await prepareWalletSend(walletInvoice(), "");
+        expect(getWalletAccount().send?.attempt?.state).toBe("uncertain");
+        reviewWalletSendAttempt(paymentHash);
+        expect(getWalletAccount().send?.paymentHash).toBe(paymentHash);
+        expect(lookup).not.toHaveBeenCalled();
+    });
+    it("can reopen an expired unresolved invoice for lookup after starting a different payment", async () => {
+        attach(["pay_invoice", "lookup_invoice"]); await prepareWalletSend(walletInvoice(), "");
+        send.mockRejectedValueOnce(new Error("Response lost")); await submitWalletSend(); resetWalletSend();
+        const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 3601000);
+        try {
+            reviewWalletSendAttempt(paymentHash); await submitWalletSend();
+            expect(getWalletAccount().send?.attempt?.state).toBe("submitted");
+            expect(send).toHaveBeenCalledTimes(1); expect(lookup).toHaveBeenCalledOnce();
+        } finally { now.mockRestore(); }
     });
     it("allows an explicit rejection to be reviewed again", async () => {
         attach(["pay_invoice"]); await prepareWalletSend(walletInvoice(), "");

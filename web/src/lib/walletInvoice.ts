@@ -27,7 +27,7 @@ export function formatSats(msats: number): string {
     return (msats / 1000).toLocaleString("en-US", { maximumFractionDigits: 3 });
 }
 
-export function readWalletInvoice(value: string, amount?: string): WalletInvoice {
+export function readWalletInvoice(value: string, amount?: string, allowExpired = false): WalletInvoice {
     const invoice = normalizePaymentInput(value);
     if (isMockInvoice(invoice)) throw new Error(MOCK_INVOICE_MESSAGE);
     if (!/^lnbc(?:\d+[munp]?)?1/i.test(invoice)) throw new Error("Use a mainnet Lightning invoice or a Lightning Address.");
@@ -43,7 +43,7 @@ export function readWalletInvoice(value: string, amount?: string): WalletInvoice
         throw new Error("The Lightning invoice has invalid payment details.");
     }
     const expiresAt = timestamp + expiry;
-    if (!Number.isSafeInteger(expiresAt) || expiresAt <= Date.now() / 1000) throw new Error("The invoice expired. Request a new one.");
+    if (!Number.isSafeInteger(expiresAt) || (!allowExpired && expiresAt <= Date.now() / 1000)) throw new Error("The invoice expired. Request a new one.");
     return { invoice, paymentHash: hash, amountMsats, amountless, description: String(field("description") ?? ""), descriptionHash: String(field("description_hash") ?? ""), expiresAt, recipient: "" };
 }
 

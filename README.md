@@ -67,8 +67,11 @@ Wallet payment proofs and valid zap receipts confirm author support. Manual
 author payments without a proof can only be marked paid by the payer; check your
 wallet before retrying. Closing the tab clears this local recovery state.
 Wallet connections also stay in the current tab. Connecting never sends a
-payment. A lost wallet response leaves the payment uncertain; NWC checks its
-status before retrying. You can disconnect at any time and use the invoice links.
+payment. A lost wallet response leaves the invoice protected across connections
+and between promotion and the wallet panel. Reconnect the original NWC connection
+to check its status; lookup permission is sufficient. You can prepare a different
+invoice while that payment remains unresolved. Disconnect at any time and use
+the invoice links.
 
 From a Nostr client, you can also mention Holoboard with a promotion command
 and zap its reply, zap the account with the note reference in the comment, or

@@ -20,7 +20,7 @@ async function setup(context: BrowserContext, page: Page, options: { methods?: s
         balance: 100001, charges: 0, attempts: 0, received: false, paid: false,
         methods: [] as string[], historyRequests: [] as Record<string, number | string>[],
         balanceFailure: !!options.balanceFailure, lookupState: "settled", receiveInvoice: "",
-        errors: [] as string[], notify: (type: "payment_received" | "payment_sent") => { void type; },
+        permissions, errors: [] as string[], notify: (type: "payment_received" | "payment_sent") => { void type; },
     };
     const outgoing = { type: "outgoing", state: "settled", payment_hash: paymentHash, amount: 21000, fees_paid: 1001, description: "Fixture outgoing payment", created_at: 1700000000, settled_at: 1700000001, invoice: sentInvoice };
     const incoming = () => ({ type: "incoming", state: state.received ? "settled" : "pending", payment_hash: incomingHash, amount: 42000, description: "Invoice from Holoboard", created_at: Math.floor(Date.now()/1000), expires_at: Math.floor(Date.now()/1000) + 3600, settled_at: state.received ? Math.floor(Date.now()/1000) : 0, invoice: state.receiveInvoice });
@@ -57,7 +57,7 @@ async function setup(context: BrowserContext, page: Page, options: { methods?: s
             if (msg[0] === "CLOSE") { subscriptions.delete(msg[1]); return; }
             if (msg[0] === "REQ") {
                 subscriptions.set(msg[1], msg[2]);
-                if (msg[2].kinds?.includes(13194)) publish(finalizeEvent({ kind: 13194, created_at: Math.floor(Date.now()/1000), tags: [["encryption", "nip44_v2"], ...(options.notifications ? [["notifications", "payment_received payment_sent"]] : [])], content: permissions.join(" ") }, walletKey));
+                if (msg[2].kinds?.includes(13194)) publish(finalizeEvent({ kind: 13194, created_at: Math.floor(Date.now()/1000), tags: [["encryption", "nip44_v2"], ...(options.notifications ? [["notifications", "payment_received payment_sent"]] : [])], content: state.permissions.join(" ") }, walletKey));
                 socket.send(JSON.stringify(["EOSE", msg[1]])); return;
             }
             if (msg[0] !== "EVENT") return;
@@ -68,9 +68,9 @@ async function setup(context: BrowserContext, page: Page, options: { methods?: s
             const key = nip44.getConversationKey(walletKey, event.pubkey);
             const request = JSON.parse(nip44.decrypt(event.content, key));
             state.methods.push(request.method);
-            expect(permissions).toContain(request.method);
+            expect(state.permissions).toContain(request.method);
             let result: unknown, error: unknown = null;
-            if (request.method === "get_info") result = { alias: "Fixture wallet", network: "mainnet", methods: permissions, lud16: "name@recipient.example", notifications: options.notifications ? ["payment_received", "payment_sent"] : [] };
+            if (request.method === "get_info") result = { alias: "Fixture wallet", network: "mainnet", methods: state.permissions, lud16: "name@recipient.example", notifications: options.notifications ? ["payment_received", "payment_sent"] : [] };
             else if (request.method === "get_balance") {
                 if (state.balanceFailure) error = { code: "INTERNAL", message: "Fixture offline" };
                 else result = { balance: state.balance };
@@ -218,6 +218,65 @@ test("a lost response stays protected after refresh and status checking never re
     await page.getByRole("navigation", { name: "Wallet views" }).getByRole("button", { name: "Send", exact: true }).click();
     await page.getByRole("button", { name: "Check payment status", exact: true }).click();
     await expect(page.getByText("Payment confirmed.", { exact: true })).toBeVisible();
+    expect(state.charges).toBe(1); expect(state.errors).toEqual([]);
+});
+
+async function loseSendResponse(page: Page, invoice: string, charges: () => number) {
+    await sendReview(page, invoice); await page.clock.install();
+    await page.getByRole("button", { name: "Send 21 sats" }).click();
+    await expect.poll(charges).toBe(1); await page.clock.fastForward(61000);
+    await expect(page.getByRole("button", { name: "Check payment status", exact: true })).toBeVisible();
+}
+async function reconnect(page: Page, connection = uri) {
+    await page.getByRole("button", { name: "Disconnect wallet", exact: true }).click();
+    await page.getByLabel("NWC connection string").fill(connection);
+    await page.getByRole("button", { name: "Connect NWC wallet", exact: true }).click();
+    await expect(page.getByText("Connected: Fixture wallet.", { exact: false })).toBeVisible();
+    await page.getByRole("navigation", { name: "Wallet views" }).getByRole("button", { name: "Send", exact: true }).click();
+}
+
+test("switching NWC connections preserves the uncertain hash and original connection", async ({ context, page }) => {
+    const { state, sentInvoice } = await setup(context, page, { loseResponse: true });
+    await loseSendResponse(page, sentInvoice, () => state.charges);
+    const replacement = new URL(uri); replacement.searchParams.set("secret", bytesToHex(generateSecretKey()));
+    await reconnect(page, replacement.toString());
+    await page.getByLabel("Invoice or Lightning Address").fill(sentInvoice);
+    await page.getByRole("button", { name: "Review payment" }).click();
+    await expect(page.getByRole("button", { name: "Check payment status", exact: true })).toBeDisabled();
+    await expect(page.getByText("Reconnect that connection to check its status.", { exact: false })).toBeVisible();
+    expect(state.charges).toBe(1); expect(state.methods).not.toContain("lookup_invoice");
+    await reconnect(page);
+    await page.getByRole("button", { name: "Check payment status", exact: true }).click();
+    await expect(page.getByText("Payment confirmed.", { exact: true })).toBeVisible();
+    expect(state.charges).toBe(1); expect(state.errors).toEqual([]);
+});
+
+test("lookup-only reconnection restores and checks an uncertain send without payment permission", async ({ context, page }) => {
+    const { state, sentInvoice } = await setup(context, page, { loseResponse: true });
+    await loseSendResponse(page, sentInvoice, () => state.charges);
+    state.permissions = ["get_info", "lookup_invoice"];
+    await reconnect(page);
+    await expect(page.getByRole("button", { name: "Check payment status", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Check payment status", exact: true }).click();
+    await expect(page.getByText("Payment confirmed.", { exact: true })).toBeVisible();
+    expect(state.charges).toBe(1); expect(state.methods.filter((method) => method === "lookup_invoice")).toHaveLength(1);
+    expect(state.errors).toEqual([]);
+});
+
+test("a connection without lookup can review another invoice and retain the protected one after reload", async ({ context, page }) => {
+    const { state, sentInvoice } = await setup(context, page, { loseResponse: true, methods: ["get_info", "pay_invoice"] });
+    await loseSendResponse(page, sentInvoice, () => state.charges);
+    await expect(page.getByRole("button", { name: "Check payment status", exact: true })).toBeDisabled();
+    await page.getByRole("button", { name: "New payment", exact: true }).click();
+    await expect(page.getByLabel("Unresolved payments")).toBeVisible();
+    await sendReview(page, walletInvoice({ hash: incomingHash }));
+    expect(state.charges).toBe(1);
+    await page.reload();
+    await page.getByRole("navigation", { name: "Connections and help" }).getByRole("button", { name: /^Wallet/ }).click();
+    await expect(page.getByText("Connected: Fixture wallet.", { exact: false })).toBeVisible();
+    await page.getByRole("navigation", { name: "Wallet views" }).getByRole("button", { name: "Send", exact: true }).click();
+    await page.getByRole("button", { name: "Review unresolved payment", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Check payment status", exact: true })).toBeDisabled();
     expect(state.charges).toBe(1); expect(state.errors).toEqual([]);
 });
 

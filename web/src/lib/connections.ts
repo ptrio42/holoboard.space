@@ -6,6 +6,7 @@ import type { NWCClient } from "@getalby/sdk/nwc";
 import { PUBLIC_RELAYS } from "../config";
 import { PaymentRejected, withTimeout, type PaymentWallet } from "./walletPayment";
 import { attachWalletAccount, clearWalletAccount, refreshWalletAccount } from "./walletAccount";
+import { lookupWalletPayment } from "./walletLookup";
 
 export interface ConnectedSigner {
     getPublicKey(): Promise<string>;
@@ -99,14 +100,7 @@ export async function connectWallet(input: string) {
                     throw new Error("The wallet did not confirm the payment. Check its history before retrying.");
                 }
             },
-            ...(info.methods.includes("lookup_invoice") ? { lookupPayment: async (paymentHash: string) => {
-                try {
-                    const transaction = await withTimeout(client.lookupInvoice({ payment_hash: paymentHash }), 12000, "Could not check the wallet payment status.");
-                    if (transaction.payment_hash !== paymentHash || transaction.type === "incoming") return { state: "unknown" as const };
-                    if (transaction.state === "settled" || transaction.settled_at > 0) return { state: "paid" as const, preimage: transaction.preimage };
-                    return { state: transaction.state === "failed" ? "unpaid" as const : "pending" as const };
-                } catch { return { state: "unknown" as const }; }
-            } } : {}),
+            ...(info.methods.includes("lookup_invoice") ? { lookupPayment: (paymentHash: string) => lookupWalletPayment(client, paymentHash) } : {}),
         } : undefined;
         attachWalletAccount(client, info, paymentWallet, new URL(uri).searchParams.get("lud16") ?? "");
         update({ walletStatus: "connected", walletName: typeof info.alias === "string" && info.alias ? info.alias : "NWC wallet" });
