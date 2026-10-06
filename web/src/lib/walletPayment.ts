@@ -1,12 +1,12 @@
 import { isMockInvoice, MOCK_INVOICE_MESSAGE } from "./invoice";
 
-export interface WalletProof { preimage?: string }
+export interface WalletProof { preimage?: string; feesPaidMsats?: number }
 export interface WalletLookup extends WalletProof { state: "paid" | "unpaid" | "pending" | "unknown" }
 export interface PaymentWallet {
     id: string;
     kind: "nwc" | "webln";
     enable(): Promise<void>;
-    sendPayment(invoice: string): Promise<WalletProof>;
+    sendPayment(invoice: string, amountMsats?: number): Promise<WalletProof>;
     lookupPayment?(paymentHash: string): Promise<WalletLookup>;
 }
 export interface WalletAttempt extends WalletProof {

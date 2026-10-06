@@ -577,6 +577,15 @@ body::after {
     letter-spacing: 0.025em;
 }
 
+.wallet-tab .pixel-btn__face {
+    padding: 0.75rem 0.25rem;
+    font-size: 10px;
+}
+
+.promotion-typography h2.font-pixel {
+    font-size: 12px;
+}
+
 .promotion-typography input:not([type="checkbox"]):not([type="range"]),
 .promotion-typography select,
 .promotion-typography textarea {

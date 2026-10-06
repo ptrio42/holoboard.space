@@ -55,8 +55,16 @@ describe("optional wallet connections", () => {
         await connectWallet("invalid");
         expect(mock.info).not.toHaveBeenCalled();
     });
-    it("declines receiving-only and testnet connections", async () => {
-        for (const info of [{ methods: ["make_invoice"], network: "mainnet" }, { methods: ["pay_invoice"], network: "testnet" }]) {
+    it("accepts receiving-only and read-only connections without a payer", async () => {
+        for (const info of [{ methods: ["make_invoice"], network: "mainnet" }, { methods: ["get_balance"], network: "mainnet" }]) {
+            mock.info.mockResolvedValueOnce(info);
+            await connectWallet(uri);
+            expect(getConnections().walletStatus).toBe("connected");
+            expect(getPaymentWallet()).toBeUndefined();
+        }
+    });
+    it("declines testnet connections", async () => {
+        for (const info of [{ methods: ["pay_invoice"], network: "testnet" }]) {
             mock.info.mockResolvedValueOnce(info);
             await connectWallet(uri);
             expect(getConnections().walletStatus).toBe("disconnected");

@@ -148,12 +148,52 @@ Invoice links, copying and QR codes stay available without connecting anything.
 The payer's [NWC connection](https://github.com/nostr-protocol/nips/blob/master/47.md)
 uses the [Alby SDK](https://github.com/getAlby/js-sdk) and is separate from the
 relay's receiving wallet. Use an application-specific mainnet connection with
-`get_info`, `pay_invoice` and preferably `lookup_invoice` permissions. The SDK
+`get_info` and the permissions needed by the selected wallet features. Sending
+requires `pay_invoice`, balance requires `get_balance`, receiving requires
+`make_invoice`, and payment checks use `lookup_invoice`. Read-only and
+receiving-only connections are accepted. The SDK
 negotiates NIP-44, with NIP-04 compatibility for older wallets.
+
+The wallet panel provides balance, Send, Receive, history and connection
+permissions. Its history uses optional
+[`list_transactions`](https://github.com/nostr-wallet-connect/nwc/blob/main/05.md)
+with incoming/outgoing filters and pagination. An advertised `get_budget`
+method shows the remaining connection budget separately from wallet balance.
+Missing permissions never appear as zero balance or empty history. Failed
+refreshes preserve previous data with an explicit stale-data message.
+
+Send decodes mainnet BOLT11 invoices with
+[`light-bolt11-decoder`](https://github.com/fiatjaf/light-bolt11-decoder), including
+amountless invoices with an explicit amount. The wallet validates invoice
+signatures before paying. A Lightning Address resolves directly through
+[LUD-16](https://github.com/lnurl/luds/blob/luds/16.md) and
+[LUD-06](https://github.com/lnurl/luds/blob/luds/06.md), without a proxy. Review
+checks amount and metadata commitment before explicit payment confirmation;
+address providers must support browser CORS requests. Camera and image QR
+reading use `jsqr`, loaded on demand. Camera tracks stop when scanning ends or
+the panel closes. Payment proofs are checked using Web Crypto SHA-256.
+
+Invoice QR codes use uppercase alphanumeric encoding to reduce density.
+Receive requests a one-hour invoice with amount, optional description, QR,
+copy, share and wallet link actions. Optional
+[NWC notifications](https://github.com/nostr-wallet-connect/nwc/blob/main/02.md)
+refresh wallet data and confirm incoming invoices. While the panel is visible,
+data also refreshes every 20 seconds and incoming status is checked every five
+seconds when `lookup_invoice` is allowed. Returning to the page refreshes data.
+Successful promotion payments refresh the same wallet balance and history.
+
+The current send, its attempt protection and the latest receive invoice stay
+in tab storage under the original NWC connection identity. Balance and history
+remain in memory. Closing or disconnecting the panel does not erase uncertain
+payment protection; reconnecting the original connection restores it. A status
+check never sends another payment. A confirmed failure requires a separate
+Send action to retry, while missing status or an invalid proof keeps the
+attempt protected. Blocked storage preserves protection in memory and the Send
+view explains that it cannot survive refresh.
 
 Wallet and remote signer credentials are stored in `sessionStorage`, never in
 the page URL, `localStorage` or requests to the Holoboard backend. Connection inputs
-are masked and cleared after submission. Disconnect deletes the local session;
+are masked and cleared after submission. Disconnect deletes those credentials;
 revoke permissions in the wallet or signer to invalidate it there too. Tab
 storage is accessible to scripts on this origin, so app-specific wallet spending
 limits still matter. If storage is unavailable, connections work in memory.

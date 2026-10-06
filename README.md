@@ -53,6 +53,11 @@ payment available. Other wallets can open, copy or scan each invoice. No login
 or Nostr signer is needed for ordinary payments. **Wallet** and **Connect Nostr**
 are available in the app header and inside the promotion. They connect your NWC
 wallet, browser signer extension, or Amber and other remote signers.
+The NWC wallet panel shows balance, Send, Receive and payment history when the
+connection grants access. Send accepts a Lightning invoice, a QR code or a
+Lightning Address and asks for confirmation after review. Receive creates an
+invoice to copy, share or scan. Read-only and receiving-only connections work;
+unavailable permissions are explained in the panel.
 An optional signer lets author support use a public zap. That choice ends when
 the signer changes or reconnects, the form reopens, or the page refreshes.
 Existing invoices remain available; replacing one then uses ordinary author

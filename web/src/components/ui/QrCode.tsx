@@ -27,7 +27,8 @@ export function QrCode({ value, size = 220, label }: QrCodeProps) {
                 const qr = qrcode(0, "M");
                 // Bolt11 is case-insensitive, and uppercase lets the encoder use
                 // alphanumeric mode, which cuts the module count noticeably.
-                qr.addData(/^ln(?:bc|tb|bcrt)/i.test(value) ? value.toUpperCase() : value);
+                const invoice = /^ln(?:bc|tb|bcrt)[0-9a-z]+$/i.test(value);
+                qr.addData(invoice ? value.toUpperCase() : value, invoice ? "Alphanumeric" : "Byte");
                 qr.make();
                 const count = qr.getModuleCount();
                 setMatrix(
