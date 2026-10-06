@@ -3,6 +3,15 @@ import { checkProgress, fetchNotePreview, requestInvoice } from "./promote";
 
 afterEach(() => vi.unstubAllGlobals());
 
+describe("mock promotion invoices", () => {
+    it.each(["lnbc21...mock_invoice", "LNBC210...MOCK_INVOICE"])("rejects the backend placeholder %s before offering payment", async (invoice) => {
+        vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+            invoice, payment_hash: "hash", amount_sats: 21,
+        }), { status: 200 })));
+        await expect(requestInvoice("note", 21)).rejects.toThrow("test invoices");
+    });
+});
+
 describe("preview author allocation", () => {
     it.each([
         { active: false, sats_paid: 0, expected: 20 },

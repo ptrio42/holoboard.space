@@ -10,6 +10,7 @@ import { parseBillboard, type BillboardConfig } from "./billboard";
  */
 
 import { RELAY_HTTP } from "../config";
+import { isMockInvoice, MOCK_INVOICE_MESSAGE } from "./invoice";
 
 export interface PromoteInvoice {
     invoice: string;
@@ -93,6 +94,7 @@ export async function requestInvoice(
     if (!isObject(body) || typeof body.invoice !== "string" || typeof body.payment_hash !== "string") {
         throw new Error("the relay sent something unexpected");
     }
+    if (isMockInvoice(body.invoice)) throw new Error(MOCK_INVOICE_MESSAGE);
 
     return {
         invoice: body.invoice,

@@ -115,7 +115,8 @@ limit of 160 characters.
 Slides use up to three fragments and change every three seconds. Animations
 pause on hover or tap and respect reduced-motion settings.
 Images also come from that note. Links and quoted-note previews stay visible
-below it. **Full note** opens the original content.
+below it. **Original** reveals the full text and any remaining attachments.
+**Open** opens a note in a Nostr viewer.
 
 Appearance costs an **introductory 100 sats**, deliberately low and subject to
 an increase. This fee is separate from the promotion amount and adds no ranking
@@ -148,7 +149,8 @@ docker compose up --build -d --wait
 ```
 
 Open http://localhost:8080. The default mock backend creates fake invoices that
-cannot be paid. Keep `.env` private and reuse the keys after updates.
+cannot be paid; the frontend reports test mode instead of offering them to a
+wallet. Keep `.env` private and reuse the keys after updates.
 
 The [self-hosting guide](docs/self-hosting.md) covers real payments, backups,
 updates, troubleshooting and public hosting.

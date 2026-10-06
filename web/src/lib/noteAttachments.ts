@@ -94,5 +94,5 @@ export function quotePreviewContent(content: string, limit = 220): string {
         break;
     }
     const preview = output.join("").replace(/\s+/g, " ").trim();
-    return `${preview || "Open quoted note"}${truncated ? "…" : ""}`;
+    return `${preview || "No text preview"}${truncated ? "…" : ""}`;
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { NDKEvent } from "@nostr-dev-kit/ndk";
 import { BoardRow } from "../components/BoardRow/BoardRow";
 import { PromoteModal, RANKING_SECTION } from "../components/PromoteModal/PromoteModal";
+import { ConnectionControls } from "../components/PromoteModal/ConnectionControls";
 import { PixelButton } from "../components/ui/PixelButton";
 import { PixelPanel } from "../components/ui/PixelPanel";
 import { fetchCampaigns, type CampaignPage, type CampaignView } from "../lib/campaigns";
@@ -52,26 +53,24 @@ export default function Billboard() {
     };
     return <div className="mx-auto min-h-dvh w-full max-w-5xl px-4 pt-6 pb-20 sm:px-6">
         <a href="#board" className="skip-link pixel-frame focus-pixel border-2 border-neon-gold bg-void px-4 py-2 font-pixel text-[10px] text-neon-gold">Skip to notes</a>
-        <header className="mb-4">
-            <div className="grid grid-cols-1 justify-items-center gap-y-2 text-center md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:justify-items-start md:gap-x-6 md:gap-y-3 md:text-left">
+        <header className="mb-6">
+            <div className="grid grid-cols-1 justify-items-center gap-y-4 text-center md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:justify-items-start md:gap-x-6 md:text-left">
                 <h1 className="font-pixel text-xl leading-tight tracking-widest text-neon-pink [text-shadow:0_0_18px_rgba(236,72,153,0.55)] md:text-2xl">HOLOBOARD</h1>
-                <p className="max-w-xl text-xs leading-relaxed text-cyan-200/70 sm:text-sm md:col-span-2">{waiting ? "Paid notes below the top 21. Boost a note to move it up." : "Top 21 paid notes. Recent boosts carry more weight."}</p>
-                <PixelButton variant="accent" className="md:col-start-2 md:row-start-1 md:justify-self-end" onClick={() => { setPromotion(null); setOpen(true); }}>Promote a note</PixelButton>
+                <ConnectionControls className="justify-center md:justify-end md:justify-self-end" />
             </div>
-            <div className="mt-2 space-y-1 text-center md:text-left">
+            <div className="mt-5 flex flex-col-reverse items-center gap-5 md:flex-row md:justify-between">
                 <nav aria-label="Board sections" className="flex flex-wrap justify-center gap-x-4 font-pixel text-[10px] text-cyan-200/80 md:justify-start">
                     <a href="/" aria-current={!waiting ? "page" : undefined} className={`focus-pixel inline-flex min-h-11 items-center border-b-2 ${!waiting ? "border-neon-gold text-neon-gold" : "border-transparent hover:text-neon-cyan"}`}>Top 21</a>
                     <a href="/waiting" aria-current={waiting ? "page" : undefined} className={`focus-pixel inline-flex min-h-11 items-center border-b-2 ${waiting ? "border-neon-gold text-neon-gold" : "border-transparent hover:text-neon-cyan"}`}>Waiting room</a>
                     <a href="/expired" className="focus-pixel inline-flex min-h-11 items-center border-b-2 border-transparent hover:text-neon-cyan">Expired</a>
                 </nav>
-                {waiting && <div className="flex flex-col gap-1 md:flex-row md:flex-wrap md:items-center md:gap-x-4">
-                    <div role="group" aria-label="Waiting room sort" aria-describedby="waiting-room-sort-description" className="board-sort flex flex-wrap items-center justify-center gap-2 md:justify-start">
-                        <span className="mr-1 text-xs text-cyan-200/70">Sort</span>
-                        {(["top", "new", "hot"] as const).map((sort) => <PixelButton key={sort} size="sm" variant="ghost" aria-pressed={view === sort} onClick={() => chooseView(sort)}>{sort === "top" ? "Rank" : sort === "new" ? "New" : "Hot"}</PixelButton>)}
-                    </div>
-                    <p id="waiting-room-sort-description" className="text-xs text-cyan-100/60">{view === "top" ? "By ranking weight · positions 22+" : view === "new" ? "By first promotion. Boosts do not reset the order." : "By visibility sats in the last 24 hours."}</p>
-                </div>}
+                <PixelButton variant="accent" onClick={() => { setPromotion(null); setOpen(true); }}>Promote a note</PixelButton>
             </div>
+            {waiting && <div role="group" aria-label="Waiting room sort" className="board-sort mt-4 flex flex-wrap items-center justify-center gap-2 md:justify-start">
+                <span className="mr-1 hidden text-xs text-cyan-200/70 min-[360px]:inline">Sort</span>
+                {(["top", "new", "hot"] as const).map((sort) => <PixelButton key={sort} size="sm" variant="ghost" aria-pressed={view === sort} onClick={() => chooseView(sort)}>{sort === "top" ? "Rank" : sort === "new" ? "New" : "Hot"}</PixelButton>)}
+                <button type="button" aria-label="How sorting works" className="focus-pixel inline-flex min-h-11 min-w-11 items-center justify-center font-pixel text-[10px] text-cyan-200/70 hover:text-neon-cyan" onClick={() => { setPromotion(null); setLinkedSection(RANKING_SECTION); setOpen(true); }}>?</button>
+            </div>}
         </header>
         <main id="board" tabIndex={-1} aria-busy={loading}>
             {error && <div role="alert" className="mb-5 space-y-3 border-2 border-neon-pink/40 p-4 text-xs text-neon-pink"><p>{error}</p><PixelButton size="sm" variant="ghost" onClick={refresh}>Try again</PixelButton></div>}

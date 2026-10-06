@@ -8,6 +8,8 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Detect mock invoices before offering payment or contacting a wallet, and
+  ignore saved visibility-only test invoices when reopening the form.
 - Close wallet and profile relay connections safely, preventing a shutdown
   race that could stop the backend.
 - Preserve original-note relay hints when settling promotion zaps, including
@@ -42,9 +44,13 @@ record deployment, not announcement publication.
 
 ### Changed
 
-- Compact the board header and group section navigation with readable Rank,
-  New and Hot sorting controls. Gold marks the selected section and sort;
-  selecting the current sort keeps the visible notes in place.
+- Group note controls in a compact footer, with pixel styling, notched Boost
+  buttons and short Open links for notes and quotes. Move reply context beside
+  the author and expand quoted previews without cutting through their controls.
+- Group wallet, Nostr and help controls with the board heading in a consistent
+  pixel style. Give section navigation and Rank, New and Hot sorting more space,
+  with explanations available through contextual help. Gold marks the selected
+  section and sort; selecting the current sort keeps the visible notes in place.
 - New campaigns default to visibility only when the author's signed profile
   has no Lightning payment address. Temporary outages preserve the chosen split.
 - Campaigns created before zap splits default to visibility-only boosts.
@@ -53,6 +59,8 @@ record deployment, not announcement publication.
 - Boost opens a compact note and amount picker with its saved allocation.
   Promotion tools and contextual help open separate panels without clearing
   choices; the action stays visible on phones. Author shares use a slider.
+  Controls and short labels use consistent pixel typography, with readable
+  monospace content, payment amounts and input values.
 - Wallet and Nostr connections are available throughout the app. A connected
   wallet can prepare and pay recipient invoices after one explicit confirmation,
   while invoice links, copying and QR remain available without a connection.

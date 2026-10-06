@@ -14,19 +14,19 @@ export function PromotionAmountPicker({ amount, currentWeight = 0, max = 1000000
     const [selectedRank, setSelectedRank] = useState<number | null>(null);
     const targetButton = (target: RankingTarget) => {
         const needed = totalForPromotion(amountToPassWeight(target.weight, currentWeight));
-        return <button type="button" key={target.rank} className="focus-pixel min-h-11 text-left text-sm text-neon-cyan disabled:opacity-40"
+        return <button type="button" key={target.rank} className="promotion-action focus-pixel min-h-11 text-left text-neon-cyan disabled:opacity-40"
             aria-pressed={selectedRank === target.rank && amount === needed} aria-label={`Reach rank ${target.rank}, estimated total ${needed} sats`}
             disabled={disabled || needed > max} onClick={() => { setSelectedRank(target.rank); onChange(needed); }}>
-            {target.rank === 21 ? "Top 21" : `#${target.rank}`} <span className="text-cyan-200/70">~{formatSats(needed)} sats</span>
+            {target.rank === 21 ? "Top 21" : `#${target.rank}`} <span className="font-body text-sm tracking-normal text-cyan-200/70">~{formatSats(needed)} sats</span>
         </button>;
     };
     return <fieldset className="min-w-0 space-y-2" disabled={disabled}>
-        <legend className="mb-2 font-pixel text-[10px] text-cyan-200/70">Amount in sats</legend>
-        <div className="grid grid-cols-5 gap-2">
+        <legend className="promotion-label mb-2 text-cyan-200/70">Amount in sats</legend>
+        <div className="grid grid-cols-4 gap-2 min-[360px]:grid-cols-5">
             {ZAP_PRESETS.map((preset) => <PixelButton key={preset} size="sm" className="amount-preset min-h-11"
                 variant={selectedRank === null && amount === preset ? "accent" : "ghost"}
                 aria-pressed={selectedRank === null && amount === preset} onClick={() => { setSelectedRank(null); setCustomOpen(false); onChange(preset); }}>{formatSats(preset)}</PixelButton>)}
-            <button type="button" className="focus-pixel min-h-11 text-xs text-cyan-200/75" aria-expanded={customOpen} onClick={() => setCustomOpen(!customOpen)}>Custom</button>
+            <button type="button" className="promotion-action focus-pixel col-span-4 min-h-11 text-cyan-200/75 min-[360px]:col-span-1" aria-expanded={customOpen} onClick={() => setCustomOpen(!customOpen)}>Custom</button>
         </div>
         {customOpen && <label className="flex items-center gap-3 text-sm text-cyan-200/70">
             <input aria-label="Custom total in sats" type="number" min={1} max={max} step={1} value={amount}

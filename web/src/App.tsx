@@ -8,7 +8,7 @@ import { ConnectionControls } from "./components/PromoteModal/ConnectionControls
 function App() {
   return <React.Fragment>
     <NDKHeadless />
-    <ConnectionControls />
+    {(window.location.pathname === "/help" || window.location.pathname === "/expired") && <ConnectionControls />}
     {window.location.pathname === "/help" ? <Help /> : window.location.pathname === "/expired" ? <Expired /> : <Billboard />}
   </React.Fragment>
 }

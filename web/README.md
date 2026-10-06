@@ -22,6 +22,11 @@ To use a local HTTP backend while keeping external Nostr relays, set
 promotion and author-support HTTP requests then use the local backend.
 Leave `VITE_SATS_ENDPOINT` empty so the ledger follows that backend too.
 Use a separate data file and a mock Lightning backend for local previews.
+Mock invoices cannot be paid; the form reports test mode before sending any
+wallet payment. To test real payments, configure the local backend's receiving
+wallet using the [self-hosting guide](../docs/self-hosting.md#connect-a-wallet-for-real-payments).
+The browser's NWC connection is a separate payer connection. Prepare a new
+invoice after switching the backend; existing mock placeholders remain invalid.
 
 ## Check changes
 
@@ -208,6 +213,10 @@ Use the pixel font for headings, controls and ranks; note bodies use a system
 monospace font. Promotion amounts use a compact picker, while original-note text
 and editor panel explanations use a readable body size. The modal scrolls its
 body independently of the action footer, including on small phone screens.
+Promotion actions and short labels share a 10px pixel style; panel headings use
+12px. Note content, status messages and payment totals use 14px monospace text,
+helper text uses 12px, and editable values use 16px. Connection controls use the
+same action style in the app header and promotion panels.
 Card frames show rank: gold, cyan and pink for the top three, then dim cyan.
 Paid billboard text has its own selected color inside that frame.
 

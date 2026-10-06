@@ -19,7 +19,7 @@ const boardPreimage = "b".repeat(64), authorPreimage = "c".repeat(64);
 const hash = (preimage: string) => createHash("sha256").update(Buffer.from(preimage, "hex")).digest("hex");
 const boardHash = hash(boardPreimage), authorHash = hash(authorPreimage);
 const walletUri = `nostr+walletconnect://${walletPubkey}?relay=ws%3A%2F%2F127.0.0.1%3A3334&secret=${bytesToHex(clientKey)}`;
-type Options = { noteContent?: string; rank?: number; targets?: { rank: number; weight: number }[]; authorMinSats?: number; authorShare?: number; newCampaign?: boolean; authorUnavailable?: "no_address" | "unavailable"; blockStorage?: boolean; encryption?: "nip44_v2" | "nip04"; failAuthor?: boolean; loseAuthorResponse?: boolean; failAuthorInvoice?: boolean; extension?: boolean; deferSigner?: boolean; authorExpiresIn?: number; boardExpiresIn?: number; webln?: boolean; lookupState?: "pending" | "unknown" };
+type Options = { mockInvoice?: boolean; noteContent?: string; rank?: number; targets?: { rank: number; weight: number }[]; authorMinSats?: number; authorShare?: number; newCampaign?: boolean; authorUnavailable?: "no_address" | "unavailable"; blockStorage?: boolean; encryption?: "nip44_v2" | "nip04"; failAuthor?: boolean; loseAuthorResponse?: boolean; failAuthorInvoice?: boolean; extension?: boolean; deferSigner?: boolean; authorExpiresIn?: number; boardExpiresIn?: number; webln?: boolean; lookupState?: "pending" | "unknown" };
 
 async function setup(context: BrowserContext, page: Page, options: Options = {}) {
     const appOrigin = new URL(test.info().project.use.baseURL!).origin;
@@ -51,7 +51,7 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
             }
         } else if (url.pathname === "/api/promote") {
             state.boardRequests.push(body);
-            data = { invoice: "lnbc-visibility", payment_hash: boardHash, amount_sats: body.amount_sats + (body.billboard ? 100 : 0), promotion_sats: body.amount_sats, note_id: promotedNote.id, expires_at: Math.floor(Date.now()/1000)+(options.boardExpiresIn ?? 3600), billboard_fee_sats: body.billboard ? 100 : 0 };
+            data = { invoice: options.mockInvoice ? `lnbc${body.amount_sats}...mock_invoice` : "lnbc-visibility", payment_hash: boardHash, amount_sats: body.amount_sats + (body.billboard ? 100 : 0), promotion_sats: body.amount_sats, note_id: promotedNote.id, expires_at: Math.floor(Date.now()/1000)+(options.boardExpiresIn ?? 3600), billboard_fee_sats: body.billboard ? 100 : 0 };
         } else if (url.pathname === "/api/promote/status") data = { pending: !state.boardPaid, settled: state.boardPaid, sats_paid: 210, ...(state.boardPaid ? { receipt: { promotion_sats: state.boardRequests.at(-1)?.amount_sats, fee_converted: false, billboard_applied: false } } : {}) };
         else if (url.pathname === "/api/support/verify") { expect(body.preimage).toBe(authorPreimage); data = { verified: true }; }
         else throw new Error(`Unexpected payment test request: ${url.pathname}`);
@@ -205,6 +205,67 @@ async function disconnectTestSigner(page: Page) {
     await button.click();
     await backToForm(page);
 }
+
+test("mock invoices are explained without sending NWC payments or lookup requests", async ({ context, page }) => {
+    const state = await setup(context, page, { mockInvoice: true, authorShare: 20 });
+    await connectNwc(page);
+    await backToForm(page);
+    await page.getByRole("button", { name: "Pay & Boost 210 sats", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("This preview uses test invoices");
+    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Copy invoice", exact: true })).toHaveCount(0);
+    expect(state.boardRequests).toHaveLength(1);
+    expect(state.methods).not.toContain("pay_invoice");
+    expect(state.methods).not.toContain("lookup_invoice");
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0);
+});
+
+test("reopening ignores a saved visibility-only mock invoice with a failed wallet attempt", async ({ context, page }) => {
+    const state = await setup(context, page, { authorShare: 0 });
+    await prepareInvoices(page);
+    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toBeVisible();
+    await page.evaluate(() => {
+        const key = sessionStorage.getItem("holoboard-last-payment")!;
+        const payment = JSON.parse(sessionStorage.getItem(key)!);
+        payment.board.invoice = "lnbc210...mock_invoice";
+        payment.boardAttempt = { state: "uncertain", walletId: "old-wallet" };
+        sessionStorage.setItem(key, JSON.stringify(payment));
+    });
+    await page.reload();
+    await page.getByRole("button", { name: "Boost", exact: true }).first().click();
+    await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
+    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveCount(0);
+    await prepareInvoices(page);
+    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", "lightning:lnbc-visibility");
+    expect(state.boardRequests).toHaveLength(2);
+    expect(state.boardCharges).toBe(0);
+});
+
+test("a saved mock visibility invoice preserves an uncertain real author payment", async ({ context, page }) => {
+    const state = await setup(context, page);
+    await connectNwc(page);
+    await prepareInvoices(page);
+    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveCount(2);
+    await page.evaluate(() => {
+        const key = sessionStorage.getItem("holoboard-last-payment")!;
+        const payment = JSON.parse(sessionStorage.getItem(key)!);
+        payment.board.invoice = "lnbc168...mock_invoice";
+        payment.boardAttempt = { state: "uncertain", walletId: "old-wallet" };
+        payment.authorAttempt = { state: "uncertain", walletId: "old-wallet" };
+        sessionStorage.setItem(key, JSON.stringify(payment));
+    });
+    await page.reload();
+    await page.getByRole("button", { name: "Boost", exact: true }).first().click();
+    await expect(page.getByRole("alert")).toContainText("The saved author invoice is separate");
+    await expect(page.getByRole("button", { name: "Pay remaining parts with NWC wallet", exact: true })).toBeDisabled();
+    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", "lightning:lnbc-author");
+    await expect(page.getByText("The author payment status is uncertain.", { exact: false })).toBeVisible();
+    expect((await savedPayment(page)).authorAttempt?.state).toBe("uncertain");
+    expect(state.boardRequests).toHaveLength(1);
+    expect(state.methods).not.toContain("pay_invoice");
+    expect(state.methods).not.toContain("lookup_invoice");
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0);
+});
 
 test("blocked browser storage preserves anonymous invoices when the form reopens", async ({ context, page }) => {
     const state = await setup(context, page, { blockStorage: true, authorShare: 0 });
