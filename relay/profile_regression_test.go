@@ -123,6 +123,33 @@ func TestRecipientProfileComparesAuthorWriteRelays(t *testing.T) {
 	}
 }
 
+func TestRecipientProfileUsesDiscoveryWithoutRelayList(t *testing.T) {
+	index := startTestRelay(t)
+	previous := discoveryRelays
+	discoveryRelays = []string{index}
+	t.Cleanup(func() { discoveryRelays = previous })
+	key := nostr.GeneratePrivateKey()
+	profile := &nostr.Event{Kind: 0, CreatedAt: nostr.Now(), Tags: nostr.Tags{}, Content: `{"lud16":"author@wallet.example"}`}
+	if err := profile.Sign(key); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	connection, err := nostr.RelayConnect(ctx, index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = connection.Publish(ctx, *profile)
+	connection.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, source := findRecipientProfile(ctx, profile.PubKey, nil)
+	if selected == nil || selected.ID != profile.ID || source != index {
+		t.Fatalf("discovery profile not found without a relay list: %+v, %q", selected, source)
+	}
+}
+
 func TestRecipientProfileUnavailableRelaysRespectDeadline(t *testing.T) {
 	previous := discoveryRelays
 	discoveryRelays = nil

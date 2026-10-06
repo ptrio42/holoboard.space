@@ -19,6 +19,28 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
+func TestAuthorSupportPreservesHintsInNoteLinks(t *testing.T) {
+	a, note, _ := supportFixture(t)
+	lookup := a.profile
+	seen := false
+	a.profile = func(ctx context.Context, author string, hints []string) (*nostr.Event, error) {
+		seen = len(hints) == 1 && hints[0] == "wss://author.example"
+		return lookup(ctx, author, hints)
+	}
+	reference, err := nip19.EncodeEvent(note.ID, []string{"wss://author.example"}, note.PubKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := supportPost(t, a.Handler(), "/api/support", map[string]string{"note": "https://njump.me/" + reference})
+	var endpoint authorEndpoint
+	if err := json.Unmarshal(response.Body.Bytes(), &endpoint); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != 200 || !endpoint.Available || !seen {
+		t.Fatalf("note link lost author profile hints: %d %s, hints seen=%v", response.Code, response.Body.String(), seen)
+	}
+}
+
 func TestAuthorReceiptUsesIssuedProviderAfterChangeAndRestart(t *testing.T) {
 	a, note, provider := supportFixture(t)
 	request := &nostr.Event{Kind: 9734, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"p", note.PubKey}, {"e", note.ID}, {"amount", "21000"}, {"relays", "wss://relay.example"}}}

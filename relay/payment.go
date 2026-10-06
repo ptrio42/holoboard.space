@@ -451,9 +451,8 @@ func (pf *PostFetcher) FetchPost(ctx context.Context, postID string) (*nostr.Eve
 // in turn meant one slow relay could spend the whole budget before the others
 // were tried, so a note that was findable still was not found.
 //
-// When the hints and the configured relays both come up empty and an author is
-// known, their own write relays are the last place worth asking: that is where
-// they publish, whatever anybody else happens to carry.
+// Discover the author's write relays in parallel, so an unresponsive candidate
+// cannot consume the request deadline before the outbox is queried.
 func (pf *PostFetcher) FetchPostFrom(ctx context.Context, postID string, hints []string, author string) (*nostr.Event, error) {
 	event, _, err := pf.FetchPostFromWithRelay(ctx, postID, hints, author)
 	return event, err
@@ -467,16 +466,50 @@ func (pf *PostFetcher) FetchPostFromWithRelay(ctx context.Context, postID string
 		return nil, "", fmt.Errorf("no relays configured for fetching")
 	}
 
-	if event, relay := queryAll(ctx, candidates, postID); event != nil {
-		return event, relay, nil
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	type result struct {
+		event *nostr.Event
+		relay string
 	}
-
+	found := make(chan result, 2)
+	go func() {
+		event, relay := queryAll(ctx, candidates, postID)
+		found <- result{event, relay}
+	}()
+	lookups := 1
 	if author != "" {
-		if writeRelays := authorWriteRelays(ctx, author, candidates); len(writeRelays) > 0 {
-			log.Printf("Looking for %s on %s's own relays", short(postID, 8), short(author, 8))
-			if event, relay := queryAll(ctx, writeRelays, postID); event != nil {
-				return event, relay, nil
+		lookups++
+		go func() {
+			discoveryCtx, stop := context.WithTimeout(ctx, 2*time.Second)
+			writes := authorWriteRelays(discoveryCtx, author, candidates)
+			stop()
+			// Candidates are already being queried by the first lookup.
+			var additional []string
+			for _, write := range dedupe(writes) {
+				duplicate := false
+				for _, candidate := range candidates {
+					if nostr.NormalizeURL(write) == nostr.NormalizeURL(candidate) {
+						duplicate = true
+						break
+					}
+				}
+				if !duplicate {
+					additional = append(additional, write)
+				}
 			}
+			event, relay := queryAll(ctx, additional, postID)
+			found <- result{event, relay}
+		}()
+	}
+	for i := 0; i < lookups; i++ {
+		select {
+		case match := <-found:
+			if match.event != nil {
+				return match.event, match.relay, nil
+			}
+		case <-ctx.Done():
+			return nil, "", fmt.Errorf("post lookup: %w", ctx.Err())
 		}
 	}
 
@@ -739,6 +772,9 @@ func extractDescriptionFromBolt11(bolt11 string) string {
 // they are there for. A note1 or a bare hex id carries neither.
 func noteHints(reference string) (relays []string, author string) {
 	trimmed := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(reference), "nostr:"))
+	if !strings.HasPrefix(trimmed, "nevent1") {
+		trimmed = extractEventIDFromText(trimmed)
+	}
 	if !strings.HasPrefix(trimmed, "nevent1") {
 		return nil, ""
 	}

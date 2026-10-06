@@ -8,6 +8,9 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Find notes through author outboxes while querying reference hints and board
+  relays. Preserve hints in pasted links and include metadata discovery relays
+  when looking up the author's Lightning payment profile.
 - Verify payment proofs before confirming wallet payments, including promotion
   payments and restored attempts. Keep unverified reports protected from resending.
 - Keep uncertain and confirmed invoice payments protected across NWC connections

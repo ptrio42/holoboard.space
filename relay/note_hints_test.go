@@ -2,8 +2,14 @@ package main
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/gobwas/ws"
+	"github.com/gobwas/ws/wsutil"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
 )
@@ -21,7 +27,7 @@ func TestNoteHints(t *testing.T) {
 		t.Fatalf("failed to encode: %v", err)
 	}
 
-	for _, form := range []string{nevent, "nostr:" + nevent, "  " + nevent + " "} {
+	for _, form := range []string{nevent, "nostr:" + nevent, "  " + nevent + " ", "https://njump.me/" + nevent} {
 		gotRelays, gotAuthor := noteHints(form)
 		if len(gotRelays) != len(relays) {
 			t.Errorf("%.20s gave %d relays, want %d", form, len(gotRelays), len(relays))
@@ -41,6 +47,53 @@ func TestNoteHints(t *testing.T) {
 		if len(gotRelays) != 0 || gotAuthor != "" {
 			t.Errorf("%.20s invented hints: %v %s", bare, gotRelays, gotAuthor)
 		}
+	}
+}
+
+func TestFetchPostUsesOutboxWhileCandidatesAreUnresponsive(t *testing.T) {
+	previous := discoveryRelays
+	discoveryRelays = nil
+	t.Cleanup(func() { discoveryRelays = previous })
+	index, outbox := startTestRelay(t), startTestRelay(t)
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, _, _, err := ws.UpgradeHTTP(r, w)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			if _, _, err := wsutil.ReadClientData(conn); err != nil {
+				return
+			}
+		}
+	}))
+	defer slow.Close()
+	key := nostr.GeneratePrivateKey()
+	note := &nostr.Event{Kind: 1, CreatedAt: nostr.Now(), Content: "Only on the author's outbox", Tags: nostr.Tags{}}
+	if err := note.Sign(key); err != nil {
+		t.Fatal(err)
+	}
+	list := &nostr.Event{Kind: kindRelayList, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"r", outbox, "write"}}}
+	if err := list.Sign(key); err != nil {
+		t.Fatal(err)
+	}
+	for source, event := range map[string]*nostr.Event{index: list, outbox: note} {
+		connection, err := nostr.RelayConnect(context.Background(), source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = connection.Publish(context.Background(), *event)
+		connection.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	fetcher := NewPostFetcher([]string{index, "ws" + strings.TrimPrefix(slow.URL, "http")})
+	event, source, err := fetcher.FetchPostFromWithRelay(ctx, note.ID, nil, note.PubKey)
+	if err != nil || event == nil || event.ID != note.ID || source != outbox {
+		t.Fatalf("outbox lookup blocked by a slow candidate: event=%v source=%q err=%v", event, source, err)
 	}
 }
 

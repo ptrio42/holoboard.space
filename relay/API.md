@@ -21,6 +21,10 @@ saved, including after expiry. Preview does not create an invoice or board entry
 limited; unpaid previews are cached in memory for one minute, up to 128 entries.
 For new campaigns, confirmed absence of an address in the author's signed
 profile returns `author_share: 0`. Failed discovery retains the default of 20.
+Note lookup queries reference hints and configured relays while discovering the
+author's [NIP-65 write relays](https://github.com/nostr-protocol/nips/blob/master/65.md)
+in parallel. Slow candidate relays do not postpone the outbox lookup until the
+request deadline. Hints are preserved when the reference is a client URL.
 
 ## Create an invoice
 
@@ -190,6 +194,8 @@ Lightning Address nor LNURL after comparing discovered sources, including the
 author's [NIP-65 write relays](https://github.com/nostr-protocol/nips/blob/master/65.md).
 The newest valid profile wins, with the lowest event ID resolving equal
 timestamps as specified in [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md).
+Profile lookup includes public metadata discovery relays as well as note hints
+and configured relays, even when the author has no discoverable relay list.
 Lookup has a five-second budget, shortened by the request's context. An older
 address-free profile from another source cannot establish absence when none of
 the advertised write relays responds with a profile.

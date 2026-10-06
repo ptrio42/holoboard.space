@@ -99,6 +99,7 @@ func findPaymentProfileRelay(ctx context.Context, pubkey string, sources []strin
 func findRecipientProfile(ctx context.Context, pubkey string, sources []string) (*nostr.Event, string) {
 	ctx, cancel := context.WithTimeout(ctx, profileFetchTimeout)
 	defer cancel()
+	sources = dedupe(append(append([]string{}, sources...), discoveryRelays...))
 	var profile *nostr.Event
 	var source string
 	var writes []string
