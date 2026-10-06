@@ -8,6 +8,11 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Verify payment proofs before confirming wallet payments, including promotion
+  payments and restored attempts. Keep unverified reports protected from resending.
+- Keep uncertain and confirmed invoice payments protected across NWC connections
+  and between promotion and the wallet panel. Allow status recovery with lookup
+  permission alone and new invoices while unresolved payments remain protected.
 - Detect mock invoices before offering payment or contacting a wallet, and
   ignore saved visibility-only test invoices when reopening the form.
 - Close wallet and profile relay connections safely, preventing a shutdown
@@ -32,6 +37,10 @@ record deployment, not announcement publication.
 
 ### Added
 
+- An NWC wallet panel with balance, reviewed invoice and Lightning Address
+  payments, camera and image QR scanning, receiving invoices and filtered
+  payment history. Show connection permissions and available spending budgets,
+  accept read-only connections, and preserve uncertain sends across refreshes.
 - A top 21 main board and a paid waiting room with Top, New and Hot views.
 - Direct author support alongside paid visibility, with adjustable allocations,
   browser-wallet payments and separate recipient invoices and payment statuses.

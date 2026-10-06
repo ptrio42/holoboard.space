@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { NDKEvent } from "@nostr-dev-kit/ndk";
 import type { Event } from "nostr-tools/pure";
@@ -22,6 +22,7 @@ import { ConnectionSettings } from "./ConnectionSettings";
 import { useConnections } from "../../hooks/useConnections";
 import { canPayOrCheckInvoice, payInvoiceSafely, type WalletAttempt } from "../../lib/walletPayment";
 import { paymentSessionIsPersistent, readPaymentSession, removePaymentSession, savePaymentSession } from "../../lib/paymentSession";
+import { acknowledgeWalletFailure, getWalletAttempt, getWalletAttemptsSnapshot, subscribeWalletAttempts } from "../../lib/walletAttempts";
 import { isMockInvoice, MOCK_INVOICE_MESSAGE } from "../../lib/invoice";
 
 type TipStatus = "pending" | "confirmed" | "reported";
@@ -66,7 +67,13 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     const [helpSection, setHelpSection] = useState(initialSection ?? "");
     const [changingReference, setChangingReference] = useState(false);
     const [noteExpanded, setNoteExpanded] = useState(false);
-    const [payment, setPayment] = useState<Payment | null>(() => restorePayment(initialReference));
+    const [savedPayment, setPayment] = useState<Payment | null>(() => restorePayment(initialReference));
+    const attempts = useSyncExternalStore(subscribeWalletAttempts, getWalletAttemptsSnapshot);
+    const payment = useMemo(() => savedPayment ? {
+        ...savedPayment,
+        boardAttempt: attempts.get(savedPayment.board.paymentHash) ?? getWalletAttempt(savedPayment.board.paymentHash, savedPayment.boardAttempt),
+        authorAttempt: savedPayment.author ? attempts.get(savedPayment.author.payment_hash) ?? getWalletAttempt(savedPayment.author.payment_hash, savedPayment.authorAttempt) : undefined,
+    } : null, [savedPayment, attempts]);
     const [reference, setReference] = useState(() => restorePayment(initialReference)?.note ?? initialReference);
     const [amount, setAmount] = useState<number>(ZAP_PRESETS[1]);
     const [amountSelection, setAmountSelection] = useState<AmountSelection>({ mode: "amount", rank: null, custom: false });
@@ -417,7 +424,8 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                     <p>The {part === "board" ? "visibility" : "author"} payment status is uncertain. Check your wallet history. NWC checks the original wallet before retrying.</p>
                     <p>If the wallet still shows a pending payment, wait. Allow another attempt only after confirming that the earlier attempt failed or was cancelled.</p>
                     <PixelButton size="sm" variant="ghost" disabled={busy} onClick={() => {
-                        const next = { ...payment, [part === "board" ? "boardAttempt" : "authorAttempt"]: undefined };
+                        const hash = part === "board" ? payment.board.paymentHash : payment.author!.payment_hash;
+                        const next = { ...payment, [part === "board" ? "boardAttempt" : "authorAttempt"]: acknowledgeWalletFailure(hash, attempt) };
                         savePayment(next); setPayment(next); setError("");
                     }}>I checked my wallet: {part === "board" ? "visibility" : "author support"} was not paid</PixelButton>
                 </div>;

@@ -5,6 +5,8 @@ import type { AbstractSimplePool } from "nostr-tools/abstract-pool";
 import type { NWCClient } from "@getalby/sdk/nwc";
 import { PUBLIC_RELAYS } from "../config";
 import { PaymentRejected, withTimeout, type PaymentWallet } from "./walletPayment";
+import { attachWalletAccount, clearWalletAccount, refreshWalletAccount } from "./walletAccount";
+import { lookupWalletPayment } from "./walletLookup";
 
 export interface ConnectedSigner {
     getPublicKey(): Promise<string>;
@@ -80,15 +82,17 @@ export async function connectWallet(input: string) {
         candidate = new NWCClient({ nostrWalletConnectUrl: uri, requireSecret: true });
         const client = candidate;
         const info = await withTimeout(client.getInfo(), 15000, "Could not reach the wallet. Check its connection permissions and try again.");
-        if (!info.methods.includes("pay_invoice")) throw new Error("This connection does not allow invoice payments.");
+        if (!Array.isArray(info.methods)) throw new Error("The wallet did not return its connection permissions.");
         if (info.network && info.network !== "mainnet") throw new Error("Connect a mainnet Lightning wallet.");
         if (generation !== walletGeneration) { client.close(); return; }
         nwc = client;
-        paymentWallet = {
+        paymentWallet = info.methods.includes("pay_invoice") ? {
             id: `nwc:${client.walletPubkey}:${client.publicKey}`, kind: "nwc", enable: async () => {},
-            sendPayment: async (invoice) => {
+            sendPayment: async (invoice, amountMsats) => {
                 try {
-                    return await withTimeout(client.payInvoice({ invoice }), 60000, "The wallet did not confirm the payment. Its status is uncertain.");
+                    const result = await withTimeout(client.payInvoice({ invoice, ...(amountMsats === undefined ? {} : { amount: amountMsats }) }), 60000, "The wallet did not confirm the payment. Its status is uncertain.");
+                    void refreshWalletAccount();
+                    return { preimage: result.preimage, feesPaidMsats: result.fees_paid };
                 } catch (failure) {
                     if (failure instanceof Nip47WalletError && ["INSUFFICIENT_BALANCE", "QUOTA_EXCEEDED", "RESTRICTED", "UNAUTHORIZED", "NOT_IMPLEMENTED"].includes(failure.code)) {
                         throw new PaymentRejected(`The wallet declined this payment (${failure.code}).`);
@@ -96,23 +100,19 @@ export async function connectWallet(input: string) {
                     throw new Error("The wallet did not confirm the payment. Check its history before retrying.");
                 }
             },
-            ...(info.methods.includes("lookup_invoice") ? { lookupPayment: async (paymentHash: string) => {
-                try {
-                    const transaction = await withTimeout(client.lookupInvoice({ payment_hash: paymentHash }), 12000, "Could not check the wallet payment status.");
-                    if (transaction.payment_hash !== paymentHash) return { state: "unknown" as const };
-                    if (transaction.state === "settled" || transaction.settled_at > 0) return { state: "paid" as const, preimage: transaction.preimage };
-                    return { state: transaction.state === "failed" ? "unpaid" as const : "pending" as const };
-                } catch { return { state: "unknown" as const }; }
-            } } : {}),
-        };
-        update({ walletStatus: "connected", walletName: info.alias || "NWC wallet" });
+            ...(info.methods.includes("lookup_invoice") ? { lookupPayment: (paymentHash: string) => lookupWalletPayment(client, paymentHash) } : {}),
+        } : undefined;
+        attachWalletAccount(client, info, paymentWallet, new URL(uri).searchParams.get("lud16") ?? "");
+        update({ walletStatus: "connected", walletName: typeof info.alias === "string" && info.alias ? info.alias : "NWC wallet" });
     } catch (failure) {
         candidate?.close();
         if (generation !== walletGeneration) return;
+        clearWalletAccount(); nwc = undefined; paymentWallet = undefined;
         update({ walletStatus: "disconnected", walletError: failure instanceof Error && !(failure as { code?: string }).code ? failure.message : "Could not connect the wallet. Check its permissions and try again." });
     }
 }
 export function disconnectWallet() {
+    clearWalletAccount();
     walletGeneration++; nwc?.close(); nwc = undefined; paymentWallet = undefined;
     remember(WALLET_KEY, null);
     update({ walletStatus: "disconnected", walletName: "", walletError: "", walletCanRetry: false });

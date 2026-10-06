@@ -21,7 +21,7 @@ beforeEach(() => {
     vi.stubGlobal("window", {});
     mock.info.mockResolvedValue({ alias: "Test wallet", network: "mainnet", methods: ["pay_invoice", "lookup_invoice"] });
     mock.pay.mockResolvedValue({ preimage: "proof" });
-    mock.lookup.mockResolvedValue({ payment_hash: "hash", state: "settled", preimage: "proof" });
+    mock.lookup.mockResolvedValue({ type: "outgoing", payment_hash: "hash", state: "settled", preimage: "proof" });
 });
 afterEach(() => { disconnectWallet(); disconnectSigner(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
@@ -55,8 +55,16 @@ describe("optional wallet connections", () => {
         await connectWallet("invalid");
         expect(mock.info).not.toHaveBeenCalled();
     });
-    it("declines receiving-only and testnet connections", async () => {
-        for (const info of [{ methods: ["make_invoice"], network: "mainnet" }, { methods: ["pay_invoice"], network: "testnet" }]) {
+    it("accepts receiving-only and read-only connections without a payer", async () => {
+        for (const info of [{ methods: ["make_invoice"], network: "mainnet" }, { methods: ["get_balance"], network: "mainnet" }]) {
+            mock.info.mockResolvedValueOnce(info);
+            await connectWallet(uri);
+            expect(getConnections().walletStatus).toBe("connected");
+            expect(getPaymentWallet()).toBeUndefined();
+        }
+    });
+    it("declines testnet connections", async () => {
+        for (const info of [{ methods: ["pay_invoice"], network: "testnet" }]) {
             mock.info.mockResolvedValueOnce(info);
             await connectWallet(uri);
             expect(getConnections().walletStatus).toBe("disconnected");

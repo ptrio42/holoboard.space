@@ -42,6 +42,7 @@ export function HelpContent({ section = "" }: { section?: string }) {
         <section className="space-y-4" aria-labelledby="payments">
             <h2 id="payments" tabIndex={-1} className="promotion-section-title focus-pixel text-neon-pink">Payments and author support</h2>
             <p>Anyone can promote their own note or someone else's. No account or signer is needed to open, copy or scan an invoice. An optional NWC or browser wallet can pay recipient invoices in sequence. Connecting a wallet sends no payment.</p>
+            <p>Open Wallet to view your NWC balance, send or receive Lightning payments, and check history. Available features depend on the permissions granted by your wallet. Sending asks for confirmation after review. Receiving creates an invoice in your connected wallet; it does not promote a note.</p>
             <p>Visibility and author support have separate invoices and can succeed independently. A public author zap requires a Nostr signer and your explicit consent. Ordinary author support needs no signer.</p>
             <p>New campaigns default to 80% visibility and 20% author support. A confirmed missing Lightning address defaults a new campaign to visibility only. Boosts use the saved campaign split; older campaigns without a split default to visibility only.</p>
             <p>The first successful promotion fixes the campaign's public zap split. Later payers can adjust their own allocation without changing that public split. Author sats round down, with at least 1 sat reserved for visibility.</p>

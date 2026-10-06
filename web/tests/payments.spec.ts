@@ -7,6 +7,7 @@ import { neventEncode, npubEncode } from "nostr-tools/nip19";
 import { bytesToHex } from "nostr-tools/utils";
 import jsQR from "jsqr";
 import { PNG } from "pngjs";
+import { walletInvoice } from "./helpers/walletFixture";
 
 // Route-based API mocks cannot intercept requests owned by a service worker.
 // The PWA suite exercises worker updates with a real local mock API instead.
@@ -18,9 +19,9 @@ const clientKey = generateSecretKey();
 const note = finalizeEvent({ kind: 1, created_at: 1700000000, tags: [], content: "A note for isolated payment tests." }, userKey);
 const boardPreimage = "b".repeat(64), authorPreimage = "c".repeat(64);
 const hash = (preimage: string) => createHash("sha256").update(Buffer.from(preimage, "hex")).digest("hex");
-const boardHash = hash(boardPreimage), authorHash = hash(authorPreimage);
+const boardHash = hash(boardPreimage);
 const walletUri = `nostr+walletconnect://${walletPubkey}?relay=ws%3A%2F%2F127.0.0.1%3A3334&secret=${bytesToHex(clientKey)}`;
-type Options = { mockInvoice?: boolean; noteContent?: string; rank?: number; targets?: { rank: number; weight: number }[]; authorMinSats?: number; authorShare?: number; newCampaign?: boolean; expiredCampaign?: boolean; authorUnavailable?: "no_address" | "unavailable"; blockStorage?: boolean; encryption?: "nip44_v2" | "nip04"; failAuthor?: boolean; loseAuthorResponse?: boolean; failAuthorInvoice?: boolean; extension?: boolean; deferSigner?: boolean; authorExpiresIn?: number; boardExpiresIn?: number; webln?: boolean; lookupState?: "pending" | "unknown" };
+type Options = { badAuthorProof?: boolean; validAuthorInvoice?: boolean; mockInvoice?: boolean; noteContent?: string; rank?: number; targets?: { rank: number; weight: number }[]; authorMinSats?: number; authorShare?: number; newCampaign?: boolean; expiredCampaign?: boolean; authorUnavailable?: "no_address" | "unavailable"; blockStorage?: boolean; encryption?: "nip44_v2" | "nip04"; failAuthor?: boolean; loseAuthorResponse?: boolean; failAuthorInvoice?: boolean; extension?: boolean; deferSigner?: boolean; authorExpiresIn?: number; boardExpiresIn?: number; webln?: boolean; lookupState?: "pending" | "unknown" };
 
 async function setup(context: BrowserContext, page: Page, options: Options = {}) {
     const appOrigin = new URL(test.info().project.use.baseURL!).origin;
@@ -29,7 +30,7 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
     if (options.blockStorage) await context.addInitScript(() => {
         Object.defineProperty(window, "sessionStorage", { get: () => { throw new DOMException("Storage blocked by this test", "SecurityError"); } });
     });
-    const state = { boardPaid: false, authorPaid: false, boardCharges: 0, authorCharges: 0, authorAttempts: 0, expectedSignerPubkey: getPublicKey(userKey), boardRequests: [] as Record<string, unknown>[], authorRequests: [] as Record<string, unknown>[], methods: [] as string[], signerMethods: [] as string[], errors: [] as string[], approveSigner: undefined as (() => Promise<void>) | undefined };
+    const state = { boardPaid: false, authorPaid: false, boardCharges: 0, authorCharges: 0, authorAttempts: 0, authorProofs: new Map<string, string>(), expectedSignerPubkey: getPublicKey(userKey), boardRequests: [] as Record<string, unknown>[], authorRequests: [] as Record<string, unknown>[], methods: [] as string[], signerMethods: [] as string[], errors: [] as string[], approveSigner: undefined as (() => Promise<void>) | undefined };
     const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Allow-Methods": "GET,POST,OPTIONS" };
     await context.route("**/*", async (route) => {
         const url = new URL(route.request().url());
@@ -53,13 +54,18 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
             if (options.failAuthorInvoice) { status = 503; data = { error: "Author invoice provider unavailable" }; }
             else {
                 if (body.zap_request) { expect(verifyEvent(body.zap_request)).toBe(true); expect(body.zap_request.kind).toBe(9734); expect(body.zap_request.pubkey).toBe(state.expectedSignerPubkey); }
-                data = { invoice: "lnbc-author", payment_hash: authorHash, amount_sats: body.amount_sats, author: note.pubkey, expires_at: Math.floor(Date.now()/1000)+(options.authorExpiresIn ?? 3600) };
+                const issued = state.authorRequests.length;
+                const proof = issued === 1 ? authorPreimage : issued.toString(16).padStart(2, "0").repeat(32);
+                const paymentHash = hash(proof);
+                const invoice = options.validAuthorInvoice ? walletInvoice({ hash: paymentHash, amountMsats: body.amount_sats * 1000 }) : issued === 1 ? "lnbc-author" : `lnbc-author-${issued}`;
+                state.authorProofs.set(invoice, proof);
+                data = { invoice, payment_hash: paymentHash, amount_sats: body.amount_sats, author: note.pubkey, expires_at: Math.floor(Date.now()/1000)+(options.authorExpiresIn ?? 3600) };
             }
         } else if (url.pathname === "/api/promote") {
             state.boardRequests.push(body);
             data = { invoice: options.mockInvoice ? `lnbc${body.amount_sats}...mock_invoice` : "lnbc-visibility", payment_hash: boardHash, amount_sats: body.amount_sats + (body.billboard ? 100 : 0), promotion_sats: body.amount_sats, note_id: promotedNote.id, expires_at: Math.floor(Date.now()/1000)+(options.boardExpiresIn ?? 3600), billboard_fee_sats: body.billboard ? 100 : 0 };
         } else if (url.pathname === "/api/promote/status") data = { pending: !state.boardPaid, settled: state.boardPaid, sats_paid: 210, ...(state.boardPaid ? { receipt: { promotion_sats: state.boardRequests.at(-1)?.amount_sats, fee_converted: false, billboard_applied: false } } : {}) };
-        else if (url.pathname === "/api/support/verify") { expect(body.preimage).toBe(authorPreimage); data = { verified: true }; }
+        else if (url.pathname === "/api/support/verify") { expect([...state.authorProofs.values()]).toContain(body.preimage); data = { verified: true }; }
         else throw new Error(`Unexpected payment test request: ${url.pathname}`);
         await route.fulfill({ status, headers, contentType: "application/json", body: JSON.stringify(data) });
     });
@@ -111,12 +117,15 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
                     else {
                         state.authorAttempts++;
                         if (options.failAuthor && state.authorAttempts === 1) error = { code: "PAYMENT_FAILED", message: "Author payment failed" };
-                        else { state.authorCharges++; state.authorPaid = true; result = { preimage: authorPreimage }; }
+                        else { state.authorCharges++; state.authorPaid = true; result = { preimage: options.badAuthorProof ? "ff".repeat(32) : state.authorProofs.get(request.params.invoice) }; }
                         if (options.loseAuthorResponse && state.authorAttempts === 1) return;
                     }
                 } else if (request.method === "lookup_invoice") {
                     if (options.lookupState === "unknown") error = { code: "NOT_FOUND", message: "No status available" };
-                    else result = { invoice: "lnbc-author", type: "outgoing", payment_hash: request.params.payment_hash, state: options.lookupState ?? (state.authorPaid ? "settled" : "failed"), settled_at: options.lookupState ? 0 : state.authorPaid ? Math.floor(Date.now()/1000) : 0, preimage: options.lookupState ? undefined : state.authorPaid ? authorPreimage : undefined };
+                    else {
+                        const issued = [...state.authorProofs].find(([, proof]) => hash(proof) === request.params.payment_hash);
+                        result = { invoice: issued?.[0], type: "outgoing", payment_hash: request.params.payment_hash, state: options.lookupState ?? (state.authorPaid ? "settled" : "failed"), settled_at: options.lookupState ? 0 : state.authorPaid ? Math.floor(Date.now()/1000) : 0, preimage: options.lookupState || !state.authorPaid ? undefined : issued?.[1] };
+                    }
                 }
                 else throw new Error(`Unexpected NWC method: ${request.method}`);
                 const plaintext = JSON.stringify({ result_type: request.method, result, error });
@@ -144,8 +153,8 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
     if (options.webln) {
         await context.exposeFunction("testWalletPay", async (invoice: string) => {
             if (invoice === "lnbc-visibility") { state.boardCharges++; state.boardPaid = true; return { preimage: boardPreimage }; }
-            expect(invoice).toBe("lnbc-author"); state.authorAttempts++; state.authorCharges++; state.authorPaid = true;
-            return { preimage: authorPreimage };
+            expect(state.authorProofs.has(invoice)).toBe(true); state.authorAttempts++; state.authorCharges++; state.authorPaid = true;
+            return { preimage: state.authorProofs.get(invoice) };
         });
         await context.addInitScript(() => {
             const target = window as unknown as { webln: unknown; testWalletPay(invoice: string): Promise<unknown> };
@@ -211,7 +220,7 @@ async function savedPayment(page: Page) {
         if (!key) throw new Error("Expected an unfinished payment");
         return JSON.parse(sessionStorage.getItem(key)!) as {
             board: Record<string, unknown>; boardAttempt?: Record<string, unknown>;
-            author?: { amount_sats: number; author: string };
+            author?: { amount_sats: number; author: string; invoice: string; payment_hash: string };
             authorAttempt?: { state: string; walletId: string; preimage?: string };
             promotionPaid: boolean; tipStatus: string; publicZap?: boolean;
         };
@@ -445,6 +454,64 @@ test("NWC recovers a paid author invoice after a lost response", async ({ contex
     expect(state.boardCharges).toBe(1); expect(state.authorCharges).toBe(1); expect(state.authorAttempts).toBe(1);
     expect(state.errors).toEqual([]);
 });
+test("promotion and wallet Send share an uncertain author attempt after reload", async ({ context, page }) => {
+    const state = await setup(context, page, { loseAuthorResponse: true, validAuthorInvoice: true });
+    await connectNwc(page); await prepareInvoices(page);
+    await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
+    await expect.poll(() => state.authorCharges).toBe(1);
+    const invoice = (await savedPayment(page)).author!.invoice;
+    await page.reload(); await page.getByRole("button", { name: "Boost", exact: true }).first().click();
+    await openConnections(page, "wallet");
+    await page.getByRole("navigation", { name: "Wallet views" }).getByRole("button", { name: "Send", exact: true }).click();
+    await page.getByLabel("Invoice or Lightning Address").fill(invoice);
+    await page.getByRole("button", { name: "Review payment", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Check payment status", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Check payment status", exact: true }).click();
+    await expect(page.getByText("Payment confirmed.", { exact: true })).toBeVisible();
+    await backToForm(page);
+    await expect(page.getByText("Author support: 42 sats, payment verified.", { exact: true })).toBeVisible();
+    expect(state.authorAttempts).toBe(1); expect(state.authorCharges).toBe(1); expect(state.boardCharges).toBe(1);
+    expect(state.methods.filter((method) => method === "lookup_invoice")).toHaveLength(1); expect(state.errors).toEqual([]);
+});
+
+test("an invalid promotion proof stays unconfirmed in wallet Send and lookup recovers without another charge", async ({ context, page }) => {
+    const state = await setup(context, page, { badAuthorProof: true, validAuthorInvoice: true });
+    await connectNwc(page); await prepareInvoices(page);
+    await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
+    await expect(page.getByRole("alert")).toContainText("valid payment proof");
+    const saved = await savedPayment(page);
+    expect(saved.authorAttempt?.state).toBe("uncertain");
+    await openConnections(page, "wallet");
+    await page.getByRole("navigation", { name: "Wallet views" }).getByRole("button", { name: "Send", exact: true }).click();
+    await page.getByLabel("Invoice or Lightning Address").fill(saved.author!.invoice);
+    await page.getByRole("button", { name: "Review payment", exact: true }).click();
+    await expect(page.getByText("Payment confirmed.", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Check payment status", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Check payment status", exact: true }).click();
+    await expect(page.getByText("Payment confirmed.", { exact: true })).toBeVisible();
+    expect(state.authorCharges).toBe(1); expect(state.authorAttempts).toBe(1); expect(state.boardCharges).toBe(1);
+    expect(state.errors).toEqual([]);
+});
+
+test("an author invoice paid in wallet Send is reused by promotion without another charge", async ({ context, page }) => {
+    const state = await setup(context, page, { validAuthorInvoice: true });
+    await connectNwc(page); await prepareInvoices(page);
+    await expect.poll(() => page.evaluate(() => sessionStorage.getItem("holoboard-last-payment"))).not.toBeNull();
+    const invoice = (await savedPayment(page)).author!.invoice;
+    await openConnections(page, "wallet");
+    await page.getByRole("navigation", { name: "Wallet views" }).getByRole("button", { name: "Send", exact: true }).click();
+    await page.getByLabel("Invoice or Lightning Address").fill(invoice);
+    await page.getByRole("button", { name: "Review payment", exact: true }).click();
+    await page.getByRole("button", { name: "Send 42 sats", exact: true }).click();
+    await expect(page.getByText("Payment confirmed.", { exact: true })).toBeVisible();
+    await backToForm(page);
+    await expect(page.getByText("Author support: 42 sats, payment verified.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Pay remaining parts with NWC wallet" }).click();
+    await expect(page.getByText("Added 168 sats to visibility.", { exact: true })).toBeVisible();
+    expect(state.authorAttempts).toBe(1); expect(state.authorCharges).toBe(1); expect(state.boardCharges).toBe(1);
+    expect(state.errors).toEqual([]);
+});
+
 test("Amber connection signs a public author zap and restores after reload", async ({ context, page }) => {
     const state = await setup(context, page);
     await openConnections(page, "signer");

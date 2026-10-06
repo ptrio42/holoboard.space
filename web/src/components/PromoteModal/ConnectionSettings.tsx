@@ -5,6 +5,7 @@ import { shortNpub } from "../../lib/nostr";
 import { CopyButton } from "../ui/CopyButton";
 import { PixelButton } from "../ui/PixelButton";
 import { QrCode } from "../ui/QrCode";
+import { WalletPanel } from "../Wallet/WalletPanel";
 
 const FIELD = "focus-pixel w-full border-2 border-cyan-400/40 bg-void px-3 py-2 text-base text-cyan-100";
 export function ConnectionSettings({ disabled = false, section = "all", embedded = false }: { disabled?: boolean; section?: "all" | "wallet" | "signer"; embedded?: boolean }) {
@@ -13,18 +14,21 @@ export function ConnectionSettings({ disabled = false, section = "all", embedded
     const [bunkerUri, setBunkerUri] = useState("");
     const [expanded, setExpanded] = useState(false);
     const content = <div className="promotion-typography space-y-5 text-sm leading-relaxed text-cyan-100/75">
-            <p>You can always pay without an account: open an invoice in your wallet, copy it, or scan its QR code.</p>
+            <p className="text-xs">Invoice links, copying and QR payments work without connecting.</p>
             {section !== "signer" && <section className="space-y-3" aria-label="Payment wallet">
-                <h3 className="promotion-section-title text-neon-cyan">Payment wallet</h3>
+                {section === "all" && <h3 className="promotion-section-title text-neon-cyan">Payment wallet</h3>}
                 {connections.walletStatus === "connected" ? <>
-                    <p role="status">Connected: {connections.walletName}. NWC pays invoices after you choose Pay.</p>
-                    <PixelButton size="sm" variant="ghost" disabled={disabled} onClick={disconnectWallet}>Disconnect wallet</PixelButton>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <p role="status">Connected: {connections.walletName}.</p>
+                        <PixelButton size="sm" variant="ghost" className="min-h-11" disabled={disabled} onClick={disconnectWallet}>Disconnect wallet</PixelButton>
+                    </div>
+                    <WalletPanel disabled={disabled} />
                 </> : connections.walletStatus === "connecting" ? <>
                     <p role="status">Connecting to your wallet...</p>
                     <PixelButton size="sm" variant="ghost" disabled={disabled} onClick={disconnectWallet}>Cancel wallet connection</PixelButton>
                 </> : <>
                     <label className="block space-y-2"><span className="promotion-label">NWC connection string</span><input type="password" className={FIELD} value={walletUri} autoComplete="off" spellCheck={false} placeholder="nostr+walletconnect://..." disabled={disabled} onChange={(event) => setWalletUri(event.target.value)} /></label>
-                    <p className="text-xs text-cyan-100/60">Create a connection for Holoboard in your wallet, with a spending limit and permission to pay invoices, check payments and read wallet info. It stays in this browser tab until you disconnect.</p>
+                    <p className="text-xs text-cyan-100/60">Create a mainnet connection for Holoboard in your wallet. Enable wallet info and the permissions you want: balance, sending, receiving, payment checks and history. Set a spending limit if sending is allowed. The connection stays in this browser tab until you disconnect.</p>
                     <PixelButton size="sm" disabled={disabled || !walletUri.trim()} onClick={() => { const uri = walletUri; setWalletUri(""); void connectWallet(uri); }}>Connect NWC wallet</PixelButton>
                     {connections.walletCanRetry && <div className="flex flex-wrap gap-3"><PixelButton size="sm" variant="ghost" disabled={disabled} onClick={retryWalletConnection}>Retry saved wallet connection</PixelButton><PixelButton size="sm" variant="ghost" disabled={disabled} onClick={disconnectWallet}>Forget wallet connection</PixelButton></div>}
                 </>}
@@ -57,7 +61,7 @@ export function ConnectionSettings({ disabled = false, section = "all", embedded
                 {connections.signerAuthUrl && <a href={connections.signerAuthUrl} target="_blank" rel="noopener noreferrer" className="promotion-action focus-pixel inline-flex min-h-11 items-center text-neon-gold">Approve request with signer</a>}
                 {connections.signerError && <p role="alert" className="text-neon-pink">{connections.signerError}</p>}
             </section>}
-            <p className="text-xs text-cyan-100/60">Disconnecting removes the local connection. You can revoke wallet permissions in your wallet and signer permissions in your signer.</p>
+            {!(section === "wallet" && connections.walletStatus === "connected") && <p className="text-xs text-cyan-100/60">Disconnecting removes the local connection. You can revoke wallet permissions in your wallet and signer permissions in your signer.</p>}
         </div>;
     if (embedded) return content;
     return <details open={expanded || connections.signerStatus === "connecting" || !!connections.signerAuthUrl} onToggle={(event) => setExpanded(event.currentTarget.open)} className="disclosure border-t-2 border-cyan-400/20 pt-3">

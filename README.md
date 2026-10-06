@@ -64,6 +64,11 @@ or Nostr signer is needed for ordinary payments. Global **Wallet** and
 or Amber and other remote signers. Inside promotion, **Payment options** offers
 wallet connection; Nostr connection is available beside public zap and
 notification settings.
+The NWC wallet panel shows balance, Send, Receive and payment history when the
+connection grants access. Send accepts a Lightning invoice, a QR code or a
+Lightning Address and asks for confirmation after review. Receive creates an
+invoice to copy, share or scan. Read-only and receiving-only connections work;
+unavailable permissions are explained in the panel.
 An optional signer lets author support use a public zap. That choice ends when
 the signer changes or reconnects, the form reopens, or the page refreshes.
 Existing invoices remain available; replacing one then uses ordinary author
@@ -73,8 +78,11 @@ Wallet payment proofs and valid zap receipts confirm author support. Manual
 author payments without a proof can only be marked paid by the payer; check your
 wallet before retrying. Closing the tab clears this local recovery state.
 Wallet connections also stay in the current tab. Connecting never sends a
-payment. A lost wallet response leaves the payment uncertain; NWC checks its
-status before retrying. You can disconnect at any time and use the invoice links.
+payment. A lost wallet response leaves the invoice protected across connections
+and between promotion and the wallet panel. Reconnect the original NWC connection
+to check its status; lookup permission is sufficient. You can prepare a different
+invoice while that payment remains unresolved. Disconnect at any time and use
+the invoice links.
 
 From a Nostr client, you can also mention Holoboard with a promotion command
 and zap its reply, zap the account with the note reference in the comment, or
