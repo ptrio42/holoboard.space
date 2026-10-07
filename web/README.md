@@ -376,5 +376,17 @@ same action style in the app header and promotion panels.
 Card frames show rank: gold, cyan and pink for the top three, then dim cyan.
 Paid billboard text has its own selected color inside that frame.
 
+Keep meaningful pixel labels at least 10px and check their contrast against the
+actual panel background, including each rank tier. Unselected amount and position
+choices retain a visible cyan edge and light fill; selected choices use a pink
+fill. Disabled controls remain visibly subdued.
+
+The shared `Modal` keeps controls and QR codes above the CRT scanline overlay.
+Retain the effect on the board and background. Its scrolling body leaves the
+action footer visible and stable across mobile editor tabs; compact boosts
+retain their smaller layout. Reuse `StatusMessage` for loading and empty states.
+Its symbols are decorative, its text is exposed as a status, and its loading
+blocks follow the shared reduced-motion rules.
+
 [Press Start 2P](https://fonts.google.com/specimen/Press+Start+2P), by CodeMan38,
 is bundled as WOFF2 under the SIL Open Font License 1.1.
