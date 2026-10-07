@@ -29,13 +29,16 @@ type Connection struct {
 	msgStateW         *wsflate.MessageState
 }
 
-func NewConnection(ctx context.Context, url string, requestHeader http.Header, tlsConfig *tls.Config) (*Connection, error) {
+func NewConnection(ctx context.Context, url string, requestHeader http.Header, tlsConfig *tls.Config, dial ...func(context.Context, string, string) (net.Conn, error)) (*Connection, error) {
 	dialer := ws.Dialer{
 		Header: ws.HandshakeHeaderHTTP(requestHeader),
 		Extensions: []httphead.Option{
 			wsflate.DefaultParameters.Option(),
 		},
 		TLSConfig: tlsConfig,
+	}
+	if len(dial) > 0 {
+		dialer.NetDial = dial[0]
 	}
 	conn, _, hs, err := dialer.Dial(ctx, url)
 	if err != nil {
@@ -164,15 +167,24 @@ func (c *Connection) ReadMessage(ctx context.Context, buf io.Writer) error {
 		}
 	}
 
+	var source io.Reader = c.reader
 	if c.msgStateR.IsCompressed() && c.enableCompression {
 		c.flateReader.Reset(c.reader)
-		if _, err := io.Copy(buf, c.flateReader); err != nil {
-			return fmt.Errorf("failed to read message: %w", err)
-		}
-	} else {
-		if _, err := io.Copy(buf, c.reader); err != nil {
-			return fmt.Errorf("failed to read message: %w", err)
-		}
+		source = c.flateReader
+	}
+	// Limit the decompressed message, including fragmented WebSocket frames.
+	const maxMessageBytes = 1 << 20
+	n, err := io.Copy(buf, io.LimitReader(source, maxMessageBytes+1))
+	if err != nil {
+		return fmt.Errorf("failed to read message: %w", err)
+	}
+	if n > maxMessageBytes {
+		c.conn.Close()
+		return fmt.Errorf("relay message exceeds %d bytes", maxMessageBytes)
+	}
+	if !acceptRelayMessage(n) {
+		c.conn.Close()
+		return fmt.Errorf("relay receive budget exceeded")
 	}
 
 	return nil

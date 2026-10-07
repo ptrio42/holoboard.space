@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -119,6 +120,15 @@ func (evt *Event) Serialize() []byte {
 // (which is a hash of the serialized event content).
 // returns an error if the signature itself is invalid.
 func (evt Event) CheckSignature() (bool, error) {
+	if evt.Kind < 0 || evt.Kind > 65535 || evt.CreatedAt < 0 || len(evt.PubKey) != 64 || evt.PubKey != strings.ToLower(evt.PubKey) {
+		return false, fmt.Errorf("invalid NIP-01 event fields")
+	}
+
+	// NIP-01 binds the supplied ID to the signed serialized event.
+	if evt.ID != evt.GetID() {
+		return false, fmt.Errorf("event id does not match its content")
+	}
+
 	// read and check pubkey
 	pk, err := hex.DecodeString(evt.PubKey)
 	if err != nil {

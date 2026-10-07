@@ -43,34 +43,7 @@ func fetchRelayProfile(ctx context.Context, relays []string, pubkey string) *rel
 	ctx, cancel := context.WithTimeout(ctx, profileFetchTimeout)
 	defer cancel()
 
-	pool := nostr.NewSimplePool(ctx)
-	events := pool.SubManyEose(ctx, relays, []nostr.Filter{{
-		Kinds:   []int{0},
-		Authors: []string{pubkey},
-		Limit:   1,
-	}})
-
-	// Select on the context rather than ranging the channel. SimplePool closes
-	// it only once every relay has answered or given up, and a relay that hangs
-	// is not a reason to hold up the whole boot.
-	var newest *nostr.Event
-collect:
-	for {
-		select {
-		case <-ctx.Done():
-			break collect
-		case event, ok := <-events:
-			if !ok {
-				break collect
-			}
-			if event.Event == nil {
-				continue
-			}
-			if newest == nil || event.CreatedAt > newest.CreatedAt {
-				newest = event.Event
-			}
-		}
-	}
+	newest, _ := queryRecipientProfile(ctx, pubkey, relays)
 
 	if newest == nil {
 		return nil
@@ -103,6 +76,7 @@ func findRecipientProfile(ctx context.Context, pubkey string, sources []string) 
 	var profile *nostr.Event
 	var source string
 	var writes []string
+	var discoveryResolved bool
 	var lookups sync.WaitGroup
 	lookups.Add(2)
 	go func() {
@@ -115,10 +89,13 @@ func findRecipientProfile(ctx context.Context, pubkey string, sources []string) 
 		defer lookups.Done()
 		discoveryCtx, stop := context.WithTimeout(ctx, time.Second)
 		defer stop()
-		writes = authorWriteRelays(discoveryCtx, pubkey, sources)
+		writes, discoveryResolved = authorWriteRelaysStatus(discoveryCtx, pubkey, sources)
 	}()
 	lookups.Wait()
 	if len(writes) == 0 {
+		if !discoveryResolved && profileHasNoPaymentAddress(profile) {
+			return nil, ""
+		}
 		return profile, source
 	}
 	// A cached kind:0, including one with no address, does not supersede a
@@ -159,30 +136,39 @@ func queryRecipientProfile(ctx context.Context, pubkey string, sources []string)
 		return nil, ""
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	pool := nostr.NewSimplePool(ctx)
-	defer func() {
-		cancel()
-		pool.Relays.Range(func(_ string, relay *nostr.Relay) bool { relay.Close(); return true })
-	}()
-	events := pool.SubManyEose(ctx, dedupe(sources), nostr.Filters{{Kinds: []int{0}, Authors: []string{pubkey}, Limit: 1}})
+	defer cancel()
+	type result struct {
+		event  *nostr.Event
+		source string
+	}
+	sources = safeRelayCandidates(sources)
+	results := make(chan result, len(sources))
+	var workers sync.WaitGroup
+	for _, source := range sources {
+		workers.Add(1)
+		go func(source string) {
+			defer workers.Done()
+			relay, err := connectRelay(ctx, source)
+			if err != nil {
+				return
+			}
+			defer relay.Close()
+			found, _ := relay.QuerySync(ctx, nostr.Filter{Kinds: []int{0}, Authors: []string{pubkey}, Limit: 1})
+			for _, event := range found {
+				if validRecipientProfile(event, pubkey) {
+					results <- result{event, source}
+				}
+			}
+		}(source)
+	}
+	go func() { workers.Wait(); close(results) }()
 	var newest *nostr.Event
 	var source string
-collect:
-	for {
-		select {
-		case <-ctx.Done():
-			break collect
-		case result, ok := <-events:
-			if !ok {
-				break collect
-			}
-			event := result.Event
-			if !validRecipientProfile(event, pubkey) {
-				continue
-			}
-			if newerReplaceableEvent(event, newest) {
-				newest, source = event, result.Relay.URL
-			}
+	// Workers return their observed events even on a timeout. Waiting for them
+	// here preserves partial results; every dial/read shares the same deadline.
+	for result := range results {
+		if newerReplaceableEvent(result.event, newest) {
+			newest, source = result.event, result.source
 		}
 	}
 	return newest, source

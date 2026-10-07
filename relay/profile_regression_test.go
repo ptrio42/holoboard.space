@@ -173,7 +173,9 @@ func TestRecipientProfileUnavailableRelaysRespectDeadline(t *testing.T) {
 	defer cancel()
 	started := time.Now()
 	key, _ := nostr.GetPublicKey(nostr.GeneratePrivateKey())
-	profile, source := findRecipientProfile(ctx, key, []string{"ws" + strings.TrimPrefix(server.URL, "http")})
+	sourceRelay := "ws" + strings.TrimPrefix(server.URL, "http")
+	trustConfiguredRelays([]string{sourceRelay})
+	profile, source := findRecipientProfile(ctx, key, []string{sourceRelay})
 	if profile != nil || source != "" {
 		t.Fatal("unresponsive relays established an address or its absence")
 	}

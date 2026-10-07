@@ -113,7 +113,7 @@ func main() {
 	if relayPrivkey == "" {
 		// Generate a new keypair for demo purposes
 		relayPrivkey = nostr.GeneratePrivateKey()
-		log.Printf("Generated new relay private key: %s", relayPrivkey)
+		log.Printf("Generated an ephemeral relay identity")
 		log.Printf("IMPORTANT: Set RELAY_PRIVKEY environment variable to persist this key")
 	}
 
@@ -126,7 +126,7 @@ func main() {
 	log.Printf("Relay pubkey: %s", relayPubkey)
 
 	// Relays to fetch posts from and monitor for zaps
-	fetchRelaysStr := getEnv("FETCH_RELAYS", "wss://relay.damus.io,wss://nos.lol,wss://relay.nostr.band,wss://nostr.wine")
+	fetchRelaysStr := getEnv("FETCH_RELAYS", "wss://nos.lol,wss://relay.damus.io,wss://relay.primal.net,wss://nostr.mom,wss://offchain.pub")
 	fetchRelays := strings.Split(fetchRelaysStr, ",")
 
 	// Trim whitespace from relay URLs
@@ -272,6 +272,7 @@ func main() {
 	// necessarily somewhere this relay can read its own messages, and
 	// advertising an inbox we cannot read is worse than advertising none.
 	dmRelays, dmReadRelays := dmRelayConfig(getEnv("DM_RELAYS", ""))
+	trustConfiguredRelays(dmReadRelays)
 	log.Printf("DM inbox: %s", strings.Join(dmRelays, ", "))
 	log.Printf("DM read relays: %s", strings.Join(dmReadRelays, ", "))
 
@@ -459,6 +460,7 @@ func main() {
 		accountPublisher.Wait()
 		dmMonitor.Wait()
 		mentionMonitor.Wait()
+		zapMonitor.Wait()
 
 		// Khatru creates its http.Server inside Start. Waiting for its startup
 		// notification keeps Shutdown from racing that initialization when a

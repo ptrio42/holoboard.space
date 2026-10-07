@@ -338,6 +338,9 @@ func (s *Storage) RemovePostWithDeletion(postID string, deletion *nostr.Event, t
 		deletionKey = deletionPublicationKey(firstTag(deletion, "e"))
 		originalDeletion, deletionExisted = s.accountPublications[deletionKey]
 		if !deletionExisted {
+			if originalQuote != nil {
+				targets = dedupe(append(append([]string{}, targets...), originalQuote.Targets...))
+			}
 			s.accountPublications[deletionKey] = newAccountPublication(accountPublicationDeletion, postID, deletion, targets)
 		}
 	}
@@ -901,7 +904,7 @@ func (s *Storage) GetPromotedNoteReference(replyID string) (string, []string, st
 	defer s.mu.RUnlock()
 
 	for _, publication := range s.accountPublications {
-		if publication != nil && (publication.Type == accountPublicationQuote || publication.Type == accountPublicationReply) && publication.Event != nil && publication.Event.ID == replyID {
+		if publication != nil && publication.NoteID != "" && (publication.Type == accountPublicationQuote || publication.Type == accountPublicationReply) && publication.Event != nil && publication.Event.ID == replyID {
 			id, hints, author := quotedNoteReference(publication.Event)
 			if id == publication.NoteID {
 				return id, hints, author, true

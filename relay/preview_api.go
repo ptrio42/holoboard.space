@@ -90,7 +90,7 @@ func PreviewHandler(storage *Storage, fetcher *PostFetcher, support ...*AuthorSu
 			var err error
 			event, err = fetcher.FetchPostFrom(ctx, id, hints, author)
 			if err != nil {
-				writeError(w, http.StatusNotFound, "could not find that note on any relay this board watches")
+				noteLookupHTTPError(w, err)
 				return
 			}
 			if !isPromotable(event.Kind) {

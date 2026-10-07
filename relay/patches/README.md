@@ -133,3 +133,12 @@ Run the regression and full race suite from `relay/`:
 go test -race -run '^TestRelayServiceURLConcurrentInitialization$' -count=100 ./...
 go test -race ./...
 ```
+
+## go-nostr-validation-budgets.patch and khatru-resource-budgets.patch
+
+Apply these incremental patches after the earlier patches above when refreshing
+the vendored copies. They retain the existing lifecycle fixes and add ID validation,
+partial-result error reporting, DNS-pinned dial injection, reader backpressure,
+message/subscription bounds and inbound relay admission limits. New regression
+fixtures live beside the vendored Go code. Application routing and cache policy
+are described in [the Nostr reference](../../docs/nostr.md).

@@ -175,8 +175,8 @@ func TestPromoteRejectsUnknownNote(t *testing.T) {
 	// the lookup fails immediately rather than reaching the network.
 	unknown := "1111111111111111111111111111111111111111111111111111111111111111"
 	rec := postPromote(t, handler, promoteRequest{Note: unknown}, "5.5.5.5")
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("status %d, want 404, body %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status %d, want 503 for an unchecked note, body %s", rec.Code, rec.Body.String())
 	}
 }
 

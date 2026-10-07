@@ -4,11 +4,11 @@ import { linkLabel, quoteReference } from "../../lib/noteAttachments";
 import { parseContent } from "../../utils/textProcessing/parseContent";
 import { NostrMention } from "./NostrMention";
 
-function profilePubkey(bech32: string): string | null {
+function profilePubkey(bech32: string): { pubkey: string; relays: string[] } | null {
     try {
         const decoded = nip19.decode(bech32);
-        if (decoded.type === "npub") return decoded.data;
-        if (decoded.type === "nprofile") return decoded.data.pubkey;
+        if (decoded.type === "npub") return { pubkey: decoded.data, relays: [] };
+        if (decoded.type === "nprofile") return { pubkey: decoded.data.pubkey, relays: decoded.data.relays ?? [] };
     } catch {
         // Invalid references stay readable links.
     }
@@ -27,7 +27,7 @@ export function CompactNoteText({ text }: { text: string }) {
             rel="noopener noreferrer nofollow">{linkLabel(token.href)}</a>;
 
         const pubkey = profilePubkey(token.bech32);
-        if (pubkey) return <NostrMention key={key} pubkey={pubkey} />;
+        if (pubkey) return <NostrMention key={key} pubkey={pubkey.pubkey} relays={pubkey.relays} />;
         const quote = quoteReference(token.bech32);
         return <a key={key} href={`https://njump.me/${quote?.bech32 ?? token.bech32}`} target="_blank"
             rel="noopener noreferrer nofollow">{`${token.bech32.slice(0, 12)}...`}</a>;

@@ -1,8 +1,6 @@
+import { queryNostr } from "../../lib/nostrTransport";
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { NDKEvent } from "@nostr-dev-kit/ndk";
-import type { Event } from "nostr-tools/pure";
-import { ndk } from "../../lib/ndk";
 import { BillboardEditor } from "./BillboardEditor";
 import { initialBillboard, validBillboard, type BillboardConfig } from "../../lib/billboard";
 import { PixelButton } from "../ui/PixelButton";
@@ -11,7 +9,7 @@ import { checkProgress, fetchNotePreview, describeFailure, requestInvoice, type 
 import { parseNoteReference, parsePubkey } from "../../lib/nostr";
 import { PromotionNotePreview } from "./PromotionNotePreview";
 import { HelpContent } from "../Help/HelpContent";
-import { ENABLE_NOSTR_CONNECT, ZAP_PRESETS } from "../../config";
+import { PUBLIC_RELAYS, ENABLE_NOSTR_CONNECT, ZAP_PRESETS } from "../../config";
 import type { RankingTarget } from "../../lib/ranking";
 import { PromotionAmountPicker, type AmountSelection } from "./PromotionAmountPicker";
 import { PromotionSplit } from "./PromotionSplit";
@@ -266,15 +264,19 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         const seen = new Set<string>();
         // Fast wallet confirmation can stop this watcher before NDK flushes a
         // grouped request. Start immediately so no empty request stays queued.
-        const sub = ndk.subscribe({ kinds: [9735], "#p": [author.author], "#e": [boardInvoice.noteId], limit: 20 }, { closeOnEose: false, groupable: false });
-        sub.on("event", (event: NDKEvent) => {
-            if (event.tags.find((tag) => tag[0] === "bolt11")?.[1] !== author.invoice || seen.has(event.id)) return;
-            seen.add(event.id);
-            void verifyAuthorPayment(paymentNote, author, { receipt: event.rawEvent() as Event }).then((verified) => {
-                if (verified) setPayment((current) => current?.author?.payment_hash === author.payment_hash ? { ...current, tipStatus: "confirmed" } : current);
-            }).catch(() => {});
-        });
-        return () => sub.stop();
+        const controller = new AbortController();
+        const watch = () => void queryNostr({ kinds: [9735], "#p": [author.author], "#e": [boardInvoice.noteId], limit: 20 }, PUBLIC_RELAYS,
+            { signal: controller.signal, live: true, timeout: 60000, onEvent: (event) => {
+                if (controller.signal.aborted || event.tags.find((tag) => tag[0] === "bolt11")?.[1] !== author.invoice || seen.has(event.id)) return;
+                if (seen.size >= 128) seen.clear();
+                seen.add(event.id);
+                void verifyAuthorPayment(paymentNote, author, { receipt: event }).then((verified) => {
+                    if (!controller.signal.aborted && verified) setPayment((current) => current?.author?.payment_hash === author.payment_hash ? { ...current, tipStatus: "confirmed" } : current);
+                }).catch(() => {});
+            } }).then(() => { if (!controller.signal.aborted) retry = setTimeout(watch, 3000); });
+        let retry: ReturnType<typeof setTimeout> | undefined;
+        watch();
+        return () => { controller.abort(); clearTimeout(retry); };
     }, [authorInvoice, boardInvoice, paymentNote, tipStatus]);
     useEffect(() => {
         if (!authorInvoice || !paymentNote || !authorProof || tipStatus !== "pending" || busy) return;

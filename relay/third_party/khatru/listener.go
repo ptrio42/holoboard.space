@@ -42,11 +42,14 @@ func (rl *Relay) addListener(
 	subrelay *Relay,
 	filter nostr.Filter,
 	cancel context.CancelCauseFunc,
-) {
+) bool {
 	rl.clientsMutex.Lock()
 	defer rl.clientsMutex.Unlock()
 
 	if specs, ok := rl.clients[ws]; ok /* this will always be true unless client has disconnected very rapidly */ {
+		if len(specs) >= 16 || len(subrelay.listeners) >= 1024 {
+			return false
+		}
 		idx := len(subrelay.listeners)
 		rl.clients[ws] = append(specs, listenerSpec{
 			id:       id,
@@ -59,7 +62,9 @@ func (rl *Relay) addListener(
 			id:     id,
 			filter: filter,
 		})
+		return true
 	}
+	return false
 }
 
 // remove a specific subscription id from listeners for a given ws client

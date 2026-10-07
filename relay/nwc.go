@@ -167,7 +167,8 @@ func (b *NWCBackend) LoadInfo(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, nwcRequestTimeout)
 	defer cancel()
 
-	relay, err := nostr.RelayConnect(ctx, b.relayURL)
+	trustConfiguredRelays([]string{b.relayURL})
+	relay, err := connectRelay(ctx, b.relayURL)
 	if err != nil {
 		return fmt.Errorf("failed to connect to wallet relay %s: %w", b.relayURL, err)
 	}
@@ -371,7 +372,8 @@ func (b *NWCBackend) request(ctx context.Context, method string, params any, res
 		return fmt.Errorf("failed to sign %s request: %w", method, err)
 	}
 
-	relay, err := nostr.RelayConnect(ctx, b.relayURL)
+	trustConfiguredRelays([]string{b.relayURL})
+	relay, err := connectRelay(ctx, b.relayURL)
 	if err != nil {
 		return fmt.Errorf("failed to connect to wallet relay %s: %w", b.relayURL, err)
 	}
@@ -596,7 +598,8 @@ func (b *NWCBackend) watchLoop(ctx context.Context, ch chan PaidInvoice) {
 // subscription delivered anything before dying, which the caller uses to decide
 // how hard to back off.
 func (b *NWCBackend) watchOnce(ctx context.Context, ch chan PaidInvoice) (delivered bool) {
-	relay, err := nostr.RelayConnect(ctx, b.relayURL)
+	trustConfiguredRelays([]string{b.relayURL})
+	relay, err := connectRelay(ctx, b.relayURL)
 	if err != nil {
 		log.Printf("NWC: failed to connect to wallet relay %s: %v", b.relayURL, err)
 		return false

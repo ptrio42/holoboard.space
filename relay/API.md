@@ -52,6 +52,10 @@ Concurrent requests share a fetch; 60 uncached requests per client per minute
 are allowed, with at most 8 upstream fetches at once. Cached results remain
 available at the rate limit.
 
+Note lookup failures distinguish completed absence (404), a deadline (504) and
+incomplete or busy relay discovery (503). Clients can retry 503/504; they must
+not interpret them as proof that the event does not exist.
+
 ## Create an invoice
 
 `POST /api/promote`

@@ -1,23 +1,5 @@
 import NDK from "@nostr-dev-kit/ndk";
-import NDKCacheAdapterDexie from "@nostr-dev-kit/cache-dexie";
-import { PUBLIC_RELAYS, RELAY_URL } from "../config";
 
-/*
- * The board relay and the public relays serve different jobs and both have to
- * be in the pool. The board relay only ever returns notes that were paid for,
- * so profiles and quoted notes travel over public relays. Board and waiting-room
- * queries use the board HTTP API, which keeps public-relay events out of ranking.
- */
-const explicitRelayUrls = [RELAY_URL, ...PUBLIC_RELAYS];
-
-// An optional in-browser cache adapter (client-side only)
-let cacheAdapter: NDKCacheAdapterDexie | undefined;
-if (typeof window !== "undefined") {
-    cacheAdapter = new NDKCacheAdapterDexie({ dbName: "holoboard" });
-}
-
-/** The singleton NDK instance for the whole app. */
-export const ndk = new NDK({ explicitRelayUrls, cacheAdapter });
-
-// Connect to relays on initialization (client-side)
-if (typeof window !== "undefined") ndk.connect();
+// NDK supplies event models. Connections, read discovery and
+// cache lifetime belong to the bounded application read service.
+export const ndk = new NDK({ explicitRelayUrls: [], enableOutboxModel: false });

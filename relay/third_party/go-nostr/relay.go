@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -25,6 +26,7 @@ type Relay struct {
 	closed     bool
 	workers    sync.WaitGroup
 
+	dialer        func(context.Context, string, string) (net.Conn, error)
 	URL           string
 	RequestHeader http.Header // e.g. for origin header
 
@@ -117,6 +119,11 @@ func (sc WithSignatureChecker) ApplyRelayOption(r *Relay) {
 	r.signatureChecker = sc
 }
 
+// WithConnectionDialer allows applications to validate and pin DNS at dial time.
+type WithConnectionDialer func(context.Context, string, string) (net.Conn, error)
+
+func (dial WithConnectionDialer) ApplyRelayOption(r *Relay) { r.dialer = dial }
+
 // String just returns the relay URL.
 func (r *Relay) String() string {
 	return r.URL
@@ -161,7 +168,7 @@ func (r *Relay) ConnectWithTLS(ctx context.Context, tlsConfig *tls.Config) error
 	defer stopDial()
 	stop := context.AfterFunc(r.connectionContext, stopDial)
 	defer stop()
-	conn, err := NewConnection(ctx, r.URL, r.RequestHeader, tlsConfig)
+	conn, err := NewConnection(ctx, r.URL, r.RequestHeader, tlsConfig, r.dialer)
 	if err != nil {
 		return fmt.Errorf("error opening websocket to '%s': %w", r.URL, err)
 	}
@@ -482,18 +489,25 @@ func (r *Relay) QuerySync(ctx context.Context, filter Filter, opts ...Subscripti
 	}
 
 	var events []*Event
+	queryBytes := 0
 	for {
 		select {
 		case evt := <-sub.Events:
 			if evt == nil {
 				// channel is closed
-				return events, nil
+				return events, fmt.Errorf("relay closed before EOSE")
+			}
+			queryBytes += len(evt.Serialize()) + len(evt.ID) + len(evt.Sig)
+			if len(events) >= 512 || queryBytes > 4<<20 {
+				return events, fmt.Errorf("query event budget exceeded")
 			}
 			events = append(events, evt)
 		case <-sub.EndOfStoredEvents:
 			return events, nil
+		case reason := <-sub.ClosedReason:
+			return events, fmt.Errorf("relay CLOSED: %s", reason)
 		case <-ctx.Done():
-			return events, nil
+			return events, ctx.Err()
 		}
 	}
 }

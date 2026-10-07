@@ -7,6 +7,7 @@ export interface NoteQuoteReference {
     bech32: string;
     filter: NDKFilter;
     relays: string[];
+    author?: string;
 }
 
 export function quoteReference(value: string): NoteQuoteReference | null {
@@ -16,10 +17,10 @@ export function quoteReference(value: string): NoteQuoteReference | null {
         const decoded = nip19.decode(bech32);
         if (decoded.type === "note") return { key: decoded.data, bech32, filter: { ids: [decoded.data] }, relays: [] };
         if (decoded.type === "nevent") return { key: decoded.data.id, bech32,
-            filter: { ids: [decoded.data.id] }, relays: decoded.data.relays ?? [] };
+            filter: { ids: [decoded.data.id] }, relays: decoded.data.relays ?? [], author: decoded.data.author };
         if (decoded.type === "naddr") return { key: `${decoded.data.kind}:${decoded.data.pubkey}:${decoded.data.identifier}`, bech32,
             filter: { kinds: [decoded.data.kind], authors: [decoded.data.pubkey], "#d": [decoded.data.identifier] },
-            relays: decoded.data.relays ?? [] };
+            relays: decoded.data.relays ?? [], author: decoded.data.pubkey };
     } catch {
         // Invalid references remain ordinary text or links.
     }
@@ -33,7 +34,10 @@ export function noteAttachments(content: string, tags: string[][] = [], ownId?: 
     const addQuote = (reference: NoteQuoteReference | null) => {
         if (!reference || reference.key === ownId) return;
         const existing = quotes.get(reference.key);
-        if (existing) existing.relays = [...new Set([...existing.relays, ...reference.relays])];
+        if (existing) {
+            existing.relays = [...new Set([...existing.relays, ...reference.relays])];
+            existing.author ??= reference.author;
+        }
         else quotes.set(reference.key, reference);
     };
     for (const token of parseContent(content)) {
@@ -46,7 +50,7 @@ export function noteAttachments(content: string, tags: string[][] = [], ownId?: 
     for (const tag of tags) {
         if (tag[0] !== "q" || !tag[1]) continue;
         if (/^[0-9a-f]{64}$/i.test(tag[1])) {
-            addQuote(quoteReference(nip19.neventEncode({ id: tag[1].toLowerCase(), relays: tag[2] ? [tag[2]] : [] })));
+            addQuote(quoteReference(nip19.neventEncode({ id: tag[1].toLowerCase(), relays: tag[2] ? [tag[2]] : [], author: /^[0-9a-f]{64}$/i.test(tag[3] ?? "") ? tag[3].toLowerCase() : undefined })));
         } else addQuote(quoteReference(tag[1]));
     }
     return { links: [...links], quotes: [...quotes.values()] };

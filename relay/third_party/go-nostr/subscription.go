@@ -9,8 +9,9 @@ import (
 )
 
 type Subscription struct {
-	label   string
-	counter int
+	budgeted bool // guarded by subscriptionBudget
+	label    string
+	counter  int
 
 	Relay   *Relay
 	Filters Filters
@@ -87,21 +88,18 @@ func (sub *Subscription) dispatchEvent(evt *Event) {
 		added = true
 	}
 
-	go func() {
-		sub.mu.Lock()
-		defer sub.mu.Unlock()
-
-		if sub.live.Load() {
-			select {
-			case sub.Events <- evt:
-			case <-sub.Context.Done():
-			}
+	sub.mu.Lock()
+	defer sub.mu.Unlock()
+	if added {
+		defer sub.storedwg.Done()
+	}
+	if sub.live.Load() {
+		select {
+		case sub.Events <- evt:
+		case <-sub.Context.Done():
+		case <-sub.Relay.Context().Done():
 		}
-
-		if added {
-			sub.storedwg.Done()
-		}
-	}()
+	}
 }
 
 func (sub *Subscription) dispatchEose() {
@@ -126,6 +124,7 @@ func (sub *Subscription) dispatchClosed(reason string) {
 func (sub *Subscription) Unsub() {
 	// cancel the context (if it's not canceled already)
 	sub.cancel()
+	sub.releaseBudget()
 
 	// mark subscription as closed and send a CLOSE to the relay (naïve sync.Once implementation)
 	if sub.live.CompareAndSwap(true, false) {
@@ -156,6 +155,10 @@ func (sub *Subscription) Sub(_ context.Context, filters Filters) {
 
 // Fire sends the "REQ" command to the relay.
 func (sub *Subscription) Fire() error {
+	if err := sub.acquireBudget(); err != nil {
+		sub.Unsub()
+		return err
+	}
 	id := sub.GetID()
 
 	var reqb []byte

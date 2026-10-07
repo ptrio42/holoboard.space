@@ -36,17 +36,25 @@ func (rl *Relay) handleRequest(ctx context.Context, id string, eose *sync.WaitGr
 	// but we might be fetching stuff from multiple places)
 	eose.Add(len(rl.QueryEvents))
 	for _, query := range rl.QueryEvents {
+		if rl.queryCount.Add(1) > 32 {
+			rl.queryCount.Add(-1)
+			eose.Done()
+			return errors.New("restricted: query budget exceeded")
+		}
 		ch, err := query(ctx, filter)
 		if err != nil {
+			rl.queryCount.Add(-1)
 			ws.WriteJSON(nostr.NoticeEnvelope(err.Error()))
 			eose.Done()
 			continue
 		} else if ch == nil {
+			rl.queryCount.Add(-1)
 			eose.Done()
 			continue
 		}
 
 		go func(ch chan *nostr.Event) {
+			defer rl.queryCount.Add(-1)
 			for event := range ch {
 				for _, ovw := range rl.OverwriteResponseEvent {
 					ovw(ctx, event)

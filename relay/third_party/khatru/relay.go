@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fasthttp/websocket"
@@ -44,6 +45,14 @@ func NewRelay() *Relay {
 }
 
 type Relay struct {
+	receiveMutex    sync.Mutex
+	receiveStart    time.Time
+	receiveBytes    int
+	receiveMessages int
+
+	connectionCount atomic.Int32
+	queryCount      atomic.Int32
+
 	// Configure before serving requests; otherwise the first request sets it.
 	ServiceURL     string
 	serviceURLOnce sync.Once

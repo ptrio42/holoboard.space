@@ -1,8 +1,8 @@
 # Why go-nostr lives in this repo
 
-This is the Go source of `github.com/nbd-wtf/go-nostr v0.34.5`, with a local
-connection-lifecycle and compressed-message patches. `relay/go.mod` replaces
-that module with this directory. The upstream MIT license, module files and cryptographic code are
+This is the Go source of `github.com/nbd-wtf/go-nostr v0.34.5`, with local
+connection-lifecycle, compression, validation and resource-limit patches.
+`relay/go.mod` replaces that module with this directory. The upstream MIT license, module files and cryptographic code are
 unchanged. Upstream tests, examples and non-build assets are omitted; the local
 lifecycle regression tests are included.
 
@@ -18,7 +18,10 @@ publication with shutdown, closes the socket on cancellation and joins the
 reader, writer and subscription cleanup workers. Internal workers request
 shutdown without waiting for themselves. Write results are buffered, notice
 delivery can be cancelled, and pooled connections inherit the pool's lifetime.
-No signing, encryption or receipt-validation behavior changes.
+Signing and encryption algorithms remain unchanged. A separate validation patch
+checks the supplied event ID against its serialized hash before signature
+acceptance, propagates query errors with partial results and adds resource
+bounds. See [the Nostr reference](../../../docs/nostr.md).
 
 Compressed messages use `wsflate.Writer.Flush` at each message boundary.
 Finalizing the DEFLATE stream with `Close` instead fails with an unexpected

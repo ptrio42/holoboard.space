@@ -1,4 +1,4 @@
-import { useProfileValue } from "@nostr-dev-kit/react";
+import { useProfileValue } from "../../hooks/useProfile";
 import { Avatar } from "../ui/Avatar";
 import { njumpUrl, shortNpub } from "../../lib/nostr";
 
@@ -29,12 +29,7 @@ export const UserProfileInline = ({ pubkey, size = "sm" }: Props) => {
                 group-hover:text-neon-pink @xl/row:text-[11px]">
                 {name}
             </span>
-            {profile?.nip05 && (
-                <span aria-label="Has a verified nostr address" title={profile.nip05}
-                    className="font-pixel text-[9px] text-neon-cyan/70">
-                    +
-                </span>
-            )}
+
         </a>
     );
 };

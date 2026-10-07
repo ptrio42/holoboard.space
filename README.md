@@ -205,6 +205,7 @@ updates, troubleshooting and public hosting.
 - [relay/](relay/README.md): Go relay, payment processing and storage.
 - [Android release guide](docs/android-release.md): build and publish the Zapstore app.
 - [HTTP API](relay/API.md): integration reference for other clients.
+- [Nostr layer](docs/nostr.md): read routing, limits, cache and delivery guarantees.
 
 ## Nostr interoperability
 

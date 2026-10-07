@@ -60,6 +60,18 @@ func acceptsNostrJSON(values []string) bool {
 }
 
 func (rl *Relay) HandleWebsocket(w http.ResponseWriter, r *http.Request) {
+	if rl.connectionCount.Add(1) > 128 {
+		rl.connectionCount.Add(-1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
+	reserved := true
+	defer func() {
+		if reserved {
+			rl.connectionCount.Add(-1)
+		}
+	}()
+
 	for _, reject := range rl.RejectConnection {
 		if reject(r) {
 			w.WriteHeader(429) // Too many requests
@@ -73,6 +85,7 @@ func (rl *Relay) HandleWebsocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	reserved = false
 	ticker := time.NewTicker(rl.PingPeriod)
 
 	// NIP-42 challenge
@@ -96,16 +109,20 @@ func (rl *Relay) HandleWebsocket(w http.ResponseWriter, r *http.Request) {
 		),
 	)
 
+	var killed sync.Once
 	kill := func() {
-		for _, ondisconnect := range rl.OnDisconnect {
-			ondisconnect(ctx)
-		}
+		killed.Do(func() {
+			rl.connectionCount.Add(-1)
+			for _, ondisconnect := range rl.OnDisconnect {
+				ondisconnect(ctx)
+			}
 
-		ticker.Stop()
-		cancel()
-		conn.Close()
+			ticker.Stop()
+			cancel()
+			conn.Close()
 
-		rl.removeClientAndListeners(ws)
+			rl.removeClientAndListeners(ws)
+		})
 	}
 
 	go func() {
@@ -138,12 +155,26 @@ func (rl *Relay) HandleWebsocket(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
+			rl.receiveMutex.Lock()
+			if time.Since(rl.receiveStart) >= time.Second {
+				rl.receiveStart = time.Now()
+				rl.receiveBytes = 0
+				rl.receiveMessages = 0
+			}
+			rl.receiveBytes += len(message)
+			rl.receiveMessages++
+			allowed := rl.receiveBytes <= 16<<20 && rl.receiveMessages <= 1024
+			rl.receiveMutex.Unlock()
+			if !allowed {
+				return
+			}
+
 			if typ == websocket.PingMessage {
 				ws.WriteMessage(websocket.PongMessage, nil)
 				continue
 			}
 
-			go func(message []byte) {
+			func(message []byte) {
 				envelope := nostr.ParseMessage(message)
 				if envelope == nil {
 					// stop silently
@@ -242,6 +273,11 @@ func (rl *Relay) HandleWebsocket(w http.ResponseWriter, r *http.Request) {
 					}
 					ws.WriteJSON(nostr.CountEnvelope{SubscriptionID: env.SubscriptionID, Count: &total})
 				case *nostr.ReqEnvelope:
+					rl.removeListenerId(ws, env.SubscriptionID)
+					if len(env.Filters) == 0 || len(env.Filters) > 8 {
+						ws.WriteJSON(nostr.ClosedEnvelope{SubscriptionID: env.SubscriptionID, Reason: "restricted: filter budget exceeded"})
+						return
+					}
 					eose := sync.WaitGroup{}
 					eose.Add(len(env.Filters))
 
@@ -257,6 +293,12 @@ func (rl *Relay) HandleWebsocket(w http.ResponseWriter, r *http.Request) {
 						if rl.getSubRelayFromFilter != nil {
 							srl = rl.getSubRelayFromFilter(filter)
 						}
+						if !rl.addListener(ws, env.SubscriptionID, srl, filter, cancelReqCtx) {
+							cancelReqCtx(errors.New("subscription budget exceeded"))
+							rl.removeListenerId(ws, env.SubscriptionID)
+							ws.WriteJSON(nostr.ClosedEnvelope{SubscriptionID: env.SubscriptionID, Reason: "restricted: subscription budget exceeded"})
+							return
+						}
 						err := srl.handleRequest(reqCtx, env.SubscriptionID, &eose, ws, filter)
 						if err != nil {
 							// fail everything if any filter is rejected
@@ -266,9 +308,8 @@ func (rl *Relay) HandleWebsocket(w http.ResponseWriter, r *http.Request) {
 							}
 							ws.WriteJSON(nostr.ClosedEnvelope{SubscriptionID: env.SubscriptionID, Reason: reason})
 							cancelReqCtx(errors.New("filter rejected"))
+							rl.removeListenerId(ws, env.SubscriptionID)
 							return
-						} else {
-							rl.addListener(ws, env.SubscriptionID, srl, filter, cancelReqCtx)
 						}
 					}
 

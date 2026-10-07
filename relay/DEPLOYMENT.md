@@ -138,6 +138,12 @@ replace it with the pre-deployment backup merely to revert code: payments and
 receipts recorded since that backup would disappear. A data restore requires
 reconciliation of those payments and explicit approval.
 
+The Nostr foundation changes keep existing successful API responses and ledger
+records compatible and require no data migration. They add no frontend/backend
+version coupling; the release verification sequence above still applies. The new browser read cache uses a separate database and
+never changes payment storage. See the [Nostr reference](../docs/nostr.md) for
+acceptance checks and rollback behavior.
+
 ## Restoring the board
 
 A fresh volume is an empty board. The relay will notice it has no info event

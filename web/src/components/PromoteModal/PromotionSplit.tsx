@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
-import { useProfileValue } from "@nostr-dev-kit/react";
+import { useProfileValue } from "../../hooks/useProfile";
 import { Avatar } from "../ui/Avatar";
 import { njumpUrl, shortNpub } from "../../lib/nostr";
 

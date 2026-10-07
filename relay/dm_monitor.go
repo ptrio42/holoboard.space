@@ -45,6 +45,7 @@ type DMMonitor struct {
 
 // NewDMMonitor creates a new DM monitor
 func NewDMMonitor(relays []string, relayPubkey, relayPrivkey string, invoiceManager *InvoiceManager, storage *Storage) *DMMonitor {
+	trustConfiguredRelays(relays)
 	monitor := &DMMonitor{
 		relays:         relays,
 		senderRelays:   relays,
@@ -236,7 +237,7 @@ func (dm *DMMonitor) followRelay(ctx context.Context, url string, filters nostr.
 // followOnce holds one connection until it fails, and reports whether the
 // subscription was ever established.
 func (dm *DMMonitor) followOnce(ctx context.Context, url string, filters nostr.Filters, out chan<- *nostr.Event) (established bool) {
-	relay, err := nostr.RelayConnect(ctx, url)
+	relay, err := connectRelay(ctx, url)
 	if err != nil {
 		log.Printf("DM monitor could not connect to %s: %v", url, err)
 		return false
@@ -254,8 +255,29 @@ func (dm *DMMonitor) followOnce(ctx context.Context, url string, filters nostr.F
 	established = true
 	log.Printf("DM monitor watching %s", url)
 
+	backfillCtx, stopBackfill := context.WithCancel(ctx)
+	var backfill sync.WaitGroup
+	defer func() { stopBackfill(); backfill.Wait() }()
+	counts := make(map[int]int)
+	startedBackfill := false
+
 	for {
 		select {
+		case <-sub.EndOfStoredEvents:
+			if !startedBackfill {
+				startedBackfill = true
+				for _, filter := range filters {
+					if counts[filter.Kinds[0]] < filter.Limit {
+						continue
+					}
+					backfill.Add(1)
+					go func(filter nostr.Filter) {
+						defer backfill.Done()
+						backfillRelay(backfillCtx, relay, filter, sendBackfillEvent(out))
+					}(filter)
+				}
+			}
+
 		case <-ctx.Done():
 			return established
 
@@ -298,6 +320,7 @@ func (dm *DMMonitor) followOnce(ctx context.Context, url string, filters nostr.F
 			if event == nil {
 				continue
 			}
+			counts[event.Kind]++
 			select {
 			case out <- event:
 			case <-ctx.Done():

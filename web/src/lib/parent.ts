@@ -1,6 +1,7 @@
 import type { NDKEvent } from "@nostr-dev-kit/ndk";
 import { njumpUrl } from "./nostr";
 import { KIND_COMMENT } from "../config";
+import { threadContext, threadHref } from "./thread";
 
 /**
  * What a note is hanging off, when it is hanging off something.
@@ -19,32 +20,21 @@ export interface Parent {
     label: string;
 }
 
-const firstTag = (event: NDKEvent, name: string): string[] | undefined =>
-    event.tags.find((tag) => tag[0] === name && typeof tag[1] === "string" && tag[1] !== "");
-
 /**
  * NIP-10 marks the root of a thread when it bothers to mark anything, and the
- * unmarked form is positional, so an unmarked first `e` is the best guess left.
+ * unmarked form is positional; the final unmarked `e` is the direct parent.
  */
 const replyTarget = (event: NDKEvent): string | undefined => {
-    const marked = event.tags.find((tag) => tag[0] === "e" && (tag[3] === "root" || tag[3] === "reply"));
-    return (marked ?? firstTag(event, "e"))?.[1];
+    const tags = event.tags.filter((tag) => tag[0] === "e");
+    return (tags.find((tag) => tag[3] === "reply") ?? tags.find((tag) => tag[3] === "root") ?? tags.filter((tag) => !tag[3]).at(-1))?.[1];
 };
 
 export function parentOf(event: NDKEvent): Parent | null {
     if (event.kind === KIND_COMMENT) {
-        // NIP-22 puts the root scope in uppercase tags and the immediate parent
-        // in lowercase ones. The root is the more useful of the two to a reader
-        // arriving cold, so it is preferred.
-        const rootEvent = firstTag(event, "E") ?? firstTag(event, "e");
-        if (rootEvent) return { href: njumpUrl(rootEvent[1], "note"), label: "Comment on" };
-
-        // An I tag scopes a comment to something outside nostr entirely.
-        const external = firstTag(event, "I") ?? firstTag(event, "i");
-        if (external && /^https?:\/\//i.test(external[1])) {
-            return { href: external[1], label: "Comment on" };
-        }
-        return null;
+        const context = threadContext({ kind: event.kind, tags: event.tags });
+        const target = context.root ?? context.parent;
+        if (!target) return null;
+        return { href: target.type === "event" ? njumpUrl(target.value, "note") : threadHref(target), label: "Comment on" };
     }
 
     const target = replyTarget(event);

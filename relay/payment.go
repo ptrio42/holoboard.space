@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
@@ -388,7 +390,7 @@ func (pm *PaymentMonitor) fetchEvent(ctx context.Context, eventID string, kinds 
 
 	// Try to fetch from each relay
 	for _, relayURL := range relays {
-		relay, err := nostr.RelayConnect(ctx, relayURL)
+		relay, err := connectRelay(ctx, relayURL)
 		if err != nil {
 			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
 			continue
@@ -420,14 +422,23 @@ func (pm *PaymentMonitor) fetchEvent(ctx context.Context, eventID string, kinds 
 }
 
 // PostFetcher fetches posts from other Nostr relays
+type postCacheEntry struct {
+	event   *nostr.Event
+	relay   string
+	expires time.Time
+}
 type PostFetcher struct {
 	relays []string
+	mu     sync.Mutex
+	cache  map[string]postCacheEntry
 }
 
 // NewPostFetcher creates a new post fetcher
 func NewPostFetcher(relays []string) *PostFetcher {
+	trustConfiguredRelays(relays)
 	return &PostFetcher{
-		relays: relays,
+		relays: safeRelayCandidates(relays),
+		cache:  make(map[string]postCacheEntry),
 	}
 }
 
@@ -458,10 +469,40 @@ func (pf *PostFetcher) FetchPostFrom(ctx context.Context, postID string, hints [
 	return event, err
 }
 
+var errLookupIncomplete = errors.New("relay lookup incomplete")
+var errNoteNotFound = errors.New("note absent from queried relays")
+
+func noteLookupHTTPError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+		writeError(w, http.StatusGatewayTimeout, "note lookup timed out; try again")
+	case errors.Is(err, errRelayBudget):
+		writeError(w, http.StatusServiceUnavailable, "note lookup is busy; try again shortly")
+	case errors.Is(err, errNoteNotFound):
+		writeError(w, http.StatusNotFound, "note was not found on the queried relays")
+	default:
+		writeError(w, http.StatusServiceUnavailable, "some relays could not be checked; try again")
+	}
+}
+
 // FetchPostFromWithRelay also reports the relay that returned the note, so a
 // caller can preserve a useful relay hint when it republishes the reference.
 func (pf *PostFetcher) FetchPostFromWithRelay(ctx context.Context, postID string, hints []string, author string) (*nostr.Event, string, error) {
-	candidates := dedupe(append(append([]string{}, hints...), pf.relays...))
+	pf.mu.Lock()
+	hit, cached := pf.cache[postID]
+	pf.mu.Unlock()
+	if cached && time.Now().Before(hit.expires) {
+		return cloneNostrEvent(hit.event), hit.relay, nil
+	}
+	select {
+	case relayNetwork.lookups <- struct{}{}:
+	default:
+		return nil, "", errRelayBudget
+	}
+	defer func() { <-relayNetwork.lookups }()
+	ctx, deadlineCancel := context.WithTimeout(ctx, 15*time.Second)
+	defer deadlineCancel()
+	candidates := safeRelayCandidates(append(append([]string{}, pf.relays...), hints...))
 	if len(candidates) == 0 && author == "" {
 		return nil, "", fmt.Errorf("no relays configured for fetching")
 	}
@@ -471,11 +512,12 @@ func (pf *PostFetcher) FetchPostFromWithRelay(ctx context.Context, postID string
 	type result struct {
 		event *nostr.Event
 		relay string
+		err   error
 	}
 	found := make(chan result, 2)
 	go func() {
-		event, relay := queryAll(ctx, candidates, postID)
-		found <- result{event, relay}
+		event, relay, err := queryAll(ctx, candidates, postID)
+		found <- result{event, relay, err}
 	}()
 	lookups := 1
 	if author != "" {
@@ -498,160 +540,148 @@ func (pf *PostFetcher) FetchPostFromWithRelay(ctx context.Context, postID string
 					additional = append(additional, write)
 				}
 			}
-			event, relay := queryAll(ctx, additional, postID)
-			found <- result{event, relay}
+			event, relay, _ := queryAll(ctx, additional, postID)
+			found <- result{event, relay, errLookupIncomplete}
 		}()
 	}
+	var lookupErr error
 	for i := 0; i < lookups; i++ {
 		select {
 		case match := <-found:
 			if match.event != nil {
+				// Bound both entry count and individual event size. Cache only verified IDs.
+				encoded, _ := match.event.MarshalJSON()
+				if len(encoded) <= 8192 {
+					pf.mu.Lock()
+					for key, entry := range pf.cache {
+						if !time.Now().Before(entry.expires) {
+							delete(pf.cache, key)
+						}
+					}
+					if len(pf.cache) >= 256 {
+						for key := range pf.cache {
+							delete(pf.cache, key)
+							break
+						}
+					}
+					pf.cache[postID] = postCacheEntry{cloneNostrEvent(match.event), match.relay, time.Now().Add(time.Hour)}
+					pf.mu.Unlock()
+				}
 				return match.event, match.relay, nil
+			}
+			if match.err != nil {
+				lookupErr = match.err
 			}
 		case <-ctx.Done():
 			return nil, "", fmt.Errorf("post lookup: %w", ctx.Err())
 		}
 	}
 
-	if err := ctx.Err(); err != nil {
-		return nil, "", fmt.Errorf("post lookup: %w", err)
+	if ctx.Err() != nil {
+		return nil, "", ctx.Err()
 	}
-	return nil, "", fmt.Errorf("post %s not found on any relay", postID)
+	if lookupErr != nil {
+		return nil, "", lookupErr
+	}
+	return nil, "", errNoteNotFound
 }
 
 // queryAll asks every relay at once and takes the first answer.
-func queryAll(ctx context.Context, relays []string, postID string) (*nostr.Event, string) {
+func queryAll(ctx context.Context, relays []string, postID string) (*nostr.Event, string, error) {
+	relays = safeRelayCandidates(relays)
 	if len(relays) == 0 {
-		return nil, ""
+		return nil, "", nil
 	}
-
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-
-	// No kind filter. An id names exactly one event, so narrowing by kind buys
-	// nothing and costs the difference between "we could not find it" and "we
-	// found it and it is not the sort of thing this board takes". Callers check
-	// the kind themselves and can say which it was.
-	filter := nostr.Filter{IDs: []string{postID}, Limit: 1}
 	type result struct {
 		event *nostr.Event
 		relay string
+		err   error
 	}
-	found := make(chan result, len(relays))
-
-	var wg sync.WaitGroup
+	results := make(chan result, len(relays))
 	for _, url := range relays {
-		wg.Add(1)
 		go func(url string) {
-			defer wg.Done()
-
-			relay, err := nostr.RelayConnect(ctx, url)
+			answer := result{relay: url}
+			defer func() { results <- answer }()
+			relay, err := connectRelay(ctx, url)
 			if err != nil {
-				if ctx.Err() == nil {
-					log.Printf("Note lookup %s: connection to %s failed: %v", short(postID, 8), url, err)
-				}
+				answer.err = errLookupIncomplete
 				return
 			}
 			defer relay.Close()
-
-			subscription, err := relay.Subscribe(ctx, nostr.Filters{filter})
+			sub, err := relay.Subscribe(ctx, []nostr.Filter{{IDs: []string{postID}, Limit: 1}})
 			if err != nil {
-				if ctx.Err() == nil {
-					log.Printf("Note lookup %s: request to %s failed: %v", short(postID, 8), url, err)
+				answer.err = errLookupIncomplete
+				return
+			}
+			defer sub.Unsub()
+			for {
+				select {
+				case event, ok := <-sub.Events:
+					if !ok {
+						answer.err = errLookupIncomplete
+						return
+					}
+					if event.ID != postID {
+						continue
+					}
+					valid, err := event.CheckSignature()
+					if err != nil || !valid {
+						continue
+					}
+					answer.event = event
+					return
+				case <-sub.EndOfStoredEvents:
+					return
+				case <-sub.ClosedReason:
+					answer.err = errLookupIncomplete
+					return
+				case <-ctx.Done():
+					answer.err = ctx.Err()
+					return
 				}
-				return
-			}
-			defer subscription.Unsub()
-			var event *nostr.Event
-			select {
-			case event = <-subscription.Events:
-			case <-subscription.EndOfStoredEvents:
-				return
-			case reason := <-subscription.ClosedReason:
-				log.Printf("Note lookup %s: %s refused the request: %s", short(postID, 8), url, reason)
-				return
-			case <-subscription.Context.Done():
-				return
-			}
-			if event == nil {
-				return
-			}
-			log.Printf("Found post %s on relay %s", short(postID, 8), url)
-			select {
-			case found <- result{event: event, relay: url}:
-			default:
 			}
 		}(url)
 	}
-
-	done := make(chan struct{})
-	go func() { wg.Wait(); close(done) }()
-
-	select {
-	case match := <-found:
-		return match.event, match.relay
-	case <-done:
+	var lookupErr error
+	for range relays {
 		select {
-		case match := <-found:
-			return match.event, match.relay
-		default:
-			return nil, ""
+		case answer := <-results:
+			if answer.event != nil {
+				return answer.event, answer.relay, nil
+			}
+			if answer.err != nil {
+				lookupErr = answer.err
+			}
+		case <-ctx.Done():
+			return nil, "", ctx.Err()
 		}
-	case <-ctx.Done():
-		return nil, ""
 	}
+	return nil, "", lookupErr
 }
 
 // authorWriteRelays reads where somebody publishes, from their NIP-65 list.
 func authorWriteRelays(ctx context.Context, author string, searchOn []string) []string {
-	ctx, cancel := context.WithTimeout(ctx, 6*time.Second)
-	defer cancel()
+	writes, _ := authorWriteRelaysStatus(ctx, author, searchOn)
+	return writes
+}
 
-	sources := dedupe(append(append([]string{}, discoveryRelays...), searchOn...))
-
-	var mu sync.Mutex
-	var newest *nostr.Event
-
-	var wg sync.WaitGroup
-	for _, url := range sources {
-		wg.Add(1)
-		go func(url string) {
-			defer wg.Done()
-
-			relay, err := nostr.RelayConnect(ctx, url)
-			if err != nil {
-				return
-			}
-			defer relay.Close()
-
-			found, err := relay.QuerySync(ctx, nostr.Filter{
-				Kinds: []int{kindRelayList}, Authors: []string{author}, Limit: 1,
-			})
-			if err != nil || len(found) == 0 {
-				return
-			}
-
-			mu.Lock()
-			defer mu.Unlock()
-			if newerReplaceableEvent(found[0], newest) {
-				newest = found[0]
-			}
-		}(url)
-	}
-	wg.Wait()
+func authorWriteRelaysStatus(ctx context.Context, author string, searchOn []string) ([]string, bool) {
+	newest, resolved := queryRelayMetadataStatus(ctx, kindRelayList, author, searchOn)
 
 	if newest == nil {
-		return nil
+		return nil, resolved
 	}
 
 	var writes []string
 	for _, tag := range newest.Tags {
 		// NIP-65: an r tag with no marker is both read and write.
-		if len(tag) >= 2 && tag[0] == "r" && (len(tag) < 3 || tag[2] == "write") {
+		if len(tag) >= 2 && tag[0] == "r" && (len(tag) < 3 || tag[2] == "" || tag[2] == "write") {
 			writes = append(writes, tag[1])
 		}
 	}
-	return writes
+	return dedupe(writes)[:min(len(dedupe(writes)), maxLookupRelays)], resolved
 }
 
 // extractEventIDFromText extracts event IDs from text content

@@ -82,6 +82,30 @@ func pendingRelayTargets(publication *AccountPublication) []string {
 	return pending
 }
 
+// QueueAccountReply durably queues instruction/error replies with the same
+// signed-event retry semantics as promotion replies, without a zap mapping.
+func (s *Storage) QueueAccountReply(mentionID string, reply *nostr.Event, targets []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := replyPublicationKey(mentionID)
+	if _, exists := s.accountPublications[key]; exists {
+		return nil
+	}
+	wasProcessed := s.processedMentions[mentionID]
+	s.accountPublications[key] = newAccountPublication(accountPublicationReply, "", reply, targets)
+	s.processedMentions[mentionID] = true
+	if err := s.save(); err != nil {
+		delete(s.accountPublications, key)
+		if wasProcessed {
+			s.processedMentions[mentionID] = true
+		} else {
+			delete(s.processedMentions, mentionID)
+		}
+		return err
+	}
+	return nil
+}
+
 // PendingAccountPublication is a snapshot safe to use while network calls are
 // in flight. Storage locks are never held while a relay is contacted.
 type PendingAccountPublication struct {
@@ -193,6 +217,7 @@ type AccountPublisher struct {
 	wake         chan struct{}
 	publish      accountPublishFunc
 	profile      func(context.Context, string, []string) (*nostr.Event, string)
+	readRelays   func(context.Context, string, []string) []string
 	retryStart   time.Duration
 	retryMax     time.Duration
 	runner       sync.WaitGroup
@@ -200,6 +225,7 @@ type AccountPublisher struct {
 }
 
 func NewAccountPublisher(storage *Storage, relayPubkey, relayPrivkey, boardURL string, targets []string) (*AccountPublisher, error) {
+	trustConfiguredRelays(targets)
 	normalizedURL, err := normalizePublicBoardURL(boardURL)
 	if err != nil {
 		return nil, err
@@ -218,6 +244,7 @@ func NewAccountPublisher(storage *Storage, relayPubkey, relayPrivkey, boardURL s
 		return publishSignedEvent(ctx, relay, event, relayPrivkey)
 	}
 	publisher.profile = findRecipientProfile
+	publisher.readRelays = authorReadRelays
 	return publisher, nil
 }
 
@@ -417,12 +444,57 @@ func (publisher *AccountPublisher) run(ctx context.Context) {
 	}
 }
 
+// ExtendAccountPublicationTargets saves destinations before any EVENT is sent.
+// The record shape stays compatible with existing deployments and rollback.
+func (s *Storage) ExtendAccountPublicationTargets(key, eventID string, targets []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record := s.accountPublications[key]
+	if record == nil || record.Event == nil || record.Event.ID != eventID || record.Cancelled {
+		return fmt.Errorf("publication is no longer pending")
+	}
+	updated := cloneAccountPublication(record)
+	updated.Targets = dedupe(append(updated.Targets, targets...))
+	if len(updated.Targets) == len(record.Targets) {
+		return nil
+	}
+	s.accountPublications[key] = updated
+	if err := s.save(); err != nil {
+		s.accountPublications[key] = record
+		return err
+	}
+	return nil
+}
+
 func (publisher *AccountPublisher) publishPending(ctx context.Context) int {
 	publisher.drainMu.Lock()
 	defer publisher.drainMu.Unlock()
 
 	jobs := publisher.storage.PendingAccountPublications()
 	for _, job := range jobs {
+		if publisher.boardURL != "" && publisher.readRelays != nil && job.Record.Event.Kind != 5 {
+			routeCtx, stop := context.WithTimeout(ctx, 4*time.Second)
+			var destinations []string
+			recipients := map[string]bool{}
+			for _, tag := range job.Record.Event.Tags {
+				if len(tag) < 2 || tag[0] != "p" || !isHex64(tag[1]) || recipients[tag[1]] {
+					continue
+				}
+				if len(recipients) >= 4 {
+					break
+				}
+				recipients[tag[1]] = true
+				destinations = append(destinations, publisher.readRelays(routeCtx, tag[1], publisher.targets)...)
+			}
+			stop()
+			destinations = safeRelayCandidates(destinations)
+			if err := publisher.storage.ExtendAccountPublicationTargets(job.Key, job.Record.Event.ID, destinations); err != nil {
+				log.Printf("Could not persist publication routing: %v", err)
+				continue
+			}
+			job.Record.Targets = dedupe(append(job.Record.Targets, destinations...))
+			job.Pending = pendingRelayTargets(job.Record)
+		}
 		type result struct {
 			relay string
 			err   error
@@ -472,7 +544,7 @@ func publishSignedEvent(ctx context.Context, relayURL string, event *nostr.Event
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 
-	relay, err := nostr.RelayConnect(ctx, relayURL)
+	relay, err := connectRelay(ctx, relayURL)
 	if err != nil {
 		return err
 	}

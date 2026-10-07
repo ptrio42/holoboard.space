@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { NDKSubscriptionCacheUsage, type NDKEvent, type NDKFilter, type NDKSubscription } from "@nostr-dev-kit/ndk";
-import { PUBLIC_RELAYS, RELAY_URL } from "../../config";
+import { NDKEvent, type NDKFilter } from "@nostr-dev-kit/ndk";
+import { readNostr } from "../../lib/nostrReads";
+import { newerEvent } from "../../lib/nostrCache";
 import { ndk } from "../../lib/ndk";
 import { quoteImages, quotePreviewContent, type NoteQuoteReference } from "../../lib/noteAttachments";
 import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
@@ -16,7 +17,8 @@ export function NoteQuote({ reference }: { reference: NoteQuoteReference }) {
     // follow the lookup, not the identity of those temporary objects.
     const request = JSON.stringify({
         filter: reference.filter,
-        relayUrls: [...new Set([RELAY_URL, ...PUBLIC_RELAYS, ...reference.relays.filter((url) => /^wss?:\/\//i.test(url))])].sort(),
+        relayUrls: [...new Set(reference.relays)].sort(),
+        author: reference.author,
     });
     return <QuotePreview key={request} request={request} href={`https://njump.me/${reference.bech32}`} />;
 }
@@ -29,29 +31,23 @@ function QuotePreview({ request, href }: { request: string; href: string }) {
     const [attempt, setAttempt] = useState(0);
 
     useEffect(() => {
-        let subscription: NDKSubscription | undefined;
+        let started = false;
+        const controller = new AbortController();
         let slowTimeout: ReturnType<typeof setTimeout> | undefined;
         let timeout: ReturnType<typeof setTimeout> | undefined;
         let stopped = false;
         let found = false;
         const start = () => {
-            if (subscription || stopped) return;
-            const { filter, relayUrls } = JSON.parse(request) as { filter: NDKFilter; relayUrls: string[] };
-            subscription = ndk.subscribe(filter, {
-                // NDK can emit EOSE after only the faster relays have responded.
-                // Keep slower sources open until the lookup deadline.
-                closeOnEose: false,
-                cacheUsage: NDKSubscriptionCacheUsage.PARALLEL,
-                // Grouped requests can outlive a row changing from plain text to billboard.
-                groupable: false,
-                relayUrls,
-            }, false);
-            subscription.on("event", (note: NDKEvent) => {
-                if (stopped) return;
-                found = true;
-                clearTimeout(slowTimeout);
-                setEvent((current) => !current || (note.created_at ?? 0) > (current.created_at ?? 0) ? note : current);
-            });
+            if (started || stopped) return;
+            started = true;
+            const { filter, relayUrls, author } = JSON.parse(request) as { filter: NDKFilter; relayUrls: string[]; author?: string };
+            void readNostr(filter, relayUrls, author, { signal: controller.signal, timeout: 30000,
+                onEvent: (note) => {
+                    if (stopped) return;
+                    found = true; clearTimeout(slowTimeout);
+                    setEvent((current) => !current || newerEvent(note, current.rawEvent() as import("nostr-tools").Event) ? new NDKEvent(ndk, note) : current);
+                },
+            }).catch(() => {});
             // A slow relay has not proved that a note is missing. Keep this
             // attempt open and distinguish a timeout from an unavailable note.
             slowTimeout = setTimeout(() => { if (!stopped && !found) setSlow(true); }, 8000);
@@ -59,15 +55,14 @@ function QuotePreview({ request, href }: { request: string; href: string }) {
                 if (stopped) return;
                 stopped = true;
                 setUnavailable(!found);
-                subscription?.stop();
+                controller.abort();
             }, 30000);
-            subscription.start();
         };
         const observer = new IntersectionObserver(([entry]) => {
             if (entry.isIntersecting) { observer.disconnect(); start(); }
         }, { rootMargin: "200px" });
         if (container.current) observer.observe(container.current);
-        return () => { stopped = true; observer.disconnect(); clearTimeout(slowTimeout); clearTimeout(timeout); subscription?.stop(); };
+        return () => { stopped = true; observer.disconnect(); clearTimeout(slowTimeout); clearTimeout(timeout); controller.abort(); };
     }, [request, attempt]);
 
     return (

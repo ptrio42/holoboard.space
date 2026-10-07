@@ -179,11 +179,17 @@ func writeError(w http.ResponseWriter, status int, message string) {
 // required from the caller.
 func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFetcher) http.HandlerFunc {
 	limiter := newRateLimiter(promoteBurst, promoteWindow)
+	lookupLimiter := newRateLimiter(60, time.Minute)
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", "POST")
 			writeError(w, http.StatusMethodNotAllowed, "use POST")
+			return
+		}
+
+		if !lookupLimiter.allow(clientAddress(r), time.Now()) {
+			writeError(w, http.StatusTooManyRequests, "too many promotion lookups, try again shortly")
 			return
 		}
 
@@ -274,8 +280,7 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 			// not have to already know where the note lives.
 			note, err := fetcher.FetchPostFrom(ctx, noteID, hints, author)
 			if err != nil {
-				writeError(w, http.StatusNotFound,
-					"could not find that note on any relay this board watches")
+				noteLookupHTTPError(w, err)
 				return
 			}
 			event = note

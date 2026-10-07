@@ -68,7 +68,9 @@ func startTestRelay(t *testing.T) string {
 	srv := httptest.NewServer(rl)
 	t.Cleanup(srv.Close)
 
-	return "ws" + strings.TrimPrefix(srv.URL, "http")
+	relayURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	trustConfiguredRelays([]string{relayURL})
+	return relayURL
 }
 
 // walletReply is what a stand-in wallet answers with for one command.

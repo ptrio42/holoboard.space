@@ -1,0 +1,225 @@
+diff --git a/relay/third_party/khatru/WHY.md b/relay/third_party/khatru/WHY.md
+index 19df30b..5809ba3 100644
+--- a/relay/third_party/khatru/WHY.md
++++ b/relay/third_party/khatru/WHY.md
+@@ -1,7 +1,9 @@
+ # Why khatru lives in this repo
+ 
+ This is khatru v0.7.6 with local patches for listener synchronization, HTTP
+-timeouts, NIP-11 Accept negotiation and service URL initialization. See the
++timeouts, NIP-11 Accept negotiation, service URL initialization and shared
++client, listener, query and receive budgets. Socket frames are processed in
++wire order, so CLOSE cannot overtake its REQ. See the
+ [patch reference](../../patches/README.md).
+ `go.mod` points at this directory with a `replace`.
+ 
+diff --git a/relay/third_party/khatru/handlers.go b/relay/third_party/khatru/handlers.go
+index a9b2525..6bde7a2 100644
+--- a/relay/third_party/khatru/handlers.go
++++ b/relay/third_party/khatru/handlers.go
+@@ -60,6 +60,18 @@ func acceptsNostrJSON(values []string) bool {
+ }
+ 
+ func (rl *Relay) HandleWebsocket(w http.ResponseWriter, r *http.Request) {
++	if rl.connectionCount.Add(1) > 128 {
++		rl.connectionCount.Add(-1)
++		w.WriteHeader(http.StatusServiceUnavailable)
++		return
++	}
++	reserved := true
++	defer func() {
++		if reserved {
++			rl.connectionCount.Add(-1)
++		}
++	}()
++
+ 	for _, reject := range rl.RejectConnection {
+ 		if reject(r) {
+ 			w.WriteHeader(429) // Too many requests
+@@ -73,6 +85,7 @@ func (rl *Relay) HandleWebsocket(w http.ResponseWriter, r *http.Request) {
+ 		return
+ 	}
+ 
++	reserved = false
+ 	ticker := time.NewTicker(rl.PingPeriod)
+ 
+ 	// NIP-42 challenge
+@@ -96,16 +109,20 @@ func (rl *Relay) HandleWebsocket(w http.ResponseWriter, r *http.Request) {
+ 		),
+ 	)
+ 
++	var killed sync.Once
+ 	kill := func() {
+-		for _, ondisconnect := range rl.OnDisconnect {
+-			ondisconnect(ctx)
+-		}
++		killed.Do(func() {
++			rl.connectionCount.Add(-1)
++			for _, ondisconnect := range rl.OnDisconnect {
++				ondisconnect(ctx)
++			}
+ 
+-		ticker.Stop()
+-		cancel()
+-		conn.Close()
++			ticker.Stop()
++			cancel()
++			conn.Close()
+ 
+-		rl.removeClientAndListeners(ws)
++			rl.removeClientAndListeners(ws)
++		})
+ 	}
+ 
+ 	go func() {
+@@ -138,12 +155,26 @@ func (rl *Relay) HandleWebsocket(w http.ResponseWriter, r *http.Request) {
+ 				return
+ 			}
+ 
++			rl.receiveMutex.Lock()
++			if time.Since(rl.receiveStart) >= time.Second {
++				rl.receiveStart = time.Now()
++				rl.receiveBytes = 0
++				rl.receiveMessages = 0
++			}
++			rl.receiveBytes += len(message)
++			rl.receiveMessages++
++			allowed := rl.receiveBytes <= 16<<20 && rl.receiveMessages <= 1024
++			rl.receiveMutex.Unlock()
++			if !allowed {
++				return
++			}
++
+ 			if typ == websocket.PingMessage {
+ 				ws.WriteMessage(websocket.PongMessage, nil)
+ 				continue
+ 			}
+ 
+-			go func(message []byte) {
++			func(message []byte) {
+ 				envelope := nostr.ParseMessage(message)
+ 				if envelope == nil {
+ 					// stop silently
+@@ -242,6 +273,11 @@ func (rl *Relay) HandleWebsocket(w http.ResponseWriter, r *http.Request) {
+ 					}
+ 					ws.WriteJSON(nostr.CountEnvelope{SubscriptionID: env.SubscriptionID, Count: &total})
+ 				case *nostr.ReqEnvelope:
++					rl.removeListenerId(ws, env.SubscriptionID)
++					if len(env.Filters) == 0 || len(env.Filters) > 8 {
++						ws.WriteJSON(nostr.ClosedEnvelope{SubscriptionID: env.SubscriptionID, Reason: "restricted: filter budget exceeded"})
++						return
++					}
+ 					eose := sync.WaitGroup{}
+ 					eose.Add(len(env.Filters))
+ 
+@@ -257,6 +293,12 @@ func (rl *Relay) HandleWebsocket(w http.ResponseWriter, r *http.Request) {
+ 						if rl.getSubRelayFromFilter != nil {
+ 							srl = rl.getSubRelayFromFilter(filter)
+ 						}
++						if !rl.addListener(ws, env.SubscriptionID, srl, filter, cancelReqCtx) {
++							cancelReqCtx(errors.New("subscription budget exceeded"))
++							rl.removeListenerId(ws, env.SubscriptionID)
++							ws.WriteJSON(nostr.ClosedEnvelope{SubscriptionID: env.SubscriptionID, Reason: "restricted: subscription budget exceeded"})
++							return
++						}
+ 						err := srl.handleRequest(reqCtx, env.SubscriptionID, &eose, ws, filter)
+ 						if err != nil {
+ 							// fail everything if any filter is rejected
+@@ -266,9 +308,8 @@ func (rl *Relay) HandleWebsocket(w http.ResponseWriter, r *http.Request) {
+ 							}
+ 							ws.WriteJSON(nostr.ClosedEnvelope{SubscriptionID: env.SubscriptionID, Reason: reason})
+ 							cancelReqCtx(errors.New("filter rejected"))
++							rl.removeListenerId(ws, env.SubscriptionID)
+ 							return
+-						} else {
+-							rl.addListener(ws, env.SubscriptionID, srl, filter, cancelReqCtx)
+ 						}
+ 					}
+ 
+diff --git a/relay/third_party/khatru/listener.go b/relay/third_party/khatru/listener.go
+index 9394a68..d2c4b18 100644
+--- a/relay/third_party/khatru/listener.go
++++ b/relay/third_party/khatru/listener.go
+@@ -42,11 +42,14 @@ func (rl *Relay) addListener(
+ 	subrelay *Relay,
+ 	filter nostr.Filter,
+ 	cancel context.CancelCauseFunc,
+-) {
++) bool {
+ 	rl.clientsMutex.Lock()
+ 	defer rl.clientsMutex.Unlock()
+ 
+ 	if specs, ok := rl.clients[ws]; ok /* this will always be true unless client has disconnected very rapidly */ {
++		if len(specs) >= 16 || len(subrelay.listeners) >= 1024 {
++			return false
++		}
+ 		idx := len(subrelay.listeners)
+ 		rl.clients[ws] = append(specs, listenerSpec{
+ 			id:       id,
+@@ -59,7 +62,9 @@ func (rl *Relay) addListener(
+ 			id:     id,
+ 			filter: filter,
+ 		})
++		return true
+ 	}
++	return false
+ }
+ 
+ // remove a specific subscription id from listeners for a given ws client
+diff --git a/relay/third_party/khatru/relay.go b/relay/third_party/khatru/relay.go
+index 72a1cab..9696a72 100644
+--- a/relay/third_party/khatru/relay.go
++++ b/relay/third_party/khatru/relay.go
+@@ -6,6 +6,7 @@ import (
+ 	"net/http"
+ 	"os"
+ 	"sync"
++	"sync/atomic"
+ 	"time"
+ 
+ 	"github.com/fasthttp/websocket"
+@@ -44,6 +45,14 @@ func NewRelay() *Relay {
+ }
+ 
+ type Relay struct {
++	receiveMutex    sync.Mutex
++	receiveStart    time.Time
++	receiveBytes    int
++	receiveMessages int
++
++	connectionCount atomic.Int32
++	queryCount      atomic.Int32
++
+ 	// Configure before serving requests; otherwise the first request sets it.
+ 	ServiceURL     string
+ 	serviceURLOnce sync.Once
+diff --git a/relay/third_party/khatru/responding.go b/relay/third_party/khatru/responding.go
+index bb72cb6..11649cb 100644
+--- a/relay/third_party/khatru/responding.go
++++ b/relay/third_party/khatru/responding.go
+@@ -36,17 +36,25 @@ func (rl *Relay) handleRequest(ctx context.Context, id string, eose *sync.WaitGr
+ 	// but we might be fetching stuff from multiple places)
+ 	eose.Add(len(rl.QueryEvents))
+ 	for _, query := range rl.QueryEvents {
++		if rl.queryCount.Add(1) > 32 {
++			rl.queryCount.Add(-1)
++			eose.Done()
++			return errors.New("restricted: query budget exceeded")
++		}
+ 		ch, err := query(ctx, filter)
+ 		if err != nil {
++			rl.queryCount.Add(-1)
+ 			ws.WriteJSON(nostr.NoticeEnvelope(err.Error()))
+ 			eose.Done()
+ 			continue
+ 		} else if ch == nil {
++			rl.queryCount.Add(-1)
+ 			eose.Done()
+ 			continue
+ 		}
+ 
+ 		go func(ch chan *nostr.Event) {
++			defer rl.queryCount.Add(-1)
+ 			for event := range ch {
+ 				for _, ovw := range rl.OverwriteResponseEvent {
+ 					ovw(ctx, event)

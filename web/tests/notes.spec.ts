@@ -182,10 +182,10 @@ test("previously loaded quotes remain readable when relays no longer return them
     const options = { content: `Cached context nostr:${noteEncode(quotes[0].id)}`, availableQuotes: [quotes[0]] };
     const row = await setup(context, page, options);
     await expect(row.locator(".note-quote__excerpt")).toContainText("Quoted source 1");
-    // The cache adapter persists its pending writes every ten seconds.
-    await page.clock.runFor(11000);
+    // The bounded read cache persists its pending writes after two seconds.
+    await page.clock.runFor(3000);
     await expect.poll(() => page.evaluate(id => new Promise<boolean>((resolve, reject) => {
-        const open = indexedDB.open("holoboard");
+        const open = indexedDB.open("holoboard-nostr-read-v1");
         open.onerror = () => reject(open.error);
         open.onsuccess = () => {
             const database = open.result;

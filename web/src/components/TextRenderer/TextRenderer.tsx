@@ -40,11 +40,11 @@ function withBreaks(value: string, keyPrefix: string) {
 }
 
 /** A bech32 reference to somebody, as opposed to one to a note. */
-function pubkeyOf(bech32: string): string | null {
+function pubkeyOf(bech32: string): { pubkey: string; relays: string[] } | null {
     try {
         const decoded = nip19.decode(bech32);
-        if (decoded.type === "npub") return decoded.data;
-        if (decoded.type === "nprofile") return decoded.data.pubkey;
+        if (decoded.type === "npub") return { pubkey: decoded.data, relays: [] };
+        if (decoded.type === "nprofile") return { pubkey: decoded.data.pubkey, relays: decoded.data.relays ?? [] };
     } catch {
         // Not decodable, so it is shown as a link rather than a name.
     }
@@ -75,7 +75,7 @@ function renderToken(token: ContentToken, key: string, embedQuotes: boolean, own
 
         case "mention": {
             const pubkey = pubkeyOf(token.bech32);
-            if (pubkey) return <NostrMention key={key} pubkey={pubkey} />;
+            if (pubkey) return <NostrMention key={key} pubkey={pubkey.pubkey} relays={pubkey.relays} />;
             const quote = embedQuotes ? quoteReference(token.bech32) : null;
             if (quote && quote.key !== ownId) return <NoteQuote key={key} reference={quote} />;
             return (

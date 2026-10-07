@@ -42,6 +42,7 @@ func (mm *MentionMonitor) SetAccountPublisher(publisher *AccountPublisher) {
 
 // Start begins monitoring for mentions
 func (mm *MentionMonitor) Start(ctx context.Context, relays []string) {
+	trustConfiguredRelays(relays)
 	log.Printf("Starting mention monitor for pubkey %s", mm.relayPubkey)
 
 	// Keep relay subscriptions independent. In go-nostr's SubMany, a CLOSED
@@ -120,7 +121,7 @@ func (mm *MentionMonitor) followRelay(ctx context.Context, url string, out chan<
 }
 
 func (mm *MentionMonitor) followOnce(ctx context.Context, url string, out chan<- *nostr.Event) {
-	relay, err := nostr.RelayConnect(ctx, url)
+	relay, err := connectRelay(ctx, url)
 	if err != nil {
 		log.Printf("Mention monitor could not connect to %s: %v", url, err)
 		return
@@ -130,6 +131,7 @@ func (mm *MentionMonitor) followOnce(ctx context.Context, url string, out chan<-
 	// ProcessMention ignores events already recorded in processed_mentions.
 	since := nostr.Timestamp(time.Now().Add(-maxMentionBacklog).Unix())
 	filter := nostr.Filter{
+		Limit: 200,
 		Kinds: []int{1},
 		Tags:  nostr.TagMap{"p": []string{mm.relayPubkey}},
 		Since: &since,
@@ -151,14 +153,28 @@ func (mm *MentionMonitor) followOnce(ctx context.Context, url string, out chan<-
 	}()
 	log.Printf("Mention monitor watching %s since %s", url, time.Unix(int64(since), 0).Format(time.RFC3339))
 
+	backfillCtx, stopBackfill := context.WithCancel(ctx)
+	var backfill sync.WaitGroup
+	defer func() { stopBackfill(); backfill.Wait() }()
+	count := 0
+	startedBackfill := false
+
 	for {
 		select {
+		case <-sub.EndOfStoredEvents:
+			if !startedBackfill && count >= filter.Limit {
+				startedBackfill = true
+				backfill.Add(1)
+				go func() { defer backfill.Done(); backfillRelay(backfillCtx, relay, filter, sendBackfillEvent(out)) }()
+			}
+
 		case <-ctx.Done():
 			return
 		case reason := <-sub.ClosedReason:
 			log.Printf("Mention monitor subscription closed by %s: %s", url, reason)
 			return
 		case event, more := <-sub.Events:
+			count++
 			if !more {
 				log.Printf("Mention monitor connection closed by %s", url)
 				return
@@ -312,13 +328,15 @@ func (mm *MentionMonitor) CreatePromotionalReply(ctx context.Context, mentionEve
 	log.Printf("Publishing promotional reply %s for note %s", short(replyEvent.ID, 8), short(noteToPromote.ID, 8))
 
 	for _, relay := range relays {
-		pub, err := mm.pool.EnsureRelay(relay)
+		pub, err := connectRelay(ctx, relay)
 		if err != nil {
 			log.Printf("Failed to connect to relay %s: %v", relay, err)
 			continue
 		}
 
-		if err := pub.Publish(ctx, replyEvent); err != nil {
+		err = pub.Publish(ctx, replyEvent)
+		pub.Close()
+		if err != nil {
 			log.Printf("Failed to publish to %s: %v", relay, err)
 		} else {
 			log.Printf("Published promotional reply to %s", relay)
@@ -369,14 +387,22 @@ The more sats, the higher the ranking. Anyone can boost any note!`
 		return fmt.Errorf("failed to sign instructions: %w", err)
 	}
 
+	if mm.publisher != nil {
+		if err := mm.storage.QueueAccountReply(mentionEvent.ID, &replyEvent, mm.publisher.Targets()); err != nil {
+			return err
+		}
+		mm.publisher.Wake()
+		return nil
+	}
 	// Publish to relays
 	relays := mm.fetcher.Relays()
 	for _, relay := range relays {
-		pub, err := mm.pool.EnsureRelay(relay)
+		pub, err := connectRelay(ctx, relay)
 		if err != nil {
 			continue
 		}
 		pub.Publish(ctx, replyEvent)
+		pub.Close()
 	}
 
 	// Mark as processed so we don't spam
@@ -402,14 +428,22 @@ func (mm *MentionMonitor) SendErrorReply(ctx context.Context, mentionEvent *nost
 		return fmt.Errorf("failed to sign error reply: %w", err)
 	}
 
+	if mm.publisher != nil {
+		if err := mm.storage.QueueAccountReply(mentionEvent.ID, &replyEvent, mm.publisher.Targets()); err != nil {
+			return err
+		}
+		mm.publisher.Wake()
+		return nil
+	}
 	// Publish to relays
 	relays := mm.fetcher.Relays()
 	for _, relay := range relays {
-		pub, err := mm.pool.EnsureRelay(relay)
+		pub, err := connectRelay(ctx, relay)
 		if err != nil {
 			continue
 		}
 		pub.Publish(ctx, replyEvent)
+		pub.Close()
 	}
 
 	// Mark as processed

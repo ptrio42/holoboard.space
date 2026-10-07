@@ -8,7 +8,6 @@ import (
 	"log"
 	"math/big"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -398,7 +397,7 @@ func publishTo(ctx context.Context, url string, events []*nostr.Event) bool {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	relay, err := nostr.RelayConnect(ctx, url)
+	relay, err := connectRelay(ctx, url)
 	if err != nil {
 		return false
 	}
@@ -469,49 +468,10 @@ func normalizePubkey(input string) (string, error) {
 // It fires a query per relay rather than using the pool, because SimplePool
 // tears the whole subscription down as soon as any one relay gives up.
 func recipientInbox(ctx context.Context, pubkey string, searchOn []string) []string {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	sources := dedupe(append(append([]string{}, discoveryRelays...), searchOn...))
-
-	var mu sync.Mutex
-	var newest *nostr.Event
-
-	var wg sync.WaitGroup
-	for _, url := range sources {
-		wg.Add(1)
-		go func(url string) {
-			defer wg.Done()
-
-			relay, err := nostr.RelayConnect(ctx, url)
-			if err != nil {
-				return
-			}
-			defer relay.Close()
-
-			found, err := relay.QuerySync(ctx, nostr.Filter{
-				Kinds: []int{kindDMRelayList}, Authors: []string{pubkey}, Limit: 1,
-			})
-			if err != nil || len(found) == 0 {
-				return
-			}
-			candidate := found[0]
-			valid, err := candidate.CheckSignature()
-			if err != nil || !valid || candidate.PubKey != pubkey || candidate.Kind != kindDMRelayList {
-				return
-			}
-
-			mu.Lock()
-			defer mu.Unlock()
-			if newest == nil || candidate.CreatedAt > newest.CreatedAt {
-				newest = candidate
-			}
-		}(url)
-	}
-	wg.Wait()
+	newest := queryRelayMetadata(ctx, kindDMRelayList, pubkey, searchOn)
 
 	if newest == nil {
-		log.Printf("%s has published no kind:10050, so there is nowhere to reply to them",
+		log.Printf("%s has no available verified kind:10050; DM delivery is paused",
 			short(pubkey, 8))
 		return nil
 	}
@@ -522,5 +482,5 @@ func recipientInbox(ctx context.Context, pubkey string, searchOn []string) []str
 			inbox = append(inbox, tag[1])
 		}
 	}
-	return inbox
+	return safeRelayCandidates(inbox)
 }

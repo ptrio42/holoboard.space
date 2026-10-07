@@ -1,0 +1,415 @@
+diff --git a/relay/third_party/go-nostr/WHY.md b/relay/third_party/go-nostr/WHY.md
+index 22651cb..451eae0 100644
+--- a/relay/third_party/go-nostr/WHY.md
++++ b/relay/third_party/go-nostr/WHY.md
+@@ -1,7 +1,7 @@
+ # Why go-nostr lives in this repo
+ 
+-This is the Go source of `github.com/nbd-wtf/go-nostr v0.34.5`, with a local
+-connection-lifecycle patch. `relay/go.mod` replaces that module with this
++This is the Go source of `github.com/nbd-wtf/go-nostr v0.34.5`, with local
++connection-lifecycle, validation and resource-limit patches. `relay/go.mod` replaces that module with this
+ directory. The upstream MIT license, module files and cryptographic code are
+ unchanged. Upstream tests, examples and non-build assets are omitted; the local
+ lifecycle regression tests are included.
+@@ -18,7 +18,10 @@ publication with shutdown, closes the socket on cancellation and joins the
+ reader, writer and subscription cleanup workers. Internal workers request
+ shutdown without waiting for themselves. Write results are buffered, notice
+ delivery can be cancelled, and pooled connections inherit the pool's lifetime.
+-No signing, encryption or receipt-validation behavior changes.
++Signing and encryption algorithms remain unchanged. A separate validation patch
++checks the supplied event ID against its serialized hash before signature
++acceptance, propagates query errors with partial results and adds resource
++bounds. See [the Nostr reference](../../../docs/nostr.md).
+ 
+ The complete patch is
+ [`go-nostr-connection-lifecycle.patch`](../../patches/go-nostr-connection-lifecycle.patch).
+diff --git a/relay/third_party/go-nostr/connection.go b/relay/third_party/go-nostr/connection.go
+index da1161d..8e03aa8 100644
+--- a/relay/third_party/go-nostr/connection.go
++++ b/relay/third_party/go-nostr/connection.go
+@@ -29,7 +29,7 @@ type Connection struct {
+ 	msgStateW         *wsflate.MessageState
+ }
+ 
+-func NewConnection(ctx context.Context, url string, requestHeader http.Header, tlsConfig *tls.Config) (*Connection, error) {
++func NewConnection(ctx context.Context, url string, requestHeader http.Header, tlsConfig *tls.Config, dial ...func(context.Context, string, string) (net.Conn, error)) (*Connection, error) {
+ 	dialer := ws.Dialer{
+ 		Header: ws.HandshakeHeaderHTTP(requestHeader),
+ 		Extensions: []httphead.Option{
+@@ -37,6 +37,9 @@ func NewConnection(ctx context.Context, url string, requestHeader http.Header, t
+ 		},
+ 		TLSConfig: tlsConfig,
+ 	}
++	if len(dial) > 0 {
++		dialer.NetDial = dial[0]
++	}
+ 	conn, _, hs, err := dialer.Dial(ctx, url)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("failed to dial: %w", err)
+@@ -162,15 +165,24 @@ func (c *Connection) ReadMessage(ctx context.Context, buf io.Writer) error {
+ 		}
+ 	}
+ 
++	var source io.Reader = c.reader
+ 	if c.msgStateR.IsCompressed() && c.enableCompression {
+ 		c.flateReader.Reset(c.reader)
+-		if _, err := io.Copy(buf, c.flateReader); err != nil {
+-			return fmt.Errorf("failed to read message: %w", err)
+-		}
+-	} else {
+-		if _, err := io.Copy(buf, c.reader); err != nil {
+-			return fmt.Errorf("failed to read message: %w", err)
+-		}
++		source = c.flateReader
++	}
++	// Limit the decompressed message, including fragmented WebSocket frames.
++	const maxMessageBytes = 1 << 20
++	n, err := io.Copy(buf, io.LimitReader(source, maxMessageBytes+1))
++	if err != nil {
++		return fmt.Errorf("failed to read message: %w", err)
++	}
++	if n > maxMessageBytes {
++		c.conn.Close()
++		return fmt.Errorf("relay message exceeds %d bytes", maxMessageBytes)
++	}
++	if !acceptRelayMessage(n) {
++		c.conn.Close()
++		return fmt.Errorf("relay receive budget exceeded")
+ 	}
+ 
+ 	return nil
+diff --git a/relay/third_party/go-nostr/event.go b/relay/third_party/go-nostr/event.go
+index b0aa421..6d7b194 100644
+--- a/relay/third_party/go-nostr/event.go
++++ b/relay/third_party/go-nostr/event.go
+@@ -4,6 +4,7 @@ import (
+ 	"crypto/sha256"
+ 	"encoding/hex"
+ 	"fmt"
++	"strings"
+ 
+ 	"github.com/btcsuite/btcd/btcec/v2"
+ 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+@@ -119,6 +120,15 @@ func (evt *Event) Serialize() []byte {
+ // (which is a hash of the serialized event content).
+ // returns an error if the signature itself is invalid.
+ func (evt Event) CheckSignature() (bool, error) {
++	if evt.Kind < 0 || evt.Kind > 65535 || evt.CreatedAt < 0 || len(evt.PubKey) != 64 || evt.PubKey != strings.ToLower(evt.PubKey) {
++		return false, fmt.Errorf("invalid NIP-01 event fields")
++	}
++
++	// NIP-01 binds the supplied ID to the signed serialized event.
++	if evt.ID != evt.GetID() {
++		return false, fmt.Errorf("event id does not match its content")
++	}
++
+ 	// read and check pubkey
+ 	pk, err := hex.DecodeString(evt.PubKey)
+ 	if err != nil {
+diff --git a/relay/third_party/go-nostr/relay.go b/relay/third_party/go-nostr/relay.go
+index 2985761..504f21e 100644
+--- a/relay/third_party/go-nostr/relay.go
++++ b/relay/third_party/go-nostr/relay.go
+@@ -6,6 +6,7 @@ import (
+ 	"crypto/tls"
+ 	"fmt"
+ 	"log"
++	"net"
+ 	"net/http"
+ 	"sync"
+ 	"sync/atomic"
+@@ -25,6 +26,7 @@ type Relay struct {
+ 	closed     bool
+ 	workers    sync.WaitGroup
+ 
++	dialer        func(context.Context, string, string) (net.Conn, error)
+ 	URL           string
+ 	RequestHeader http.Header // e.g. for origin header
+ 
+@@ -117,6 +119,11 @@ func (sc WithSignatureChecker) ApplyRelayOption(r *Relay) {
+ 	r.signatureChecker = sc
+ }
+ 
++// WithConnectionDialer allows applications to validate and pin DNS at dial time.
++type WithConnectionDialer func(context.Context, string, string) (net.Conn, error)
++
++func (dial WithConnectionDialer) ApplyRelayOption(r *Relay) { r.dialer = dial }
++
+ // String just returns the relay URL.
+ func (r *Relay) String() string {
+ 	return r.URL
+@@ -161,7 +168,7 @@ func (r *Relay) ConnectWithTLS(ctx context.Context, tlsConfig *tls.Config) error
+ 	defer stopDial()
+ 	stop := context.AfterFunc(r.connectionContext, stopDial)
+ 	defer stop()
+-	conn, err := NewConnection(ctx, r.URL, r.RequestHeader, tlsConfig)
++	conn, err := NewConnection(ctx, r.URL, r.RequestHeader, tlsConfig, r.dialer)
+ 	if err != nil {
+ 		return fmt.Errorf("error opening websocket to '%s': %w", r.URL, err)
+ 	}
+@@ -482,18 +489,25 @@ func (r *Relay) QuerySync(ctx context.Context, filter Filter, opts ...Subscripti
+ 	}
+ 
+ 	var events []*Event
++	queryBytes := 0
+ 	for {
+ 		select {
+ 		case evt := <-sub.Events:
+ 			if evt == nil {
+ 				// channel is closed
+-				return events, nil
++				return events, fmt.Errorf("relay closed before EOSE")
++			}
++			queryBytes += len(evt.Serialize()) + len(evt.ID) + len(evt.Sig)
++			if len(events) >= 512 || queryBytes > 4<<20 {
++				return events, fmt.Errorf("query event budget exceeded")
+ 			}
+ 			events = append(events, evt)
+ 		case <-sub.EndOfStoredEvents:
+ 			return events, nil
++		case reason := <-sub.ClosedReason:
++			return events, fmt.Errorf("relay CLOSED: %s", reason)
+ 		case <-ctx.Done():
+-			return events, nil
++			return events, ctx.Err()
+ 		}
+ 	}
+ }
+diff --git a/relay/third_party/go-nostr/subscription.go b/relay/third_party/go-nostr/subscription.go
+index 32a993e..228c62f 100644
+--- a/relay/third_party/go-nostr/subscription.go
++++ b/relay/third_party/go-nostr/subscription.go
+@@ -9,8 +9,9 @@ import (
+ )
+ 
+ type Subscription struct {
+-	label   string
+-	counter int
++	budgeted bool // guarded by subscriptionBudget
++	label    string
++	counter  int
+ 
+ 	Relay   *Relay
+ 	Filters Filters
+@@ -87,21 +88,18 @@ func (sub *Subscription) dispatchEvent(evt *Event) {
+ 		added = true
+ 	}
+ 
+-	go func() {
+-		sub.mu.Lock()
+-		defer sub.mu.Unlock()
+-
+-		if sub.live.Load() {
+-			select {
+-			case sub.Events <- evt:
+-			case <-sub.Context.Done():
+-			}
+-		}
+-
+-		if added {
+-			sub.storedwg.Done()
++	sub.mu.Lock()
++	defer sub.mu.Unlock()
++	if added {
++		defer sub.storedwg.Done()
++	}
++	if sub.live.Load() {
++		select {
++		case sub.Events <- evt:
++		case <-sub.Context.Done():
++		case <-sub.Relay.Context().Done():
+ 		}
+-	}()
++	}
+ }
+ 
+ func (sub *Subscription) dispatchEose() {
+@@ -126,6 +124,7 @@ func (sub *Subscription) dispatchClosed(reason string) {
+ func (sub *Subscription) Unsub() {
+ 	// cancel the context (if it's not canceled already)
+ 	sub.cancel()
++	sub.releaseBudget()
+ 
+ 	// mark subscription as closed and send a CLOSE to the relay (naïve sync.Once implementation)
+ 	if sub.live.CompareAndSwap(true, false) {
+@@ -156,6 +155,10 @@ func (sub *Subscription) Sub(_ context.Context, filters Filters) {
+ 
+ // Fire sends the "REQ" command to the relay.
+ func (sub *Subscription) Fire() error {
++	if err := sub.acquireBudget(); err != nil {
++		sub.Unsub()
++		return err
++	}
+ 	id := sub.GetID()
+ 
+ 	var reqb []byte
+diff --git a/relay/third_party/go-nostr/receive_budget.go b/relay/third_party/go-nostr/receive_budget.go
+new file mode 100644
+index 0000000..0a16ce9
+--- /dev/null
++++ b/relay/third_party/go-nostr/receive_budget.go
+@@ -0,0 +1,27 @@
++package nostr
++
++import (
++	"sync"
++	"time"
++)
++
++// Bound aggregate verification/parsing work across all outbound relay sockets.
++var receiveBudget = struct {
++	sync.Mutex
++	start    time.Time
++	messages int
++	bytes    int64
++}{}
++
++func acceptRelayMessage(size int64) bool {
++	receiveBudget.Lock()
++	defer receiveBudget.Unlock()
++	if time.Since(receiveBudget.start) >= time.Second {
++		receiveBudget.start = time.Now()
++		receiveBudget.messages = 0
++		receiveBudget.bytes = 0
++	}
++	receiveBudget.messages++
++	receiveBudget.bytes += size
++	return receiveBudget.messages <= 512 && receiveBudget.bytes <= 16<<20
++}
+diff --git a/relay/third_party/go-nostr/subscription_budget.go b/relay/third_party/go-nostr/subscription_budget.go
+new file mode 100644
+index 0000000..b521111
+--- /dev/null
++++ b/relay/third_party/go-nostr/subscription_budget.go
+@@ -0,0 +1,44 @@
++package nostr
++
++import (
++	"fmt"
++	"sync"
++)
++
++var subscriptionBudget = struct {
++	sync.Mutex
++	total  int
++	relays map[string]int
++}{relays: map[string]int{}}
++
++func (sub *Subscription) acquireBudget() error {
++	subscriptionBudget.Lock()
++	defer subscriptionBudget.Unlock()
++	if sub.Context.Err() != nil {
++		return sub.Context.Err()
++	}
++	if sub.budgeted {
++		return nil
++	}
++	if subscriptionBudget.total >= 48 || subscriptionBudget.relays[sub.Relay.URL] >= 8 {
++		return fmt.Errorf("outbound subscription budget exhausted")
++	}
++	sub.budgeted = true
++	subscriptionBudget.total++
++	subscriptionBudget.relays[sub.Relay.URL]++
++	return nil
++}
++
++func (sub *Subscription) releaseBudget() {
++	subscriptionBudget.Lock()
++	defer subscriptionBudget.Unlock()
++	if !sub.budgeted {
++		return
++	}
++	sub.budgeted = false
++	subscriptionBudget.total--
++	subscriptionBudget.relays[sub.Relay.URL]--
++	if subscriptionBudget.relays[sub.Relay.URL] == 0 {
++		delete(subscriptionBudget.relays, sub.Relay.URL)
++	}
++}
+diff --git a/relay/third_party/go-nostr/validation_budget_test.go b/relay/third_party/go-nostr/validation_budget_test.go
+new file mode 100644
+index 0000000..282e763
+--- /dev/null
++++ b/relay/third_party/go-nostr/validation_budget_test.go
+@@ -0,0 +1,80 @@
++package nostr
++
++import (
++	"bytes"
++	"compress/flate"
++	"context"
++	"github.com/gobwas/ws"
++	"github.com/gobwas/ws/wsflate"
++	"github.com/gobwas/ws/wsutil"
++	"io"
++	"net"
++	"testing"
++)
++
++func TestSignatureValidationBindsTheSuppliedID(t *testing.T) {
++	event := Event{Kind: 1, CreatedAt: Now(), Tags: Tags{}, Content: "valid"}
++	if err := event.Sign(GeneratePrivateKey()); err != nil {
++		t.Fatal(err)
++	}
++	if valid, err := event.CheckSignature(); err != nil || !valid {
++		t.Fatal("valid event rejected")
++	}
++	event.ID = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
++	if valid, _ := event.CheckSignature(); valid {
++		t.Fatal("forged ID accepted")
++	}
++}
++
++func TestSubscriptionBudgetReleasesOnUnsubscribe(t *testing.T) {
++	url, _ := lifecycleServer(t)
++	relay, err := RelayConnect(context.Background(), url)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer relay.Close()
++	var subscriptions []*Subscription
++	for i := 0; i < 8; i++ {
++		sub, err := relay.Subscribe(context.Background(), Filters{{Kinds: []int{1}}})
++		if err != nil {
++			t.Fatal(err)
++		}
++		subscriptions = append(subscriptions, sub)
++	}
++	if sub, err := relay.Subscribe(context.Background(), Filters{{Kinds: []int{1}}}); err == nil || sub != nil {
++		t.Fatal("per-relay subscription limit not enforced")
++	}
++	subscriptions[0].Unsub()
++	sub, err := relay.Subscribe(context.Background(), Filters{{Kinds: []int{1}}})
++	if err != nil {
++		t.Fatalf("unsubscribe did not release the budget: %v", err)
++	}
++	sub.Unsub()
++	for _, sub := range subscriptions {
++		sub.Unsub()
++	}
++}
++
++func TestDecompressedMessageBudget(t *testing.T) {
++	client, server := net.Pipe()
++	defer client.Close()
++	defer server.Close()
++	frame, err := wsflate.CompressFrame(ws.NewTextFrame(bytes.Repeat([]byte("x"), (1<<20)+1)))
++	if err != nil {
++		t.Fatal(err)
++	}
++	var state wsflate.MessageState
++	reader := &wsutil.Reader{Source: client, State: ws.StateClientSide | ws.StateExtended, Extensions: []wsutil.RecvExtension{&state}}
++	connection := &Connection{conn: client, enableCompression: true, reader: reader, msgStateR: &state,
++		flateReader: wsflate.NewReader(nil, func(r io.Reader) wsflate.Decompressor { return flate.NewReader(r) })}
++	done := make(chan struct{})
++	go func() { defer close(done); ws.WriteFrame(server, frame) }()
++	var buffer bytes.Buffer
++	if err := connection.ReadMessage(context.Background(), &buffer); err == nil {
++		t.Fatal("compressed oversized message accepted")
++	}
++	if buffer.Len() > (1<<20)+1 {
++		t.Fatal("decompressed message exceeded bounded allocation")
++	}
++	<-done
++}

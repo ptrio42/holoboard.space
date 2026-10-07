@@ -1,4 +1,4 @@
-import { useProfileValue } from "@nostr-dev-kit/react";
+import { useProfileValue } from "../../hooks/useProfile";
 import { njumpUrl, shortNpub } from "../../lib/nostr";
 
 /**
@@ -13,8 +13,8 @@ import { njumpUrl, shortNpub } from "../../lib/nostr";
  * mention sits inside a sentence, so it gets no avatar and no verification
  * mark; it is a word, not a row.
  */
-export function NostrMention({ pubkey }: { pubkey: string }) {
-    const profile = useProfileValue(pubkey);
+export function NostrMention({ pubkey, relays = [] }: { pubkey: string; relays?: string[] }) {
+    const profile = useProfileValue(pubkey, relays);
     const name = profile?.displayName?.trim() || profile?.name?.trim();
 
     return (
