@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"iter"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -11,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fiatjaf/khatru"
-	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip04"
-	"github.com/nbd-wtf/go-nostr/nip44"
+	"fiatjaf.com/nostr"
+	"fiatjaf.com/nostr/khatru"
+	"fiatjaf.com/nostr/nip04"
+	"fiatjaf.com/nostr/nip44"
 )
 
 // These tests drive the real NWCBackend against a real khatru relay running in
@@ -36,24 +37,22 @@ func (s *testStore) store(ctx context.Context, evt *nostr.Event) error {
 	return nil
 }
 
-func (s *testStore) query(ctx context.Context, filter nostr.Filter) (chan *nostr.Event, error) {
-	s.mu.Lock()
-	var matched []*nostr.Event
-	for _, evt := range s.events {
-		if filter.Matches(evt) {
-			matched = append(matched, evt)
+func (s *testStore) query(ctx context.Context, filter nostr.Filter) iter.Seq[nostr.Event] {
+	return func(yield func(nostr.Event) bool) {
+		s.mu.Lock()
+		var matched []nostr.Event
+		for _, evt := range s.events {
+			if filter.Matches(*evt) {
+				matched = append(matched, *evt)
+			}
+		}
+		s.mu.Unlock()
+		for _, evt := range matched {
+			if ctx.Err() != nil || !yield(evt) {
+				return
+			}
 		}
 	}
-	s.mu.Unlock()
-
-	ch := make(chan *nostr.Event)
-	go func() {
-		defer close(ch)
-		for _, evt := range matched {
-			ch <- evt
-		}
-	}()
-	return ch, nil
 }
 
 // startTestRelay brings up an in-process relay and returns its ws:// URL.
@@ -62,8 +61,9 @@ func startTestRelay(t *testing.T) string {
 
 	rl := khatru.NewRelay()
 	store := &testStore{}
-	rl.StoreEvent = append(rl.StoreEvent, store.store)
-	rl.QueryEvents = append(rl.QueryEvents, store.query)
+	rl.StoreEvent = func(ctx context.Context, event nostr.Event) error { return store.store(ctx, &event) }
+	rl.QueryStored = store.query
+	rl.ReplaceEvent = rl.StoreEvent
 
 	srv := httptest.NewServer(rl)
 	t.Cleanup(srv.Close)
@@ -99,8 +99,8 @@ func newFakeWallet(t *testing.T, relayURL, encryption, notifications string,
 	handler func(string, map[string]any) walletReply) *fakeWallet {
 	t.Helper()
 
-	seckey := nostr.GeneratePrivateKey()
-	pubkey, err := nostr.GetPublicKey(seckey)
+	seckey := generatePrivateKey()
+	pubkey, err := publicKeyForSecret(seckey)
 	if err != nil {
 		t.Fatalf("failed to derive wallet pubkey: %v", err)
 	}
@@ -126,7 +126,7 @@ func (w *fakeWallet) sealFor(clientPubkey, plaintext string) string {
 	w.t.Helper()
 
 	if w.encryption == encNIP44 {
-		key, err := nip44.GenerateConversationKey(clientPubkey, w.seckey)
+		key, err := conversationKey(clientPubkey, w.seckey)
 		if err != nil {
 			w.t.Fatalf("wallet failed to derive nip44 key: %v", err)
 		}
@@ -137,7 +137,7 @@ func (w *fakeWallet) sealFor(clientPubkey, plaintext string) string {
 		return sealed
 	}
 
-	key, err := nip04.ComputeSharedSecret(clientPubkey, w.seckey)
+	key, err := computeSharedSecret(clientPubkey, w.seckey)
 	if err != nil {
 		w.t.Fatalf("wallet failed to derive nip04 secret: %v", err)
 	}
@@ -150,14 +150,14 @@ func (w *fakeWallet) sealFor(clientPubkey, plaintext string) string {
 
 func (w *fakeWallet) open(clientPubkey, ciphertext string) (string, error) {
 	if w.encryption == encNIP44 {
-		key, err := nip44.GenerateConversationKey(clientPubkey, w.seckey)
+		key, err := conversationKey(clientPubkey, w.seckey)
 		if err != nil {
 			return "", err
 		}
 		return nip44.Decrypt(ciphertext, key)
 	}
 
-	key, err := nip04.ComputeSharedSecret(clientPubkey, w.seckey)
+	key, err := computeSharedSecret(clientPubkey, w.seckey)
 	if err != nil {
 		return "", err
 	}
@@ -166,7 +166,7 @@ func (w *fakeWallet) open(clientPubkey, ciphertext string) (string, error) {
 
 func (w *fakeWallet) sign(evt *nostr.Event) {
 	w.t.Helper()
-	if err := evt.Sign(w.seckey); err != nil {
+	if err := signEvent(evt, w.seckey); err != nil {
 		w.t.Fatalf("wallet failed to sign event: %v", err)
 	}
 }
@@ -197,8 +197,8 @@ func (w *fakeWallet) start(ctx context.Context) {
 		w.t.Fatalf("wallet failed to publish info event: %v", err)
 	}
 
-	sub, err := relay.Subscribe(ctx, nostr.Filters{{
-		Kinds: []int{nwcKindRequest},
+	sub, err := relay.SubscribeFilters(ctx, []nostr.Filter{{
+		Kinds: []nostr.Kind{nwcKindRequest},
 		Tags:  nostr.TagMap{"p": []string{w.pubkey}},
 	}})
 	if err != nil {
@@ -218,7 +218,8 @@ func (w *fakeWallet) start(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
-			case evt, ok := <-sub.Events:
+			case received, ok := <-sub.Events:
+				evt := &received
 				if !ok {
 					return
 				}
@@ -229,7 +230,7 @@ func (w *fakeWallet) start(ctx context.Context) {
 }
 
 func (w *fakeWallet) answer(ctx context.Context, req *nostr.Event) {
-	plaintext, err := w.open(req.PubKey, req.Content)
+	plaintext, err := w.open(req.PubKey.Hex(), req.Content)
 	if err != nil {
 		w.t.Errorf("wallet failed to decrypt request: %v", err)
 		return
@@ -262,8 +263,8 @@ func (w *fakeWallet) answer(ctx context.Context, req *nostr.Event) {
 	resp := nostr.Event{
 		CreatedAt: nostr.Now(),
 		Kind:      nwcKindResponse,
-		Tags:      nostr.Tags{{"p", req.PubKey}, {"e", req.ID}},
-		Content:   w.sealFor(req.PubKey, string(body)),
+		Tags:      nostr.Tags{{"p", req.PubKey.Hex()}, {"e", req.ID.Hex()}},
+		Content:   w.sealFor(req.PubKey.Hex(), string(body)),
 	}
 	if w.encryption == encNIP44 {
 		resp.Tags = append(resp.Tags, nostr.Tag{"encryption", encNIP44})
@@ -294,7 +295,7 @@ func (w *fakeWallet) notifyPaid(ctx context.Context, clientPubkey string, tx nwc
 
 	evt := nostr.Event{
 		CreatedAt: nostr.Now(),
-		Kind:      kind,
+		Kind:      nostr.Kind(kind),
 		Tags:      nostr.Tags{{"p", clientPubkey}},
 		Content:   w.sealFor(clientPubkey, string(body)),
 	}
@@ -309,7 +310,7 @@ func (w *fakeWallet) notifyPaid(ctx context.Context, clientPubkey string, tx nwc
 func newConnectedBackend(t *testing.T, ctx context.Context, w *fakeWallet) *NWCBackend {
 	t.Helper()
 
-	clientSecret := nostr.GeneratePrivateKey()
+	clientSecret := generatePrivateKey()
 	backend, err := ParseNWCURI(w.connectionURI(clientSecret))
 	if err != nil {
 		t.Fatalf("failed to parse connection URI: %v", err)
@@ -331,8 +332,8 @@ func testContext(t *testing.T) context.Context {
 }
 
 func TestParseNWCURI(t *testing.T) {
-	secret := nostr.GeneratePrivateKey()
-	pubkey, err := nostr.GetPublicKey(secret)
+	secret := generatePrivateKey()
+	pubkey, err := publicKeyForSecret(secret)
 	if err != nil {
 		t.Fatalf("failed to derive pubkey: %v", err)
 	}

@@ -1,149 +1,31 @@
-# Upstream patches
+# Nostr dependency patch
 
-This directory holds patches applied to vendored relay dependencies.
+Holoboard pins both the Nostr client and Khatru to the same successor module.
+See [the snapshot rationale](../third_party/nostr/WHY.md) and
+[architecture reference](../../docs/nostr.md).
 
-## khatru-listener-race.patch
+`nostr-holoboard.patch` applies to the retained upstream files listed with
+SHA-256 hashes in `../third_party/nostr/SOURCE.json`. It includes local source
+changes and regression tests. It replaces the archived go-nostr and Khatru
+patch series, whose original source and patches remain in Git history.
 
-`khatru.Relay.listeners` is written by `addListener`, `removeListenerId`,
-`removeClientAndListeners` and `Shutdown`, all holding `clientsMutex`, and read
-by `notifyListeners` and `GetListeningFilters` holding nothing. It fires whenever
-one client subscribes while another publishes, which on a relay is the normal
-case rather than an edge one.
-
-Three things that can come out of it, in rising order of how bad:
-
-- A subscriber never receives an event it paid to have promoted, because the
-  publishing goroutine held a stale view of the slice.
-- An event delivered to one client under another client's subscription id. The
-  removal path is a swap-delete: `srl.listeners[spec.index] = moved` copies a
-  whole struct, and a concurrent reader can catch one listener's `id` already
-  paired with another's socket.
-- A nil dereference in `WriteJSON`. There is no `recover()` anywhere in khatru,
-  so that kills the process, and `fly.toml` runs a single machine.
-
-The patch snapshots the slice under the mutex the writers already hold, then
-iterates the copy outside it, so a slow client cannot stall subscribe and
-unsubscribe across the whole relay.
-
-### Verified, not assumed
-
-Applied to a local copy of khatru v0.7.6, pointed at with a temporary `replace`,
-with the `-race` skip in `nwc_test.go` removed. Every khatru race disappeared.
-The only report left was the go-nostr one below, which this patch does not
-touch.
-
-### Applied, without a fork
-
-It is already in effect. `third_party/khatru` holds a patched copy of v0.7.6 and
-`go.mod` replaces the dependency with that directory. See
-[`../third_party/khatru/WHY.md`](../third_party/khatru/WHY.md) for why a
-directory rather than a fork, and what the Dockerfile needed.
-
-The patch is kept here as a standalone file so it can be re-applied if the copy
-is ever refreshed, and so the change is readable without diffing 2000 lines of
-vendored code.
-
-`-race` now covers the payment path, which was the point. The
-`raceflag_*_test.go` files and the skip in `startTestRelay` are gone.
-
-## khatru-http-timeouts.patch
-
-`Relay.Start` builds its `http.Server` with `WriteTimeout: 2 * time.Second`.
-Websockets do not care, because `fasthttp/websocket` clears the connection's
-deadlines when it hijacks. Every other handler does.
-
-Minting a Lightning invoice is a round trip to a wallet over nostr, and against
-Coinos that runs four to twenty seconds. The server cut the connection at two,
-by which point the invoice had been created and written to storage, so the
-caller got a 502 from the Fly proxy reading `connection closed before message
-completed` for an invoice that existed. Retrying minted another one: the logs
-for 31 August show three invoices against a single note, each answered with a
-502. Users reported it as "502 when trying to get invoice".
-
-The patch keeps `ReadHeaderTimeout` short, since guarding against a client
-dribbling out headers forever is the part worth bounding tightly, and leaves the
-request itself room to finish. `promoteMintTimeout` in `promote_api.go` bounds
-the wallet call from the handler side, so a slow wallet produces a readable
-error instead of racing the server and losing.
-
-`TestSlowHandlerResponseSurvives` drives a real khatru server rather than
-`httptest`, which never applies the timeout that caused this. Putting the two
-seconds back makes it fail with `EOF`.
-
-## go-nostr-connection-lifecycle.patch
-
-`go-nostr` v0.34.5 `Relay.Close()` cleared the connection pointer while the
-writer read it. This reproduced in NWC reconnects, test-wallet cleanup and
-short-lived recipient profile lookups, and could panic the backend.
-
-The local v0.34.5 copy retains a stable connection pointer and captures the
-socket in its workers. Shutdown cancels the context, closes the socket and
-waits for reader, writer and subscription cleanup. Workers use an internal
-shutdown method so they do not wait for themselves. Cancelling a pool now also
-closes its owned relay connections. Buffered write results and cancellable
-notice delivery keep shutdown from waiting on callers that stopped reading.
-
-The patch is applied through `go.mod`, without changes to the library's
-cryptography or the existing khatru patches. See
-[`../third_party/go-nostr/WHY.md`](../third_party/go-nostr/WHY.md) for provenance,
-the upgrade decision and regression commands. The tests verify closure using
-local socket acknowledgements, with the race detector enabled.
-
-## go-nostr-websocket-flush.patch
-
-The vendored connection finalized each compressed WebSocket message with
-`wsflate.Writer.Close`. On the supported Go toolchain this produces a final
-DEFLATE block instead of the sync-flush tail expected by the extension, causing
-`wsflate: bad compressor: unexpected stream tail` before requests are sent.
-This affects note and profile lookups, relay monitors and NWC connections.
-
-Use `Flush` at the message boundary, following the
-[wsflate writer documentation](https://pkg.go.dev/github.com/gobwas/ws/wsflate#Writer)
-and the [upstream compression example](https://github.com/gobwas/ws#compression).
-The compressor remains reusable through the existing per-message reset.
-`TestRelayWebSocketCompressedMessageRoundTrips` checks consecutive messages
-against the separate fasthttp WebSocket implementation, including compressed
-and uncompressed replies, empty messages and larger content.
-
-## khatru-nip11-accept.patch
-
-Metadata requests with a list of accepted formats previously returned 404.
-The patch recognizes `application/nostr+json` within an Accept list, including
-parameters and multiple header lines. A quality of zero excludes that format.
-Responses vary by Accept so caches distinguish metadata from other responses.
-`TestRelayDescriptionAcceptNegotiation` checks the description and CORS headers
-through the vendored relay handler. Metadata follows
-[NIP-11](https://github.com/nostr-protocol/nips/blob/master/11.md).
-
-## khatru-service-url-race.patch
-
-Concurrent first requests read and write `Relay.ServiceURL` without
-synchronization. The patch runs initialization through `sync.Once` before
-dispatching any request, so handlers and WebSocket authentication see the
-completed value. A URL configured before serving is preserved; otherwise the
-first request still supplies the host and scheme, including forwarded headers.
-The field must not be changed after serving starts.
-
-`TestRelayServiceURLConcurrentInitialization` releases 64 concurrent requests
-for direct, forwarded and explicitly configured URLs. Each handler reads the
-URL, and a later request checks that a different host does not replace it.
-Run the regression and full race suite from `relay/`:
+To verify provenance and reproduce the current snapshot, download the pinned
+module and give the verification script its directory:
 
 ```sh
-go test -race -run '^TestRelayServiceURLConcurrentInitialization$' -count=100 ./...
-go test -race ./...
+cd relay
+go mod download -json fiatjaf.com/nostr@v0.0.0-20261005012418-685c38fc6629
+python3 patches/verify-nostr.py /path/to/downloaded/module
 ```
 
-## go-nostr-validation-budgets.patch and khatru-resource-budgets.patch
+The script verifies upstream hashes, reconstructs the retained tree in a
+temporary directory, applies the patch and compares every retained file.
+It does not modify the vendored copy. The source manifest deliberately omits
+unused package trees and public-network tests.
 
-Apply these incremental patches after the earlier patches above when refreshing
-the vendored copies. They retain the existing lifecycle fixes and add ID validation,
-partial-result error reporting, DNS-pinned dial injection, reader backpressure,
-message/subscription bounds and inbound relay admission limits. New regression
-fixtures live beside the vendored Go code. Application routing and cache policy
-are described in [the Nostr reference](../../docs/nostr.md).
-
-The validation/budgets patch also sync-flushes compressed writes and includes
-a round-trip/reset fixture for the Go 1.27.1 toolchain. PMCE message boundaries
-use Flush, not Close; wsflate rejects the final DEFLATE block produced by Close.
-This correction can be applied independently when updating the toolchain.
+After updating a revision, inspect upstream behavior before regenerating the
+manifest and patch. Preserve the validation, lifetime, completeness and resource
+contracts described in WHY.md. Keep deterministic protocol tests and local
+regressions, then run the full application and nested-module race suites,
+production build and relevant browser/payment checks. Neither `./...` in
+the application nor successful compilation covers the nested module alone.

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -9,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	coderws "github.com/coder/websocket"
 	"github.com/fasthttp/websocket"
-	"github.com/nbd-wtf/go-nostr"
 )
 
 // Exercise negotiated compression against another implementation, including
@@ -37,23 +36,23 @@ func TestRelayWebSocketCompressedMessageRoundTrips(t *testing.T) {
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	connection, err := nostr.NewConnection(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil, nil)
+	connection, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), &coderws.DialOptions{CompressionMode: coderws.CompressionContextTakeover})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer connection.Close()
-	stop := context.AfterFunc(ctx, func() { connection.Close() })
+	defer connection.CloseNow()
+	stop := context.AfterFunc(ctx, func() { connection.CloseNow() })
 	defer stop()
 	for _, message := range []string{`["REQ","note",{"ids":["` + strings.Repeat("a", 64) + `"]}]`, "", strings.Repeat("A note with repeated text. ", 500), `["CLOSE","note"]`} {
-		if err := connection.WriteMessage(ctx, []byte(message)); err != nil {
+		if err := connection.Write(ctx, coderws.MessageText, []byte(message)); err != nil {
 			t.Fatalf("compressed websocket write failed: %v", err)
 		}
-		var response bytes.Buffer
-		if err := connection.ReadMessage(ctx, &response); err != nil {
+		_, response, err := connection.Read(ctx)
+		if err != nil {
 			t.Fatalf("websocket reply failed: %v", err)
 		}
-		if response.String() != message {
-			t.Fatalf("round trip changed message: got %d bytes, want %d", response.Len(), len(message))
+		if string(response) != message {
+			t.Fatalf("round trip changed message: got %d bytes, want %d", len(response), len(message))
 		}
 	}
 }

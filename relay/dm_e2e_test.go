@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 // TestRemoveOverGiftWrapEndToEnd runs the whole path the operator will use:
@@ -16,12 +16,12 @@ import (
 func TestRemoveOverGiftWrapEndToEnd(t *testing.T) {
 	dm, storage, postID := adminFixture(t)
 
-	adminPrivkey := nostr.GeneratePrivateKey()
-	adminPubkey, _ := nostr.GetPublicKey(adminPrivkey)
+	adminPrivkey := generatePrivateKey()
+	adminPubkey, _ := publicKeyForSecret(adminPrivkey)
 	dm.WithAdmin(adminPubkey)
 
 	// Someone else sends the identical command first.
-	impostorWrap, err := wrapMessage("REMOVE "+postID, dm.relayPubkey, nostr.GeneratePrivateKey(), "")
+	impostorWrap, err := wrapMessage("REMOVE "+postID, dm.relayPubkey, generatePrivateKey(), "")
 	if err != nil {
 		t.Fatalf("failed to wrap: %v", err)
 	}
@@ -58,8 +58,8 @@ func TestRemoveOverGiftWrapEndToEnd(t *testing.T) {
 func TestStaleGiftWrapIsIgnored(t *testing.T) {
 	dm, storage, postID := adminFixture(t)
 
-	adminPrivkey := nostr.GeneratePrivateKey()
-	adminPubkey, _ := nostr.GetPublicKey(adminPrivkey)
+	adminPrivkey := generatePrivateKey()
+	adminPubkey, _ := publicKeyForSecret(adminPrivkey)
 	dm.WithAdmin(adminPubkey)
 
 	wrap, err := wrapMessage("REMOVE "+postID, dm.relayPubkey, adminPrivkey, "")

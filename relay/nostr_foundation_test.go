@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"fiatjaf.com/nostr"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
-	"github.com/nbd-wtf/go-nostr"
 )
 
 func fixtureWireRelay(t *testing.T, event *nostr.Event, eose bool) (string, <-chan struct{}) {
@@ -54,7 +54,7 @@ func fixtureWireRelay(t *testing.T, event *nostr.Event, eose bool) (string, <-ch
 
 func TestExactIDFetchDoesNotWaitForEOSE(t *testing.T) {
 	note := &nostr.Event{Kind: 1, CreatedAt: nostr.Now(), Tags: nostr.Tags{}, Content: "available without EOSE"}
-	if err := note.Sign(nostr.GeneratePrivateKey()); err != nil {
+	if err := signEvent(note, generatePrivateKey()); err != nil {
 		t.Fatal(err)
 	}
 	source, closed := fixtureWireRelay(t, note, false)
@@ -62,8 +62,8 @@ func TestExactIDFetchDoesNotWaitForEOSE(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	found, _, err := fetcher.FetchPostFromWithRelay(ctx, note.ID, nil, "")
-	if err != nil || found == nil || found.ID != note.ID {
+	found, _, err := fetcher.FetchPostFromWithRelay(ctx, note.ID.Hex(), nil, "")
+	if err != nil || found == nil || found.ID.Hex() != note.ID.Hex() {
 		t.Fatalf("available event lost: %v", err)
 	}
 	if time.Since(start) > 500*time.Millisecond {
@@ -78,13 +78,13 @@ func TestExactIDFetchDoesNotWaitForEOSE(t *testing.T) {
 
 func TestForgedIDCannotEnterPostFetcher(t *testing.T) {
 	note := &nostr.Event{Kind: 1, CreatedAt: nostr.Now(), Tags: nostr.Tags{}, Content: "signed but ID replaced"}
-	note.Sign(nostr.GeneratePrivateKey())
-	note.ID = strings.Repeat("f", 64)
+	signEvent(note, generatePrivateKey())
+	note.ID = nostr.MustIDFromHex(strings.Repeat("f", 64))
 	source, _ := fixtureWireRelay(t, note, true)
 	fetcher := NewPostFetcher([]string{source})
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	found, err := fetcher.FetchPost(ctx, note.ID)
+	found, err := fetcher.FetchPost(ctx, note.ID.Hex())
 	if found != nil || !errors.Is(err, errNoteNotFound) {
 		t.Fatalf("forged ID accepted or absence misclassified: %v", err)
 	}
@@ -121,13 +121,13 @@ func TestDNSPinRejectsMixedAndPrivateAnswers(t *testing.T) {
 
 func TestQuerySyncPreservesObservedProfileOnTimeout(t *testing.T) {
 	profile := &nostr.Event{Kind: 0, CreatedAt: nostr.Now(), Tags: nostr.Tags{}, Content: `{"name":"partial"}`}
-	profile.Sign(nostr.GeneratePrivateKey())
+	signEvent(profile, generatePrivateKey())
 	source, closed := fixtureWireRelay(t, profile, false)
 	trustConfiguredRelays([]string{source})
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
-	found, _ := queryRecipientProfile(ctx, profile.PubKey, []string{source})
-	if found == nil || found.ID != profile.ID {
+	found, _ := queryRecipientProfile(ctx, profile.PubKey.Hex(), []string{source})
+	if found == nil || found.ID.Hex() != profile.ID.Hex() {
 		t.Fatal("observed profile discarded without EOSE")
 	}
 	select {
@@ -178,22 +178,22 @@ func TestPublicationRoutesAreDurableBeforeDeliveryAndDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := storage.CreditZapWithPublication(note.ID, 21, note, "zap-route", "hash-route", quote, publisher.Targets()); err != nil {
+	if _, err := storage.CreditZapWithPublication(note.ID.Hex(), 21, note, "zap-route", "hash-route", quote, publisher.Targets()); err != nil {
 		t.Fatal(err)
 	}
 	publisher.readRelays = func(context.Context, string, []string) []string { return []string{"wss://recipient.example.com"} }
 	publisher.publish = func(ctx context.Context, url string, event *nostr.Event) error {
-		snapshot, _ := storage.QuotePublication(note.ID)
+		snapshot, _ := storage.QuotePublication(note.ID.Hex())
 		if !containsString(snapshot.Targets, "wss://recipient.example.com") {
 			t.Error("EVENT sent before routing was saved")
 		}
-		if event.ID != quote.ID {
+		if event.ID.Hex() != quote.ID.Hex() {
 			t.Error("routing changed signed event identity")
 		}
 		return nil
 	}
 	publisher.publishPending(context.Background())
-	if _, err := publisher.RemovePost(note.ID); err != nil {
+	if _, err := publisher.RemovePost(note.ID.Hex()); err != nil {
 		t.Fatal(err)
 	}
 	for _, job := range storage.PendingAccountPublications() {
@@ -213,12 +213,12 @@ func containsString(values []string, wanted string) bool {
 }
 
 func TestMonitorBackfillPaginatesBeyondTheInitialWindow(t *testing.T) {
-	key := nostr.GeneratePrivateKey()
+	key := generatePrivateKey()
 	var events []*nostr.Event
 	now := nostr.Now()
 	for i := 0; i < 150; i++ {
 		event := &nostr.Event{Kind: 1, CreatedAt: now - nostr.Timestamp(i), Tags: nostr.Tags{}, Content: "backfill"}
-		if err := event.Sign(key); err != nil {
+		if err := signEvent(event, key); err != nil {
 			t.Fatal(err)
 		}
 		events = append(events, event)
@@ -244,7 +244,7 @@ func TestMonitorBackfillPaginatesBeyondTheInitialWindow(t *testing.T) {
 			json.Unmarshal(frame[2], &filter)
 			sent := 0
 			for _, event := range events {
-				if !filter.Matches(event) {
+				if !filter.Matches(*event) {
 					continue
 				}
 				if sent >= filter.Limit {
@@ -272,7 +272,7 @@ func TestMonitorBackfillPaginatesBeyondTheInitialWindow(t *testing.T) {
 	}
 	defer relay.Close()
 	seen := map[string]bool{}
-	backfillRelay(ctx, relay, nostr.Filter{Kinds: []int{1}}, func(_ context.Context, event *nostr.Event) error { seen[event.ID] = true; return nil })
+	backfillRelay(ctx, relay, nostr.Filter{Kinds: []nostr.Kind{1}}, func(_ context.Context, event *nostr.Event) error { seen[event.ID.Hex()] = true; return nil })
 	if len(seen) != 150 {
 		t.Fatalf("backfill returned %d events, want 150", len(seen))
 	}

@@ -191,19 +191,18 @@ make test
 make build
 ```
 
-Run application tests without cached results and include the locally patched
-go-nostr module, which `./...` does not traverse:
+Run application and pinned dependency tests without cached results. Go's
+`./...` does not traverse the nested module:
 
 ```bash
-go test -count=1 ./...
-go test -count=1 -race ./...
-go test -count=1 -race github.com/nbd-wtf/go-nostr
+GOMAXPROCS=2 go test -race -p 1 -count=1 -timeout=8m ./... fiatjaf.com/nostr/...
+CGO_ENABLED=0 go build -trimpath -o /tmp/holoboard-relay .
 ```
 
-Both khatru and go-nostr use local patches for safe concurrent operation. The
-go-nostr patch closes sockets and joins connection workers during shutdown;
-it fixes the previous `Relay.Close` race in wallet and profile connections.
-See the [patch reference](patches/README.md).
+The pinned `fiatjaf.com/nostr` module includes Khatru. Local patches preserve
+joined shutdown, strict validation, honest query outcomes and resource limits.
+See the [snapshot rationale](third_party/nostr/WHY.md) and
+[patch verification procedure](patches/README.md).
 
 Entry points: `main.go` for startup, `relay.go` for Nostr handlers,
 `storage.go` for persistence and ranking, `payment.go` for zaps,

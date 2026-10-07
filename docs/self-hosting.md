@@ -46,7 +46,7 @@ private key or generate a new pair every time you start. `ADMIN_PUBKEY`, if
 configured, identifies the operator allowed to administer the board through
 DMs; it is separate from the board's identity.
 
-The generator runs locally and uses `go-nostr` with Go's
+The generator runs locally and uses the pinned Nostr library with Go's
 [cryptographically secure random source](https://pkg.go.dev/crypto/rand).
 It prints the keys to your terminal; it does not upload them.
 

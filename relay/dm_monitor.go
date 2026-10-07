@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip04"
+	"fiatjaf.com/nostr"
+	"fiatjaf.com/nostr/nip04"
 )
 
 // maxDMBacklog caps how far back a restart looks for DMs it may have missed.
@@ -111,19 +111,19 @@ func (dm *DMMonitor) Start(ctx context.Context) error {
 	wrapSince := since - nostr.Timestamp(giftWrapMaxBackdate.Seconds())
 	filters := []nostr.Filter{
 		{
-			Kinds: []int{4}, // Legacy encrypted DMs
+			Kinds: []nostr.Kind{4}, // Legacy encrypted DMs
 			Tags: nostr.TagMap{
 				"p": []string{dm.relayPubkey}, // DMs to our relay
 			},
-			Since: &since,
+			Since: since,
 			Limit: 100,
 		},
 		{
-			Kinds: []int{kindGiftWrap}, // NIP-17, which is what current clients send
+			Kinds: []nostr.Kind{kindGiftWrap}, // NIP-17, which is what current clients send
 			Tags: nostr.TagMap{
 				"p": []string{dm.relayPubkey},
 			},
-			Since: &wrapSince,
+			Since: wrapSince,
 			Limit: 200,
 		},
 	}
@@ -151,18 +151,18 @@ func (dm *DMMonitor) Start(ctx context.Context) error {
 	go func() {
 		defer dm.runner.Done()
 		for event := range dm.subscribe(ctx, filters) {
-			if dm.storage.IsDMProcessed(event.ID) {
+			if dm.storage.IsDMProcessed(event.ID.Hex()) {
 				continue // Already processed
 			}
 
-			log.Printf("Received a message (event %s, kind %d)", short(event.ID, 8), event.Kind)
+			log.Printf("Received a message (event %s, kind %d)", short(event.ID.Hex(), 8), event.Kind)
 
 			if err := dm.processDM(ctx, event); err != nil {
 				log.Printf("Failed to process message: %v", err)
 				continue
 			}
 
-			if err := dm.storage.MarkDMProcessed(event.ID); err != nil {
+			if err := dm.storage.MarkDMProcessed(event.ID.Hex()); err != nil {
 				log.Printf("Failed to mark message as processed: %v", err)
 			}
 			if err := dm.storage.AdvanceDMWatermark(int64(event.CreatedAt)); err != nil {
@@ -186,7 +186,7 @@ func (dm *DMMonitor) Wait() {
 
 // subscribe follows every relay independently and merges what they deliver.
 // A relay that refuses, drops or never connects costs only itself.
-func (dm *DMMonitor) subscribe(ctx context.Context, filters nostr.Filters) <-chan *nostr.Event {
+func (dm *DMMonitor) subscribe(ctx context.Context, filters []nostr.Filter) <-chan *nostr.Event {
 	events := make(chan *nostr.Event)
 
 	var wg sync.WaitGroup
@@ -208,7 +208,7 @@ func (dm *DMMonitor) subscribe(ctx context.Context, filters nostr.Filters) <-cha
 
 // followRelay keeps one relay's subscription alive for as long as the context
 // lives, standing it back up whenever it drops.
-func (dm *DMMonitor) followRelay(ctx context.Context, url string, filters nostr.Filters, out chan<- *nostr.Event) {
+func (dm *DMMonitor) followRelay(ctx context.Context, url string, filters []nostr.Filter, out chan<- *nostr.Event) {
 	const (
 		minBackoff = 3 * time.Second
 		maxBackoff = 2 * time.Minute
@@ -236,7 +236,7 @@ func (dm *DMMonitor) followRelay(ctx context.Context, url string, filters nostr.
 
 // followOnce holds one connection until it fails, and reports whether the
 // subscription was ever established.
-func (dm *DMMonitor) followOnce(ctx context.Context, url string, filters nostr.Filters, out chan<- *nostr.Event) (established bool) {
+func (dm *DMMonitor) followOnce(ctx context.Context, url string, filters []nostr.Filter, out chan<- *nostr.Event) (established bool) {
 	relay, err := connectRelay(ctx, url)
 	if err != nil {
 		log.Printf("DM monitor could not connect to %s: %v", url, err)
@@ -244,7 +244,7 @@ func (dm *DMMonitor) followOnce(ctx context.Context, url string, filters nostr.F
 	}
 	defer relay.Close()
 
-	sub, err := relay.Subscribe(ctx, filters)
+	sub, err := relay.SubscribeFilters(ctx, filters)
 	if err != nil {
 		log.Printf("DM monitor could not subscribe on %s: %v", url, err)
 		return false
@@ -258,7 +258,7 @@ func (dm *DMMonitor) followOnce(ctx context.Context, url string, filters nostr.F
 	backfillCtx, stopBackfill := context.WithCancel(ctx)
 	var backfill sync.WaitGroup
 	defer func() { stopBackfill(); backfill.Wait() }()
-	counts := make(map[int]int)
+	counts := make(map[nostr.Kind]int)
 	startedBackfill := false
 
 	for {
@@ -300,7 +300,7 @@ func (dm *DMMonitor) followOnce(ctx context.Context, url string, filters nostr.F
 				}
 				authed = true
 
-				resubscribed, err := relay.Subscribe(ctx, filters)
+				resubscribed, err := relay.SubscribeFilters(ctx, filters)
 				if err != nil {
 					log.Printf("DM monitor could not re-subscribe on %s: %v", url, err)
 					return established
@@ -313,7 +313,8 @@ func (dm *DMMonitor) followOnce(ctx context.Context, url string, filters nostr.F
 			log.Printf("DM monitor subscription closed by %s: %s", url, reason)
 			return established
 
-		case event, more := <-sub.Events:
+		case received, more := <-sub.Events:
+			event := &received
 			if !more {
 				return established
 			}
@@ -344,10 +345,10 @@ func (dm *DMMonitor) processDM(ctx context.Context, event *nostr.Event) error {
 	if wrapped {
 		rumor, err := unwrapGiftWrap(event, dm.relayPrivkey)
 		if err != nil {
-			return fmt.Errorf("failed to open gift wrap %s: %w", short(event.ID, 8), err)
+			return fmt.Errorf("failed to open gift wrap %s: %w", short(event.ID.Hex(), 8), err)
 		}
 		if rumor.Kind != kindChatMessage {
-			log.Printf("Gift wrap %s held kind %d, ignoring", short(event.ID, 8), rumor.Kind)
+			log.Printf("Gift wrap %s held kind %d, ignoring", short(event.ID.Hex(), 8), rumor.Kind)
 			return nil
 		}
 
@@ -362,16 +363,16 @@ func (dm *DMMonitor) processDM(ctx context.Context, event *nostr.Event) error {
 			return nil
 		}
 
-		sender, text = rumor.PubKey, rumor.Content
+		sender, text = rumor.PubKey.Hex(), rumor.Content
 		parentID = firstTag(rumor, "e")
 		// NIP-17: an e tag names the message being replied to, so the answer
 		// lands in the conversation rather than beside it.
-		replyTo = rumor.ID
-		if replyTo == "" {
-			replyTo = rumor.GetID()
+		replyTo = rumor.ID.Hex()
+		if rumor.ID == nostr.ZeroID {
+			replyTo = rumor.GetID().Hex()
 		}
 	} else {
-		sharedSecret, err := nip04.ComputeSharedSecret(event.PubKey, dm.relayPrivkey)
+		sharedSecret, err := computeSharedSecret(event.PubKey.Hex(), dm.relayPrivkey)
 		if err != nil {
 			return fmt.Errorf("failed to compute shared secret: %w", err)
 		}
@@ -379,10 +380,10 @@ func (dm *DMMonitor) processDM(ctx context.Context, event *nostr.Event) error {
 		if err != nil {
 			return fmt.Errorf("failed to decrypt DM: %w", err)
 		}
-		sender, text = event.PubKey, decrypted
+		sender, text = event.PubKey.Hex(), decrypted
 	}
 
-	return dm.handleCommandEvent(ctx, sender, strings.TrimSpace(text), replyTo, parentID, wrapped, event.ID)
+	return dm.handleCommandEvent(ctx, sender, strings.TrimSpace(text), replyTo, parentID, wrapped, event.ID.Hex())
 }
 
 // handleCommand acts on the text of a message. Anything unrecognised is
@@ -617,8 +618,8 @@ func (dm *DMMonitor) queueReply(ctx context.Context, recipientPubkey, message, r
 
 // signAuth answers a relay's NIP-42 challenge as the relay's own key, which is
 // the identity whose messages we are asking for.
-func (dm *DMMonitor) signAuth(authEvent *nostr.Event) error {
-	return authEvent.Sign(dm.relayPrivkey)
+func (dm *DMMonitor) signAuth(_ context.Context, authEvent *nostr.Event) error {
+	return signEvent(authEvent, dm.relayPrivkey)
 }
 
 func (dm *DMMonitor) publish(ctx context.Context, event *nostr.Event, recipientPubkey string, targets []string) error {

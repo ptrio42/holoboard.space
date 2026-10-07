@@ -5,8 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
+	"fiatjaf.com/nostr"
 )
 
 func TestPromotionZapRetainsOriginalSource(t *testing.T) {
@@ -24,13 +23,13 @@ func TestPromotionZapRetainsOriginalSource(t *testing.T) {
 			if err := source.Publish(ctx, *note); err != nil {
 				t.Fatal(err)
 			}
-			reference, err := nip19.EncodeEvent(note.ID, []string{sourceRelay}, note.PubKey)
+			reference, err := encodeEventReference(note.ID.Hex(), []string{sourceRelay}, note.PubKey.Hex())
 			if err != nil {
 				t.Fatal(err)
 			}
 			request := mention(t, "promote nostr:"+reference)
 			fetcher := NewPostFetcher([]string{boardRelay})
-			mentions := NewMentionMonitor(publisher.relayPubkey, publisher.relayPrivkey, storage, fetcher, nostr.NewSimplePool(ctx))
+			mentions := NewMentionMonitor(publisher.relayPubkey, publisher.relayPrivkey, storage, fetcher)
 			mentions.SetAccountPublisher(publisher)
 			if err := mentions.ProcessMention(ctx, request); err != nil {
 				t.Fatal(err)
@@ -49,13 +48,13 @@ func TestPromotionZapRetainsOriginalSource(t *testing.T) {
 			if path == "signed-content-hints" || path == "signed-parent-hints" {
 				for i, tag := range reply.Tags {
 					if tag[0] == "q" {
-						reply.Tags[i] = nostr.Tag{"q", note.ID}
+						reply.Tags[i] = nostr.Tag{"q", note.ID.Hex()}
 					}
 				}
 				if path == "signed-parent-hints" {
 					reply.Content = promotionalReplyCopy
 				}
-				if err := reply.Sign(publisher.relayPrivkey); err != nil {
+				if err := signEvent(reply, publisher.relayPrivkey); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -64,9 +63,9 @@ func TestPromotionZapRetainsOriginalSource(t *testing.T) {
 				if path == "legacy-reference-restart" || path == "legacy-id-reconstruction" {
 					target := reference
 					if path == "legacy-id-reconstruction" {
-						target = note.ID
+						target = note.ID.Hex()
 					}
-					if err := storage.AddPromotionalReply(reply.ID, target); err != nil {
+					if err := storage.AddPromotionalReply(reply.ID.Hex(), target); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -77,8 +76,8 @@ func TestPromotionZapRetainsOriginalSource(t *testing.T) {
 			}
 			monitor := NewPaymentMonitor(storage, publisher.relayPubkey, fetcher, nil)
 			if path == "outbox-restart" || path == "legacy-reference-restart" {
-				id, hints, author, ok := storage.GetPromotedNoteReference(reply.ID)
-				if !ok || id != note.ID || len(hints) != 1 || hints[0] != sourceRelay || author != note.PubKey {
+				id, hints, author, ok := storage.GetPromotedNoteReference(reply.ID.Hex())
+				if !ok || id != note.ID.Hex() || len(hints) != 1 || hints[0] != sourceRelay || author != note.PubKey.Hex() {
 					t.Fatalf("restored reference: %s %v %s %v", id, hints, author, ok)
 				}
 				// The stored mapping must work even if the reply is unavailable.
@@ -96,17 +95,17 @@ func TestPromotionZapRetainsOriginalSource(t *testing.T) {
 				if err := board.Publish(ctx, *reply); err != nil {
 					t.Fatal(err)
 				}
-				id, hints, author, err := monitor.getPromotedNoteFromChain(reply.ID)
-				if err != nil || id != note.ID || len(hints) != 1 || hints[0] != sourceRelay || author != note.PubKey {
+				id, hints, author, err := monitor.getPromotedNoteFromChain(reply.ID.Hex())
+				if err != nil || id != note.ID.Hex() || len(hints) != 1 || hints[0] != sourceRelay || author != note.PubKey.Hex() {
 					t.Fatalf("signed reference: %s %v %s %v", id, hints, author, err)
 				}
 			}
-			provider := nostr.GeneratePrivateKey()
-			providerPubkey, _ := nostr.GetPublicKey(provider)
+			provider := generatePrivateKey()
+			providerPubkey, _ := publicKeyForSecret(provider)
 			monitor.zapValidator = seedResolver(providerPubkey)
-			receipt := mintZapReceipt(t, provider, 21000, nostr.Tags{{"p", publisher.relayPubkey}, {"e", reply.ID}, {"amount", "21000"}})
+			receipt := mintZapReceipt(t, provider, 21000, nostr.Tags{{"p", publisher.relayPubkey}, {"e", reply.ID.Hex()}, {"amount", "21000"}})
 			receipt.Tags[0][1] = publisher.relayPubkey
-			if err := receipt.Sign(provider); err != nil {
+			if err := signEvent(receipt, provider); err != nil {
 				t.Fatal(err)
 			}
 			for i := 0; i < 2; i++ {
@@ -114,7 +113,7 @@ func TestPromotionZapRetainsOriginalSource(t *testing.T) {
 					t.Fatalf("paid promotion rejected: %v", err)
 				}
 			}
-			post, ok := storage.GetPost(note.ID)
+			post, ok := storage.GetPost(note.ID.Hex())
 			if !ok || post.TotalSatsPaid != 21 {
 				t.Fatalf("promotion = %+v; want 21 sats exactly once", post)
 			}
@@ -127,12 +126,8 @@ func TestLegacyPromotionalReplyPersistsSourceReference(t *testing.T) {
 	storage, publisher, note := accountPublicationFixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	pool := nostr.NewSimplePool(ctx)
-	defer func() {
-		pool.Relays.Range(func(_ string, connection *nostr.Relay) bool { connection.Close(); return true })
-	}()
-	mentions := NewMentionMonitor(publisher.relayPubkey, publisher.relayPrivkey, storage, NewPostFetcher([]string{relay}), pool)
-	request := mention(t, "promote "+note.ID)
+	mentions := NewMentionMonitor(publisher.relayPubkey, publisher.relayPrivkey, storage, NewPostFetcher([]string{relay}))
+	request := mention(t, "promote "+note.ID.Hex())
 	if err := mentions.CreatePromotionalReply(ctx, request, note, "wss://original.example"); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +140,7 @@ func TestLegacyPromotionalReplyPersistsSourceReference(t *testing.T) {
 	}
 	for replyID := range loaded.promotionalReplies {
 		id, hints, author, ok := loaded.GetPromotedNoteReference(replyID)
-		if !ok || id != note.ID || len(hints) != 1 || hints[0] != "wss://original.example" || author != note.PubKey {
+		if !ok || id != note.ID.Hex() || len(hints) != 1 || hints[0] != "wss://original.example" || author != note.PubKey.Hex() {
 			t.Fatalf("legacy source: %s %v %s %v", id, hints, author, ok)
 		}
 	}
@@ -158,7 +153,7 @@ func TestPromotionChainRejectsForeignSignedQuote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := quote.Sign(nostr.GeneratePrivateKey()); err != nil {
+	if err := signEvent(quote, generatePrivateKey()); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -172,7 +167,7 @@ func TestPromotionChainRejectsForeignSignedQuote(t *testing.T) {
 		t.Fatal(err)
 	}
 	monitor := NewPaymentMonitor(storage, publisher.relayPubkey, NewPostFetcher([]string{relay}), nil)
-	if _, _, _, err := monitor.getPromotedNoteFromChain(quote.ID); err == nil {
+	if _, _, _, err := monitor.getPromotedNoteFromChain(quote.ID.Hex()); err == nil {
 		t.Fatal("accepted a foreign payment target")
 	}
 }

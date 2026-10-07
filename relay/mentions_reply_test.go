@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
+	"fiatjaf.com/nostr"
+	"fiatjaf.com/nostr/nip19"
 )
 
 func TestPromotionalReplyRetriesUnavailableRelayWithSameEvent(t *testing.T) {
 	storage, publisher, note := accountPublicationFixture(t, "wss://one.example", "wss://two.example")
-	monitor := NewMentionMonitor(publisher.relayPubkey, publisher.relayPrivkey, storage, NewPostFetcher(nil), nostr.NewSimplePool(context.Background()))
+	monitor := NewMentionMonitor(publisher.relayPubkey, publisher.relayPrivkey, storage, NewPostFetcher(nil))
 	monitor.SetAccountPublisher(publisher)
 	request := mention(t, "promote")
 
@@ -23,17 +23,17 @@ func TestPromotionalReplyRetriesUnavailableRelayWithSameEvent(t *testing.T) {
 	if len(jobs) != 1 || jobs[0].Record.Type != accountPublicationReply || len(jobs[0].Pending) != 2 {
 		t.Fatalf("queued reply=%+v", jobs)
 	}
-	replyID := jobs[0].Record.Event.ID
-	if !storage.IsMentionProcessed(request.ID) {
+	replyID := jobs[0].Record.Event.ID.Hex()
+	if !storage.IsMentionProcessed(request.ID.Hex()) {
 		t.Fatal("request was not marked processed with its queued reply")
 	}
-	if got, ok := storage.GetPromotedNoteID(replyID); !ok || got != note.ID {
-		t.Fatalf("reply mapping=%q, %v; want %q", got, ok, note.ID)
+	if got, ok := storage.GetPromotedNoteID(replyID); !ok || got != note.ID.Hex() {
+		t.Fatalf("reply mapping=%q, %v; want %q", got, ok, note.ID.Hex())
 	}
 
 	publisher.publish = func(_ context.Context, relay string, event *nostr.Event) error {
-		if event.ID != replyID {
-			t.Errorf("published new reply %s, want %s", event.ID, replyID)
+		if event.ID.Hex() != replyID {
+			t.Errorf("published new reply %s, want %s", event.ID.Hex(), replyID)
 		}
 		if relay == "wss://two.example" {
 			return fmt.Errorf("temporarily unavailable")
@@ -48,7 +48,7 @@ func TestPromotionalReplyRetriesUnavailableRelayWithSameEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reloaded.IsMentionProcessed(request.ID) {
+	if !reloaded.IsMentionProcessed(request.ID.Hex()) {
 		t.Fatal("processed request was lost after restart")
 	}
 	restarted, err := NewAccountPublisher(reloaded, publisher.relayPubkey, publisher.relayPrivkey, "", publisher.Targets())
@@ -56,8 +56,8 @@ func TestPromotionalReplyRetriesUnavailableRelayWithSameEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	restarted.publish = func(_ context.Context, relay string, event *nostr.Event) error {
-		if relay != "wss://two.example" || event.ID != replyID {
-			t.Errorf("retried relay=%s event=%s", relay, event.ID)
+		if relay != "wss://two.example" || event.ID.Hex() != replyID {
+			t.Errorf("retried relay=%s event=%s", relay, event.ID.Hex())
 		}
 		return nil
 	}
@@ -73,17 +73,17 @@ func mentionFixture(t *testing.T) (*MentionMonitor, *Storage) {
 	t.Helper()
 
 	storage := newTestStorage(t)
-	privkey := nostr.GeneratePrivateKey()
-	pubkey, _ := nostr.GetPublicKey(privkey)
+	privkey := generatePrivateKey()
+	pubkey, _ := publicKeyForSecret(privkey)
 
-	return NewMentionMonitor(pubkey, privkey, storage, NewPostFetcher(nil), nostr.NewSimplePool(context.Background())), storage
+	return NewMentionMonitor(pubkey, privkey, storage, NewPostFetcher(nil)), storage
 }
 
 func mention(t *testing.T, content string) *nostr.Event {
 	t.Helper()
 
 	evt := &nostr.Event{CreatedAt: nostr.Now(), Kind: 1, Tags: nostr.Tags{}, Content: content}
-	if err := evt.Sign(nostr.GeneratePrivateKey()); err != nil {
+	if err := signEvent(evt, generatePrivateKey()); err != nil {
 		t.Fatalf("failed to sign: %v", err)
 	}
 	return evt
@@ -105,7 +105,7 @@ func TestMentionWithoutANoteGetsNoReply(t *testing.T) {
 			t.Errorf("%.30q produced an error instead of silence: %v", content, err)
 		}
 		// Marked, so it is not reconsidered on the next pass.
-		if !storage.IsMentionProcessed(event.ID) {
+		if !storage.IsMentionProcessed(event.ID.Hex()) {
 			t.Errorf("%.30q was left unprocessed and will come round again", content)
 		}
 	}
@@ -151,16 +151,16 @@ func TestPromoteCommandIsWhatMakesItARequest(t *testing.T) {
 
 func TestWebsitePromotionCommandShape(t *testing.T) {
 	const noteID = "1111111111111111111111111111111111111111111111111111111111111111"
-	relayKey := nostr.GeneratePrivateKey()
-	relayPubkey, err := nostr.GetPublicKey(relayKey)
+	relayKey := generatePrivateKey()
+	relayPubkey, err := publicKeyForSecret(relayKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	npub, err := nip19.EncodePublicKey(relayPubkey)
+	npub, err := encodePublicKey(relayPubkey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	nevent, err := nip19.EncodeEvent(noteID, nil, "")
+	nevent, err := encodeEventReference(noteID, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,15 +180,15 @@ func TestPromotionalReplyUsesANativeQuote(t *testing.T) {
 	const sourceRelay = "wss://source.example.com"
 	monitor, _ := mentionFixture(t)
 
-	authorKey := nostr.GeneratePrivateKey()
-	author, err := nostr.GetPublicKey(authorKey)
+	authorKey := generatePrivateKey()
+	author, err := publicKeyForSecret(authorKey)
 	if err != nil {
 		t.Fatal(err)
 	}
 	request := mention(t, "@holoboard promote")
 	note := &nostr.Event{
-		ID:      noteID,
-		PubKey:  author,
+		ID:      nostr.MustIDFromHex(noteID),
+		PubKey:  nostr.MustPubKeyFromHex(author),
 		Kind:    1,
 		Content: "This original content must not be copied into the reply.",
 	}
@@ -217,8 +217,8 @@ func TestPromotionalReplyUsesANativeQuote(t *testing.T) {
 	if !ok || prefix != "nevent" {
 		t.Fatalf("quote decoded as %q %T, want nevent pointer", prefix, value)
 	}
-	if pointer.ID != noteID || pointer.Author != author {
-		t.Errorf("quote points to id=%q author=%q, want id=%q author=%q", pointer.ID, pointer.Author, noteID, author)
+	if pointer.ID.Hex() != noteID || referenceAuthor(pointer.Author) != author {
+		t.Errorf("quote points to id=%q author=%q, want id=%q author=%q", pointer.ID.Hex(), pointer.Author, noteID, author)
 	}
 	if len(pointer.Relays) != 1 || pointer.Relays[0] != sourceRelay {
 		t.Errorf("quote relays = %v, want [%s]", pointer.Relays, sourceRelay)
@@ -226,21 +226,21 @@ func TestPromotionalReplyUsesANativeQuote(t *testing.T) {
 
 	assertTag := func(name string, want nostr.Tag) {
 		t.Helper()
-		tag := reply.Tags.GetFirst([]string{name})
+		tag := reply.Tags.Find(name)
 		if tag == nil {
 			t.Fatalf("reply has no %q tag", name)
 		}
-		if len(*tag) != len(want) {
-			t.Fatalf("%q tag = %v, want %v", name, *tag, want)
+		if len(tag) != len(want) {
+			t.Fatalf("%q tag = %v, want %v", name, tag, want)
 		}
 		for i := range want {
-			if (*tag)[i] != want[i] {
-				t.Fatalf("%q tag = %v, want %v", name, *tag, want)
+			if tag[i] != want[i] {
+				t.Fatalf("%q tag = %v, want %v", name, tag, want)
 			}
 		}
 	}
-	assertTag("e", nostr.Tag{"e", request.ID, "", "root"})
-	assertTag("p", nostr.Tag{"p", request.PubKey})
+	assertTag("e", nostr.Tag{"e", request.ID.Hex(), "", "root"})
+	assertTag("p", nostr.Tag{"p", request.PubKey.Hex()})
 	assertTag("q", nostr.Tag{"q", noteID, sourceRelay, author})
 	assertTag("promoted_note", nostr.Tag{"promoted_note", noteID})
 }
@@ -248,22 +248,22 @@ func TestPromotionalReplyUsesANativeQuote(t *testing.T) {
 func TestPromotionalReplyQuoteNeedsNoRelayHint(t *testing.T) {
 	const noteID = "3333333333333333333333333333333333333333333333333333333333333333"
 	monitor, _ := mentionFixture(t)
-	author, err := nostr.GetPublicKey(nostr.GeneratePrivateKey())
+	author, err := publicKeyForSecret(generatePrivateKey())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	reply, err := monitor.buildPromotionalReply(mention(t, "promote"), &nostr.Event{ID: noteID, PubKey: author, Kind: 1}, "")
+	reply, err := monitor.buildPromotionalReply(mention(t, "promote"), &nostr.Event{ID: nostr.MustIDFromHex(noteID), PubKey: nostr.MustPubKeyFromHex(author), Kind: 1}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	q := reply.Tags.GetFirst([]string{"q"})
-	if q == nil || len(*q) != 4 {
+	q := reply.Tags.Find("q")
+	if q == nil || len(q) != 4 {
 		t.Fatalf("q tag = %v, want id, empty relay slot and author", q)
 	}
-	if (*q)[1] != noteID || (*q)[2] != "" || (*q)[3] != author {
-		t.Errorf("q tag = %v, want [q %s <empty> %s]", *q, noteID, author)
+	if q[1] != noteID || q[2] != "" || q[3] != author {
+		t.Errorf("q tag = %v, want [q %s <empty> %s]", q, noteID, author)
 	}
 
 	reference := strings.TrimPrefix(strings.Split(reply.Content, "nostr:")[1], " ")
@@ -272,7 +272,7 @@ func TestPromotionalReplyQuoteNeedsNoRelayHint(t *testing.T) {
 		t.Fatalf("decode quote reference: %v", err)
 	}
 	pointer := value.(nostr.EventPointer)
-	if len(pointer.Relays) != 0 || pointer.Author != author {
+	if len(pointer.Relays) != 0 || referenceAuthor(pointer.Author) != author {
 		t.Errorf("quote pointer relays=%v author=%q, want no relays and author %q", pointer.Relays, pointer.Author, author)
 	}
 }
@@ -294,7 +294,7 @@ func TestPromoteCommandCanTargetAQuote(t *testing.T) {
 			CreatedAt: nostr.Now(), Kind: 1, Content: test.content,
 			Tags: nostr.Tags{nostr.Tag{"q", id}},
 		}
-		if err := evt.Sign(nostr.GeneratePrivateKey()); err != nil {
+		if err := signEvent(evt, generatePrivateKey()); err != nil {
 			t.Fatalf("failed to sign: %v", err)
 		}
 
@@ -320,7 +320,7 @@ func TestReplyWithImageHashAndProfileMentionIsNotARequest(t *testing.T) {
 	if err := monitor.ProcessMention(context.Background(), evt); err != nil {
 		t.Fatalf("ordinary reply produced an error instead of silence: %v", err)
 	}
-	if !storage.IsMentionProcessed(evt.ID) {
+	if !storage.IsMentionProcessed(evt.ID.Hex()) {
 		t.Error("ordinary reply was not marked as processed")
 	}
 }

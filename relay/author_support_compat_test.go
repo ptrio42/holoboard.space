@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"fiatjaf.com/nostr"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/nbd-wtf/go-nostr"
 )
 
 func TestPrimalAuthorInvoiceDescriptionCompatibility(t *testing.T) {
@@ -46,22 +46,22 @@ func TestPrimalAuthorInvoiceDescriptionCompatibility(t *testing.T) {
 			if advertised == "" {
 				advertised = metadata
 			}
-			key := nostr.GeneratePrivateKey()
-			if err := note.Sign(key); err != nil {
+			key := generatePrivateKey()
+			if err := signEvent(note, key); err != nil {
 				t.Fatal(err)
 			}
-			if err := support.storage.AddPayment(note.ID, 1, note); err != nil {
+			if err := support.storage.AddPayment(note.ID.Hex(), 1, note); err != nil {
 				t.Fatal(err)
 			}
 			profile := &nostr.Event{Kind: 0, CreatedAt: nostr.Now(), Tags: nostr.Tags{}, Content: `{"lud16":"TestAuthor@` + domain + `"}`}
-			if err := profile.Sign(key); err != nil {
+			if err := signEvent(profile, key); err != nil {
 				t.Fatal(err)
 			}
 			support.profile = func(context.Context, string, []string) (*nostr.Event, error) { return profile, nil }
 			support.client.Transport = supportTransport(func(request *http.Request) (*http.Response, error) {
 				var response any
 				if strings.HasPrefix(request.URL.Path, "/.well-known/") {
-					response = map[string]any{"tag": "payRequest", "callback": callback, "metadata": advertised, "minSendable": 1000, "maxSendable": 100000000, "allowsNostr": true, "nostrPubkey": note.PubKey}
+					response = map[string]any{"tag": "payRequest", "callback": callback, "metadata": advertised, "minSendable": 1000, "maxSendable": 100000000, "allowsNostr": true, "nostrPubkey": note.PubKey.Hex()}
 				} else {
 					description := test.description
 					if test.useZapDescription {
@@ -76,10 +76,10 @@ func TestPrimalAuthorInvoiceDescriptionCompatibility(t *testing.T) {
 				encoded, _ := json.Marshal(response)
 				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(encoded))), Header: make(http.Header)}, nil
 			})
-			body := map[string]any{"note": note.ID, "amount_sats": 21}
+			body := map[string]any{"note": note.ID.Hex(), "amount_sats": 21}
 			if test.publicZap {
-				zap := &nostr.Event{Kind: 9734, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"p", note.PubKey}, {"e", note.ID}, {"amount", "21000"}, {"relays", "wss://relay.example"}}}
-				if err := zap.Sign(nostr.GeneratePrivateKey()); err != nil {
+				zap := &nostr.Event{Kind: 9734, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"p", note.PubKey.Hex()}, {"e", note.ID.Hex()}, {"amount", "21000"}, {"relays", "wss://relay.example"}}}
+				if err := signEvent(zap, generatePrivateKey()); err != nil {
 					t.Fatal(err)
 				}
 				body["zap_request"] = zap
@@ -88,7 +88,7 @@ func TestPrimalAuthorInvoiceDescriptionCompatibility(t *testing.T) {
 			if response.Code != test.want {
 				t.Fatalf("status %d, want %d: %s", response.Code, test.want, response.Body.String())
 			}
-			post, _ := support.storage.GetPost(note.ID)
+			post, _ := support.storage.GetPost(note.ID.Hex())
 			if post.TotalSatsPaid != 1 || len(post.Payments) != 1 {
 				t.Fatal("preparing author invoice affected ranking")
 			}

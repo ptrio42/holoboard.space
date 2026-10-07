@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/fasthttp/websocket"
-	"github.com/nbd-wtf/go-nostr"
 )
 
 // Exercise the real entry point in a child process so returning from main
@@ -50,7 +49,7 @@ func TestRelaySIGTERMCompletesShutdown(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"HOLOBOARD_SHUTDOWN_TEST_CHILD=1",
 		"LIGHTNING_BACKEND=mock",
-		"RELAY_PRIVKEY="+nostr.GeneratePrivateKey(),
+		"RELAY_PRIVKEY="+generatePrivateKey(),
 		fmt.Sprintf("PORT=%d", port),
 		"DATA_FILE="+filepath.Join(dir, "relay_data.json"),
 		"FETCH_RELAYS=ws://127.0.0.1:9",

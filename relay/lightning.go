@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 // LightningBackend interface for invoice generation and payment monitoring

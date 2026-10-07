@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fiatjaf/khatru"
+	"fiatjaf.com/nostr/khatru"
 )
 
 func TestRelayDescriptionAcceptNegotiation(t *testing.T) {

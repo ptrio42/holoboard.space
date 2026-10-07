@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 func TestExistingCampaignAllocationSurvivesRestart(t *testing.T) {
@@ -64,18 +64,18 @@ func TestLegacyCampaignBoostAndRevivalPreservePublicQuoteAndAllocation(t *testin
 		t.Fatal(err)
 	}
 	quote.Tags = quote.Tags[:2]
-	if err := quote.Sign(publisher.relayPrivkey); err != nil {
+	if err := signEvent(quote, publisher.relayPrivkey); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreditZapWithPublication(note.ID, 21, note, "initial", "initial", quote, nil); err != nil {
+	if _, err := s.CreditZapWithPublication(note.ID.Hex(), 21, note, "initial", "initial", quote, nil); err != nil {
 		t.Fatal(err)
 	}
 	// A pre-split record has no author_share field in its persisted JSON.
-	s.posts[note.ID].AuthorShare = nil
+	s.posts[note.ID.Hex()].AuthorShare = nil
 	if err := s.save(); err != nil {
 		t.Fatal(err)
 	}
-	first := s.posts[note.ID].FirstPromotedAt
+	first := s.posts[note.ID.Hex()].FirstPromotedAt
 	replacement, err := publisher.BuildQuoteWithSplit(note, "", 20)
 	if err != nil {
 		t.Fatal(err)
@@ -87,13 +87,13 @@ func TestLegacyCampaignBoostAndRevivalPreservePublicQuoteAndAllocation(t *testin
 		}
 		s = loaded
 		if revive {
-			for i := range s.posts[note.ID].Payments {
-				s.posts[note.ID].Payments[i].At = time.Now().Add(-2 * 365 * 24 * time.Hour)
+			for i := range s.posts[note.ID.Hex()].Payments {
+				s.posts[note.ID.Hex()].Payments[i].At = time.Now().Add(-2 * 365 * 24 * time.Hour)
 			}
-			if s.posts[note.ID].weight(time.Now()) != 0 {
+			if s.posts[note.ID.Hex()].weight(time.Now()) != 0 {
 				t.Fatal("fixture must be expired before revival")
 			}
-			rec := postPromote(t, PreviewHandler(s, NewPostFetcher(nil)), map[string]string{"note": note.ID}, "1.2.3.4")
+			rec := postPromote(t, PreviewHandler(s, NewPostFetcher(nil)), map[string]string{"note": note.ID.Hex()}, "1.2.3.4")
 			var preview struct {
 				Active      bool `json:"active"`
 				AuthorShare int  `json:"author_share"`
@@ -106,18 +106,18 @@ func TestLegacyCampaignBoostAndRevivalPreservePublicQuoteAndAllocation(t *testin
 			}
 		}
 		share := 20
-		invoice := &PendingInvoice{PostID: note.ID, PaymentHash: fmt.Sprint(revive), AmountSats: 168, Event: note, AuthorShare: &share}
+		invoice := &PendingInvoice{PostID: note.ID.Hex(), PaymentHash: fmt.Sprint(revive), AmountSats: 168, Event: note, AuthorShare: &share}
 		if err := s.AddPendingInvoice(invoice); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := s.SettleInvoiceWithPublication(invoice.PaymentHash, note, replacement, nil); err != nil {
 			t.Fatal(err)
 		}
-		post, _ := s.GetPost(note.ID)
+		post, _ := s.GetPost(note.ID.Hex())
 		if post.AuthorShare != nil || campaignAuthorShare(post) != 0 || !post.FirstPromotedAt.Equal(first) {
 			t.Fatal("boost or revival changed legacy campaign metadata")
 		}
-		if len(s.accountPublications) != 1 || s.accountPublications[quotePublicationKey(note.ID)].Event.ID != quote.ID {
+		if len(s.accountPublications) != 1 || s.accountPublications[quotePublicationKey(note.ID.Hex())].Event.ID.Hex() != quote.ID.Hex() {
 			t.Fatal("boost or revival replaced the public quote")
 		}
 	}
@@ -125,7 +125,7 @@ func TestLegacyCampaignBoostAndRevivalPreservePublicQuoteAndAllocation(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	post, _ := loaded.GetPost(note.ID)
+	post, _ := loaded.GetPost(note.ID.Hex())
 	if post.AuthorShare != nil || loaded.CampaignEntries(time.Now())[0].AuthorShare != 0 || post.TotalSatsPaid != 357 {
 		t.Fatal("restart changed the legacy default or credited amount")
 	}
@@ -185,23 +185,23 @@ func TestQuoteZapMappingSurvivesReloadAndRemoval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.CreditZapWithPublication(note.ID, 21, note, "zap", "hash", quote, publisher.Targets()); err != nil {
+	if _, err = s.CreditZapWithPublication(note.ID.Hex(), 21, note, "zap", "hash", quote, publisher.Targets()); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := NewStorage(s.dataFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if target, ok := loaded.GetPromotedNoteID(quote.ID); !ok || target != note.ID {
+	if target, ok := loaded.GetPromotedNoteID(quote.ID.Hex()); !ok || target != note.ID.Hex() {
 		t.Fatal("quote has no durable zap mapping")
 	}
-	if _, err := loaded.RemovePost(note.ID); err != nil {
+	if _, err := loaded.RemovePost(note.ID.Hex()); err != nil {
 		t.Fatal(err)
 	}
-	if target, ok := loaded.GetPromotedNoteID(quote.ID); !ok || target != note.ID {
+	if target, ok := loaded.GetPromotedNoteID(quote.ID.Hex()); !ok || target != note.ID.Hex() {
 		t.Fatal("removed quote lost its target")
 	}
-	if len(quote.Tags.GetAll([]string{"zap"})) != 2 {
+	if len(collectTags(quote.Tags, "zap")) != 2 {
 		t.Fatal("quote must contain two zap recipients")
 	}
 }
@@ -243,7 +243,7 @@ func TestCampaignPaginationKeepsMainBoardAt21(t *testing.T) {
 func TestFirstSettledCampaignSplitSurvivesBoostAndRevival(t *testing.T) {
 	s, publisher, note := accountPublicationFixture(t)
 	for i, share := range []int{30, 70} {
-		invoice := &PendingInvoice{PostID: note.ID, PaymentHash: fmt.Sprint(i), AmountSats: 21, Event: note, AuthorShare: &share}
+		invoice := &PendingInvoice{PostID: note.ID.Hex(), PaymentHash: fmt.Sprint(i), AmountSats: 21, Event: note, AuthorShare: &share}
 		if err := s.AddPendingInvoice(invoice); err != nil {
 			t.Fatal(err)
 		}
@@ -255,42 +255,42 @@ func TestFirstSettledCampaignSplitSurvivesBoostAndRevival(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	post, _ := s.GetPost(note.ID)
+	post, _ := s.GetPost(note.ID.Hex())
 	first := post.FirstPromotedAt
 	if campaignAuthorShare(post) != 30 {
 		t.Fatal("boost replaced campaign split")
 	}
-	for i := range s.posts[note.ID].Payments {
-		s.posts[note.ID].Payments[i].At = time.Now().Add(-2 * 365 * 24 * time.Hour)
+	for i := range s.posts[note.ID.Hex()].Payments {
+		s.posts[note.ID.Hex()].Payments[i].At = time.Now().Add(-2 * 365 * 24 * time.Hour)
 	}
-	if s.posts[note.ID].weight(time.Now()) != 0 {
+	if s.posts[note.ID.Hex()].weight(time.Now()) != 0 {
 		t.Fatal("fixture must be expired")
 	}
-	if err := s.AddPayment(note.ID, 1, note); err != nil {
+	if err := s.AddPayment(note.ID.Hex(), 1, note); err != nil {
 		t.Fatal(err)
 	}
 	reloaded, err := NewStorage(s.dataFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	post, _ = reloaded.GetPost(note.ID)
+	post, _ = reloaded.GetPost(note.ID.Hex())
 	if campaignAuthorShare(post) != 30 || !post.FirstPromotedAt.Equal(first) {
 		t.Fatal("revival or restart changed campaign metadata")
 	}
-	stored, ok := reloaded.GetPromotedNoteID(reloaded.accountPublications[quotePublicationKey(note.ID)].Event.ID)
-	if !ok || stored != note.ID || len(reloaded.accountPublications) != 1 {
+	stored, ok := reloaded.GetPromotedNoteID(reloaded.accountPublications[quotePublicationKey(note.ID.Hex())].Event.ID.Hex())
+	if !ok || stored != note.ID.Hex() || len(reloaded.accountPublications) != 1 {
 		t.Fatal("boost created another public quote")
 	}
 }
 
 func TestHotExcludesAppearanceFeeAndLegacyHistoryIsPreserved(t *testing.T) {
 	s := newTestStorage(t)
-	key := nostr.GeneratePrivateKey()
+	key := generatePrivateKey()
 	note := &nostr.Event{Kind: 1, CreatedAt: nostr.Now(), Tags: nostr.Tags{}, Content: "Appearance"}
-	if err := note.Sign(key); err != nil {
+	if err := signEvent(note, key); err != nil {
 		t.Fatal(err)
 	}
-	invoice := &PendingInvoice{PostID: note.ID, PaymentHash: "appearance", AmountSats: 121, BillboardFee: 100, Billboard: &BillboardConfig{Template: "led", Color: "cyan", Size: "medium", Text: "Appearance"}}
+	invoice := &PendingInvoice{PostID: note.ID.Hex(), PaymentHash: "appearance", AmountSats: 121, BillboardFee: 100, Billboard: &BillboardConfig{Template: "led", Color: "cyan", Size: "medium", Text: "Appearance"}}
 	if err := s.AddPendingInvoice(invoice); err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +301,7 @@ func TestHotExcludesAppearanceFeeAndLegacyHistoryIsPreserved(t *testing.T) {
 	if entry.HotSats != 21 || entry.SatsPaid != 21 {
 		t.Fatal("appearance fee counted as visibility")
 	}
-	s.posts[note.ID].Payments = nil
+	s.posts[note.ID.Hex()].Payments = nil
 	entry = s.CampaignEntries(time.Now())[0]
 	if entry.HotSats != 21 {
 		t.Fatal("legacy score disappeared from Hot")

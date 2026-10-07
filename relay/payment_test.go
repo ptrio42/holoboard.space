@@ -2,8 +2,6 @@ package main
 
 import (
 	"testing"
-
-	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
 func TestParsePromoteCommand(t *testing.T) {
@@ -11,13 +9,13 @@ func TestParsePromoteCommand(t *testing.T) {
 	testHexID := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 
 	// Encode to note format for testing
-	noteEncoded, err := nip19.EncodeNote(testHexID)
+	noteEncoded, err := encodeNoteReference(testHexID)
 	if err != nil {
 		t.Fatalf("Failed to encode note: %v", err)
 	}
 
 	// Encode to nevent format for testing
-	neventEncoded, err := nip19.EncodeEvent(testHexID, []string{}, "")
+	neventEncoded, err := encodeEventReference(testHexID, []string{}, "")
 	if err != nil {
 		t.Fatalf("Failed to encode nevent: %v", err)
 	}

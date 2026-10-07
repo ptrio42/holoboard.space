@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 // PreviewHandler fetches unpaid content into a bounded, short-lived memory

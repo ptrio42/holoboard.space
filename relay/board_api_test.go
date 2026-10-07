@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 // seedPaidNote stores a note with a given sats total and last payment time.
@@ -23,18 +23,18 @@ func seedPaidNote(t *testing.T, storage *Storage, content string, sats int64, pa
 		Tags:      nostr.Tags{},
 		Content:   content,
 	}
-	if err := evt.Sign(nostr.GeneratePrivateKey()); err != nil {
+	if err := signEvent(evt, generatePrivateKey()); err != nil {
 		t.Fatalf("failed to sign note: %v", err)
 	}
-	if err := storage.AddPayment(evt.ID, sats, evt); err != nil {
+	if err := storage.AddPayment(evt.ID.Hex(), sats, evt); err != nil {
 		t.Fatalf("failed to store note: %v", err)
 	}
 
 	storage.mu.Lock()
-	storage.posts[evt.ID].LastPaymentTimestamp = paidAt
+	storage.posts[evt.ID.Hex()].LastPaymentTimestamp = paidAt
 	storage.mu.Unlock()
 
-	return evt.ID
+	return evt.ID.Hex()
 }
 
 func fetchLedger(t *testing.T, storage *Storage, method string) (*http.Response, boardResponse) {
@@ -96,14 +96,14 @@ func TestBoardLedgerMatchesServedOrder(t *testing.T) {
 	}
 
 	// And the whole thing has to line up with what the websocket serves.
-	served := storage.QueryPosts(context.Background(), nostr.Filter{Kinds: []int{1}})
+	served := storage.QueryPosts(context.Background(), nostr.Filter{Kinds: []nostr.Kind{1}})
 	if len(served) != len(body.Entries) {
 		t.Fatalf("relay serves %d events but the ledger lists %d", len(served), len(body.Entries))
 	}
 	for i, event := range served {
-		if event.ID != body.Entries[i].ID {
+		if event.ID.Hex() != body.Entries[i].ID {
 			t.Errorf("position %d: relay serves %s, ledger says %s",
-				i, short(event.ID, 8), short(body.Entries[i].ID, 8))
+				i, short(event.ID.Hex(), 8), short(body.Entries[i].ID, 8))
 		}
 	}
 }

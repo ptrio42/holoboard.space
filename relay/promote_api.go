@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 
+	"fiatjaf.com/nostr"
 	"fmt"
-	"github.com/nbd-wtf/go-nostr"
 	"log"
 	"net"
 	"net/http"

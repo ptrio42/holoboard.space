@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 const productionRelayPubkey = "30bd172fc5295108b93de95516c811fabcfba0ec891e251645023329113d7643"
@@ -28,8 +28,8 @@ func TestProductionDMFlow(t *testing.T) {
 	defer cancel()
 
 	noteID := liveBoardNoteID(t, ctx)
-	senderPrivkey := nostr.GeneratePrivateKey()
-	senderPubkey, err := nostr.GetPublicKey(senderPrivkey)
+	senderPrivkey := generatePrivateKey()
+	senderPubkey, err := publicKeyForSecret(senderPrivkey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestProductionDMFlow(t *testing.T) {
 	list := &nostr.Event{
 		CreatedAt: nostr.Now(), Kind: kindDMRelayList, Tags: relayTags(testInboxes, "relay"),
 	}
-	if err := list.Sign(senderPrivkey); err != nil {
+	if err := signEvent(list, senderPrivkey); err != nil {
 		t.Fatal(err)
 	}
 	metadataTargets := dedupe(append(append([]string{}, discoveryRelays...), testInboxes...))
@@ -60,8 +60,8 @@ func TestProductionDMFlow(t *testing.T) {
 	// in the gap between the write and the read subscription.
 	receiver := NewDMMonitor(testInboxes, senderPubkey, senderPrivkey, nil, newTestStorage(t))
 	since := nostr.Timestamp(time.Now().Add(-giftWrapMaxBackdate).Unix())
-	replies := receiver.subscribe(ctx, nostr.Filters{{
-		Kinds: []int{kindGiftWrap}, Tags: nostr.TagMap{"p": []string{senderPubkey}}, Since: &since,
+	replies := receiver.subscribe(ctx, []nostr.Filter{{
+		Kinds: []nostr.Kind{kindGiftWrap}, Tags: nostr.TagMap{"p": []string{senderPubkey}}, Since: since,
 	}})
 
 	productionInboxes := recipientInbox(ctx, productionRelayPubkey, nil)
@@ -95,7 +95,7 @@ func TestProductionDMFlow(t *testing.T) {
 				t.Fatal("all disposable inbox subscriptions stopped before a reply arrived")
 			}
 			message, err := unwrapGiftWrap(wrap, senderPrivkey)
-			if err != nil || message.PubKey != productionRelayPubkey {
+			if err != nil || message.PubKey.Hex() != productionRelayPubkey {
 				continue
 			}
 			if firstTag(message, "e") != requestID {

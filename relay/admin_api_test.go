@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 const testAdminToken = "s3cret-operator-token"
@@ -31,7 +31,7 @@ func postAdmin(t *testing.T, handler http.HandlerFunc, body adminRequest, auth s
 
 func TestAdminRequiresTheToken(t *testing.T) {
 	storage := newTestStorage(t)
-	postID := seedPromotedPost(t, storage, nostr.GeneratePrivateKey())
+	postID := seedPromotedPost(t, storage, generatePrivateKey())
 	handler := AdminHandler(storage, testAdminToken)
 
 	for _, auth := range []string{"", "Bearer", "Bearer wrong", "Basic " + testAdminToken, testAdminToken} {
@@ -51,7 +51,7 @@ func TestAdminRequiresTheToken(t *testing.T) {
 // not register the handler in that case, and this pins the second line too.
 func TestAdminRefusesWhenNoTokenIsConfigured(t *testing.T) {
 	storage := newTestStorage(t)
-	postID := seedPromotedPost(t, storage, nostr.GeneratePrivateKey())
+	postID := seedPromotedPost(t, storage, generatePrivateKey())
 
 	rec := postAdmin(t, AdminHandler(storage, ""), adminRequest{Note: postID}, "Bearer ")
 	if rec.Code != http.StatusUnauthorized {
@@ -61,7 +61,7 @@ func TestAdminRefusesWhenNoTokenIsConfigured(t *testing.T) {
 
 func TestAdminRemovesANote(t *testing.T) {
 	storage := newTestStorage(t)
-	seckey := nostr.GeneratePrivateKey()
+	seckey := generatePrivateKey()
 	postID := seedPromotedPost(t, storage, seckey)
 
 	// Give it a rank worth reporting back.
@@ -99,7 +99,7 @@ func TestAdminRemovesANote(t *testing.T) {
 // The point of the blocklist: paying again must not undo a removal.
 func TestRemovedNoteCannotBePaidBack(t *testing.T) {
 	storage := newTestStorage(t)
-	seckey := nostr.GeneratePrivateKey()
+	seckey := generatePrivateKey()
 	postID := seedPromotedPost(t, storage, seckey)
 
 	event := storagePostEvent(t, storage, postID)
@@ -134,7 +134,7 @@ func TestRemovedNoteCannotBePaidBack(t *testing.T) {
 // A removal has to survive a restart, or it is not a removal.
 func TestRemovalSurvivesReload(t *testing.T) {
 	storage := newTestStorage(t)
-	postID := seedPromotedPost(t, storage, nostr.GeneratePrivateKey())
+	postID := seedPromotedPost(t, storage, generatePrivateKey())
 	if _, err := storage.RemovePost(postID); err != nil {
 		t.Fatalf("failed to remove: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestRemovalSurvivesReload(t *testing.T) {
 
 func TestAdminRestoreNeedsAnActualRemoval(t *testing.T) {
 	storage := newTestStorage(t)
-	postID := seedPromotedPost(t, storage, nostr.GeneratePrivateKey())
+	postID := seedPromotedPost(t, storage, generatePrivateKey())
 
 	rec := postAdmin(t, AdminHandler(storage, testAdminToken),
 		adminRequest{Note: postID, Restore: true}, "Bearer "+testAdminToken)

@@ -13,12 +13,12 @@ import (
 	"strings"
 	"testing"
 
+	"fiatjaf.com/nostr"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/zpay32"
-	"github.com/nbd-wtf/go-nostr"
 )
 
 type supportTransport func(*http.Request) (*http.Response, error)
@@ -28,20 +28,20 @@ func (f supportTransport) RoundTrip(r *http.Request) (*http.Response, error) { r
 func supportFixture(t *testing.T) (*AuthorSupport, *nostr.Event, string) {
 	t.Helper()
 	s := newTestStorage(t)
-	key := nostr.GeneratePrivateKey()
+	key := generatePrivateKey()
 	note := &nostr.Event{Kind: 1, CreatedAt: nostr.Now(), Tags: nostr.Tags{}, Content: "A campaign"}
-	if err := note.Sign(key); err != nil {
+	if err := signEvent(note, key); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddPayment(note.ID, 1, note); err != nil {
+	if err := s.AddPayment(note.ID.Hex(), 1, note); err != nil {
 		t.Fatal(err)
 	}
 	profile := &nostr.Event{Kind: 0, CreatedAt: nostr.Now(), Tags: nostr.Tags{}, Content: `{"lud16":"author@wallet.example"}`}
-	if err := profile.Sign(key); err != nil {
+	if err := signEvent(profile, key); err != nil {
 		t.Fatal(err)
 	}
-	providerKey := nostr.GeneratePrivateKey()
-	providerPubkey, _ := nostr.GetPublicKey(providerKey)
+	providerKey := generatePrivateKey()
+	providerPubkey, _ := publicKeyForSecret(providerKey)
 	a := NewAuthorSupport(s, NewPostFetcher(nil))
 	a.profile = func(context.Context, string, []string) (*nostr.Event, error) { return profile, nil }
 	a.client.Transport = supportTransport(func(r *http.Request) (*http.Response, error) {
@@ -74,10 +74,10 @@ func TestAuthorInvoiceGoesDirectlyToAuthorAndNeverAddsWeight(t *testing.T) {
 	a, note, provider := supportFixture(t)
 	handler := a.Handler()
 	for _, native := range []bool{false, true} {
-		body := map[string]any{"note": note.ID, "amount_sats": 21}
+		body := map[string]any{"note": note.ID.Hex(), "amount_sats": 21}
 		if native {
 			var zap nostr.Event
-			if err := json.Unmarshal([]byte(zapRequestJSON(t, nostr.GeneratePrivateKey(), nostr.Tags{{"p", note.PubKey}, {"e", note.ID}, {"amount", "21000"}, {"relays", "wss://relay.example"}}, "")), &zap); err != nil {
+			if err := json.Unmarshal([]byte(zapRequestJSON(t, generatePrivateKey(), nostr.Tags{{"p", note.PubKey.Hex()}, {"e", note.ID.Hex()}, {"amount", "21000"}, {"relays", "wss://relay.example"}}, "")), &zap); err != nil {
 				t.Fatal(err)
 			}
 			body["zap_request"] = zap
@@ -91,27 +91,27 @@ func TestAuthorInvoiceGoesDirectlyToAuthorAndNeverAddsWeight(t *testing.T) {
 			Author  string `json:"author"`
 		}
 		json.Unmarshal(rec.Body.Bytes(), &result)
-		if result.Author != note.PubKey {
+		if result.Author != note.PubKey.Hex() {
 			t.Fatal("wrong payment recipient")
 		}
 		if native {
 			description, _ := json.Marshal(body["zap_request"])
-			receipt := &nostr.Event{Kind: 9735, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"p", note.PubKey}, {"e", note.ID}, {"bolt11", result.Invoice}, {"description", string(description)}}}
-			if err := receipt.Sign(provider); err != nil {
+			receipt := &nostr.Event{Kind: 9735, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"p", note.PubKey.Hex()}, {"e", note.ID.Hex()}, {"bolt11", result.Invoice}, {"description", string(description)}}}
+			if err := signEvent(receipt, provider); err != nil {
 				t.Fatal(err)
 			}
-			verified := supportPost(t, handler, "/api/support/verify", map[string]any{"note": note.ID, "invoice": result.Invoice, "receipt": receipt})
+			verified := supportPost(t, handler, "/api/support/verify", map[string]any{"note": note.ID.Hex(), "invoice": result.Invoice, "receipt": receipt})
 			if verified.Code != 200 {
 				t.Fatalf("receipt rejected: %s", verified.Body.String())
 			}
-			receipt.Sig = strings.Repeat("0", 128)
-			forged := supportPost(t, handler, "/api/support/verify", map[string]any{"note": note.ID, "invoice": result.Invoice, "receipt": receipt})
+			receipt.Sig = [64]byte{}
+			forged := supportPost(t, handler, "/api/support/verify", map[string]any{"note": note.ID.Hex(), "invoice": result.Invoice, "receipt": receipt})
 			if forged.Code == 200 {
 				t.Fatal("forged receipt accepted")
 			}
 		}
 	}
-	post, _ := a.storage.GetPost(note.ID)
+	post, _ := a.storage.GetPost(note.ID.Hex())
 	if post.TotalSatsPaid != 1 || len(post.Payments) != 1 {
 		t.Fatal("author tip changed ranking")
 	}
@@ -120,7 +120,7 @@ func TestAuthorInvoiceGoesDirectlyToAuthorAndNeverAddsWeight(t *testing.T) {
 func TestAuthorInvoiceRejectsWrongAmountsRecipientsAndPrivateEndpoints(t *testing.T) {
 	a, note, _ := supportFixture(t)
 	for _, amount := range []int64{0, -1, 100001} {
-		rec := supportPost(t, a.Handler(), "/api/support/invoice", map[string]any{"note": note.ID, "amount_sats": amount})
+		rec := supportPost(t, a.Handler(), "/api/support/invoice", map[string]any{"note": note.ID.Hex(), "amount_sats": amount})
 		if rec.Code != 400 {
 			t.Fatalf("invalid amount %d accepted: %d", amount, rec.Code)
 		}
@@ -137,7 +137,7 @@ func TestAuthorInvoiceRejectsWrongAmountsRecipientsAndPrivateEndpoints(t *testin
 		body := `{"pr":"` + mintInvoice(t, 22000, `[["text/plain","Support"]]`, &chaincfg.MainNetParams) + `"}`
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}, nil
 	})
-	rec := supportPost(t, a.Handler(), "/api/support/invoice", map[string]any{"note": note.ID, "amount_sats": 21})
+	rec := supportPost(t, a.Handler(), "/api/support/invoice", map[string]any{"note": note.ID.Hex(), "amount_sats": 21})
 	if rec.Code != 502 {
 		t.Fatalf("wrong invoice amount status = %d", rec.Code)
 	}
@@ -146,16 +146,16 @@ func TestAuthorInvoiceRejectsWrongAmountsRecipientsAndPrivateEndpoints(t *testin
 func TestNativeAuthorRequestRejectsChangedRecipientNoteAndAmount(t *testing.T) {
 	a, note, _ := supportFixture(t)
 	for _, tags := range []nostr.Tags{
-		{{"p", strings.Repeat("a", 64)}, {"e", note.ID}, {"amount", "21000"}},
-		{{"p", note.PubKey}, {"e", strings.Repeat("a", 64)}, {"amount", "21000"}},
-		{{"p", note.PubKey}, {"e", note.ID}, {"amount", "22000"}},
-		{{"p", note.PubKey}, {"p", note.PubKey}, {"e", note.ID}, {"amount", "21000"}},
+		{{"p", strings.Repeat("a", 64)}, {"e", note.ID.Hex()}, {"amount", "21000"}},
+		{{"p", note.PubKey.Hex()}, {"e", strings.Repeat("a", 64)}, {"amount", "21000"}},
+		{{"p", note.PubKey.Hex()}, {"e", note.ID.Hex()}, {"amount", "22000"}},
+		{{"p", note.PubKey.Hex()}, {"p", note.PubKey.Hex()}, {"e", note.ID.Hex()}, {"amount", "21000"}},
 	} {
 		request := &nostr.Event{Kind: 9734, CreatedAt: nostr.Now(), Tags: tags}
-		if err := request.Sign(nostr.GeneratePrivateKey()); err != nil {
+		if err := signEvent(request, generatePrivateKey()); err != nil {
 			t.Fatal(err)
 		}
-		rec := supportPost(t, a.Handler(), "/api/support/invoice", map[string]any{"note": note.ID, "amount_sats": 21, "zap_request": request})
+		rec := supportPost(t, a.Handler(), "/api/support/invoice", map[string]any{"note": note.ID.Hex(), "amount_sats": 21, "zap_request": request})
 		if rec.Code != 400 {
 			t.Fatalf("changed author request accepted: %s", rec.Body.String())
 		}
@@ -195,25 +195,25 @@ func TestZapOnStoredPaidPromotionBoostsOriginalOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreditZapWithPublication(note.ID, 1, note, "initial", "initial-hash", quote, nil); err != nil {
+	if _, err := s.CreditZapWithPublication(note.ID.Hex(), 1, note, "initial", "initial-hash", quote, nil); err != nil {
 		t.Fatal(err)
 	}
-	provider := nostr.GeneratePrivateKey()
-	pubkey, _ := nostr.GetPublicKey(provider)
-	receipt := mintZapReceipt(t, provider, 21000, nostr.Tags{{"p", publisher.relayPubkey}, {"e", quote.ID}, {"amount", "21000"}})
+	provider := generatePrivateKey()
+	pubkey, _ := publicKeyForSecret(provider)
+	receipt := mintZapReceipt(t, provider, 21000, nostr.Tags{{"p", publisher.relayPubkey}, {"e", quote.ID.Hex()}, {"amount", "21000"}})
 	receipt.Tags[0][1] = publisher.relayPubkey
-	receipt.Sign(provider)
+	signEvent(receipt, provider)
 	monitor := NewPaymentMonitor(s, publisher.relayPubkey, NewPostFetcher(nil), seedResolver(pubkey))
 	for i := 0; i < 2; i++ {
 		if err := monitor.ProcessZap(context.Background(), receipt); err != nil {
 			t.Fatal(err)
 		}
 	}
-	post, _ := s.GetPost(note.ID)
+	post, _ := s.GetPost(note.ID.Hex())
 	if post.TotalSatsPaid != 22 {
 		t.Fatalf("total = %d, want 22", post.TotalSatsPaid)
 	}
-	if s.HasPost(quote.ID) {
+	if s.HasPost(quote.ID.Hex()) {
 		t.Fatal("bot quote was promoted instead of original")
 	}
 }

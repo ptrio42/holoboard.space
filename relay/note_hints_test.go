@@ -8,10 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"fiatjaf.com/nostr"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
-	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
 // An nevent carries relay hints and an author precisely so a reader does not
@@ -22,7 +21,7 @@ func TestNoteHints(t *testing.T) {
 	author := "2222222222222222222222222222222222222222222222222222222222222222"
 	relays := []string{"wss://relay.example.com", "wss://other.example.com"}
 
-	nevent, err := nip19.EncodeEvent(id, relays, author)
+	nevent, err := encodeEventReference(id, relays, author)
 	if err != nil {
 		t.Fatalf("failed to encode: %v", err)
 	}
@@ -38,7 +37,7 @@ func TestNoteHints(t *testing.T) {
 	}
 
 	// A note1 or a bare id carries neither, and must not pretend otherwise.
-	note, err := nip19.EncodeNote(id)
+	note, err := encodeNoteReference(id)
 	if err != nil {
 		t.Fatalf("failed to encode: %v", err)
 	}
@@ -68,13 +67,13 @@ func TestFetchPostUsesOutboxWhileCandidatesAreUnresponsive(t *testing.T) {
 		}
 	}))
 	defer slow.Close()
-	key := nostr.GeneratePrivateKey()
+	key := generatePrivateKey()
 	note := &nostr.Event{Kind: 1, CreatedAt: nostr.Now(), Content: "Only on the author's outbox", Tags: nostr.Tags{}}
-	if err := note.Sign(key); err != nil {
+	if err := signEvent(note, key); err != nil {
 		t.Fatal(err)
 	}
 	list := &nostr.Event{Kind: kindRelayList, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"r", outbox, "write"}}}
-	if err := list.Sign(key); err != nil {
+	if err := signEvent(list, key); err != nil {
 		t.Fatal(err)
 	}
 	for source, event := range map[string]*nostr.Event{index: list, outbox: note} {
@@ -91,8 +90,8 @@ func TestFetchPostUsesOutboxWhileCandidatesAreUnresponsive(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
 	fetcher := NewPostFetcher([]string{index, "ws" + strings.TrimPrefix(slow.URL, "http")})
-	event, source, err := fetcher.FetchPostFromWithRelay(ctx, note.ID, nil, note.PubKey)
-	if err != nil || event == nil || event.ID != note.ID || source != outbox {
+	event, source, err := fetcher.FetchPostFromWithRelay(ctx, note.ID.Hex(), nil, note.PubKey.Hex())
+	if err != nil || event == nil || event.ID.Hex() != note.ID.Hex() || source != outbox {
 		t.Fatalf("outbox lookup blocked by a slow candidate: event=%v source=%q err=%v", event, source, err)
 	}
 }
@@ -102,7 +101,7 @@ func TestFetchPostUsesOutboxWhileCandidatesAreUnresponsive(t *testing.T) {
 func TestNeventWithoutHintsStillResolves(t *testing.T) {
 	id := "3333333333333333333333333333333333333333333333333333333333333333"
 
-	nevent, err := nip19.EncodeEvent(id, nil, "")
+	nevent, err := encodeEventReference(id, nil, "")
 	if err != nil {
 		t.Fatalf("failed to encode: %v", err)
 	}
@@ -130,7 +129,7 @@ func TestFetchPostFromNeedsSomewhereToLook(t *testing.T) {
 // it settles and by then the pasted reference is long gone.
 func TestInvoiceKeepsTheHints(t *testing.T) {
 	storage := newTestStorage(t)
-	postID := seedPromotedPost(t, storage, nostr.GeneratePrivateKey())
+	postID := seedPromotedPost(t, storage, generatePrivateKey())
 
 	monitor := NewPaymentMonitor(storage, "relay", NewPostFetcher(nil), NewLNURLResolver())
 	invoices := NewInvoiceManager(NewMockLightningBackend(), storage, monitor, 1000)
@@ -164,7 +163,7 @@ func TestEveryPathCarriesHintsToSettlement(t *testing.T) {
 	author := "6666666666666666666666666666666666666666666666666666666666666666"
 	relays := []string{"wss://elsewhere.example.com"}
 
-	nevent, err := nip19.EncodeEvent(id, relays, author)
+	nevent, err := encodeEventReference(id, relays, author)
 	if err != nil {
 		t.Fatalf("failed to encode: %v", err)
 	}

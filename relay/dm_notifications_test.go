@@ -9,28 +9,28 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 func notificationFixture(t *testing.T) (*DMMonitor, *PaymentMonitor, *Storage, string, string, string, *[]*nostr.Event) {
 	t.Helper()
 	storage := newTestStorage(t)
-	relayPrivkey := nostr.GeneratePrivateKey()
-	relayPubkey, _ := nostr.GetPublicKey(relayPrivkey)
+	relayPrivkey := generatePrivateKey()
+	relayPubkey, _ := publicKeyForSecret(relayPrivkey)
 	monitor := NewPaymentMonitor(storage, relayPubkey, NewPostFetcher(nil), seedResolver())
 	invoices := NewInvoiceManager(NewMockLightningBackend(), storage, monitor, 1000)
 	dm := NewDMMonitor(nil, relayPubkey, relayPrivkey, invoices, storage)
 
 	note := &nostr.Event{Kind: 1, CreatedAt: nostr.Now(), Tags: nostr.Tags{}, Content: "promote me"}
-	if err := note.Sign(nostr.GeneratePrivateKey()); err != nil {
+	if err := signEvent(note, generatePrivateKey()); err != nil {
 		t.Fatal(err)
 	}
-	if err := storage.AddPayment(note.ID, 1, note); err != nil {
+	if err := storage.AddPayment(note.ID.Hex(), 1, note); err != nil {
 		t.Fatal(err)
 	}
 
-	recipientPrivkey := nostr.GeneratePrivateKey()
-	recipientPubkey, _ := nostr.GetPublicKey(recipientPrivkey)
+	recipientPrivkey := generatePrivateKey()
+	recipientPubkey, _ := publicKeyForSecret(recipientPrivkey)
 	dm.lookupInbox = func(context.Context, string, []string) []string {
 		return []string{"wss://recipient-inbox.example"}
 	}
@@ -42,7 +42,7 @@ func notificationFixture(t *testing.T) (*DMMonitor, *PaymentMonitor, *Storage, s
 		published = append(published, cloneNostrEvent(event))
 		return nil
 	}
-	return dm, monitor, storage, note.ID, recipientPrivkey, recipientPubkey, &published
+	return dm, monitor, storage, note.ID.Hex(), recipientPrivkey, recipientPubkey, &published
 }
 
 func TestDMReplyQueueIsBoundedWithoutBlockingInvoices(t *testing.T) {
@@ -73,8 +73,8 @@ func TestDMReplyQueueIsBoundedWithoutBlockingInvoices(t *testing.T) {
 
 func TestMissingNIP17InboxDoesNotBlockOtherRecipients(t *testing.T) {
 	storage := newTestStorage(t)
-	privateKey := nostr.GeneratePrivateKey()
-	publicKey, _ := nostr.GetPublicKey(privateKey)
+	privateKey := generatePrivateKey()
+	publicKey, _ := publicKeyForSecret(privateKey)
 	dm := NewDMMonitor(nil, publicKey, privateKey, nil, storage)
 	for i := 0; i < 2; i++ {
 		if err := storage.queueOutboundDM(&OutboundDM{
@@ -116,10 +116,10 @@ func TestMissingNIP17InboxDoesNotBlockOtherRecipients(t *testing.T) {
 
 func TestNIP17SenderCopyUsesAdvertisedRelays(t *testing.T) {
 	storage := newTestStorage(t)
-	privateKey := nostr.GeneratePrivateKey()
-	publicKey, _ := nostr.GetPublicKey(privateKey)
-	recipientPrivateKey := nostr.GeneratePrivateKey()
-	recipientPublicKey, _ := nostr.GetPublicKey(recipientPrivateKey)
+	privateKey := generatePrivateKey()
+	publicKey, _ := publicKeyForSecret(privateKey)
+	recipientPrivateKey := generatePrivateKey()
+	recipientPublicKey, _ := publicKeyForSecret(recipientPrivateKey)
 	dm := NewDMMonitor([]string{"wss://current.example", "wss://legacy.example"}, publicKey, privateKey, nil, storage).
 		WithSenderRelays([]string{"wss://current.example"})
 	dm.lookupInbox = func(context.Context, string, []string) []string {
@@ -225,7 +225,7 @@ func TestConfirmedNotificationFiresOnceWhenActivityExpires(t *testing.T) {
 		}
 	}
 
-	yesWrap, err := wrapMessage("YES", dm.relayPubkey, recipientPrivkey, prompt.ID)
+	yesWrap, err := wrapMessage("YES", dm.relayPubkey, recipientPrivkey, prompt.ID.Hex())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,10 +305,10 @@ func TestUnconfirmedOfferIsDroppedAtExpiry(t *testing.T) {
 
 func TestDMOutboxSurvivesRestartAndRetriesOnlyMissingRelays(t *testing.T) {
 	storage := newTestStorage(t)
-	relayPrivkey := nostr.GeneratePrivateKey()
-	relayPubkey, _ := nostr.GetPublicKey(relayPrivkey)
-	recipientPrivkey := nostr.GeneratePrivateKey()
-	recipientPubkey, _ := nostr.GetPublicKey(recipientPrivkey)
+	relayPrivkey := generatePrivateKey()
+	relayPubkey, _ := publicKeyForSecret(relayPrivkey)
+	recipientPrivkey := generatePrivateKey()
+	recipientPubkey, _ := publicKeyForSecret(recipientPrivkey)
 	monitor := NewPaymentMonitor(storage, relayPubkey, NewPostFetcher(nil), seedResolver())
 	dm := NewDMMonitor(nil, relayPubkey, relayPrivkey,
 		NewInvoiceManager(NewMockLightningBackend(), storage, monitor, 1000), storage)
@@ -322,9 +322,9 @@ func TestDMOutboxSurvivesRestartAndRetriesOnlyMissingRelays(t *testing.T) {
 	var firstID string
 	dm.publishEvent = func(_ context.Context, relay string, event *nostr.Event) error {
 		if firstID == "" {
-			firstID = event.ID
-		} else if event.ID != firstID {
-			t.Fatalf("retry changed event ID from %s to %s", firstID, event.ID)
+			firstID = event.ID.Hex()
+		} else if event.ID.Hex() != firstID {
+			t.Fatalf("retry changed event ID from %s to %s", firstID, event.ID.Hex())
 		}
 		if relay == "wss://two.example" {
 			return errors.New("temporarily unavailable")
@@ -346,8 +346,8 @@ func TestDMOutboxSurvivesRestartAndRetriesOnlyMissingRelays(t *testing.T) {
 	called := []string{}
 	dm.publishEvent = func(_ context.Context, relay string, event *nostr.Event) error {
 		called = append(called, relay)
-		if event.ID != firstID {
-			t.Fatalf("restart changed event ID from %s to %s", firstID, event.ID)
+		if event.ID.Hex() != firstID {
+			t.Fatalf("restart changed event ID from %s to %s", firstID, event.ID.Hex())
 		}
 		return nil
 	}

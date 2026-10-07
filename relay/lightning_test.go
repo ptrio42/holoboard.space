@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 // stubBackend answers CheckInvoice from a table, so a test can decide exactly
@@ -66,13 +66,13 @@ func seedPromotedPost(t *testing.T, storage *Storage, seckey string) string {
 		Tags:      nostr.Tags{},
 		Content:   "a note somebody wants promoted",
 	}
-	if err := evt.Sign(seckey); err != nil {
+	if err := signEvent(evt, seckey); err != nil {
 		t.Fatalf("failed to sign seed event: %v", err)
 	}
-	if err := storage.AddPayment(evt.ID, 1, evt); err != nil {
+	if err := storage.AddPayment(evt.ID.Hex(), 1, evt); err != nil {
 		t.Fatalf("failed to seed post: %v", err)
 	}
-	return evt.ID
+	return evt.ID.Hex()
 }
 
 func newTestStorage(t *testing.T) *Storage {
@@ -91,7 +91,7 @@ func newTestStorage(t *testing.T) *Storage {
 // pending against posts that had been paid for.
 func TestReconcilerBooksSettledInvoices(t *testing.T) {
 	storage := newTestStorage(t)
-	seckey := nostr.GeneratePrivateKey()
+	seckey := generatePrivateKey()
 	postID := seedPromotedPost(t, storage, seckey)
 
 	settled := &PendingInvoice{
@@ -146,7 +146,7 @@ func TestReconcilerBooksSettledInvoices(t *testing.T) {
 // does not drop an invoice or credit anything.
 func TestReconcilerSkipsFailedChecks(t *testing.T) {
 	storage := newTestStorage(t)
-	seckey := nostr.GeneratePrivateKey()
+	seckey := generatePrivateKey()
 	postID := seedPromotedPost(t, storage, seckey)
 
 	invoice := &PendingInvoice{
@@ -182,7 +182,7 @@ func TestReconcilerSkipsFailedChecks(t *testing.T) {
 // paid during downtime stay unbooked for as long as the interval.
 func TestReconcilerRunsOnStartAndOnTicker(t *testing.T) {
 	storage := newTestStorage(t)
-	seckey := nostr.GeneratePrivateKey()
+	seckey := generatePrivateKey()
 	postID := seedPromotedPost(t, storage, seckey)
 
 	invoice := &PendingInvoice{
@@ -218,7 +218,7 @@ func TestReconcilerRunsOnStartAndOnTicker(t *testing.T) {
 // TestReconcilerStopsWithContext makes sure the ticker goroutine goes away.
 func TestReconcilerStopsWithContext(t *testing.T) {
 	storage := newTestStorage(t)
-	seckey := nostr.GeneratePrivateKey()
+	seckey := generatePrivateKey()
 	postID := seedPromotedPost(t, storage, seckey)
 
 	invoice := &PendingInvoice{
@@ -256,7 +256,7 @@ func TestReconcilerStopsWithContext(t *testing.T) {
 // next REQ.
 func TestPromotionIsBroadcast(t *testing.T) {
 	storage := newTestStorage(t)
-	seckey := nostr.GeneratePrivateKey()
+	seckey := generatePrivateKey()
 	postID := seedPromotedPost(t, storage, seckey)
 
 	invoice := &PendingInvoice{
@@ -279,7 +279,7 @@ func TestPromotionIsBroadcast(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		if e != nil {
-			broadcast = append(broadcast, e.ID)
+			broadcast = append(broadcast, e.ID.Hex())
 		}
 	})
 
@@ -301,7 +301,7 @@ func TestPromotionIsBroadcast(t *testing.T) {
 // which is the case in every test that does not care about broadcasting.
 func TestBroadcastIsOptional(t *testing.T) {
 	storage := newTestStorage(t)
-	seckey := nostr.GeneratePrivateKey()
+	seckey := generatePrivateKey()
 	postID := seedPromotedPost(t, storage, seckey)
 
 	invoice := &PendingInvoice{
@@ -328,7 +328,7 @@ func TestBroadcastIsOptional(t *testing.T) {
 // wallet's own relay, which then refused to mint anything at all.
 func TestCheckNowBooksAndThrottles(t *testing.T) {
 	storage := newTestStorage(t)
-	postID := seedPromotedPost(t, storage, nostr.GeneratePrivateKey())
+	postID := seedPromotedPost(t, storage, generatePrivateKey())
 
 	invoice := &PendingInvoice{
 		PostID:      postID,
@@ -385,7 +385,7 @@ func TestCheckNowBooksAndThrottles(t *testing.T) {
 // digs deeper.
 func TestReconcilerStopsAfterRepeatedFailures(t *testing.T) {
 	storage := newTestStorage(t)
-	postID := seedPromotedPost(t, storage, nostr.GeneratePrivateKey())
+	postID := seedPromotedPost(t, storage, generatePrivateKey())
 
 	for i := 0; i < 12; i++ {
 		if err := storage.AddPendingInvoice(&PendingInvoice{

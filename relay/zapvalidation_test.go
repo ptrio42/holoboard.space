@@ -13,13 +13,13 @@ import (
 	"testing"
 	"time"
 
+	"fiatjaf.com/nostr"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/zpay32"
-	"github.com/nbd-wtf/go-nostr"
 )
 
 // These tests mint genuine BOLT11 invoices with zpay32 and sign genuine nostr
@@ -85,7 +85,7 @@ func zapRequestJSON(t *testing.T, payerSeckey string, tags nostr.Tags, content s
 		Tags:      tags,
 		Content:   content,
 	}
-	if err := request.Sign(payerSeckey); err != nil {
+	if err := signEvent(&request, payerSeckey); err != nil {
 		t.Fatalf("failed to sign zap request: %v", err)
 	}
 
@@ -101,7 +101,7 @@ func zapRequestJSON(t *testing.T, payerSeckey string, tags nostr.Tags, content s
 func mintZapReceipt(t *testing.T, zapperSeckey string, msat int64, requestTags nostr.Tags) *nostr.Event {
 	t.Helper()
 
-	payer := nostr.GeneratePrivateKey()
+	payer := generatePrivateKey()
 	description := zapRequestJSON(t, payer, requestTags, "")
 	bolt11 := mintInvoice(t, msat, description, &chaincfg.MainNetParams)
 
@@ -114,7 +114,7 @@ func mintZapReceipt(t *testing.T, zapperSeckey string, msat int64, requestTags n
 			{"description", description},
 		},
 	}
-	if err := receipt.Sign(zapperSeckey); err != nil {
+	if err := signEvent(receipt, zapperSeckey); err != nil {
 		t.Fatalf("failed to sign receipt: %v", err)
 	}
 	return receipt
@@ -125,8 +125,8 @@ func relayPTag() nostr.Tags {
 }
 
 func TestValidateZapReceiptAcceptsARealZap(t *testing.T) {
-	zapperSeckey := nostr.GeneratePrivateKey()
-	zapperPubkey, err := nostr.GetPublicKey(zapperSeckey)
+	zapperSeckey := generatePrivateKey()
+	zapperPubkey, err := publicKeyForSecret(zapperSeckey)
 	if err != nil {
 		t.Fatalf("failed to derive zapper pubkey: %v", err)
 	}
@@ -152,13 +152,13 @@ func TestValidateZapReceiptAcceptsARealZap(t *testing.T) {
 // Before this validation existed, this exact event bought a hundred million
 // sats of rank for nothing.
 func TestValidateZapReceiptRefusesAForgedReceipt(t *testing.T) {
-	honest := nostr.GeneratePrivateKey()
-	honestPubkey, err := nostr.GetPublicKey(honest)
+	honest := generatePrivateKey()
+	honestPubkey, err := publicKeyForSecret(honest)
 	if err != nil {
 		t.Fatalf("failed to derive pubkey: %v", err)
 	}
 
-	attacker := nostr.GeneratePrivateKey()
+	attacker := generatePrivateKey()
 	receipt := &nostr.Event{
 		CreatedAt: nostr.Now(),
 		Kind:      9735,
@@ -168,7 +168,7 @@ func TestValidateZapReceiptRefusesAForgedReceipt(t *testing.T) {
 			{"description", `{"kind":9734,"tags":[["e","dead"]],"content":""}`},
 		},
 	}
-	if err := receipt.Sign(attacker); err != nil {
+	if err := signEvent(receipt, attacker); err != nil {
 		t.Fatalf("failed to sign: %v", err)
 	}
 
@@ -178,8 +178,8 @@ func TestValidateZapReceiptRefusesAForgedReceipt(t *testing.T) {
 }
 
 func TestValidateZapReceiptRejections(t *testing.T) {
-	zapperSeckey := nostr.GeneratePrivateKey()
-	zapperPubkey, err := nostr.GetPublicKey(zapperSeckey)
+	zapperSeckey := generatePrivateKey()
+	zapperPubkey, err := publicKeyForSecret(zapperSeckey)
 	if err != nil {
 		t.Fatalf("failed to derive zapper pubkey: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestValidateZapReceiptRejections(t *testing.T) {
 		{
 			name: "signed by a key that is not our LNURL server",
 			build: func(t *testing.T) *nostr.Event {
-				return mintZapReceipt(t, nostr.GeneratePrivateKey(), 21_000, relayPTag())
+				return mintZapReceipt(t, generatePrivateKey(), 21_000, relayPTag())
 			},
 			wantHas: "not this relay's LNURL server",
 		},
@@ -209,7 +209,7 @@ func TestValidateZapReceiptRejections(t *testing.T) {
 		{
 			name: "invoice is on testnet",
 			build: func(t *testing.T) *nostr.Event {
-				payer := nostr.GeneratePrivateKey()
+				payer := generatePrivateKey()
 				description := zapRequestJSON(t, payer, relayPTag(), "")
 				bolt11 := mintInvoice(t, 2_000_000_000, description, &chaincfg.TestNet3Params)
 				receipt := &nostr.Event{
@@ -220,7 +220,7 @@ func TestValidateZapReceiptRejections(t *testing.T) {
 						{"description", description},
 					},
 				}
-				if err := receipt.Sign(zapperSeckey); err != nil {
+				if err := signEvent(receipt, zapperSeckey); err != nil {
 					t.Fatal(err)
 				}
 				return receipt
@@ -232,14 +232,14 @@ func TestValidateZapReceiptRejections(t *testing.T) {
 			build: func(t *testing.T) *nostr.Event {
 				receipt := mintZapReceipt(t, zapperSeckey, 21_000, relayPTag())
 				// A genuinely paid invoice, re-labelled to promote something else.
-				other := zapRequestJSON(t, nostr.GeneratePrivateKey(),
+				other := zapRequestJSON(t, generatePrivateKey(),
 					nostr.Tags{{"p", testRelayPubkey}, {"e", strings.Repeat("cd", 32)}}, "")
 				for i, tag := range receipt.Tags {
 					if tag[0] == "description" {
 						receipt.Tags[i] = nostr.Tag{"description", other}
 					}
 				}
-				if err := receipt.Sign(zapperSeckey); err != nil {
+				if err := signEvent(receipt, zapperSeckey); err != nil {
 					t.Fatal(err)
 				}
 				return receipt
@@ -296,7 +296,7 @@ func TestValidateZapReceiptRejections(t *testing.T) {
 // TestValidateZapReceiptFailsClosed: with no zapper key resolved there is no
 // way to check anything, so nothing may be believed.
 func TestValidateZapReceiptFailsClosed(t *testing.T) {
-	zapperSeckey := nostr.GeneratePrivateKey()
+	zapperSeckey := generatePrivateKey()
 	receipt := mintZapReceipt(t, zapperSeckey, 21_000, relayPTag())
 
 	_, err := ValidateZapReceipt(receipt, testRelayPubkey, NewLNURLResolver())

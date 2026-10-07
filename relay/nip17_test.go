@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip44"
+	"fiatjaf.com/nostr"
+	"fiatjaf.com/nostr/nip44"
 )
 
 // A round trip through the envelope, and then the attacks it has to survive.
@@ -14,10 +14,10 @@ import (
 // and proves nothing; only the seal inside establishes who sent the message.
 
 func TestGiftWrapRoundTrip(t *testing.T) {
-	senderSK := nostr.GeneratePrivateKey()
-	senderPK, _ := nostr.GetPublicKey(senderSK)
-	recipientSK := nostr.GeneratePrivateKey()
-	recipientPK, _ := nostr.GetPublicKey(recipientSK)
+	senderSK := generatePrivateKey()
+	senderPK, _ := publicKeyForSecret(senderSK)
+	recipientSK := generatePrivateKey()
+	recipientPK, _ := publicKeyForSecret(recipientSK)
 
 	wrap, err := wrapMessage("REMOVE note1abc", recipientPK, senderSK, "")
 	if err != nil {
@@ -26,10 +26,10 @@ func TestGiftWrapRoundTrip(t *testing.T) {
 	if wrap.Kind != kindGiftWrap {
 		t.Errorf("kind = %d, want %d", wrap.Kind, kindGiftWrap)
 	}
-	if wrap.PubKey == senderPK {
+	if wrap.PubKey.Hex() == senderPK {
 		t.Error("the wrap is signed by the sender's own key, which leaks who sent it")
 	}
-	if p := wrap.Tags.GetFirst([]string{"p"}); p == nil || p.Value() != recipientPK {
+	if p := wrap.Tags.Find("p"); p == nil || p[1] != recipientPK {
 		t.Error("the wrap is not addressed to the recipient")
 	}
 
@@ -40,14 +40,14 @@ func TestGiftWrapRoundTrip(t *testing.T) {
 	if rumor.Content != "REMOVE note1abc" {
 		t.Errorf("content = %q, want the message that went in", rumor.Content)
 	}
-	if rumor.PubKey != senderPK {
-		t.Errorf("sender = %s, want %s", short(rumor.PubKey, 8), short(senderPK, 8))
+	if rumor.PubKey.Hex() != senderPK {
+		t.Errorf("sender = %s, want %s", short(rumor.PubKey.Hex(), 8), short(senderPK, 8))
 	}
 	if rumor.Kind != kindChatMessage {
 		t.Errorf("kind = %d, want %d", rumor.Kind, kindChatMessage)
 	}
 	// NIP-59 keeps the rumor unsigned so a leaked message proves nothing.
-	if rumor.Sig != "" {
+	if rumor.Sig != [64]byte{} {
 		t.Error("the message inside is signed, which it must not be")
 	}
 }
@@ -68,10 +68,10 @@ func TestDMRelayConfigKeepsLegacyInboxReadOnly(t *testing.T) {
 }
 
 func TestGiftWrapIncludesSenderHistoryCopy(t *testing.T) {
-	senderSK := nostr.GeneratePrivateKey()
-	senderPK, _ := nostr.GetPublicKey(senderSK)
-	recipientSK := nostr.GeneratePrivateKey()
-	recipientPK, _ := nostr.GetPublicKey(recipientSK)
+	senderSK := generatePrivateKey()
+	senderPK, _ := publicKeyForSecret(senderSK)
+	recipientSK := generatePrivateKey()
+	recipientPK, _ := publicKeyForSecret(recipientSK)
 
 	recipientCopy, senderCopy, rumorID, err := wrapMessageCopies("hello", recipientPK, senderSK, "")
 	if err != nil {
@@ -85,8 +85,8 @@ func TestGiftWrapIncludesSenderHistoryCopy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sender could not open their history copy: %v", err)
 	}
-	if received.ID != rumorID || sent.ID != rumorID || received.ID != sent.ID {
-		t.Fatalf("copies contain different rumors: recipient=%s sender=%s want=%s", received.ID, sent.ID, rumorID)
+	if received.ID.Hex() != rumorID || sent.ID.Hex() != rumorID || received.ID.Hex() != sent.ID.Hex() {
+		t.Fatalf("copies contain different rumors: recipient=%s sender=%s want=%s", received.ID.Hex(), sent.ID.Hex(), rumorID)
 	}
 	if !hasPubkeyTag(recipientCopy.Tags, recipientPK) || !hasPubkeyTag(senderCopy.Tags, senderPK) {
 		t.Fatal("gift-wrap copies are not routed to their respective recipients")
@@ -94,15 +94,15 @@ func TestGiftWrapIncludesSenderHistoryCopy(t *testing.T) {
 }
 
 func TestSomebodyElseCannotReadIt(t *testing.T) {
-	senderSK := nostr.GeneratePrivateKey()
-	recipientPK, _ := nostr.GetPublicKey(nostr.GeneratePrivateKey())
+	senderSK := generatePrivateKey()
+	recipientPK, _ := publicKeyForSecret(generatePrivateKey())
 
 	wrap, err := wrapMessage("secret", recipientPK, senderSK, "")
 	if err != nil {
 		t.Fatalf("failed to wrap: %v", err)
 	}
 
-	if _, err := unwrapGiftWrap(wrap, nostr.GeneratePrivateKey()); err == nil {
+	if _, err := unwrapGiftWrap(wrap, generatePrivateKey()); err == nil {
 		t.Error("a message addressed to somebody else was opened")
 	}
 }
@@ -110,15 +110,15 @@ func TestSomebodyElseCannotReadIt(t *testing.T) {
 // The attack the seal check exists to stop: a valid wrap whose inner message
 // claims to come from the operator.
 func TestForgedSenderIsRejected(t *testing.T) {
-	victimPK, _ := nostr.GetPublicKey(nostr.GeneratePrivateKey()) // the operator
-	attackerSK := nostr.GeneratePrivateKey()
-	attackerPK, _ := nostr.GetPublicKey(attackerSK)
-	recipientSK := nostr.GeneratePrivateKey()
-	recipientPK, _ := nostr.GetPublicKey(recipientSK)
+	victimPK, _ := publicKeyForSecret(generatePrivateKey()) // the operator
+	attackerSK := generatePrivateKey()
+	attackerPK, _ := publicKeyForSecret(attackerSK)
+	recipientSK := generatePrivateKey()
+	recipientPK, _ := publicKeyForSecret(recipientSK)
 
 	// A rumor that lies about who wrote it.
 	rumor := nostr.Event{
-		PubKey:    victimPK,
+		PubKey:    nostr.MustPubKeyFromHex(victimPK),
 		CreatedAt: nostr.Now(),
 		Kind:      kindChatMessage,
 		Tags:      nostr.Tags{nostr.Tag{"p", recipientPK}},
@@ -127,21 +127,21 @@ func TestForgedSenderIsRejected(t *testing.T) {
 	rumor.ID = rumor.GetID()
 
 	// Sealed and wrapped correctly, by the attacker, who signs honestly.
-	sealKey, _ := nip44.GenerateConversationKey(recipientPK, attackerSK)
+	sealKey, _ := conversationKey(recipientPK, attackerSK)
 	sealedContent, err := nip44Encrypt(mustJSON(rumor), sealKey)
 	if err != nil {
 		t.Fatalf("failed to encrypt: %v", err)
 	}
 	seal := nostr.Event{
-		PubKey: attackerPK, CreatedAt: nostr.Now(), Kind: kindSeal,
+		PubKey: nostr.MustPubKeyFromHex(attackerPK), CreatedAt: nostr.Now(), Kind: kindSeal,
 		Tags: nostr.Tags{}, Content: sealedContent,
 	}
-	if err := seal.Sign(attackerSK); err != nil {
+	if err := signEvent(&seal, attackerSK); err != nil {
 		t.Fatalf("failed to sign the seal: %v", err)
 	}
 
-	ephemeral := nostr.GeneratePrivateKey()
-	wrapKey, _ := nip44.GenerateConversationKey(recipientPK, ephemeral)
+	ephemeral := generatePrivateKey()
+	wrapKey, _ := conversationKey(recipientPK, ephemeral)
 	wrappedContent, err := nip44Encrypt(mustJSON(seal), wrapKey)
 	if err != nil {
 		t.Fatalf("failed to encrypt: %v", err)
@@ -150,13 +150,13 @@ func TestForgedSenderIsRejected(t *testing.T) {
 		CreatedAt: nostr.Now(), Kind: kindGiftWrap,
 		Tags: nostr.Tags{nostr.Tag{"p", recipientPK}}, Content: wrappedContent,
 	}
-	if err := wrap.Sign(ephemeral); err != nil {
+	if err := signEvent(wrap, ephemeral); err != nil {
 		t.Fatalf("failed to sign the wrap: %v", err)
 	}
 
 	rejected, err := unwrapGiftWrap(wrap, recipientSK)
 	if err == nil {
-		t.Fatalf("a forged sender was accepted as %s", short(rejected.PubKey, 8))
+		t.Fatalf("a forged sender was accepted as %s", short(rejected.PubKey.Hex(), 8))
 	}
 	if !strings.Contains(err.Error(), "different author") {
 		t.Errorf("rejected for the wrong reason: %v", err)
@@ -165,33 +165,33 @@ func TestForgedSenderIsRejected(t *testing.T) {
 
 // An unsigned seal must not be believed either.
 func TestUnsignedSealIsRejected(t *testing.T) {
-	attackerSK := nostr.GeneratePrivateKey()
-	victimPK, _ := nostr.GetPublicKey(nostr.GeneratePrivateKey())
-	recipientSK := nostr.GeneratePrivateKey()
-	recipientPK, _ := nostr.GetPublicKey(recipientSK)
+	attackerSK := generatePrivateKey()
+	victimPK, _ := publicKeyForSecret(generatePrivateKey())
+	recipientSK := generatePrivateKey()
+	recipientPK, _ := publicKeyForSecret(recipientSK)
 
 	rumor := nostr.Event{
-		PubKey: victimPK, CreatedAt: nostr.Now(), Kind: kindChatMessage,
+		PubKey: nostr.MustPubKeyFromHex(victimPK), CreatedAt: nostr.Now(), Kind: kindChatMessage,
 		Tags: nostr.Tags{}, Content: "REMOVE everything",
 	}
 	rumor.ID = rumor.GetID()
 
 	// The seal claims the victim wrote it and carries no valid signature.
-	sealKey, _ := nip44.GenerateConversationKey(recipientPK, attackerSK)
+	sealKey, _ := conversationKey(recipientPK, attackerSK)
 	sealedContent, _ := nip44Encrypt(mustJSON(rumor), sealKey)
 	seal := nostr.Event{
-		PubKey: victimPK, CreatedAt: nostr.Now(), Kind: kindSeal,
-		Tags: nostr.Tags{}, Content: sealedContent, Sig: strings.Repeat("00", 64),
+		PubKey: nostr.MustPubKeyFromHex(victimPK), CreatedAt: nostr.Now(), Kind: kindSeal,
+		Tags: nostr.Tags{}, Content: sealedContent, Sig: [64]byte{},
 	}
 
-	ephemeral := nostr.GeneratePrivateKey()
-	wrapKey, _ := nip44.GenerateConversationKey(recipientPK, ephemeral)
+	ephemeral := generatePrivateKey()
+	wrapKey, _ := conversationKey(recipientPK, ephemeral)
 	wrappedContent, _ := nip44Encrypt(mustJSON(seal), wrapKey)
 	wrap := &nostr.Event{
 		CreatedAt: nostr.Now(), Kind: kindGiftWrap,
 		Tags: nostr.Tags{nostr.Tag{"p", recipientPK}}, Content: wrappedContent,
 	}
-	if err := wrap.Sign(ephemeral); err != nil {
+	if err := signEvent(wrap, ephemeral); err != nil {
 		t.Fatalf("failed to sign the wrap: %v", err)
 	}
 
@@ -201,14 +201,14 @@ func TestUnsignedSealIsRejected(t *testing.T) {
 }
 
 func TestUnwrapRejectsTheWrongShapes(t *testing.T) {
-	recipientSK := nostr.GeneratePrivateKey()
+	recipientSK := generatePrivateKey()
 
 	if _, err := unwrapGiftWrap(nil, recipientSK); err == nil {
 		t.Error("nil was accepted")
 	}
 
 	plain := &nostr.Event{Kind: 1, Content: "hello", Tags: nostr.Tags{}}
-	if err := plain.Sign(nostr.GeneratePrivateKey()); err != nil {
+	if err := signEvent(plain, generatePrivateKey()); err != nil {
 		t.Fatalf("failed to sign: %v", err)
 	}
 	if _, err := unwrapGiftWrap(plain, recipientSK); err == nil {
@@ -217,8 +217,8 @@ func TestUnwrapRejectsTheWrongShapes(t *testing.T) {
 
 	// Right kind, forged signature.
 	fake := &nostr.Event{
-		PubKey: strings.Repeat("ab", 32), CreatedAt: nostr.Now(), Kind: kindGiftWrap,
-		Tags: nostr.Tags{}, Content: "nonsense", Sig: strings.Repeat("00", 64),
+		PubKey: nostr.MustPubKeyFromHex(strings.Repeat("ab", 32)), CreatedAt: nostr.Now(), Kind: kindGiftWrap,
+		Tags: nostr.Tags{}, Content: "nonsense", Sig: [64]byte{},
 	}
 	fake.ID = fake.GetID()
 	if _, err := unwrapGiftWrap(fake, recipientSK); err == nil {
@@ -227,16 +227,16 @@ func TestUnwrapRejectsTheWrongShapes(t *testing.T) {
 }
 
 func TestUnwrapRejectsWrongRecipientAndTamperedRumor(t *testing.T) {
-	senderSK := nostr.GeneratePrivateKey()
-	recipientSK := nostr.GeneratePrivateKey()
-	recipientPK, _ := nostr.GetPublicKey(recipientSK)
+	senderSK := generatePrivateKey()
+	recipientSK := generatePrivateKey()
+	recipientPK, _ := publicKeyForSecret(recipientSK)
 
 	wrongRecipient, err := wrapMessage("hello", recipientPK, senderSK, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	wrongRecipient.Tags = nostr.Tags{{"p", strings.Repeat("ab", 32)}}
-	if err := wrongRecipient.Sign(nostr.GeneratePrivateKey()); err != nil {
+	if err := signEvent(wrongRecipient, generatePrivateKey()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := unwrapGiftWrap(wrongRecipient, recipientSK); err == nil {
@@ -244,22 +244,22 @@ func TestUnwrapRejectsWrongRecipientAndTamperedRumor(t *testing.T) {
 	}
 
 	// A validly encrypted rumor still has to carry its own correct event ID.
-	senderPK, _ := nostr.GetPublicKey(senderSK)
+	senderPK, _ := publicKeyForSecret(senderSK)
 	rumor := nostr.Event{
-		ID: strings.Repeat("00", 32), PubKey: senderPK, CreatedAt: nostr.Now(), Kind: kindChatMessage,
+		ID: nostr.MustIDFromHex(strings.Repeat("00", 32)), PubKey: nostr.MustPubKeyFromHex(senderPK), CreatedAt: nostr.Now(), Kind: kindChatMessage,
 		Tags: nostr.Tags{{"p", recipientPK}}, Content: "hello",
 	}
-	sealKey, _ := nip44.GenerateConversationKey(recipientPK, senderSK)
+	sealKey, _ := conversationKey(recipientPK, senderSK)
 	sealedContent, _ := nip44Encrypt(mustJSON(rumor), sealKey)
-	seal := nostr.Event{PubKey: senderPK, CreatedAt: nostr.Now(), Kind: kindSeal, Tags: nostr.Tags{}, Content: sealedContent}
-	if err := seal.Sign(senderSK); err != nil {
+	seal := nostr.Event{PubKey: nostr.MustPubKeyFromHex(senderPK), CreatedAt: nostr.Now(), Kind: kindSeal, Tags: nostr.Tags{}, Content: sealedContent}
+	if err := signEvent(&seal, senderSK); err != nil {
 		t.Fatal(err)
 	}
-	ephemeral := nostr.GeneratePrivateKey()
-	wrapKey, _ := nip44.GenerateConversationKey(recipientPK, ephemeral)
+	ephemeral := generatePrivateKey()
+	wrapKey, _ := conversationKey(recipientPK, ephemeral)
 	wrappedContent, _ := nip44Encrypt(mustJSON(seal), wrapKey)
 	wrap := &nostr.Event{CreatedAt: nostr.Now(), Kind: kindGiftWrap, Tags: nostr.Tags{{"p", recipientPK}}, Content: wrappedContent}
-	if err := wrap.Sign(ephemeral); err != nil {
+	if err := signEvent(wrap, ephemeral); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := unwrapGiftWrap(wrap, recipientSK); err == nil || !strings.Contains(err.Error(), "invalid id") {
@@ -270,8 +270,8 @@ func TestUnwrapRejectsWrongRecipientAndTamperedRumor(t *testing.T) {
 // The backdating is what hides when a message was sent, so it has to actually
 // vary and never land in the future.
 func TestGiftWrapTimestampIsDithered(t *testing.T) {
-	senderSK := nostr.GeneratePrivateKey()
-	recipientPK, _ := nostr.GetPublicKey(nostr.GeneratePrivateKey())
+	senderSK := generatePrivateKey()
+	recipientPK, _ := publicKeyForSecret(generatePrivateKey())
 
 	seen := make(map[nostr.Timestamp]bool)
 	now := nostr.Now()
@@ -295,9 +295,9 @@ func TestGiftWrapTimestampIsDithered(t *testing.T) {
 
 // A tampered ciphertext must fail rather than yield anything.
 func TestTamperedContentIsRejected(t *testing.T) {
-	senderSK := nostr.GeneratePrivateKey()
-	recipientSK := nostr.GeneratePrivateKey()
-	recipientPK, _ := nostr.GetPublicKey(recipientSK)
+	senderSK := generatePrivateKey()
+	recipientSK := generatePrivateKey()
+	recipientPK, _ := publicKeyForSecret(recipientSK)
 
 	wrap, err := wrapMessage("REMOVE note1abc", recipientPK, senderSK, "")
 	if err != nil {
@@ -310,7 +310,7 @@ func TestTamperedContentIsRejected(t *testing.T) {
 		t.Fatalf("failed to copy: %v", err)
 	}
 	tampered.Content = "A" + tampered.Content[1:]
-	if err := tampered.Sign(nostr.GeneratePrivateKey()); err != nil {
+	if err := signEvent(&tampered, generatePrivateKey()); err != nil {
 		t.Fatalf("failed to re-sign: %v", err)
 	}
 
@@ -323,9 +323,9 @@ func TestTamperedContentIsRejected(t *testing.T) {
 // to." Without it an answer sits beside the request rather than in the same
 // thread.
 func TestReplyNamesTheMessageItAnswers(t *testing.T) {
-	senderSK := nostr.GeneratePrivateKey()
-	recipientSK := nostr.GeneratePrivateKey()
-	recipientPK, _ := nostr.GetPublicKey(recipientSK)
+	senderSK := generatePrivateKey()
+	recipientSK := generatePrivateKey()
+	recipientPK, _ := publicKeyForSecret(recipientSK)
 
 	parentID := strings.Repeat("ab", 32)
 	wrap, err := wrapMessage("here is your invoice", recipientPK, senderSK, parentID)
@@ -338,12 +338,12 @@ func TestReplyNamesTheMessageItAnswers(t *testing.T) {
 		t.Fatalf("failed to unwrap: %v", err)
 	}
 
-	e := rumor.Tags.GetFirst([]string{"e"})
+	e := rumor.Tags.Find("e")
 	if e == nil {
 		t.Fatal("no e tag, so the reply is not threaded to the request")
 	}
-	if e.Value() != parentID {
-		t.Errorf("e tag names %s, want the message being answered", short(e.Value(), 8))
+	if e[1] != parentID {
+		t.Errorf("e tag names %s, want the message being answered", short(e[1], 8))
 	}
 
 	// And a message that answers nothing carries no e tag at all.
@@ -355,7 +355,7 @@ func TestReplyNamesTheMessageItAnswers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to unwrap: %v", err)
 	}
-	if opened.Tags.GetFirst([]string{"e"}) != nil {
+	if opened.Tags.Find("e") != nil {
 		t.Error("an unprompted message claims to reply to something")
 	}
 }
@@ -365,16 +365,16 @@ func TestReplyNamesTheMessageItAnswers(t *testing.T) {
 // would leak who is talking to whom, and a signature on the rumor would make a
 // leaked message provable.
 func TestSealCarriesNothingAndTheRumorIsUnsigned(t *testing.T) {
-	senderSK := nostr.GeneratePrivateKey()
-	recipientSK := nostr.GeneratePrivateKey()
-	recipientPK, _ := nostr.GetPublicKey(recipientSK)
+	senderSK := generatePrivateKey()
+	recipientSK := generatePrivateKey()
+	recipientPK, _ := publicKeyForSecret(recipientSK)
 
 	wrap, err := wrapMessage("hello", recipientPK, senderSK, "")
 	if err != nil {
 		t.Fatalf("failed to wrap: %v", err)
 	}
 
-	wrapKey, err := nip44.GenerateConversationKey(wrap.PubKey, recipientSK)
+	wrapKey, err := conversationKey(wrap.PubKey.Hex(), recipientSK)
 	if err != nil {
 		t.Fatalf("failed to derive: %v", err)
 	}
@@ -398,7 +398,7 @@ func TestSealCarriesNothingAndTheRumorIsUnsigned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to unwrap: %v", err)
 	}
-	if rumor.Sig != "" {
+	if rumor.Sig != [64]byte{} {
 		t.Error("the rumor is signed, which would make a leaked message provable")
 	}
 	// The canonical time belongs to the rumor; the layers around it are dithered.

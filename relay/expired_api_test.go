@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 func expiredPage(t *testing.T, storage *Storage, query string) expiredResponse {
@@ -40,20 +40,20 @@ func TestExpiredArchivePaginationAndRevival(t *testing.T) {
 	}
 	seedPaidPost(t, storage, 100, time.Now())
 	page := expiredPage(t, storage, "?limit=1")
-	if len(page.Entries) != 1 || page.Entries[0].Event.ID != first || page.Entries[0].SatsPaid != 100 || page.NextCursor == "" {
+	if len(page.Entries) != 1 || page.Entries[0].Event.ID.Hex() != first || page.Entries[0].SatsPaid != 100 || page.NextCursor == "" {
 		t.Fatalf("unexpected first archive page: %+v", page)
 	}
-	if valid, err := page.Entries[0].Event.CheckSignature(); err != nil || !valid {
+	if valid, err := verifyNostrEvent(page.Entries[0].Event); err != nil || !valid {
 		t.Fatal("archive changed the signed event")
 	}
 	if err := storage.AddPayment(first, 20, nil); err != nil {
 		t.Fatal(err)
 	}
 	next := expiredPage(t, storage, "?limit=1&cursor="+url.QueryEscape(page.NextCursor))
-	if len(next.Entries) != 1 || next.Entries[0].Event.ID != second || next.NextCursor != "" {
+	if len(next.Entries) != 1 || next.Entries[0].Event.ID.Hex() != second || next.NextCursor != "" {
 		t.Fatalf("reviving the cursor note skipped a page: %+v", next)
 	}
-	if len(storage.QueryPosts(context.Background(), nostr.Filter{IDs: []string{second}})) != 0 {
+	if len(storage.QueryPosts(context.Background(), nostr.Filter{IDs: eventIDs(second)})) != 0 {
 		t.Fatal("archive note leaked into the active feed")
 	}
 	if err := storage.AddPayment(second, 20, nil); err != nil {

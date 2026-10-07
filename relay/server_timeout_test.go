@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fiatjaf/khatru"
+	"fiatjaf.com/nostr/khatru"
 )
 
-// TestSlowHandlerResponseSurvives pins the patch in third_party/khatru.
+// TestSlowHandlerResponseSurvives pins the patch in third_party/nostr/khatru.
 //
 // khatru's Start sets the http.Server's write timeout, and upstream ships two
 // seconds. Minting a Lightning invoice is a round trip to a wallet over nostr

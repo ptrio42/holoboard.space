@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
-	"github.com/nbd-wtf/go-nostr/nip44"
+	"fiatjaf.com/nostr"
+	"fiatjaf.com/nostr/nip19"
+	"fiatjaf.com/nostr/nip44"
 )
 
 // Gift wrapped direct messages, NIP-17 over NIP-59.
@@ -20,13 +20,8 @@ import (
 // https://github.com/nostr-protocol/nips/blob/master/17.md
 // https://github.com/nostr-protocol/nips/blob/master/59.md
 //
-// The relay listened only for kind:4, which is why sending it a PROMOTE from a
-// current client did nothing at all: those clients stopped writing kind:4. The
-// ready-made way to fix that is go-nostr's nip17 package, but it arrived in
-// v0.52, that needs Go 1.24, and the in-tree khatru is pinned to go-nostr
-// v0.34. So the envelope is assembled here instead. Every cryptographic
-// operation is still the library's nip44; what is written out by hand is the
-// shape of the envelope, not the cryptography inside it.
+// Envelope construction and recipient policy stay here. NIP-44 encryption,
+// key derivation and signatures use the pinned Nostr library.
 //
 // The security of the whole thing rests on one point. A gift wrap is signed by
 // a key generated for that single message, so its author proves nothing at all
@@ -58,7 +53,7 @@ func unwrapGiftWrap(giftWrap *nostr.Event, recipientPrivkey string) (*nostr.Even
 	if giftWrap == nil || giftWrap.Kind != kindGiftWrap {
 		return nil, fmt.Errorf("not a gift wrap")
 	}
-	recipientPubkey, err := nostr.GetPublicKey(recipientPrivkey)
+	recipientPubkey, err := publicKeyForSecret(recipientPrivkey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive the recipient pubkey: %w", err)
 	}
@@ -68,11 +63,11 @@ func unwrapGiftWrap(giftWrap *nostr.Event, recipientPrivkey string) (*nostr.Even
 
 	// The wrap's own signature says nothing about the sender, but a wrap that
 	// does not verify is malformed and not worth decrypting.
-	if ok, err := giftWrap.CheckSignature(); err != nil || !ok {
+	if ok, err := verifyNostrEvent(giftWrap); err != nil || !ok {
 		return nil, fmt.Errorf("gift wrap signature does not verify")
 	}
 
-	wrapKey, err := nip44.GenerateConversationKey(giftWrap.PubKey, recipientPrivkey)
+	wrapKey, err := conversationKey(giftWrap.PubKey.Hex(), recipientPrivkey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive the wrap key: %w", err)
 	}
@@ -94,11 +89,11 @@ func unwrapGiftWrap(giftWrap *nostr.Event, recipientPrivkey string) (*nostr.Even
 	}
 
 	// This is the check the whole scheme rests on.
-	if ok, err := seal.CheckSignature(); err != nil || !ok {
+	if ok, err := verifyNostrEvent(&seal); err != nil || !ok {
 		return nil, fmt.Errorf("the seal is not signed by the pubkey it claims")
 	}
 
-	sealKey, err := nip44.GenerateConversationKey(seal.PubKey, recipientPrivkey)
+	sealKey, err := conversationKey(seal.PubKey.Hex(), recipientPrivkey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive the seal key: %w", err)
 	}
@@ -115,16 +110,22 @@ func unwrapGiftWrap(giftWrap *nostr.Event, recipientPrivkey string) (*nostr.Even
 
 	// Without this, anybody able to sign a seal could put somebody else's
 	// pubkey on the message inside it and be believed.
-	if rumor.PubKey != seal.PubKey {
+	if rumor.PubKey.Hex() != seal.PubKey.Hex() {
 		return nil, fmt.Errorf("the message inside claims a different author than the seal")
 	}
-	if rumor.Sig != "" {
+	var signatureField struct {
+		Sig string `json:"sig"`
+	}
+	if err := json.Unmarshal([]byte(rumorJSON), &signatureField); err != nil {
+		return nil, fmt.Errorf("invalid rumor signature field: %w", err)
+	}
+	if signatureField.Sig != "" {
 		return nil, fmt.Errorf("the message inside is signed instead of being a rumor")
 	}
-	if rumor.ID == "" || rumor.ID != rumor.GetID() {
+	if rumor.ID == nostr.ZeroID || rumor.ID.Hex() != rumor.GetID().Hex() {
 		return nil, fmt.Errorf("the message inside has an invalid id")
 	}
-	if rumor.Kind == kindChatMessage && rumor.PubKey != recipientPubkey && !hasPubkeyTag(rumor.Tags, recipientPubkey) {
+	if rumor.Kind == kindChatMessage && rumor.PubKey.Hex() != recipientPubkey && !hasPubkeyTag(rumor.Tags, recipientPubkey) {
 		return nil, fmt.Errorf("the chat message is not addressed to this recipient")
 	}
 
@@ -162,7 +163,7 @@ func wrapMessageDetails(content, recipientPubkey, senderPrivkey, replyTo string)
 // separately for the recipient and the sender. The latter is the sender's
 // encrypted history copy; both open to the same unsigned kind 14 event ID.
 func wrapMessageCopies(content, recipientPubkey, senderPrivkey, replyTo string) (*nostr.Event, *nostr.Event, string, error) {
-	senderPubkey, err := nostr.GetPublicKey(senderPrivkey)
+	senderPubkey, err := publicKeyForSecret(senderPrivkey)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("failed to derive the sender pubkey: %w", err)
 	}
@@ -177,7 +178,7 @@ func wrapMessageCopies(content, recipientPubkey, senderPrivkey, replyTo string) 
 	}
 
 	rumor := nostr.Event{
-		PubKey:    senderPubkey,
+		PubKey:    nostr.MustPubKeyFromHex(senderPubkey),
 		CreatedAt: nostr.Now(),
 		Kind:      kindChatMessage,
 		Tags:      tags,
@@ -192,15 +193,15 @@ func wrapMessageCopies(content, recipientPubkey, senderPrivkey, replyTo string) 
 	if err != nil {
 		return nil, nil, "", err
 	}
-	return recipientCopy, senderCopy, rumor.ID, nil
+	return recipientCopy, senderCopy, rumor.ID.Hex(), nil
 }
 
 func wrapRumor(rumor nostr.Event, envelopeRecipient, senderPrivkey string) (*nostr.Event, error) {
-	senderPubkey, err := nostr.GetPublicKey(senderPrivkey)
+	senderPubkey, err := publicKeyForSecret(senderPrivkey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive the sender pubkey: %w", err)
 	}
-	sealKey, err := nip44.GenerateConversationKey(envelopeRecipient, senderPrivkey)
+	sealKey, err := conversationKey(envelopeRecipient, senderPrivkey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive the seal key: %w", err)
 	}
@@ -210,19 +211,19 @@ func wrapRumor(rumor nostr.Event, envelopeRecipient, senderPrivkey string) (*nos
 	}
 
 	seal := nostr.Event{
-		PubKey:    senderPubkey,
+		PubKey:    nostr.MustPubKeyFromHex(senderPubkey),
 		CreatedAt: backdated(),
 		Kind:      kindSeal,
 		Tags:      nostr.Tags{},
 		Content:   sealedContent,
 	}
-	if err := seal.Sign(senderPrivkey); err != nil {
+	if err := signEvent(&seal, senderPrivkey); err != nil {
 		return nil, fmt.Errorf("failed to sign the seal: %w", err)
 	}
 
 	// A key for this message and nothing else.
-	ephemeralPrivkey := nostr.GeneratePrivateKey()
-	wrapKey, err := nip44.GenerateConversationKey(envelopeRecipient, ephemeralPrivkey)
+	ephemeralPrivkey := generatePrivateKey()
+	wrapKey, err := conversationKey(envelopeRecipient, ephemeralPrivkey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive the wrap key: %w", err)
 	}
@@ -237,7 +238,7 @@ func wrapRumor(rumor nostr.Event, envelopeRecipient, senderPrivkey string) (*nos
 		Tags:      nostr.Tags{nostr.Tag{"p", envelopeRecipient}},
 		Content:   wrappedContent,
 	}
-	if err := giftWrap.Sign(ephemeralPrivkey); err != nil {
+	if err := signEvent(giftWrap, ephemeralPrivkey); err != nil {
 		return nil, fmt.Errorf("failed to sign the gift wrap: %w", err)
 	}
 
@@ -335,7 +336,7 @@ func publishRelayLists(ctx context.Context, privkey string, dmRelays, generalRel
 
 	events := make([]*nostr.Event, 0, 2)
 	for _, event := range []*nostr.Event{dmList, generalList} {
-		if err := event.Sign(privkey); err != nil {
+		if err := signEvent(event, privkey); err != nil {
 			log.Printf("Failed to sign the kind:%d relay list: %v", event.Kind, err)
 			continue
 		}
@@ -447,7 +448,8 @@ func normalizePubkey(input string) (string, error) {
 	if prefix != "npub" {
 		return "", fmt.Errorf("expected an npub, got %s", prefix)
 	}
-	pubkey, ok := data.(string)
+	key, ok := data.(nostr.PubKey)
+	pubkey := key.Hex()
 	if !ok || !isHex64(pubkey) {
 		return "", fmt.Errorf("the npub did not decode to a pubkey")
 	}

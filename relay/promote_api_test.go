@@ -8,9 +8,6 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
-
-	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
 // promoteFixture wires the endpoint against a mock wallet and a board that
@@ -20,7 +17,7 @@ func promoteFixture(t *testing.T) (http.HandlerFunc, *Storage, string) {
 	t.Helper()
 
 	storage := newTestStorage(t)
-	postID := seedPromotedPost(t, storage, nostr.GeneratePrivateKey())
+	postID := seedPromotedPost(t, storage, generatePrivateKey())
 
 	monitor := NewPaymentMonitor(storage, "relay", NewPostFetcher(nil), NewLNURLResolver())
 	invoices := NewInvoiceManager(NewMockLightningBackend(), storage, monitor, 1000)
@@ -76,8 +73,8 @@ func TestPromoteMintsAnInvoice(t *testing.T) {
 
 func TestPromoteStoresOptionalNotificationContact(t *testing.T) {
 	handler, storage, postID := promoteFixture(t)
-	pubkey, _ := nostr.GetPublicKey(nostr.GeneratePrivateKey())
-	npub, err := nip19.EncodePublicKey(pubkey)
+	pubkey, _ := publicKeyForSecret(generatePrivateKey())
+	npub, err := encodePublicKey(pubkey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +107,7 @@ func TestPromoteRejectsInvalidNotificationContact(t *testing.T) {
 func TestPromoteAcceptsBech32(t *testing.T) {
 	handler, _, postID := promoteFixture(t)
 
-	encoded, err := nip19.EncodeNote(postID)
+	encoded, err := encodeNoteReference(postID)
 	if err != nil {
 		t.Fatalf("failed to encode note: %v", err)
 	}
@@ -296,7 +293,7 @@ func TestPromoteStatusNeedsAHash(t *testing.T) {
 func TestPromoteAcceptsPastedLinks(t *testing.T) {
 	handler, _, postID := promoteFixture(t)
 
-	encoded, err := nip19.EncodeNote(postID)
+	encoded, err := encodeNoteReference(postID)
 	if err != nil {
 		t.Fatalf("failed to encode: %v", err)
 	}

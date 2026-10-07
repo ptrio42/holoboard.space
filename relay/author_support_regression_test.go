@@ -8,7 +8,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/zpay32"
-	"github.com/nbd-wtf/go-nostr/nip19"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -16,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 func TestAuthorSupportPreservesHintsInNoteLinks(t *testing.T) {
@@ -27,7 +26,7 @@ func TestAuthorSupportPreservesHintsInNoteLinks(t *testing.T) {
 		seen = len(hints) == 1 && hints[0] == "wss://author.example"
 		return lookup(ctx, author, hints)
 	}
-	reference, err := nip19.EncodeEvent(note.ID, []string{"wss://author.example"}, note.PubKey)
+	reference, err := encodeEventReference(note.ID.Hex(), []string{"wss://author.example"}, note.PubKey.Hex())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,12 +42,12 @@ func TestAuthorSupportPreservesHintsInNoteLinks(t *testing.T) {
 
 func TestAuthorReceiptUsesIssuedProviderAfterChangeAndRestart(t *testing.T) {
 	a, note, provider := supportFixture(t)
-	request := &nostr.Event{Kind: 9734, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"p", note.PubKey}, {"e", note.ID}, {"amount", "21000"}, {"relays", "wss://relay.example"}}}
-	if err := request.Sign(nostr.GeneratePrivateKey()); err != nil {
+	request := &nostr.Event{Kind: 9734, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"p", note.PubKey.Hex()}, {"e", note.ID.Hex()}, {"amount", "21000"}, {"relays", "wss://relay.example"}}}
+	if err := signEvent(request, generatePrivateKey()); err != nil {
 		t.Fatal(err)
 	}
 	handler := a.Handler()
-	rec := supportPost(t, handler, "/api/support/invoice", map[string]any{"note": note.ID, "amount_sats": 21, "zap_request": request})
+	rec := supportPost(t, handler, "/api/support/invoice", map[string]any{"note": note.ID.Hex(), "amount_sats": 21, "zap_request": request})
 	if rec.Code != 200 {
 		t.Fatalf("invoice: %s", rec.Body.String())
 	}
@@ -59,19 +58,19 @@ func TestAuthorReceiptUsesIssuedProviderAfterChangeAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	description, _ := json.Marshal(request)
-	receipt := &nostr.Event{Kind: 9735, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"p", note.PubKey}, {"e", note.ID}, {"bolt11", invoice.Invoice}, {"description", string(description)}}}
-	if err := receipt.Sign(provider); err != nil {
+	receipt := &nostr.Event{Kind: 9735, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"p", note.PubKey.Hex()}, {"e", note.ID.Hex()}, {"bolt11", invoice.Invoice}, {"description", string(description)}}}
+	if err := signEvent(receipt, provider); err != nil {
 		t.Fatal(err)
 	}
 	verify := func() *httptest.ResponseRecorder {
-		return supportPost(t, handler, "/api/support/verify", map[string]any{"note": note.ID, "invoice": invoice.Invoice, "receipt": receipt})
+		return supportPost(t, handler, "/api/support/verify", map[string]any{"note": note.ID.Hex(), "invoice": invoice.Invoice, "receipt": receipt})
 	}
 	if rec := verify(); rec.Code != 200 {
 		t.Fatalf("original receipt: %s", rec.Body.String())
 	}
-	changed := a.cache[note.PubKey]
-	changed.NostrPubkey, _ = nostr.GetPublicKey(nostr.GeneratePrivateKey())
-	a.cache[note.PubKey] = changed
+	changed := a.cache[note.PubKey.Hex()]
+	changed.NostrPubkey, _ = publicKeyForSecret(generatePrivateKey())
+	a.cache[note.PubKey.Hex()] = changed
 	if rec := verify(); rec.Code != 200 {
 		t.Fatalf("provider change rejected issued receipt: %s", rec.Body.String())
 	}
@@ -87,7 +86,7 @@ func TestAuthorReceiptUsesIssuedProviderAfterChangeAndRestart(t *testing.T) {
 	if rec := verify(); rec.Code != 200 {
 		t.Fatalf("valid receipt stopped verifying after current provider changed: status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if post, _ := reloaded.GetPost(note.ID); post.TotalSatsPaid != 1 {
+	if post, _ := reloaded.GetPost(note.ID.Hex()); post.TotalSatsPaid != 1 {
 		t.Fatal("author receipt added ranking credit")
 	}
 	for _, test := range []struct {
@@ -96,13 +95,13 @@ func TestAuthorReceiptUsesIssuedProviderAfterChangeAndRestart(t *testing.T) {
 		note   string
 	}{
 		{"other note", func(*nostr.Event) {}, strings.Repeat("a", 64)},
-		{"other recipient", func(e *nostr.Event) { e.Tags[0][1] = strings.Repeat("a", 64) }, note.ID},
+		{"other recipient", func(e *nostr.Event) { e.Tags[0][1] = strings.Repeat("a", 64) }, note.ID.Hex()},
 		{"other provider", func(e *nostr.Event) {
-			if err := e.Sign(nostr.GeneratePrivateKey()); err != nil {
+			if err := signEvent(e, generatePrivateKey()); err != nil {
 				t.Fatal(err)
 			}
-		}, note.ID},
-		{"other invoice", func(e *nostr.Event) { e.Tags[2][1] = "invalid" }, note.ID},
+		}, note.ID.Hex()},
+		{"other invoice", func(e *nostr.Event) { e.Tags[2][1] = "invalid" }, note.ID.Hex()},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			forged := cloneNostrEvent(receipt)
@@ -118,12 +117,12 @@ func TestAuthorReceiptUsesIssuedProviderAfterChangeAndRestart(t *testing.T) {
 
 func TestAuthorReceiptRejectsReencodedInvoiceWithSamePaymentHash(t *testing.T) {
 	a, note, provider := supportFixture(t)
-	request := &nostr.Event{Kind: 9734, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"p", note.PubKey}, {"e", note.ID}, {"amount", "21000"}, {"relays", "wss://relay.example"}}}
-	if err := request.Sign(nostr.GeneratePrivateKey()); err != nil {
+	request := &nostr.Event{Kind: 9734, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"p", note.PubKey.Hex()}, {"e", note.ID.Hex()}, {"amount", "21000"}, {"relays", "wss://relay.example"}}}
+	if err := signEvent(request, generatePrivateKey()); err != nil {
 		t.Fatal(err)
 	}
 	handler := a.Handler()
-	response := supportPost(t, handler, "/api/support/invoice", map[string]any{"note": note.ID, "amount_sats": 21, "zap_request": request})
+	response := supportPost(t, handler, "/api/support/invoice", map[string]any{"note": note.ID.Hex(), "amount_sats": 21, "zap_request": request})
 	var body struct {
 		Invoice string `json:"invoice"`
 	}
@@ -131,8 +130,8 @@ func TestAuthorReceiptRejectsReencodedInvoiceWithSamePaymentHash(t *testing.T) {
 		t.Fatal(err)
 	}
 	description, _ := json.Marshal(request)
-	receipt := &nostr.Event{Kind: 9735, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"p", note.PubKey}, {"e", note.ID}, {"bolt11", body.Invoice}, {"description", string(description)}}}
-	if err := receipt.Sign(provider); err != nil {
+	receipt := &nostr.Event{Kind: 9735, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"p", note.PubKey.Hex()}, {"e", note.ID.Hex()}, {"bolt11", body.Invoice}, {"description", string(description)}}}
+	if err := signEvent(receipt, provider); err != nil {
 		t.Fatal(err)
 	}
 	invoice, err := decodeSupportInvoice(body.Invoice)
@@ -151,7 +150,7 @@ func TestAuthorReceiptRejectsReencodedInvoiceWithSamePaymentHash(t *testing.T) {
 	if changed == body.Invoice {
 		t.Fatal("fixture did not change the invoice")
 	}
-	verified := supportPost(t, handler, "/api/support/verify", map[string]any{"note": note.ID, "invoice": changed, "receipt": receipt})
+	verified := supportPost(t, handler, "/api/support/verify", map[string]any{"note": note.ID.Hex(), "invoice": changed, "receipt": receipt})
 	if verified.Code != 400 {
 		t.Fatalf("reencoded invoice accepted: %s", verified.Body.String())
 	}
@@ -159,21 +158,21 @@ func TestAuthorReceiptRejectsReencodedInvoiceWithSamePaymentHash(t *testing.T) {
 
 func TestFirstSettlementStoresActualQuoteSplitAfterAddressRemoval(t *testing.T) {
 	s, publisher, note := accountPublicationFixture(t)
-	key := nostr.GeneratePrivateKey()
-	if err := note.Sign(key); err != nil {
+	key := generatePrivateKey()
+	if err := signEvent(note, key); err != nil {
 		t.Fatal(err)
 	}
 	share := 30
-	invoice := &PendingInvoice{PostID: note.ID, PaymentHash: "prepared-before-removal", AmountSats: 210, Event: note, AuthorShare: &share}
+	invoice := &PendingInvoice{PostID: note.ID.Hex(), PaymentHash: "prepared-before-removal", AmountSats: 210, Event: note, AuthorShare: &share}
 	if err := s.AddPendingInvoice(invoice); err != nil {
 		t.Fatal(err)
 	}
 	profile := &nostr.Event{Kind: 0, CreatedAt: nostr.Now(), Tags: nostr.Tags{}, Content: `{}`}
-	if err := profile.Sign(key); err != nil {
+	if err := signEvent(profile, key); err != nil {
 		t.Fatal(err)
 	}
 	publisher.profile = func(_ context.Context, pubkey string, _ []string) (*nostr.Event, string) {
-		if pubkey == note.PubKey {
+		if pubkey == note.PubKey.Hex() {
 			return profile, "wss://profile.example"
 		}
 		return nil, ""
@@ -185,7 +184,7 @@ func TestFirstSettlementStoresActualQuoteSplitAfterAddressRemoval(t *testing.T) 
 	if _, err := s.SettleInvoiceWithPublication(invoice.PaymentHash, note, quote, nil); err != nil {
 		t.Fatal(err)
 	}
-	post, _ := s.GetPost(note.ID)
+	post, _ := s.GetPost(note.ID.Hex())
 	if campaignAuthorShare(post) != 0 || post.TotalSatsPaid != 210 || *quoteAuthorShare(quote) != 0 {
 		t.Fatal("first settlement did not bind its actual public quote split")
 	}
@@ -203,8 +202,8 @@ func TestAuthorSupportDiscoversProfileOutsideConfiguredRelays(t *testing.T) {
 	discoveryRelays = nil
 	t.Cleanup(func() { discoveryRelays = previousDiscovery })
 	configured, outside := startTestRelay(t), startTestRelay(t)
-	key := nostr.GeneratePrivateKey()
-	author, _ := nostr.GetPublicKey(key)
+	key := generatePrivateKey()
+	author, _ := publicKeyForSecret(key)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	for _, fixture := range []struct {
@@ -220,8 +219,8 @@ func TestAuthorSupportDiscoversProfileOutsideConfiguredRelays(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		event := nostr.Event{Kind: fixture.kind, CreatedAt: nostr.Now(), Tags: fixture.tags, Content: fixture.content}
-		if err := event.Sign(key); err != nil {
+		event := nostr.Event{Kind: nostr.Kind(fixture.kind), CreatedAt: nostr.Now(), Tags: fixture.tags, Content: fixture.content}
+		if err := signEvent(&event, key); err != nil {
 			t.Fatal(err)
 		}
 		if err := connection.Publish(ctx, event); err != nil {
@@ -241,11 +240,11 @@ func TestAuthorSupportDiscoversProfileOutsideConfiguredRelays(t *testing.T) {
 func TestAuthorInvoiceVerificationContextRollsBackOnSaveFailure(t *testing.T) {
 	a, note, _ := supportFixture(t)
 	a.storage.dataFile = filepath.Join(t.TempDir(), "missing", "board.json")
-	response := supportPost(t, a.Handler(), "/api/support/invoice", map[string]any{"note": note.ID, "amount_sats": 21})
+	response := supportPost(t, a.Handler(), "/api/support/invoice", map[string]any{"note": note.ID.Hex(), "amount_sats": 21})
 	if response.Code != 503 || len(a.storage.authorInvoices) != 0 {
 		t.Fatalf("unsaved invoice was offered: %d %s", response.Code, response.Body.String())
 	}
-	post, _ := a.storage.GetPost(note.ID)
+	post, _ := a.storage.GetPost(note.ID.Hex())
 	if post.TotalSatsPaid != 1 {
 		t.Fatal("failed author invoice changed ranking")
 	}
@@ -290,12 +289,12 @@ func TestNewCampaignOnlyDropsAuthorShareForConfirmedMissingAddress(t *testing.T)
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			s, publisher, note := accountPublicationFixture(t)
-			key := nostr.GeneratePrivateKey()
-			if err := note.Sign(key); err != nil {
+			key := generatePrivateKey()
+			if err := signEvent(note, key); err != nil {
 				t.Fatal(err)
 			}
 			profile := &nostr.Event{Kind: 0, CreatedAt: nostr.Now(), Tags: nostr.Tags{}, Content: test.metadata}
-			if err := profile.Sign(key); err != nil {
+			if err := signEvent(profile, key); err != nil {
 				t.Fatal(err)
 			}
 			support := NewAuthorSupport(s, NewPostFetcher(nil))
@@ -307,7 +306,7 @@ func TestNewCampaignOnlyDropsAuthorShareForConfirmedMissingAddress(t *testing.T)
 			}
 			manager := NewInvoiceManager(NewMockLightningBackend(), s, nil, 1000)
 			manager.authorSupport = support
-			invoice, err := manager.GeneratePromotionInvoiceWithContact(context.Background(), note.ID, 210, nil, note.PubKey, nil, "", note)
+			invoice, err := manager.GeneratePromotionInvoiceWithContact(context.Background(), note.ID.Hex(), 210, nil, note.PubKey.Hex(), nil, "", note)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -316,7 +315,7 @@ func TestNewCampaignOnlyDropsAuthorShareForConfirmedMissingAddress(t *testing.T)
 				t.Fatalf("incorrect invoice: %+v", pending)
 			}
 			publisher.profile = func(_ context.Context, pubkey string, _ []string) (*nostr.Event, string) {
-				if test.unavailable || pubkey != note.PubKey {
+				if test.unavailable || pubkey != note.PubKey.Hex() {
 					return nil, ""
 				}
 				return profile, "wss://profile.example"
@@ -331,7 +330,7 @@ func TestNewCampaignOnlyDropsAuthorShareForConfirmedMissingAddress(t *testing.T)
 			if _, err := s.SettleInvoiceWithPublication(invoice.PaymentHash, note, quote, nil); err != nil {
 				t.Fatal(err)
 			}
-			post, _ := s.GetPost(note.ID)
+			post, _ := s.GetPost(note.ID.Hex())
 			if campaignAuthorShare(post) != test.want || post.TotalSatsPaid != 210 {
 				t.Fatal("campaign split or ranking disagrees with first settlement")
 			}
@@ -339,7 +338,7 @@ func TestNewCampaignOnlyDropsAuthorShareForConfirmedMissingAddress(t *testing.T)
 				return nil, fmt.Errorf("now unavailable")
 			}
 			changed := 50
-			boost, err := manager.GeneratePromotionInvoiceWithContact(context.Background(), note.ID, 21, nil, note.PubKey, nil, "", note, &changed)
+			boost, err := manager.GeneratePromotionInvoiceWithContact(context.Background(), note.ID.Hex(), 21, nil, note.PubKey.Hex(), nil, "", note, &changed)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -354,7 +353,7 @@ func TestNewCampaignOnlyDropsAuthorShareForConfirmedMissingAddress(t *testing.T)
 func TestAuthorEndpointDistinguishesMissingAddressAndWalletOutage(t *testing.T) {
 	a, note, _ := supportFixture(t)
 	a.client.Transport = supportTransport(func(*http.Request) (*http.Response, error) { return nil, fmt.Errorf("wallet temporarily unavailable") })
-	response := supportPost(t, a.Handler(), "/api/support", map[string]any{"note": note.ID})
+	response := supportPost(t, a.Handler(), "/api/support", map[string]any{"note": note.ID.Hex()})
 	var body authorEndpoint
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
@@ -362,11 +361,11 @@ func TestAuthorEndpointDistinguishesMissingAddressAndWalletOutage(t *testing.T) 
 	if response.Code != 200 || body.Available || body.ReasonCode != "unavailable" {
 		t.Fatalf("wallet outage treated as missing address: %s", response.Body.String())
 	}
-	key := nostr.GeneratePrivateKey()
-	if err := note.Sign(key); err != nil {
+	key := generatePrivateKey()
+	if err := signEvent(note, key); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.storage.AddPayment(note.ID, 1, note); err != nil {
+	if err := a.storage.AddPayment(note.ID.Hex(), 1, note); err != nil {
 		t.Fatal(err)
 	}
 	for _, test := range []struct{ metadata, reason string }{
@@ -376,11 +375,11 @@ func TestAuthorEndpointDistinguishesMissingAddressAndWalletOutage(t *testing.T) 
 		{`{`, "unavailable"},
 	} {
 		profile := &nostr.Event{Kind: 0, CreatedAt: nostr.Now(), Tags: nostr.Tags{}, Content: test.metadata}
-		if err := profile.Sign(key); err != nil {
+		if err := signEvent(profile, key); err != nil {
 			t.Fatal(err)
 		}
 		a.profile = func(context.Context, string, []string) (*nostr.Event, error) { return profile, nil }
-		response = supportPost(t, a.Handler(), "/api/support", map[string]any{"note": note.ID})
+		response = supportPost(t, a.Handler(), "/api/support", map[string]any{"note": note.ID.Hex()})
 		body = authorEndpoint{}
 		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 			t.Fatal(err)
@@ -397,9 +396,9 @@ func TestNewPreviewUsesConfirmedAuthorAddressWithoutAddingPaymentState(t *testin
 	t.Cleanup(func() { discoveryRelays = previous })
 	relayURL := startTestRelay(t)
 	s := newTestStorage(t)
-	key := nostr.GeneratePrivateKey()
+	key := generatePrivateKey()
 	note := &nostr.Event{Kind: 1, CreatedAt: nostr.Now(), Tags: nostr.Tags{}, Content: "An unpaid note"}
-	if err := note.Sign(key); err != nil {
+	if err := signEvent(note, key); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -412,7 +411,7 @@ func TestNewPreviewUsesConfirmedAuthorAddressWithoutAddingPaymentState(t *testin
 	if err := connection.Publish(ctx, *note); err != nil {
 		t.Fatal(err)
 	}
-	reference, err := nip19.EncodeEvent(note.ID, []string{relayURL}, note.PubKey)
+	reference, err := encodeEventReference(note.ID.Hex(), []string{relayURL}, note.PubKey.Hex())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +431,7 @@ func TestNewPreviewUsesConfirmedAuthorAddressWithoutAddingPaymentState(t *testin
 					return nil, fmt.Errorf("unavailable")
 				}
 				profile := &nostr.Event{Kind: 0, CreatedAt: nostr.Now(), Tags: nostr.Tags{}, Content: test.content}
-				if err := profile.Sign(key); err != nil {
+				if err := signEvent(profile, key); err != nil {
 					t.Fatal(err)
 				}
 				return profile, nil
@@ -456,12 +455,12 @@ func TestNewPreviewUsesConfirmedAuthorAddressWithoutAddingPaymentState(t *testin
 
 func TestLegacyAuthorInvoiceReceiptUsesCurrentProviderWhenNoContextExists(t *testing.T) {
 	a, note, provider := supportFixture(t)
-	request := &nostr.Event{Kind: 9734, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"p", note.PubKey}, {"e", note.ID}, {"amount", "21000"}, {"relays", "wss://relay.example"}}}
-	if err := request.Sign(nostr.GeneratePrivateKey()); err != nil {
+	request := &nostr.Event{Kind: 9734, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"p", note.PubKey.Hex()}, {"e", note.ID.Hex()}, {"amount", "21000"}, {"relays", "wss://relay.example"}}}
+	if err := signEvent(request, generatePrivateKey()); err != nil {
 		t.Fatal(err)
 	}
 	handler := a.Handler()
-	response := supportPost(t, handler, "/api/support/invoice", map[string]any{"note": note.ID, "amount_sats": 21, "zap_request": request})
+	response := supportPost(t, handler, "/api/support/invoice", map[string]any{"note": note.ID.Hex(), "amount_sats": 21, "zap_request": request})
 	var body struct {
 		Invoice string `json:"invoice"`
 	}
@@ -470,11 +469,11 @@ func TestLegacyAuthorInvoiceReceiptUsesCurrentProviderWhenNoContextExists(t *tes
 	}
 	a.storage.authorInvoices = make(map[string]AuthorInvoiceContext)
 	description, _ := json.Marshal(request)
-	receipt := &nostr.Event{Kind: 9735, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"p", note.PubKey}, {"e", note.ID}, {"bolt11", body.Invoice}, {"description", string(description)}}}
-	if err := receipt.Sign(provider); err != nil {
+	receipt := &nostr.Event{Kind: 9735, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"p", note.PubKey.Hex()}, {"e", note.ID.Hex()}, {"bolt11", body.Invoice}, {"description", string(description)}}}
+	if err := signEvent(receipt, provider); err != nil {
 		t.Fatal(err)
 	}
-	verified := supportPost(t, handler, "/api/support/verify", map[string]any{"note": note.ID, "invoice": body.Invoice, "receipt": receipt})
+	verified := supportPost(t, handler, "/api/support/verify", map[string]any{"note": note.ID.Hex(), "invoice": body.Invoice, "receipt": receipt})
 	if verified.Code != 200 {
 		t.Fatalf("legacy receipt rejected: %s", verified.Body.String())
 	}

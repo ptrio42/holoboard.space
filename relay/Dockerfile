@@ -6,8 +6,8 @@ RUN apk add --no-cache git ca-certificates
 
 WORKDIR /app
 
-# The patched khatru and go-nostr copies must be present before resolving
-# modules. See their WHY.md files under third_party/.
+# The pinned Nostr module includes Khatru and must precede module resolution.
+# See third_party/nostr/WHY.md.
 COPY third_party/ ./third_party/
 
 # Copy go mod files

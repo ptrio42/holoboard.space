@@ -130,9 +130,9 @@ No private relay key is logged when an ephemeral identity is generated.
 
 | Dependency | Confirmed behavior and application response |
 | --- | --- |
-| gobwas/ws 1.3.1 via go-nostr | Closing a PMCE compressor emits a final stream block rejected by wsflate on Go 1.27.1. Message writes now sync-flush and reset the compressor. Round-trip/reset fixtures cover the application path; oversized decompressed input remains bounded. |
-| go-nostr 0.34.5, vendored | Signature checking did not compare the supplied ID with the serialized hash. The local patch adds that check, propagates QuerySync timeout/CLOSED errors with partial results, bounds decompressed messages and subscriptions, and uses reader backpressure instead of one goroutine per event. |
-| khatru 0.7.6, vendored | Existing message bounds did not bound clients, listeners or query workers. Local limits reserve these resources before work and process each socket's frames in order. Existing lifecycle/race patches remain applied. |
+| fiatjaf.com/nostr at 685c38fc6629, vendored | Typed IDs/keys require explicit hex boundaries. Signature verification needs a separate CheckID. Local patches retain joined shutdown, backpressure, bounded decompression/subscriptions, partial queries and actual EOSE. Canonical backspace/form-feed escaping, strict hex decoding and kind range checks have reproducing regressions. |
+| Khatru from the same module | Upstream dispatches each frame in a goroutine and uses mutable listener indexes. Local processing preserves wire order, cancels stored queries on CLOSE and enforces shared client/listener/query/receive limits. Broadcasts use synchronized snapshots and full filter matching. |
+| coder/websocket 1.8.13 | Replaces the old gobwas client transport. A DNS-pinned HTTP client disables redirects. Compression round trips are tested against fasthttp/websocket, and oversized decompressed messages close the connection. The old wsflate Flush patch is no longer on the active path. |
 | NDK 2.18.1 | Discovery timeout can discard observed lists without stopping the subscription; stop can precede a delayed start. Application reads bypass these paths. |
 | NDK React 1.3.12 | Profile reuse has no freshness policy and accepts arbitrary JSON field types. The application profile hook uses a validated, expiring cache and deduplicated reads. |
 | cache-dexie 2.7.7 | Ten indexed tags can erase the index; some paths limit before final matching; persistent storage is not bounded by the memory LRU. The adapter is inactive. |
@@ -149,32 +149,42 @@ object can copy that symbol, so mutating the copy can reuse a stale verification
 result. Relay JSON does not transport symbols. This finding demonstrates a local
 object-mutation hazard, not a demonstrated remote JSON signature bypass.
 
-## Go library upgrade path
+## Pinned Go Nostr transport
 
-The old [go-nostr](https://github.com/nbd-wtf/go-nostr) and
-[khatru](https://github.com/fiatjaf/khatru) repositories are archived and direct
-users to `fiatjaf.com/nostr` and its `khatru` package. On 2026-10-07, the official
-Go proxy resolved and downloaded `v0.0.0-20261005012418-685c38fc6629`, published
-on October 5. This candidate requires Go 1.25; Holoboard already declares the
-Go 1.27.1 toolchain. Earlier claims that the successor could not be resolved
-are obsolete.
+Both archived [go-nostr](https://github.com/nbd-wtf/go-nostr) and
+[Khatru](https://github.com/fiatjaf/khatru) direct users to the successor.
+Holoboard now pins `fiatjaf.com/nostr v0.0.0-20261005012418-685c38fc6629`,
+including its Khatru package. The retained package closure, upstream checksums,
+license and reproducible patch are documented in the
+[snapshot rationale](../relay/third_party/nostr/WHY.md).
+The candidate requires Go 1.25; Holoboard declares Go 1.27.1.
 
-Source inspection confirms API changes, including byte-array event IDs and
-public keys, a rewritten subscription dispatcher and a different client
-WebSocket implementation. IDs need explicit hexadecimal conversion at existing
-API and storage boundaries: the new `ID.String()` includes an `id::` prefix.
-The new Khatru still launches a goroutine per received message. The archived
-v0.19.1 still has unlocked listener-slice readers. These are static findings,
-not runtime verification of the candidate or proof of equivalent protections.
+Existing IDs, authors, references and ledger keys remain hexadecimal strings.
+The new `ID.String()` and `PubKey.String()` prefixes are never used at these
+boundaries. NIP-19 `note` now decodes to an EventPointer; a missing pointer
+author remains absent rather than becoming a zero-key hint. NIP-44 now
+generates its nonce correctly, so the previous workaround is removed.
+The unused mention-monitor pool is removed. New reads must use the shared
+application transport and admission controls.
 
-Evaluate a pinned migration of both Go libraries as a separate change before
-adding the discussion network coordinator. Preserve event JSON, ledger keys,
-invoice access and existing NWC sessions. Acceptance must retain ID validation,
-bounded decompression, dial and subscription budgets, REQ/CLOSE ordering,
-cancellation, partial query results and durable publication targets. Port the
-regression fixtures and run the race suite, build and payment/browser checks
-before removing local patches. Keep the production checkout independently
-releasable and avoid data-format migration as part of this dependency change.
+Confirmed upstream findings have local regression coverage: `VerifySignature`
+does not bind the supplied ID, local EOSE timers invent completeness, event
+delivery spawns workers without backpressure, frame dispatch loses REQ/CLOSE
+ordering, canonical serialization omits required backspace/form-feed escaping,
+and decoding can wrap an overflowing kind or accept malformed hexadecimal
+input through an architecture-dependent fast path. Local changes retain or
+restore the documented contracts. Canonical bytes follow
+[NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md);
+signing, encryption and key derivation use the library's implementations.
+
+A fixed historical signed-event fixture checks event JSON, payment and invoice
+records and durable publication destinations across load/save/reload.
+Existing NWC protocol tests cover NIP-04 and NIP-44, and relay tests cover
+private destination rejection, redirect refusal, exact-ID reads, partial
+queries, limits, cancellation, compression, HTTP timeouts and listener races.
+These checks do not establish live wallet, device or unused-library-feature
+compatibility. No production data migration or public publication is required
+for this dependency change.
 
 ## Signer compatibility and publishing gate
 
@@ -220,7 +230,7 @@ library. Retain regression fixtures when upgrading. From `relay/`, include the
 nested vendored module explicitly, since Go's `./...` does not traverse it:
 
 ```sh
-go test -race -count=1 ./... github.com/nbd-wtf/go-nostr
+GOMAXPROCS=2 go test -race -p 1 -count=1 -timeout=8m ./... fiatjaf.com/nostr/...
 ```
 
 Use the toolchain declared in `relay/go.mod`. With an older local Go and
@@ -246,7 +256,7 @@ current here; keep detailed discussion semantics in
 | Stage | Current state | Completion evidence |
 | --- | --- | --- |
 | Foundation and relation engine | Implemented in the isolated branch; local regression suites passed; final integration review pending. | Review the combined diff against the documented limits and contracts, then rerun relevant checks against the integration base. |
-| Go library migration | Successor downloaded and inspected; no dependency migration implemented. | Pin the revision, preserve API/storage compatibility and required patches, port regression fixtures, pass race/build/payment checks. |
+| Go library migration | Implemented in an isolated worktree; integration verification pending. | Pinned revision, ported validation/lifetime/resource contracts, reproducible vendor patch, historical-format fixture, race/build/payment/browser checks. |
 | Discussion retrieval | Not implemented. | Bounded discovery and missing-parent retrieval, cancellation, pagination and honest per-relay coverage, feeding the shared relation engine. |
 | Discussion and profile reading | New screens not implemented. | Original-item focus, all found replies, promotion badges independent of topology, bounded profile reads and phone/browser navigation checks. |
 | Signer compatibility | Disabled by default; Amber failures unresolved. Begin reproduction early. | Record tested methods and environments, validate connection and signing, preserve drafts and handle account/lifecycle changes. |

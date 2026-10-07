@@ -3,10 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"iter"
 	"log"
 
-	"github.com/fiatjaf/khatru"
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
+	"fiatjaf.com/nostr/khatru"
 )
 
 // RelayConfig holds the relay configuration
@@ -23,88 +24,52 @@ func SetupRelay(relay *khatru.Relay, storage *Storage, monitor *PaymentMonitor, 
 	// Set relay metadata
 	relay.Info.Name = config.Name
 	relay.Info.Description = config.Description
-	relay.Info.PubKey = config.RelayPubkey
+	if pubkey, err := nostr.PubKeyFromHexCheap(config.RelayPubkey); err == nil {
+		relay.Info.PubKey = &pubkey
+	}
 	relay.Info.Contact = config.Contact
 	relay.Info.Icon = config.Icon
 
-	// Supported NIPs
-	// khatru appends 9 itself whenever a DeleteEvent hook is registered
-	// (nip11.go:13), and it does not deduplicate, so listing it here served the
-	// document with 9 in it twice.
-	relay.Info.SupportedNIPs = []int{1, 11, 22, 57}
-
-	// RejectEvent: accept kind:1 notes, kind:1111 comments and kind:9735 receipts
-	relay.RejectEvent = append(relay.RejectEvent, func(ctx context.Context, event *nostr.Event) (bool, string) {
-		// Accept zap receipts (for payment processing)
+	relay.Info.SupportedNIPs = []any{1, 11, 22, 57}
+	relay.OnEvent = func(ctx context.Context, event nostr.Event) (bool, string) {
 		if event.Kind == 9735 {
 			return false, ""
 		}
-
-		// Text notes and comments; zap receipts were handled above.
 		if !isPromotable(event.Kind) {
 			return true, "relay only accepts kind:1 notes, kind:1111 comments and kind:9735 zap receipts"
 		}
-
-		// Check if this event has already been paid for
-		if !storage.HasPost(event.ID) {
+		if !storage.HasPost(event.ID.Hex()) {
 			return true, "event must be paid for before submission (send zap with 'e' tag or use PROMOTE flow)"
 		}
-
 		return false, ""
-	})
-
-	// QueryEvents: Return only paid posts, sorted by payment ranking
-	relay.QueryEvents = append(relay.QueryEvents, func(ctx context.Context, filter nostr.Filter) (chan *nostr.Event, error) {
-		// Query paid posts from storage
-		events := storage.QueryPosts(ctx, filter)
-
-		// Create a channel and send events
-		ch := make(chan *nostr.Event)
-		go func() {
-			defer close(ch)
-			for _, event := range events {
-				select {
-				case <-ctx.Done():
+	}
+	relay.QueryStored = func(ctx context.Context, filter nostr.Filter) iter.Seq[nostr.Event] {
+		return func(yield func(nostr.Event) bool) {
+			for _, event := range storage.QueryPosts(ctx, filter) {
+				if ctx.Err() != nil || !yield(*event) {
 					return
-				case ch <- event:
 				}
 			}
-		}()
-
-		return ch, nil
-	})
-
-	// StoreEvent: Store events (but RejectEvent already filters out unpaid ones)
-	relay.StoreEvent = append(relay.StoreEvent, func(ctx context.Context, event *nostr.Event) error {
-		// Don't store zap receipts (they're processed in OnEventSaved)
-		if event.Kind == 9735 {
-			log.Printf("Zap receipt %s received, will process", event.ID)
-			return nil
 		}
-
-		// At this point, the event has passed RejectEvent, so it's already paid for
-		// The event is stored in memory by khatru, we already have it in our storage
-		log.Printf("Event %s accepted (already paid)", event.ID)
+	}
+	relay.StoreEvent = func(ctx context.Context, event nostr.Event) error {
+		if event.Kind == 9735 {
+			log.Printf("Zap receipt %s received, will process", event.ID.Hex())
+		} else {
+			log.Printf("Event %s accepted (already paid)", event.ID.Hex())
+		}
 		return nil
-	})
-
-	// DeleteEvent: Optionally handle deletion requests
-	relay.DeleteEvent = append(relay.DeleteEvent, func(ctx context.Context, event *nostr.Event) error {
-		// For now, we don't allow deletion of paid posts
-		// Could implement removal if original author requests it
+	}
+	relay.DeleteEvent = func(ctx context.Context, id nostr.ID) error {
 		return fmt.Errorf("deletion not supported for promoted posts")
-	})
-
-	// OnEventSaved: Handle events after they're saved (for side effects)
-	relay.OnEventSaved = append(relay.OnEventSaved, func(ctx context.Context, event *nostr.Event) {
-		// Process zaps directed to our relay
-		if event.Kind == 9735 { // Zap receipt
-			if err := monitor.ProcessZap(ctx, event); err != nil {
+	}
+	relay.OnEventSaved = func(ctx context.Context, event nostr.Event) {
+		if event.Kind == 9735 {
+			if err := monitor.ProcessZap(ctx, &event); err != nil {
 				log.Printf("Failed to process zap: %v", err)
 			}
 		}
-
-	})
+	}
 
 	log.Printf("Relay configured: %s", config.Name)
 	log.Printf("Relay pubkey: %s", config.RelayPubkey)
@@ -153,7 +118,7 @@ This relay only stores and serves posts that have been paid for.
 `
 
 	event := &nostr.Event{
-		PubKey:    relayPubkey,
+		PubKey:    nostr.MustPubKeyFromHex(relayPubkey),
 		CreatedAt: nostr.Now(),
 		Kind:      1,
 		Tags:      nostr.Tags{},
@@ -161,7 +126,7 @@ This relay only stores and serves posts that have been paid for.
 	}
 
 	// Sign the event
-	if err := event.Sign(relayPrivkey); err != nil {
+	if err := signEvent(event, relayPrivkey); err != nil {
 		return nil, fmt.Errorf("failed to sign info event: %w", err)
 	}
 

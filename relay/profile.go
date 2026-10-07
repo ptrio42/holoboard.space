@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 // profileFetchTimeout bounds the boot-time profile lookup. Nothing here is
@@ -120,7 +120,7 @@ func findRecipientProfile(ctx context.Context, pubkey string, sources []string) 
 // NIP-01 resolves replaceable events by timestamp, then the lowest event ID.
 func newerReplaceableEvent(candidate, current *nostr.Event) bool {
 	return candidate != nil && (current == nil || candidate.CreatedAt > current.CreatedAt ||
-		(candidate.CreatedAt == current.CreatedAt && candidate.ID < current.ID))
+		(candidate.CreatedAt == current.CreatedAt && candidate.ID.Hex() < current.ID.Hex()))
 }
 
 func queryPaymentProfileRelay(ctx context.Context, pubkey string, sources []string) string {
@@ -153,7 +153,7 @@ func queryRecipientProfile(ctx context.Context, pubkey string, sources []string)
 				return
 			}
 			defer relay.Close()
-			found, _ := relay.QuerySync(ctx, nostr.Filter{Kinds: []int{0}, Authors: []string{pubkey}, Limit: 1})
+			found, _ := relay.QuerySync(ctx, nostr.Filter{Kinds: []nostr.Kind{0}, Authors: publicKeys(pubkey), Limit: 1})
 			for _, event := range found {
 				if validRecipientProfile(event, pubkey) {
 					results <- result{event, source}
@@ -198,9 +198,9 @@ func profileHasNoPaymentAddress(profile *nostr.Event) bool {
 }
 
 func validRecipientProfile(profile *nostr.Event, pubkey string) bool {
-	if profile == nil || profile.Kind != 0 || profile.PubKey != pubkey || profile.GetID() != profile.ID {
+	if profile == nil || profile.Kind != 0 || profile.PubKey.Hex() != pubkey || profile.GetID().Hex() != profile.ID.Hex() {
 		return false
 	}
-	valid, err := profile.CheckSignature()
+	valid, err := verifyNostrEvent(profile)
 	return err == nil && valid
 }

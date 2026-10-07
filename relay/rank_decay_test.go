@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 // The point of decay: sats do not stop having been paid, they stop being
@@ -113,12 +113,12 @@ func TestPaymentsAddUpIndividually(t *testing.T) {
 
 func TestCommentsAreRankable(t *testing.T) {
 	for _, kind := range []int{1, kindComment} {
-		if !isPromotable(kind) {
+		if !isPromotable(nostr.Kind(kind)) {
 			t.Errorf("kind %d should be promotable", kind)
 		}
 	}
 	for _, kind := range []int{0, 6, 7, 30023, 9735, 1059} {
-		if isPromotable(kind) {
+		if isPromotable(nostr.Kind(kind)) {
 			t.Errorf("kind %d should not be promotable", kind)
 		}
 	}
@@ -129,23 +129,23 @@ func seedPaidPost(t *testing.T, s *Storage, sats int64, paidAt time.Time) string
 	t.Helper()
 
 	evt := &nostr.Event{CreatedAt: nostr.Now(), Kind: 1, Tags: nostr.Tags{}, Content: "note"}
-	if err := evt.Sign(nostr.GeneratePrivateKey()); err != nil {
+	if err := signEvent(evt, generatePrivateKey()); err != nil {
 		t.Fatalf("failed to sign: %v", err)
 	}
-	if err := s.AddPayment(evt.ID, sats, evt); err != nil {
+	if err := s.AddPayment(evt.ID.Hex(), sats, evt); err != nil {
 		t.Fatalf("failed to add payment: %v", err)
 	}
 
 	// AddPayment stamps the present, so backdate what it wrote.
 	s.mu.Lock()
-	post := s.posts[evt.ID]
+	post := s.posts[evt.ID.Hex()]
 	post.LastPaymentTimestamp = paidAt
 	for i := range post.Payments {
 		post.Payments[i].At = paidAt
 	}
 	s.mu.Unlock()
 
-	return evt.ID
+	return evt.ID.Hex()
 }
 
 // AddPayment has to record the history the ranking is built from. Every other
@@ -154,18 +154,18 @@ func seedPaidPost(t *testing.T, s *Storage, sats int64, paidAt time.Time) string
 func TestPaymentsAreRecordedAsTheyArrive(t *testing.T) {
 	storage := newTestStorage(t)
 	evt := &nostr.Event{CreatedAt: nostr.Now(), Kind: 1, Tags: nostr.Tags{}, Content: "note"}
-	if err := evt.Sign(nostr.GeneratePrivateKey()); err != nil {
+	if err := signEvent(evt, generatePrivateKey()); err != nil {
 		t.Fatalf("failed to sign: %v", err)
 	}
 
-	if err := storage.AddPayment(evt.ID, 100, evt); err != nil {
+	if err := storage.AddPayment(evt.ID.Hex(), 100, evt); err != nil {
 		t.Fatalf("first payment: %v", err)
 	}
-	if err := storage.AddPayment(evt.ID, 250, nil); err != nil {
+	if err := storage.AddPayment(evt.ID.Hex(), 250, nil); err != nil {
 		t.Fatalf("second payment: %v", err)
 	}
 
-	post, _ := storage.GetPost(evt.ID)
+	post, _ := storage.GetPost(evt.ID.Hex())
 	if len(post.Payments) != 2 {
 		t.Fatalf("recorded %d payments, want 2", len(post.Payments))
 	}
@@ -260,16 +260,16 @@ func TestServedFeedMatchesTheLedgerOrder(t *testing.T) {
 	seedPaidPost(t, storage, 100, now)
 	seedPaidPost(t, storage, 300, now.Add(-rankHalfLife))
 
-	events := storage.QueryPosts(context.Background(), nostr.Filter{Kinds: []int{1}})
+	events := storage.QueryPosts(context.Background(), nostr.Filter{Kinds: []nostr.Kind{1}})
 	entries := storage.Ledger()
 
 	if len(events) != len(entries) {
 		t.Fatalf("feed served %d notes, ledger listed %d", len(events), len(entries))
 	}
 	for i := range events {
-		if events[i].ID != entries[i].ID {
+		if events[i].ID.Hex() != entries[i].ID {
 			t.Errorf("position %d: feed has %s, ledger has %s",
-				i, short(events[i].ID, 8), short(entries[i].ID, 8))
+				i, short(events[i].ID.Hex(), 8), short(entries[i].ID, 8))
 		}
 	}
 }
@@ -281,15 +281,15 @@ func TestExpiredPromotionsDisappearAndCanBeRevived(t *testing.T) {
 	active := seedPaidPost(t, storage, 10, now)
 
 	for _, filter := range []nostr.Filter{
-		{Kinds: []int{1}, Limit: 1},
-		{IDs: []string{expired}},
+		{Kinds: []nostr.Kind{1}, Limit: 1},
+		{IDs: eventIDs(expired)},
 	} {
 		events := storage.QueryPosts(context.Background(), filter)
 		if len(filter.IDs) > 0 {
 			if len(events) != 0 {
 				t.Fatal("an expired promotion is still served by ID")
 			}
-		} else if len(events) != 1 || events[0].ID != active {
+		} else if len(events) != 1 || events[0].ID.Hex() != active {
 			t.Fatal("expired promotions must not occupy the query limit")
 		}
 	}
@@ -304,9 +304,9 @@ func TestExpiredPromotionsDisappearAndCanBeRevived(t *testing.T) {
 	if err := storage.AddPayment(expired, 20, nil); err != nil {
 		t.Fatal(err)
 	}
-	events := storage.QueryPosts(context.Background(), nostr.Filter{Kinds: []int{1}, Limit: 1})
+	events := storage.QueryPosts(context.Background(), nostr.Filter{Kinds: []nostr.Kind{1}, Limit: 1})
 	entries := storage.Ledger()
-	if len(events) != 1 || events[0].ID != expired || len(entries) != 2 || entries[0].ID != expired || entries[0].SatsPaid != 120 {
+	if len(events) != 1 || events[0].ID.Hex() != expired || len(entries) != 2 || entries[0].ID != expired || entries[0].SatsPaid != 120 {
 		t.Fatal("a new payment did not revive the promotion with its history")
 	}
 }

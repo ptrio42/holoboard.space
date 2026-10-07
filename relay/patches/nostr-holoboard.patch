@@ -1,0 +1,2384 @@
+--- a/envelopes.go
++++ b/envelopes.go
+@@ -4,7 +4,6 @@
+ 	"errors"
+ 	"fmt"
+ 	"strconv"
+-	"strings"
+ 	"unsafe"
+ 
+ 	"github.com/mailru/easyjson"
+@@ -19,15 +18,14 @@
+ )
+ 
+ func ParseMessage(message string) (Envelope, error) {
+-	firstQuote := strings.IndexByte(message, '"')
+-	if firstQuote == -1 {
++	if !gjson.Valid(message) {
+ 		return nil, InvalidJsonEnvelope
+ 	}
+-	secondQuote := strings.IndexByte(message[firstQuote+1:], '"')
+-	if secondQuote == -1 {
++	frame := gjson.Parse(message)
++	if !frame.IsArray() || frame.Get("0").Type != gjson.String {
+ 		return nil, InvalidJsonEnvelope
+ 	}
+-	label := message[firstQuote+1 : firstQuote+1+secondQuote]
++	label := frame.Get("0").Str
+ 
+ 	var v Envelope
+ 	switch label {
+@@ -109,9 +107,8 @@
+ 	w := jwriter.Writer{NoEscapeHTML: true}
+ 	w.RawString(`["EVENT",`)
+ 	if v.SubscriptionID != nil {
+-		w.RawString(`"`)
+-		w.RawString(*v.SubscriptionID)
+-		w.RawString(`",`)
++		w.Raw(json.Marshal(*v.SubscriptionID))
++		w.RawString(`,`)
+ 	}
+ 	v.Event.MarshalEasyJSON(&w)
+ 	w.RawString(`]`)
+@@ -154,9 +151,9 @@
+ 	}
+ 
+ 	w := jwriter.Writer{NoEscapeHTML: true}
+-	w.RawString(`["REQ","`)
+-	w.RawString(v.SubscriptionID)
+-	w.RawString(`",`)
++	w.RawString(`["REQ",`)
++	w.Raw(json.Marshal(v.SubscriptionID))
++	w.RawString(`,`)
+ 	for i, filter := range v.Filters {
+ 		if i > 0 {
+ 			w.RawByte(',')
+@@ -214,9 +211,9 @@
+ 
+ func (v CountEnvelope) MarshalJSON() ([]byte, error) {
+ 	w := jwriter.Writer{NoEscapeHTML: true}
+-	w.RawString(`["COUNT","`)
+-	w.RawString(v.SubscriptionID)
+-	w.RawString(`",`)
++	w.RawString(`["COUNT",`)
++	w.Raw(json.Marshal(v.SubscriptionID))
++	w.RawString(`,`)
+ 	if v.Count != nil {
+ 		w.RawString(`{"count":`)
+ 		w.RawString(strconv.FormatUint(uint64(*v.Count), 10))
+@@ -418,7 +415,7 @@
+ 	if len(arr) < 4 {
+ 		return fmt.Errorf("failed to decode OK envelope: missing fields")
+ 	}
+-	if err := xhex.Decode(v.EventID[:], []byte(arr[1].Str)); err != nil {
++	if err := decodeHex(v.EventID[:], []byte(arr[1].Str)); err != nil {
+ 		return err
+ 	}
+ 	v.OK = arr[2].Raw == "true"
+--- a/event.go
++++ b/event.go
+@@ -26,7 +26,7 @@
+ 	return string(j)
+ }
+ 
+-// GetID serializes and returns the event ID as a string.
++// GetID serializes and returns the event ID.
+ func (evt Event) GetID() ID {
+ 	var id ID
+ 	evt.serializedHash(&id)
+@@ -71,7 +71,7 @@
+ )
+ 
+ func init() {
+-	for _, b := range []byte{'"', '\\', '\n', '\r', '\t'} {
++	for _, b := range []byte{'"', '\\', '\n', '\r', '\t', '\b', '\f'} {
+ 		escTable[b] = true
+ 	}
+ 
+@@ -80,6 +80,8 @@
+ 	escSeq['\n'] = [2]byte{'\\', 'n'}
+ 	escSeq['\r'] = [2]byte{'\\', 'r'}
+ 	escSeq['\t'] = [2]byte{'\\', 't'}
++	escSeq['\b'] = [2]byte{'\\', 'b'}
++	escSeq['\f'] = [2]byte{'\\', 'f'}
+ 	for b, seq := range escSeq {
+ 		if escTable[b] {
+ 			escSlice[b] = seq[:]
+@@ -175,7 +177,7 @@
+ 		x := w ^ (0x0101010101010101 * v)
+ 		return (x - 0x0101010101010101) & ^x & 0x8080808080808080
+ 	}
+-	return match(w, 0x09)|match(w, 0x0A)|match(w, 0x0D)|match(w, 0x22)|match(w, 0x5C) != 0
++	return match(w, 0x08)|match(w, 0x0C)|match(w, 0x09)|match(w, 0x0A)|match(w, 0x0D)|match(w, 0x22)|match(w, 0x5C) != 0
+ }
+ 
+ func appendJSONString(dst []byte, s string) []byte {
+--- a/event_easyjson.go
++++ b/event_easyjson.go
+@@ -1,9 +1,9 @@
+ package nostr
+ 
+ import (
++	"errors"
+ 	jlexer "github.com/mailru/easyjson/jlexer"
+ 	jwriter "github.com/mailru/easyjson/jwriter"
+-	"github.com/templexxx/xhex"
+ )
+ 
+ func easyjsonDecodeEvent(in *jlexer.Lexer, out *Event) {
+@@ -27,18 +27,26 @@
+ 		switch key {
+ 		case "id":
+ 			b := in.UnsafeBytes()
+-			if len(b) == 64 {
+-				xhex.Decode(out.ID[:], b)
++			if len(b) != 64 {
++				in.AddError(errors.New("invalid id length"))
++			} else if err := decodeHex(out.ID[:], b); err != nil {
++				in.AddError(err)
+ 			}
+ 		case "pubkey":
+ 			b := in.UnsafeBytes()
+-			if len(b) == 64 {
+-				xhex.Decode(out.PubKey[:], b)
++			if len(b) != 64 {
++				in.AddError(errors.New("invalid pubkey length"))
++			} else if err := decodeHex(out.PubKey[:], b); err != nil {
++				in.AddError(err)
+ 			}
+ 		case "created_at":
+ 			out.CreatedAt = Timestamp(in.Int64())
+ 		case "kind":
+-			out.Kind = Kind(in.Int())
++			kind := in.Int64()
++			if kind < 0 || kind > 65535 {
++				in.AddError(errors.New("invalid event kind"))
++			}
++			out.Kind = Kind(kind)
+ 		case "tags":
+ 			in.Delim('[')
+ 			if out.Tags == nil {
+@@ -71,8 +79,10 @@
+ 			out.Content = in.String()
+ 		case "sig":
+ 			b := in.UnsafeBytes()
+-			if len(b) == 128 {
+-				xhex.Decode(out.Sig[:], b)
++			if len(b) != 128 {
++				in.AddError(errors.New("invalid sig length"))
++			} else if err := decodeHex(out.Sig[:], b); err != nil {
++				in.AddError(err)
+ 			}
+ 		default:
+ 			in.SkipRecursive()
+--- a/filter_easyjson.go
++++ b/filter_easyjson.go
+@@ -1,9 +1,9 @@
+ package nostr
+ 
+ import (
++	"errors"
+ 	jlexer "github.com/mailru/easyjson/jlexer"
+ 	jwriter "github.com/mailru/easyjson/jwriter"
+-	"github.com/templexxx/xhex"
+ )
+ 
+ func easyjsonDecodeFilter(in *jlexer.Lexer, out *Filter) {
+@@ -39,8 +39,10 @@
+ 			for !in.IsDelim(']') {
+ 				id := ID{}
+ 				b := in.UnsafeBytes()
+-				if len(b) == 64 {
+-					xhex.Decode(id[:], b)
++				if len(b) != 64 {
++					in.AddError(errors.New("invalid filter identifier length"))
++				} else if err := decodeHex(id[:], b); err != nil {
++					in.AddError(err)
+ 				}
+ 				out.IDs = append(out.IDs, id)
+ 				in.WantComma()
+@@ -58,7 +60,11 @@
+ 				out.Kinds = (out.Kinds)[:0]
+ 			}
+ 			for !in.IsDelim(']') {
+-				out.Kinds = append(out.Kinds, Kind(in.Int()))
++				kind := in.Int64()
++				if kind < 0 || kind > 65535 {
++					in.AddError(errors.New("invalid filter kind"))
++				}
++				out.Kinds = append(out.Kinds, Kind(kind))
+ 				in.WantComma()
+ 			}
+ 			in.Delim(']')
+@@ -76,8 +82,10 @@
+ 			for !in.IsDelim(']') {
+ 				pk := PubKey{}
+ 				b := in.UnsafeBytes()
+-				if len(b) == 64 {
+-					xhex.Decode(pk[:], b)
++				if len(b) != 64 {
++					in.AddError(errors.New("invalid filter identifier length"))
++				} else if err := decodeHex(pk[:], b); err != nil {
++					in.AddError(err)
+ 				}
+ 				out.Authors = append(out.Authors, pk)
+ 				in.WantComma()
+--- a/filter_test.go
++++ b/filter_test.go
+@@ -10,7 +10,7 @@
+ )
+ 
+ func TestFilterUnmarshal(t *testing.T) {
+-	raw := `{"ids": ["abc"],"#e":["zzz"],"#something":["nothing","bab"],"since":1644254609,"search":"test"}`
++	raw := `{"ids": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],"#e":["zzz"],"#something":["nothing","bab"],"since":1644254609,"search":"test"}`
+ 	var f Filter
+ 	err := json.Unmarshal([]byte(raw), &f)
+ 	assert.NoError(t, err)
+@@ -39,7 +39,7 @@
+ }
+ 
+ func TestFilterUnmarshalWithLimitZero(t *testing.T) {
+-	raw := `{"ids": ["abc"],"#e":["zzz"],"limit":0,"#something":["nothing","bab"],"since":1644254609,"search":"test"}`
++	raw := `{"ids": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],"#e":["zzz"],"limit":0,"#something":["nothing","bab"],"since":1644254609,"search":"test"}`
+ 	var f Filter
+ 	err := json.Unmarshal([]byte(raw), &f)
+ 	assert.NoError(t, err)
+--- a/helpers.go
++++ b/helpers.go
+@@ -7,7 +7,6 @@
+ 	"unsafe"
+ 
+ 	jsoniter "github.com/json-iterator/go"
+-	"github.com/templexxx/xhex"
+ 	"golang.org/x/exp/constraints"
+ )
+ 
+@@ -146,7 +145,7 @@
+ 
+ 	// get 64 characters of the id
+ 	var id [32]byte
+-	xhex.Decode(id[:], unsafe.Slice(unsafe.StringData(jsonStr[start:start+64]), 64))
++	decodeHex(id[:], unsafe.Slice(unsafe.StringData(jsonStr[start:start+64]), 64))
+ 	return id
+ }
+ 
+@@ -163,7 +162,7 @@
+ 
+ 	// get 64 characters of the pubkey
+ 	var pk [32]byte
+-	xhex.Decode(pk[:], unsafe.Slice(unsafe.StringData(jsonStr[start:start+64]), 64))
++	decodeHex(pk[:], unsafe.Slice(unsafe.StringData(jsonStr[start:start+64]), 64))
+ 	return pk
+ }
+ 
+--- a/holoboard_queries.go
++++ b/holoboard_queries.go
+@@ -0,0 +1,75 @@
++package nostr
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"time"
++)
++
++// SubscribeFilters retains NIP-01 multiple-filter requests on one subscription.
++// The upstream convenience API exposes only a single filter.
++func (r *Relay) SubscribeFilters(ctx context.Context, filters []Filter) (*Subscription, error) {
++	if !r.IsConnected() {
++		return nil, ErrDisconnected
++	}
++	if len(filters) == 0 || len(filters) > 8 {
++		return nil, errors.New("invalid filter count")
++	}
++	sub := r.prepareSubscription(ctx, filters, SubscriptionOptions{}, false)
++	if err := sub.Fire(); err != nil {
++		sub.cancel(err)
++		sub.Unsub()
++		return nil, err
++	}
++	return sub, nil
++}
++
++// QuerySync preserves partial results and distinguishes local timeouts from EOSE.
++func (r *Relay) QuerySync(ctx context.Context, filter Filter) ([]*Event, error) {
++	if _, ok := ctx.Deadline(); !ok {
++		var cancel context.CancelFunc
++		ctx, cancel = context.WithTimeout(ctx, 7*time.Second)
++		defer cancel()
++	}
++	sub, err := r.Subscribe(ctx, filter, SubscriptionOptions{})
++	if err != nil {
++		return nil, err
++	}
++	defer sub.Unsub()
++	events := make([]*Event, 0)
++	bytes := 0
++	complete := func(err error) ([]*Event, error) {
++		select {
++		case <-sub.EndOfStoredEvents:
++			return events, nil
++		default:
++		}
++		return events, err
++	}
++	for {
++		select {
++		case event, ok := <-sub.Events:
++			if !ok {
++				return complete(context.Cause(sub.Context))
++			}
++			encoded, err := event.MarshalJSON()
++			if err != nil {
++				return events, err
++			}
++			bytes += len(encoded)
++			if len(events) >= 512 || bytes > 4<<20 {
++				return events, errors.New("query retention budget exceeded")
++			}
++			events = append(events, &event)
++		case <-sub.EndOfStoredEvents:
++			return events, nil
++		case reason := <-sub.ClosedReason:
++			return complete(fmt.Errorf("relay closed query: %s", reason))
++		case <-ctx.Done():
++			return complete(ctx.Err())
++		case <-sub.Context.Done():
++			return complete(context.Cause(sub.Context))
++		}
++	}
++}
+--- a/holoboard_regression_test.go
++++ b/holoboard_regression_test.go
+@@ -0,0 +1,330 @@
++package nostr
++
++import (
++	"context"
++	"crypto/sha256"
++	stdjson "encoding/json"
++	"errors"
++	"fmt"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++
++	"github.com/fasthttp/websocket"
++)
++
++func regressionRelay(t *testing.T, handle func(*websocket.Conn)) string {
++	t.Helper()
++	upgrader := websocket.Upgrader{EnableCompression: true}
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		conn, err := upgrader.Upgrade(w, r, nil)
++		if err != nil {
++			return
++		}
++		defer conn.Close()
++		handle(conn)
++	}))
++	t.Cleanup(server.Close)
++	return "ws" + strings.TrimPrefix(server.URL, "http")
++}
++
++func regressionAwait(t *testing.T, done <-chan struct{}) {
++	t.Helper()
++	select {
++	case <-done:
++	case <-time.After(3 * time.Second):
++		t.Fatal("connection worker did not stop")
++	}
++}
++
++func TestHoloboardCloseJoinsConcurrentWritesAndSubscriptions(t *testing.T) {
++	stopped := make(chan struct{})
++	url := regressionRelay(t, func(conn *websocket.Conn) {
++		defer close(stopped)
++		for {
++			if _, _, err := conn.ReadMessage(); err != nil {
++				return
++			}
++		}
++	})
++	relay, err := RelayConnect(context.Background(), url)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer relay.Close()
++	sub, err := relay.Subscribe(context.Background(), Filter{Kinds: []Kind{1}}, SubscriptionOptions{})
++	if err != nil {
++		t.Fatal(err)
++	}
++	var workers sync.WaitGroup
++	start := make(chan struct{})
++	for i := 0; i < 8; i++ {
++		workers.Add(2)
++		go func() {
++			defer workers.Done()
++			<-start
++			for i := 0; i < 32; i++ {
++				if relay.WriteWithError([]byte(`["CLOSE","fixture"]`)) != nil {
++					return
++				}
++			}
++		}()
++		go func() { defer workers.Done(); <-start; relay.Close() }()
++	}
++	close(start)
++	done := make(chan struct{})
++	go func() { workers.Wait(); close(done) }()
++	regressionAwait(t, done)
++	regressionAwait(t, stopped)
++	regressionAwait(t, sub.done)
++	if _, open := <-sub.Events; open {
++		t.Fatal("subscription remained open")
++	}
++	if err := relay.WriteWithError([]byte(`["CLOSE","after"]`)); err == nil {
++		t.Fatal("closed relay accepted write")
++	}
++}
++
++func TestHoloboardParentCancellationAndUnconnectedClose(t *testing.T) {
++	stopped := make(chan struct{})
++	url := regressionRelay(t, func(conn *websocket.Conn) {
++		defer close(stopped)
++		for {
++			if _, _, err := conn.ReadMessage(); err != nil {
++				return
++			}
++		}
++	})
++	ctx, cancel := context.WithCancel(context.Background())
++	relay := NewRelay(ctx, url)
++	if err := relay.Connect(context.Background()); err != nil {
++		t.Fatal(err)
++	}
++	cancel()
++	relay.Close()
++	regressionAwait(t, stopped)
++	unconnected := NewRelay(context.Background(), url)
++	unconnected.Close()
++	unconnected.Close()
++	if err := unconnected.WriteWithError([]byte("x")); err == nil {
++		t.Fatal("unconnected write accepted")
++	}
++}
++
++func TestHoloboardSubscriptionBudgetAndWireOrder(t *testing.T) {
++	frames := make(chan []stdjson.RawMessage, 256)
++	url := regressionRelay(t, func(conn *websocket.Conn) {
++		for {
++			_, data, err := conn.ReadMessage()
++			if err != nil {
++				return
++			}
++			var frame []stdjson.RawMessage
++			if stdjson.Unmarshal(data, &frame) == nil {
++				frames <- frame
++			}
++		}
++	})
++	relay, err := RelayConnect(context.Background(), url)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer relay.Close()
++	var subs []*Subscription
++	for i := 0; i < 8; i++ {
++		sub, err := relay.Subscribe(context.Background(), Filter{}, SubscriptionOptions{})
++		if err != nil {
++			t.Fatal(err)
++		}
++		subs = append(subs, sub)
++	}
++	if sub, err := relay.Subscribe(context.Background(), Filter{}, SubscriptionOptions{}); err == nil || sub != nil {
++		t.Fatal("subscription cap missing")
++	}
++	subs[0].Unsub()
++	replacement, err := relay.Subscribe(context.Background(), Filter{}, SubscriptionOptions{})
++	if err != nil {
++		t.Fatal(err)
++	}
++	replacement.Unsub()
++	for _, sub := range subs {
++		sub.Unsub()
++	}
++	seen := map[string]bool{}
++	for i := 0; i < 18; i++ {
++		select {
++		case frame := <-frames:
++			id := string(frame[1])
++			if string(frame[0]) == `"REQ"` {
++				seen[id] = true
++			} else if !seen[id] {
++				t.Fatal("CLOSE overtook REQ")
++			}
++		case <-time.After(time.Second):
++			t.Fatal("missing REQ/CLOSE")
++		}
++	}
++	canceled, cancel := context.WithCancel(context.Background())
++	cancel()
++	if sub, err := relay.Subscribe(canceled, Filter{}, SubscriptionOptions{}); err == nil || sub != nil {
++		t.Fatal("cancelled request admitted")
++	}
++	relay.Close()
++	select {
++	case frame := <-frames:
++		t.Fatalf("unexpected cancelled request: %s", frame)
++	default:
++	}
++}
++
++func TestHoloboardQueryPartialEOSEAndClosed(t *testing.T) {
++	event := Event{Kind: 1, CreatedAt: 123, Tags: Tags{}, Content: "observed"}
++	if err := event.Sign(Generate()); err != nil {
++		t.Fatal(err)
++	}
++	for _, ending := range []string{"timeout", "closed", "eose-closed"} {
++		t.Run(ending, func(t *testing.T) {
++			url := regressionRelay(t, func(conn *websocket.Conn) {
++				_, data, err := conn.ReadMessage()
++				if err != nil {
++					return
++				}
++				var frame []stdjson.RawMessage
++				stdjson.Unmarshal(data, &frame)
++				var id string
++				stdjson.Unmarshal(frame[1], &id)
++				conn.WriteJSON([]any{"EVENT", id, event})
++				if ending == "eose-closed" {
++					conn.WriteJSON([]any{"EOSE", id})
++				}
++				if ending != "timeout" {
++					conn.WriteJSON([]any{"CLOSED", id, "fixture refusal"})
++				}
++				for {
++					if _, _, err := conn.ReadMessage(); err != nil {
++						return
++					}
++				}
++			})
++			relay, err := RelayConnect(context.Background(), url)
++			if err != nil {
++				t.Fatal(err)
++			}
++			defer relay.Close()
++			ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
++			defer cancel()
++			found, err := relay.QuerySync(ctx, Filter{IDs: []ID{event.ID}})
++			if len(found) != 1 || found[0].ID != event.ID {
++				t.Fatalf("observed result lost: %v", err)
++			}
++			if ending == "timeout" && !errors.Is(err, context.DeadlineExceeded) {
++				t.Fatalf("timeout reported as complete: %v", err)
++			}
++			if ending == "closed" && err == nil {
++				t.Fatal("CLOSED reported as complete")
++			}
++			if ending == "eose-closed" && err != nil {
++				t.Fatalf("actual EOSE lost: %v", err)
++			}
++		})
++	}
++}
++
++func TestHoloboardNoSyntheticEOSEAndMultipleFilters(t *testing.T) {
++	url := regressionRelay(t, func(conn *websocket.Conn) {
++		for {
++			if _, _, err := conn.ReadMessage(); err != nil {
++				return
++			}
++		}
++	})
++	relay, err := RelayConnect(context.Background(), url)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer relay.Close()
++	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
++	defer cancel()
++	sub, err := relay.Subscribe(ctx, Filter{}, SubscriptionOptions{MaxWaitForEOSE: time.Millisecond})
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer sub.Unsub()
++	select {
++	case <-sub.EndOfStoredEvents:
++		t.Fatal("local timer invented EOSE")
++	case <-ctx.Done():
++	}
++	second, err := relay.SubscribeFilters(context.Background(), []Filter{{Kinds: []Kind{1}}, {Kinds: []Kind{4}}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer second.Unsub()
++	if !second.match(Event{Kind: 1}) || !second.match(Event{Kind: 4}) || second.match(Event{Kind: 0}) {
++		t.Fatal("multi-filter OR changed")
++	}
++}
++
++func TestHoloboardDecompressedMessageLimit(t *testing.T) {
++	url := regressionRelay(t, func(conn *websocket.Conn) {
++		if _, _, err := conn.ReadMessage(); err != nil {
++			return
++		}
++		conn.EnableWriteCompression(true)
++		conn.WriteJSON([]any{"UNKNOWN", strings.Repeat("x", (1<<20)+1)})
++		for {
++			if _, _, err := conn.ReadMessage(); err != nil {
++				return
++			}
++		}
++	})
++	relay, err := RelayConnect(context.Background(), url)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer relay.Close()
++	sub, err := relay.Subscribe(context.Background(), Filter{}, SubscriptionOptions{})
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer sub.Unsub()
++	select {
++	case <-relay.Context().Done():
++	case <-time.After(3 * time.Second):
++		t.Fatal("oversized compressed message accepted")
++	}
++}
++
++func TestHoloboardCanonicalControlEscapes(t *testing.T) {
++	for padding := 0; padding < 17; padding++ {
++		content := strings.Repeat("x", padding) + "\b\f\n\r\t\"\\<é>\u2028"
++		escaped := strings.Repeat("x", padding) + `\b\f\n\r\t\"\\<é>` + "\u2028"
++		event := Event{PubKey: KeyOne.Public(), CreatedAt: 123, Kind: 1, Tags: Tags{{"x", content}}, Content: content}
++		expected := fmt.Sprintf(`[0,"%s",123,1,[["x","%s"]],"%s"]`, event.PubKey.Hex(), escaped, escaped)
++		if got := string(event.Serialize()); got != expected {
++			t.Fatalf("serialization differs: %q != %q", got, expected)
++		}
++		hash := sha256.Sum256([]byte(expected))
++		if event.GetID() != ID(hash) {
++			t.Fatal("streaming hash differs from canonical bytes")
++		}
++	}
++}
++
++func TestHoloboardRejectsMalformedHexAndOverflowKinds(t *testing.T) {
++	for _, value := range []string{`{"kind":65537}`, `{"kind":-1}`, `{"id":"short"}`, `{"sig":"bad"}`, `{"pubkey":"` + strings.Repeat("z", 64) + `"}`} {
++		var event Event
++		if err := stdjson.Unmarshal([]byte(value), &event); err == nil {
++			t.Fatalf("malformed event accepted: %s", value)
++		}
++	}
++	for _, value := range []string{`{"kinds":[65537]}`, `{"ids":["short"]}`, `{"authors":["` + strings.Repeat("z", 64) + `"]}`} {
++		var filter Filter
++		if err := stdjson.Unmarshal([]byte(value), &filter); err == nil {
++			t.Fatalf("malformed filter accepted: %s", value)
++		}
++	}
++}
+--- a/keys.go
++++ b/keys.go
+@@ -78,8 +78,11 @@
+ }
+ 
+ func MustSecretKeyFromHex(idh string) SecretKey {
++	if len(idh) != 64 {
++		panic("expected 64-character hex")
++	}
+ 	id := SecretKey{}
+-	if err := xhex.Decode(id[:], unsafe.Slice(unsafe.StringData(idh), 64)); err != nil {
++	if err := decodeHex(id[:], unsafe.Slice(unsafe.StringData(idh), 64)); err != nil {
+ 		panic(err)
+ 	}
+ 	return id
+@@ -121,7 +124,7 @@
+ 	if len(buf) != 66 {
+ 		return fmt.Errorf("must be a hex string of 64 characters")
+ 	}
+-	if err := xhex.Decode(pk[:], buf[1:65]); err != nil {
++	if err := decodeHex(pk[:], buf[1:65]); err != nil {
+ 		return err
+ 	}
+ 	if _, err := schnorr.ParsePubKey(pk[:]); err != nil {
+@@ -135,7 +138,7 @@
+ 	if len(pkh) != 64 {
+ 		return pk, fmt.Errorf("pubkey should be 64-char hex, got '%s'", pkh)
+ 	}
+-	if err := xhex.Decode(pk[:], unsafe.Slice(unsafe.StringData(pkh), 64)); err != nil {
++	if err := decodeHex(pk[:], unsafe.Slice(unsafe.StringData(pkh), 64)); err != nil {
+ 		return pk, fmt.Errorf("'%s' is not valid hex: %w", pkh, err)
+ 	}
+ 	if _, err := schnorr.ParsePubKey(pk[:]); err != nil {
+@@ -149,7 +152,7 @@
+ 	if len(pkh) != 64 {
+ 		return pk, fmt.Errorf("pubkey should be 64-char hex, got '%s'", pkh)
+ 	}
+-	if err := xhex.Decode(pk[:], unsafe.Slice(unsafe.StringData(pkh), 64)); err != nil {
++	if err := decodeHex(pk[:], unsafe.Slice(unsafe.StringData(pkh), 64)); err != nil {
+ 		return pk, fmt.Errorf("'%s' is not valid hex: %w", pkh, err)
+ 	}
+ 
+@@ -157,8 +160,11 @@
+ }
+ 
+ func MustPubKeyFromHex(pkh string) PubKey {
++	if len(pkh) != 64 {
++		panic("expected 64-character hex")
++	}
+ 	pk := PubKey{}
+-	if err := xhex.Decode(pk[:], unsafe.Slice(unsafe.StringData(pkh), 64)); err != nil {
++	if err := decodeHex(pk[:], unsafe.Slice(unsafe.StringData(pkh), 64)); err != nil {
+ 		panic(err)
+ 	}
+ 	return pk
+--- a/khatru/handlers.go
++++ b/khatru/handlers.go
+@@ -4,6 +4,7 @@
+ 	"context"
+ 	"crypto/rand"
+ 	"errors"
++	"mime"
+ 	"net/http"
+ 	"net/url"
+ 	"slices"
+@@ -11,6 +12,7 @@
+ 	"strings"
+ 	"sync"
+ 	"time"
++	"unicode/utf8"
+ 	"unsafe"
+ 
+ 	"fiatjaf.com/nostr"
+@@ -26,8 +28,37 @@
+ 	"github.com/rs/cors"
+ )
+ 
++func acceptsNostrJSON(values []string) bool {
++	for _, value := range values {
++		for _, mediaRange := range strings.Split(value, ",") {
++			mediaType, params, err := mime.ParseMediaType(strings.TrimSpace(mediaRange))
++			if err != nil || mediaType != "application/nostr+json" {
++				continue
++			}
++			if q, ok := params["q"]; ok {
++				quality, err := strconv.ParseFloat(q, 64)
++				if err != nil || !(quality > 0 && quality <= 1) {
++					continue
++				}
++			}
++			return true
++		}
++	}
++	return false
++}
++
+ // ServeHTTP implements http.Handler interface.
+ func (rl *Relay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
++	rl.serviceURLOnce.Do(func() {
++		if rl.ServiceURL == "" {
++			copyRequest := r.Clone(r.Context())
++			copyURL := *r.URL
++			copyURL.Path = ""
++			copyRequest.URL = &copyURL
++			rl.ServiceURL = rl.getBaseURL(copyRequest)
++		}
++	})
++	w.Header().Add("Vary", "Accept")
+ 	corsMiddleware := cors.New(cors.Options{
+ 		AllowedOrigins: []string{"*"},
+ 		AllowedMethods: []string{
+@@ -55,7 +86,7 @@
+ 			rl.HandleWebsocket(w, r)
+ 			return
+ 		}
+-		if r.Header.Get("Accept") == "application/nostr+json" {
++		if acceptsNostrJSON(r.Header.Values("Accept")) {
+ 			corsMiddleware.Handler(http.HandlerFunc(rl.HandleNIP11)).ServeHTTP(w, r)
+ 			return
+ 		}
+@@ -69,6 +100,17 @@
+ }
+ 
+ func (rl *Relay) HandleWebsocket(w http.ResponseWriter, r *http.Request) {
++	if rl.connectionCount.Add(1) > 128 {
++		rl.connectionCount.Add(-1)
++		w.WriteHeader(http.StatusServiceUnavailable)
++		return
++	}
++	reserved := true
++	defer func() {
++		if reserved {
++			rl.connectionCount.Add(-1)
++		}
++	}()
+ 	if nil != rl.RejectConnection {
+ 		if rl.RejectConnection(r) {
+ 			w.WriteHeader(429) // Too many requests
+@@ -82,6 +124,7 @@
+ 		return
+ 	}
+ 
++	reserved = false
+ 	ticker := time.NewTicker(rl.PingPeriod)
+ 
+ 	// NIP-42 challenge
+@@ -115,6 +158,7 @@
+ 	killOnce := sync.Once{}
+ 	kill := func() {
+ 		killOnce.Do(func() {
++			defer rl.connectionCount.Add(-1)
+ 			if nil != rl.OnDisconnect {
+ 				rl.OnDisconnect(ctx)
+ 			}
+@@ -165,9 +209,22 @@
+ 			}
+ 
+ 			// this is safe because ReadMessage() will always create a new slice
++			rl.receiveMutex.Lock()
++			if time.Since(rl.receiveStart) >= time.Second {
++				rl.receiveStart = time.Now()
++				rl.receiveBytes = 0
++				rl.receiveMessages = 0
++			}
++			rl.receiveBytes += len(msgb)
++			rl.receiveMessages++
++			allowed := rl.receiveBytes <= 16<<20 && rl.receiveMessages <= 1024
++			rl.receiveMutex.Unlock()
++			if !allowed {
++				return
++			}
+ 			message := unsafe.String(unsafe.SliceData(msgb), len(msgb))
+ 
+-			go func(message string) {
++			func(message string) {
+ 				envelope, err := nostr.ParseMessage(message)
+ 				if err != nil {
+ 					if err == nostr.UnknownLabel && rl.Negentropy {
+@@ -298,34 +355,55 @@
+ 
+ 				case *nostr.ReqEnvelope:
+ 					rl.removeListenerId(ws, env.SubscriptionID)
+-
+-					// a context just for the "stored events" request handler
++					if utf8.RuneCountInString(env.SubscriptionID) == 0 || utf8.RuneCountInString(env.SubscriptionID) > 64 || len(env.Filters) == 0 || len(env.Filters) > 8 {
++						ws.WriteJSON(nostr.ClosedEnvelope{SubscriptionID: env.SubscriptionID, Reason: "restricted: filter budget exceeded"})
++						return
++					}
++					if rl.queryCount.Add(1) > 32 {
++						rl.queryCount.Add(-1)
++						ws.WriteJSON(nostr.ClosedEnvelope{SubscriptionID: env.SubscriptionID, Reason: "restricted: query budget exceeded"})
++						return
++					}
+ 					reqCtx, cancelReqCtx := context.WithCancelCause(ctx)
+-
+-					// expose subscription id in the context
+ 					reqCtx = context.WithValue(reqCtx, subscriptionIdKey, env.SubscriptionID)
+-
+-					// handle each filter separately -- dispatching events as they're loaded from databases
+ 					for _, filter := range env.Filters {
+-						err := rl.handleRequest(reqCtx, env.SubscriptionID, ws, filter)
+-						if err != nil {
+-							// fail everything if any filter is rejected
+-							reason := err.Error()
+-							if strings.HasPrefix(reason, "auth-required:") {
+-								RequestAuth(ctx)
++						if rl.OnRequest != nil {
++							if reject, msg := rl.OnRequest(reqCtx, filter); reject {
++								if strings.HasPrefix(msg, "auth-required:") {
++									RequestAuth(ctx)
++								}
++								rl.queryCount.Add(-1)
++								rl.removeListenerId(ws, env.SubscriptionID)
++								cancelReqCtx(errors.New(msg))
++								ws.WriteJSON(nostr.ClosedEnvelope{SubscriptionID: env.SubscriptionID, Reason: nostr.NormalizeOKMessage(msg, "blocked")})
++								return
+ 							}
+-							ws.WriteJSON(nostr.ClosedEnvelope{SubscriptionID: env.SubscriptionID, Reason: reason})
+-							cancelReqCtx(errors.New("filter rejected"))
++						}
++						if !rl.addListener(ws, env.SubscriptionID, filter, cancelReqCtx) {
++							rl.queryCount.Add(-1)
++							rl.removeListenerId(ws, env.SubscriptionID)
++							cancelReqCtx(errors.New("listener budget exceeded"))
++							ws.WriteJSON(nostr.ClosedEnvelope{SubscriptionID: env.SubscriptionID, Reason: "restricted: listener budget exceeded"})
+ 							return
+-						} else if filter.IDs == nil {
+-							// a query that is just a bunch of "ids": [...] will not add listeners.
+-							// is this a bug? maybe, but I don't think anyone is listening for an ID
+-							// that hasn't been published yet anywhere -- if yes we can change later
+-							rl.addListener(ws, env.SubscriptionID, filter, cancelReqCtx)
+-						}
+-					}
+-
+-					ws.WriteJSON(nostr.EOSEEnvelope{SubscriptionID: env.SubscriptionID})
++						}
++					}
++					go func(env *nostr.ReqEnvelope) {
++						defer rl.queryCount.Add(-1)
++						for _, filter := range env.Filters {
++							if err := rl.handleRequest(reqCtx, env.SubscriptionID, ws, filter); err != nil {
++								if reqCtx.Err() != nil {
++									return
++								}
++								ws.WriteJSON(nostr.ClosedEnvelope{SubscriptionID: env.SubscriptionID, Reason: err.Error()})
++								rl.removeListenerId(ws, env.SubscriptionID)
++								cancelReqCtx(err)
++								return
++							}
++						}
++						if reqCtx.Err() == nil {
++							ws.WriteJSON(nostr.EOSEEnvelope{SubscriptionID: env.SubscriptionID})
++						}
++					}(env)
+ 				case *nostr.CloseEnvelope:
+ 					id := string(*env)
+ 					rl.removeListenerId(ws, id)
+--- a/khatru/holoboard_regression_test.go
++++ b/khatru/holoboard_regression_test.go
+@@ -0,0 +1,126 @@
++package khatru
++
++import (
++	"context"
++	"encoding/json"
++	"iter"
++	"net/http/httptest"
++	"strings"
++	"sync"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"fiatjaf.com/nostr"
++	"github.com/fasthttp/websocket"
++)
++
++func localRelay(t *testing.T, relay *Relay) *websocket.Conn {
++	t.Helper()
++	server := httptest.NewServer(relay)
++	t.Cleanup(server.Close)
++	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http"), nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { conn.Close(); relay.Shutdown(context.Background()) })
++	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
++	return conn
++}
++
++func TestHoloboardLiveIDFilterAndConcurrentListeners(t *testing.T) {
++	relay := NewRelay()
++	conn := localRelay(t, relay)
++	wanted := nostr.Event{Kind: 1, Tags: nostr.Tags{}, Content: "wanted"}
++	wanted.Sign(nostr.Generate())
++	wrong := nostr.Event{Kind: 1, Tags: nostr.Tags{}, Content: "wrong"}
++	wrong.Sign(nostr.Generate())
++	conn.WriteJSON([]any{"REQ", "exact", nostr.Filter{IDs: []nostr.ID{wanted.ID}}})
++	var eose []json.RawMessage
++	if err := conn.ReadJSON(&eose); err != nil {
++		t.Fatal(err)
++	}
++	if string(eose[0]) != `"EOSE"` {
++		t.Fatal("missing EOSE")
++	}
++	var workers sync.WaitGroup
++	workers.Add(1)
++	go func() {
++		defer workers.Done()
++		for i := 0; i < 100; i++ {
++			relay.GetListeningFilters()
++			relay.BroadcastEvent(wrong)
++		}
++	}()
++	if relay.BroadcastEvent(wanted) != 1 {
++		t.Fatal("exact ID subscriber missed live event")
++	}
++	workers.Wait()
++	var frame []json.RawMessage
++	if err := conn.ReadJSON(&frame); err != nil {
++		t.Fatal(err)
++	}
++	var received nostr.Event
++	if len(frame) != 3 || json.Unmarshal(frame[2], &received) != nil || received.ID != wanted.ID {
++		t.Fatalf("wrong event delivered: %s", frame)
++	}
++	conn.WriteJSON([]any{"CLOSE", "exact"})
++	conn.WriteJSON([]any{"REQ", "barrier", nostr.Filter{LimitZero: true}})
++	if err := conn.ReadJSON(&frame); err != nil {
++		t.Fatal(err)
++	}
++	if relay.BroadcastEvent(wanted) != 1 {
++		t.Fatal("wire-ordered CLOSE left an extra listener")
++	}
++}
++
++func TestHoloboardCloseCancelsStoredQuery(t *testing.T) {
++	relay := NewRelay()
++	entered, stopped := make(chan struct{}), make(chan struct{})
++	relay.QueryStored = func(ctx context.Context, _ nostr.Filter) iter.Seq[nostr.Event] {
++		return func(yield func(nostr.Event) bool) { close(entered); <-ctx.Done(); close(stopped) }
++	}
++	conn := localRelay(t, relay)
++	conn.WriteJSON([]any{"REQ", "slow", nostr.Filter{Kinds: []nostr.Kind{1}}})
++	select {
++	case <-entered:
++	case <-time.After(time.Second):
++		t.Fatal("query did not start")
++	}
++	conn.WriteJSON([]any{"CLOSE", "slow"})
++	select {
++	case <-stopped:
++	case <-time.After(time.Second):
++		t.Fatal("CLOSE did not cancel query")
++	}
++}
++
++func TestHoloboardInboundFilterBudgetAndForgedID(t *testing.T) {
++	relay := NewRelay()
++	var admitted atomic.Int32
++	relay.OnEvent = func(context.Context, nostr.Event) (bool, string) { admitted.Add(1); return false, "" }
++	conn := localRelay(t, relay)
++	filters := make([]any, 0, 11)
++	filters = append(filters, "REQ", "over")
++	for i := 0; i < 9; i++ {
++		filters = append(filters, nostr.Filter{})
++	}
++	conn.WriteJSON(filters)
++	var frame []json.RawMessage
++	if err := conn.ReadJSON(&frame); err != nil {
++		t.Fatal(err)
++	}
++	if string(frame[0]) != `"CLOSED"` || len(relay.GetListeningFilters()) != 0 {
++		t.Fatal("oversized REQ admitted")
++	}
++	event := nostr.Event{Kind: 1, Tags: nostr.Tags{}, Content: "signed"}
++	event.Sign(nostr.Generate())
++	event.ID = nostr.MustIDFromHex(strings.Repeat("f", 64))
++	conn.WriteJSON([]any{"EVENT", event})
++	if err := conn.ReadJSON(&frame); err != nil {
++		t.Fatal(err)
++	}
++	if string(frame[0]) != `"OK"` || string(frame[2]) != "false" || admitted.Load() != 0 {
++		t.Fatal("forged ID reached application")
++	}
++}
+--- a/khatru/holoboard_server.go
++++ b/khatru/holoboard_server.go
+@@ -0,0 +1,69 @@
++package khatru
++
++import (
++	"context"
++	"github.com/fasthttp/websocket"
++	"github.com/rs/cors"
++	"net"
++	"net/http"
++	"strconv"
++	"time"
++)
++
++// Start creates an http server and starts listening on given host and port.
++func (rl *Relay) Start(host string, port int, started ...chan bool) error {
++	addr := net.JoinHostPort(host, strconv.Itoa(port))
++	ln, err := net.Listen("tcp", addr)
++	if err != nil {
++		return err
++	}
++
++	rl.Addr = ln.Addr().String()
++	// PATCH: khatru shipped two second Read and Write timeouts here.
++	//
++	// They leave websockets alone, which clear their deadlines on upgrade, but
++	// they cut off every ordinary HTTP handler mid-response. Minting a Lightning
++	// invoice is a round trip to a wallet over nostr and takes seconds, so the
++	// reply was killed at two of them and the caller got a 502 from the proxy
++	// for an invoice that had in fact been created and stored.
++	//
++	// ReadHeaderTimeout is the part worth keeping short, since that is what
++	// guards against a client dribbling out headers forever.
++	rl.httpServer = &http.Server{
++		Handler:           cors.Default().Handler(rl),
++		Addr:              addr,
++		ReadHeaderTimeout: 10 * time.Second,
++		ReadTimeout:       45 * time.Second,
++		WriteTimeout:      45 * time.Second,
++		IdleTimeout:       120 * time.Second,
++	}
++
++	// notify caller that we're starting
++	for _, started := range started {
++		close(started)
++	}
++
++	if err := rl.httpServer.Serve(ln); err == http.ErrServerClosed {
++		return nil
++	} else if err != nil {
++		return err
++	} else {
++		return nil
++	}
++}
++
++// Shutdown sends a websocket close control message to all connected clients.
++func (rl *Relay) Shutdown(ctx context.Context) {
++	if rl.httpServer != nil {
++		rl.httpServer.Shutdown(ctx)
++	}
++	rl.clientsMutex.Lock()
++	defer rl.clientsMutex.Unlock()
++	for ws := range rl.clients {
++		ws.cancel()
++		ws.conn.WriteControl(websocket.CloseMessage, nil, time.Now().Add(time.Second))
++		ws.conn.Close()
++	}
++	clear(rl.clients)
++	rl.dispatcher = newDispatcher()
++}
+--- a/khatru/listener.go
++++ b/khatru/listener.go
+@@ -297,6 +297,8 @@
+ }
+ 
+ func (rl *Relay) GetListeningFilters() []nostr.Filter {
++	rl.clientsMutex.Lock()
++	defer rl.clientsMutex.Unlock()
+ 	respfilters := make([]nostr.Filter, 0, rl.dispatcher.subscriptions.Size())
+ 	for _, sub := range rl.dispatcher.subscriptions.Range {
+ 		respfilters = append(respfilters, sub.filter)
+@@ -311,15 +313,18 @@
+ 	id string,
+ 	filter nostr.Filter,
+ 	cancel context.CancelCauseFunc,
+-) {
++) bool {
+ 	select {
+ 	case <-rl.clientsMutex.C():
+ 		defer rl.clientsMutex.Unlock()
+ 	case <-ws.Context.Done():
+-		return
++		return false
+ 	}
+ 
+ 	if specs, ok := rl.clients[ws]; ok /* this will always be true unless client has disconnected very rapidly */ {
++		if len(specs) >= 16 || rl.dispatcher.subscriptions.Size() >= 1024 {
++			return false
++		}
+ 		ssid := rl.dispatcher.addSubscription(subscription{
+ 			ws:     ws,
+ 			id:     id,
+@@ -334,7 +339,9 @@
+ 		if rl.OnListenerAdded != nil {
+ 			rl.OnListenerAdded(ws, ssid, id, filter)
+ 		}
+-	}
++		return true
++	}
++	return false
+ }
+ 
+ // remove a specific subscription id from listeners for a given ws client
+@@ -381,8 +388,17 @@
+ // returns how many listeners were notified
+ func (rl *Relay) notifyListeners(event nostr.Event, skipPrevent bool) int {
+ 	count := 0
++	rl.clientsMutex.Lock()
++	snapshot := make([]subscription, 0, rl.dispatcher.subscriptions.Size())
++	for _, sub := range rl.dispatcher.subscriptions.Range {
++		snapshot = append(snapshot, sub)
++	}
++	rl.clientsMutex.Unlock()
+ listenersloop:
+-	for sub := range rl.dispatcher.candidates(event) {
++	for _, sub := range snapshot {
++		if !sub.filter.Matches(event) {
++			continue
++		}
+ 		if !skipPrevent && nil != rl.PreventBroadcast {
+ 			if rl.PreventBroadcast(sub.ws, sub.filter, event) {
+ 				continue listenersloop
+--- a/khatru/relay.go
++++ b/khatru/relay.go
+@@ -10,6 +10,8 @@
+ 	"os"
+ 	"strconv"
+ 	"strings"
++	"sync"
++	"sync/atomic"
+ 	"time"
+ 	"unsafe"
+ 
+@@ -61,8 +63,15 @@
+ }
+ 
+ type Relay struct {
+-	ctx    context.Context
+-	cancel context.CancelCauseFunc
++	serviceURLOnce  sync.Once
++	connectionCount atomic.Int32
++	queryCount      atomic.Int32
++	receiveMutex    sync.Mutex
++	receiveStart    time.Time
++	receiveBytes    int
++	receiveMessages int
++	ctx             context.Context
++	cancel          context.CancelCauseFunc
+ 
+ 	// setting this variable overwrites the hackish workaround we do to try to figure out our own base URL.
+ 	// it also ensures the relay stuff is served only from that path and not from any path possible.
+--- a/khatru/responding.go
++++ b/khatru/responding.go
+@@ -2,22 +2,12 @@
+ 
+ import (
+ 	"context"
+-	"errors"
+ 
+ 	"fiatjaf.com/nostr"
+ 	"fiatjaf.com/nostr/nip45/hyperloglog"
+ )
+ 
+ func (rl *Relay) handleRequest(ctx context.Context, id string, ws *WebSocket, filter nostr.Filter) error {
+-	// then check if we'll reject this filter (we apply this after overwriting
+-	// because we may, for example, remove some things from the incoming filters
+-	// that we know we don't support, and then if the end result is an empty
+-	// filter we can just reject it)
+-	if nil != rl.OnRequest {
+-		if reject, msg := rl.OnRequest(ctx, filter); reject {
+-			return errors.New(nostr.NormalizeOKMessage(msg, "blocked"))
+-		}
+-	}
+ 
+ 	if filter.LimitZero {
+ 		// don't do any queries, just subscribe to future events
+@@ -27,6 +17,9 @@
+ 	// run the function to query events
+ 	if nil != rl.QueryStored {
+ 		for event := range rl.QueryStored(ctx, filter) {
++			if ctx.Err() != nil {
++				return ctx.Err()
++			}
+ 			if nil != ws.WriteJSON(nostr.EventEnvelope{SubscriptionID: &id, Event: event}) {
+ 				break
+ 			}
+--- a/nip11/easyjson.go
++++ b/nip11/easyjson.go
+@@ -6,7 +6,6 @@
+ 	"fiatjaf.com/nostr"
+ 	jlexer "github.com/mailru/easyjson/jlexer"
+ 	jwriter "github.com/mailru/easyjson/jwriter"
+-	"github.com/templexxx/xhex"
+ )
+ 
+ func easyjsonDecodeRelayInformationDocument(in *jlexer.Lexer, out *RelayInformationDocument) {
+@@ -37,15 +36,23 @@
+ 		case "pubkey":
+ 			b := in.UnsafeBytes()
+ 			if len(b) == 64 {
+-				out.PubKey = new(nostr.PubKey)
+-				xhex.Decode(out.PubKey[:], b)
++				key, err := nostr.PubKeyFromHexCheap(string(b))
++				if err != nil {
++					in.AddError(err)
++				} else {
++					out.PubKey = &key
++				}
+ 			}
+ 			goto next
+ 		case "self":
+ 			b := in.UnsafeBytes()
+ 			if len(b) == 64 {
+-				out.Self = new(nostr.PubKey)
+-				xhex.Decode(out.Self[:], b)
++				key, err := nostr.PubKeyFromHexCheap(string(b))
++				if err != nil {
++					in.AddError(err)
++				} else {
++					out.Self = &key
++				}
+ 			}
+ 			goto next
+ 		case "contact":
+--- a/nip42/nip42.go
++++ b/nip42/nip42.go
+@@ -85,7 +85,7 @@
+ 	}
+ 
+ 	// save for last, as it is most expensive operation
+-	if !event.VerifySignature() {
++	if !event.CheckID() || !event.VerifySignature() {
+ 		return nostr.ZeroPK, fmt.Errorf("invalid signature")
+ 	}
+ 
+--- a/pointers_easyjson.go
++++ b/pointers_easyjson.go
+@@ -3,7 +3,6 @@
+ import (
+ 	jlexer "github.com/mailru/easyjson/jlexer"
+ 	jwriter "github.com/mailru/easyjson/jwriter"
+-	"github.com/templexxx/xhex"
+ )
+ 
+ func easyjson33014d6eDecodeFiatjafComNostr(in *jlexer.Lexer, out *ProfilePointer) {
+@@ -29,7 +28,9 @@
+ 			if in.IsNull() {
+ 				in.Skip()
+ 			} else {
+-				xhex.Decode(out.PublicKey[:], in.UnsafeBytes())
++				if err := decodeHex(out.PublicKey[:], in.UnsafeBytes()); err != nil {
++					in.AddError(err)
++				}
+ 			}
+ 		case "relays":
+ 			if in.IsNull() {
+@@ -136,7 +137,9 @@
+ 			if in.IsNull() {
+ 				in.Skip()
+ 			} else {
+-				xhex.Decode(out.ID[:], in.UnsafeBytes())
++				if err := decodeHex(out.ID[:], in.UnsafeBytes()); err != nil {
++					in.AddError(err)
++				}
+ 			}
+ 		case "relays":
+ 			if in.IsNull() {
+@@ -163,7 +166,9 @@
+ 			if in.IsNull() {
+ 				in.Skip()
+ 			} else {
+-				xhex.Decode(out.Author[:], in.UnsafeBytes())
++				if err := decodeHex(out.Author[:], in.UnsafeBytes()); err != nil {
++					in.AddError(err)
++				}
+ 			}
+ 		case "kind":
+ 			out.Kind = Kind(in.Uint16())
+@@ -261,7 +266,9 @@
+ 			if in.IsNull() {
+ 				in.Skip()
+ 			} else {
+-				xhex.Decode(out.PublicKey[:], in.UnsafeBytes())
++				if err := decodeHex(out.PublicKey[:], in.UnsafeBytes()); err != nil {
++					in.AddError(err)
++				}
+ 			}
+ 		case "kind":
+ 			out.Kind = Kind(in.Uint16())
+--- a/receive_budget.go
++++ b/receive_budget.go
+@@ -0,0 +1,27 @@
++package nostr
++
++import (
++	"sync"
++	"time"
++)
++
++// Bound aggregate verification/parsing work across all outbound relay sockets.
++var receiveBudget = struct {
++	sync.Mutex
++	start    time.Time
++	messages int
++	bytes    int64
++}{}
++
++func acceptRelayMessage(size int64) bool {
++	receiveBudget.Lock()
++	defer receiveBudget.Unlock()
++	if time.Since(receiveBudget.start) >= time.Second {
++		receiveBudget.start = time.Now()
++		receiveBudget.messages = 0
++		receiveBudget.bytes = 0
++	}
++	receiveBudget.messages++
++	receiveBudget.bytes += size
++	return receiveBudget.messages <= 512 && receiveBudget.bytes <= 16<<20
++}
+--- a/relay.go
++++ b/relay.go
+@@ -9,7 +9,6 @@
+ 	"io"
+ 	"iter"
+ 	"log"
+-	"math"
+ 	"net/http"
+ 	"net/textproto"
+ 	"strconv"
+@@ -53,9 +52,13 @@
+ 	requestHeader http.Header // e.g. for origin header
+ 
+ 	// websocket connection
+-	conn       *ws.Conn
+-	writeQueue chan writeRequest
+-	closed     *atomic.Bool
++	conn                *ws.Conn
++	closeMutex          sync.Mutex
++	workers             sync.WaitGroup
++	subscriptionWorkers sync.WaitGroup
++	shutdownDone        chan struct{}
++	writeQueue          chan writeRequest
++	closed              *atomic.Bool
+ 
+ 	Subscriptions *xsync.MapOf[int64, *Subscription]
+ 
+@@ -63,16 +66,17 @@
+ 	connectionContext       context.Context // will be canceled when the connection closes
+ 	connectionContextCancel context.CancelCauseFunc
+ 
+-	challenge   string // NIP-42 challenge, we only keep the last
+-	performAuth sync.Once
+-	authed      bool
+-
+-	authHandler                   func(context.Context, *Relay, *Event) error
+-	noticeHandler                 func(*Relay, string) // NIP-01 NOTICEs
+-	customHandler                 func(string)         // nonstandard unparseable messages
+-	okCallbacks                   map[ID]okcallback
+-	okCallbacksMutex              sync.Mutex
+-	subscriptionChannelCloseQueue chan *Subscription
++	challenge      string // protected by authStateMutex
++	authStateMutex sync.Mutex
++	authMutex      sync.Mutex
++	authed         bool
++
++	authHandler      func(context.Context, *Relay, *Event) error
++	noticeHandler    func(*Relay, string) // NIP-01 NOTICEs
++	customHandler    func(string)         // nonstandard unparseable messages
++	okCallbacks      map[ID]okcallback
++	okCallbacksMutex sync.Mutex
++	authRunning      atomic.Bool
+ 
+ 	// custom things that aren't often used
+ 	//
+@@ -80,44 +84,40 @@
+ }
+ 
+ // NewRelay returns a new relay. It takes a context that, when canceled, will close the relay connection.
+-func NewRelay(ctx context.Context, url string, opts RelayOptions) *Relay {
++func NewRelay(ctx context.Context, url string, options ...RelayOptions) *Relay {
++	var opts RelayOptions
++	if len(options) > 0 {
++		opts = options[0]
++	}
+ 	ctx, cancel := context.WithCancelCause(ctx)
+ 	r := &Relay{
+-		URL:                           NormalizeURL(url),
+-		connectionContext:             ctx,
+-		connectionContextCancel:       cancel,
+-		Subscriptions:                 xsync.NewMapOf[int64, *Subscription](),
+-		okCallbacks:                   make(map[ID]okcallback, 20),
+-		subscriptionChannelCloseQueue: make(chan *Subscription),
+-		requestHeader:                 opts.RequestHeader,
+-		customHandler:                 opts.CustomHandler,
+-		noticeHandler:                 opts.NoticeHandler,
+-		authHandler:                   opts.AuthHandler,
+-		closed:                        &atomic.Bool{},
+-		AssumeValid:                   opts.AssumeValid,
++		URL:                     NormalizeURL(url),
++		connectionContext:       ctx,
++		connectionContextCancel: cancel,
++		Subscriptions:           xsync.NewMapOf[int64, *Subscription](),
++		okCallbacks:             make(map[ID]okcallback, 20),
++		requestHeader:           opts.RequestHeader,
++		customHandler:           opts.CustomHandler,
++		noticeHandler:           opts.NoticeHandler,
++		authHandler:             opts.AuthHandler,
++		closed:                  &atomic.Bool{},
++		shutdownDone:            make(chan struct{}),
++		writeQueue:              make(chan writeRequest),
++		AssumeValid:             opts.AssumeValid,
+ 	}
+ 
+ 	go func() {
+ 		<-ctx.Done()
+-
+-		if wasClosed := r.closed.Swap(true); wasClosed {
+-			return
+-		}
+-
+-		if r.conn != nil {
+-			cause := context.Cause(ctx)
+-			code := ws.StatusNormalClosure
+-			reason := ""
+-			var cc closeCause
+-			if errors.As(cause, &cc) {
+-				code = cc.code
+-				reason = cc.reason
+-			} else if cause != nil {
+-				reason = cause.Error()
+-			}
+-
+-			_ = r.conn.Close(code, reason)
+-		}
++		r.closeMutex.Lock()
++		r.closed.Store(true)
++		conn := r.conn
++		r.closeMutex.Unlock()
++		if conn != nil {
++			_ = conn.CloseNow()
++		}
++		r.workers.Wait()
++		r.subscriptionWorkers.Wait()
++		close(r.shutdownDone)
+ 	}()
+ 
+ 	return r
+@@ -129,9 +129,12 @@
+ //
+ // The ongoing relay connection uses a background context. To close the connection, call r.Close().
+ // If you need fine grained long-term connection contexts, use NewRelay() instead.
+-func RelayConnect(ctx context.Context, url string, opts RelayOptions) (*Relay, error) {
+-	r := NewRelay(context.Background(), url, opts)
++func RelayConnect(ctx context.Context, url string, opts ...RelayOptions) (*Relay, error) {
++	r := NewRelay(context.Background(), url, opts...)
+ 	err := r.Connect(ctx)
++	if err != nil {
++		r.Close()
++	}
+ 	return r, err
+ }
+ 
+@@ -165,6 +168,8 @@
+ 
+ // IsConnected returns true if the connection to this relay seems to be active.
+ func (r *Relay) IsConnected() bool {
++	r.closeMutex.Lock()
++	defer r.closeMutex.Unlock()
+ 	if r.closed.Load() {
+ 		return false
+ 	}
+@@ -199,6 +204,19 @@
+ 
+ // ConnectWithClient is like Connect(), but takes a special *http.Client if you need that.
+ func (r *Relay) ConnectWithClient(ctx context.Context, client *http.Client) error {
++	r.closeMutex.Lock()
++	if r.closed.Load() || r.conn != nil || r.connectionContext.Err() != nil {
++		r.closeMutex.Unlock()
++		return ErrDisconnected
++	}
++	r.workers.Add(1)
++	r.closeMutex.Unlock()
++	defer r.workers.Done()
++	ctx, cancelDial := context.WithCancel(ctx)
++	defer cancelDial()
++	stop := context.AfterFunc(r.connectionContext, cancelDial)
++	defer stop()
++
+ 	if r.connectionContext == nil || r.Subscriptions == nil {
+ 		return fmt.Errorf("relay must be initialized with a call to NewRelay()")
+ 	}
+@@ -223,7 +241,9 @@
+ 	dialCtx := ctx
+ 	if _, ok := dialCtx.Deadline(); !ok {
+ 		// if no timeout is set, force it to 7 seconds
+-		dialCtx, _ = context.WithTimeoutCause(ctx, 7*time.Second, errors.New("connection took too long"))
++		var cancel context.CancelFunc
++		dialCtx, cancel = context.WithTimeoutCause(ctx, 7*time.Second, errors.New("connection took too long"))
++		defer cancel()
+ 	}
+ 
+ 	dialOpts := &ws.DialOptions{
+@@ -241,20 +261,29 @@
+ 	if err != nil {
+ 		return err
+ 	}
+-	c.SetReadLimit(2 << 24) // 33MB
++	c.SetReadLimit(1 << 20)
+ 
+ 	// ping every 19 seconds
+ 	ticker := time.NewTicker(19 * time.Second)
+ 
+ 	// main websocket loop
+-	readQueue := make(chan string, 64 /* add some buffer to account for processing/IO mismatches */)
+-
++	readQueue := make(chan string, 1)
++
++	r.closeMutex.Lock()
++	if r.closed.Load() || r.connectionContext.Err() != nil || r.conn != nil {
++		r.closeMutex.Unlock()
++		c.CloseNow()
++		ticker.Stop()
++		return ErrDisconnected
++	}
+ 	r.conn = c
+-	r.writeQueue = make(chan writeRequest, 64 /* idem */)
+-	r.closed = &atomic.Bool{}
++	r.workers.Add(2)
++	r.closeMutex.Unlock()
+ 
+ 	connCtx := r.connectionContext
+ 	go func() {
++		defer r.workers.Done()
++		defer ticker.Stop()
+ 		pingAttempt := 0
+ 
+ 		for {
+@@ -307,6 +336,7 @@
+ 
+ 	// read loop -- loops back to the main loop
+ 	go func() {
++		defer r.workers.Done()
+ 		buf := new(bytes.Buffer)
+ 
+ 		for {
+@@ -324,6 +354,10 @@
+ 				return
+ 			}
+ 
++			if !acceptRelayMessage(int64(buf.Len())) {
++				_ = r.close(errors.New("receive budget exceeded"))
++				return
++			}
+ 			msg := string(buf.Bytes())
+ 			select {
+ 			case readQueue <- msg:
+@@ -336,33 +370,11 @@
+ 	return nil
+ }
+ 
+-func (r *Relay) closeConnection(code ws.StatusCode, reason string) {
+-}
+-
+ func (r *Relay) handleMessage(message string) {
+-	// if this is an "EVENT" we will have this preparser logic that should speed things up a little
+-	// as we skip handling duplicate events
+-	subid := extractSubID(message)
+-	sub, ok := r.Subscriptions.Load(subIdToSerial(subid))
+-	if ok {
+-		if sub.checkDuplicate != nil {
+-			if sub.checkDuplicate(extractEventID(message[10+len(subid):]), r.URL) {
+-				return
+-			}
+-		} else if sub.checkDuplicateReplaceable != nil {
+-			if sub.checkDuplicateReplaceable(
+-				ReplaceableKey{extractEventPubKey(message), extractDTag(message)},
+-				extractTimestamp(message),
+-			) {
+-				return
+-			}
+-		}
+-	}
+-
+ 	envelope, err := ParseMessage(message)
+ 	if envelope == nil {
+ 		if r.customHandler != nil && err == UnknownLabel {
+-			go r.customHandler(message)
++			r.customHandler(message)
+ 		}
+ 		return
+ 	}
+@@ -379,39 +391,46 @@
+ 			return
+ 		}
+ 
+-		r.performAuth = sync.Once{} // this ensures we can try to auth again
++		r.authStateMutex.Lock()
+ 		r.challenge = *env.Challenge
+-
+-		if r.authHandler != nil {
++		r.authed = false
++		r.authStateMutex.Unlock()
++
++		if r.authHandler != nil && r.authRunning.CompareAndSwap(false, true) {
++			r.closeMutex.Lock()
++			if r.closed.Load() || r.Context().Err() != nil {
++				r.closeMutex.Unlock()
++				r.authRunning.Store(false)
++				return
++			}
++			r.workers.Add(1)
++			r.closeMutex.Unlock()
+ 			go func() {
++				defer r.workers.Done()
++				defer r.authRunning.Store(false)
+ 				r.Auth(r.Context(), func(ctx context.Context, evt *Event) error {
+ 					return r.authHandler(ctx, r, evt)
+ 				})
+ 			}()
+ 		}
+ 	case *EventEnvelope:
+-		// we already have the subscription from the pre-check above, so we can just reuse it
+-		if sub == nil {
+-			// InfoLogger.Printf("{%s} no subscription with id '%s'\n", r.URL, *env.SubscriptionID)
++		if env.SubscriptionID == nil {
+ 			return
+-		} else {
+-			// check if the event matches the desired filter, ignore otherwise
+-			if !sub.match(env.Event) {
+-				InfoLogger.Printf("{%s} filter does not match: %v ~ %v\n", r.URL, sub.Filter, env.Event)
+-				return
+-			}
+-
+-			// check signature, ignore invalid, except from trusted (AssumeValid) relays
+-			if !r.AssumeValid {
+-				if !env.Event.VerifySignature() {
+-					InfoLogger.Printf("{%s} bad signature on %s\n", r.URL, env.Event.ID)
+-					return
+-				}
+-			}
+-
+-			// dispatch this to the internal .events channel of the subscription
+-			sub.dispatchEvent(env.Event)
+-		}
++		}
++		sub, ok := r.Subscriptions.Load(subIdToSerial(*env.SubscriptionID))
++		if !ok || sub.id != *env.SubscriptionID || !sub.live.Load() || !sub.match(env.Event) {
++			return
++		}
++		if !r.AssumeValid && (!env.Event.CheckID() || !env.Event.VerifySignature()) {
++			return
++		}
++		if sub.checkDuplicate != nil && sub.checkDuplicate(env.Event.ID, r.URL) {
++			return
++		}
++		if sub.checkDuplicateReplaceable != nil && sub.checkDuplicateReplaceable(ReplaceableKey{env.Event.PubKey, env.Event.Tags.GetD()}, env.Event.CreatedAt) {
++			return
++		}
++		sub.dispatchEvent(env.Event)
+ 	case *EOSEEnvelope:
+ 		if subscription, ok := r.Subscriptions.Load(subIdToSerial(env.SubscriptionID)); ok {
+ 			// NIP-67: EOSE may carry a hint as a third element ["EOSE", <subid>, [<hint>...]];
+@@ -430,7 +449,11 @@
+ 		}
+ 	case *CountEnvelope:
+ 		if subscription, ok := r.Subscriptions.Load(subIdToSerial(env.SubscriptionID)); ok && env.Count != nil && subscription.countResult != nil {
+-			subscription.countResult <- *env
++			select {
++			case subscription.countResult <- *env:
++			case <-subscription.Context.Done():
++			default:
++			}
+ 		}
+ 	case *OKEnvelope:
+ 		r.okCallbacksMutex.Lock()
+@@ -452,24 +475,27 @@
+ }
+ 
+ // WriteWithError is like Write, but returns an error if the write fails (and the connection gets closed).
+-func (r *Relay) WriteWithError(msg []byte) error {
+-	ch := make(chan error, 1)
+-
+-	if r.writeQueue == nil {
+-		return nil
+-	}
+-
++func (r *Relay) WriteWithError(msg []byte) error { return r.writeWithContext(r.Context(), msg) }
++
++func (r *Relay) writeWithContext(ctx context.Context, msg []byte) error {
++	if !r.IsConnected() {
++		return ErrNotConnected
++	}
++	answer := make(chan error, 1)
+ 	select {
+-	case <-r.connectionContext.Done():
+-		return fmt.Errorf("failed to write to %s: %w", r.URL, context.Cause(r.connectionContext))
+-	case r.writeQueue <- writeRequest{msg: msg, answer: ch}:
+-	}
+-
++	case <-ctx.Done():
++		return context.Cause(ctx)
++	case <-r.Context().Done():
++		return context.Cause(r.Context())
++	case r.writeQueue <- writeRequest{msg: msg, answer: answer}:
++	}
+ 	select {
+-	case err := <-ch:
++	case err := <-answer:
+ 		return err
+-	case <-r.connectionContext.Done():
+-		return fmt.Errorf("failed to write to %s: %w", r.URL, context.Cause(r.connectionContext))
++	case <-ctx.Done():
++		return context.Cause(ctx)
++	case <-r.Context().Done():
++		return context.Cause(r.Context())
+ 	}
+ }
+ 
+@@ -483,109 +509,74 @@
+ // You don't have to build the AUTH event yourself, this function takes a function to which the
+ // event that must be signed will be passed, so it's only necessary to sign that.
+ func (r *Relay) Auth(ctx context.Context, sign func(context.Context, *Event) error) error {
+-	if r.authed {
++	r.authMutex.Lock()
++	defer r.authMutex.Unlock()
++	r.authStateMutex.Lock()
++	challenge, authed := r.challenge, r.authed
++	r.authStateMutex.Unlock()
++	if authed {
+ 		return nil
+ 	}
+-
+-	if r.challenge == "" {
+-		return fmt.Errorf("no challenge, can't AUTH")
+-	}
+-
+-	var err error
+-
+-	r.performAuth.Do(func() {
+-		authEvent := Event{
+-			CreatedAt: Now(),
+-			Kind:      KindClientAuthentication,
+-			Tags: Tags{
+-				Tag{"relay", r.URL},
+-				Tag{"challenge", r.challenge},
+-			},
+-			Content: "",
+-		}
+-		if err = sign(ctx, &authEvent); err != nil {
+-			err = fmt.Errorf("error signing auth event: %w", err)
+-		} else {
+-			err = r.publish(ctx, authEvent.ID, &AuthEnvelope{Event: authEvent})
+-		}
+-	})
+-
+-	if err == nil {
++	if challenge == "" {
++		return errors.New("no challenge, can't AUTH")
++	}
++	event := Event{CreatedAt: Now(), Kind: KindClientAuthentication, Tags: Tags{{"relay", r.URL}, {"challenge", challenge}}}
++	if err := sign(ctx, &event); err != nil {
++		return fmt.Errorf("error signing auth event: %w", err)
++	}
++	if err := r.publish(ctx, event.ID, &AuthEnvelope{Event: event}); err != nil {
++		return err
++	}
++	r.authStateMutex.Lock()
++	if r.challenge == challenge {
+ 		r.authed = true
+ 	}
+-
+-	return err
+-}
+-
+-// publish can be used both for EVENT and for AUTH
++	r.authStateMutex.Unlock()
++	return nil
++}
++
++// publish keeps acknowledgements bounded and removes them on every exit path.
+ func (r *Relay) publish(ctx context.Context, id ID, env Envelope) error {
+-	var err error
+-	var cancel context.CancelFunc
+-
+ 	if _, ok := ctx.Deadline(); !ok {
+-		// if no timeout is set, force it to 7 seconds
+-		ctx, cancel = context.WithTimeoutCause(ctx, 7*time.Second, fmt.Errorf("given up waiting for an OK"))
++		var cancel context.CancelFunc
++		ctx, cancel = context.WithTimeout(ctx, 7*time.Second)
+ 		defer cancel()
+-	} else {
+-		// otherwise make the context cancellable so we can stop everything upon receiving an "OK"
+-		ctx, cancel = context.WithCancel(ctx)
+-		defer cancel()
+-	}
+-
+-	// listen for an OK callback
+-	gotOk := make(chan bool, 1)
+-	handleOk := func(ok bool, reason string) {
+-		err = fmt.Errorf("msg: %s", reason)
+-		gotOk <- ok
+-	}
+-
++	}
++	type result struct {
++		ok     bool
++		reason string
++	}
++	answer := make(chan result, 1)
+ 	r.okCallbacksMutex.Lock()
+-	if previous, exists := r.okCallbacks[id]; !exists {
+-		// normal path: there is nothing listening for this id, so we register this function
+-		r.okCallbacks[id] = func(ok bool, reason string) {
+-			handleOk(ok, reason)
+-
+-			// and when it's called the mutex will be locked
+-			// so we just eliminate it
+-			delete(r.okCallbacks, id)
+-		}
+-	} else {
+-		// if the same event is published twice there will be something here already
+-		// so we make a function that concatenates both
+-		r.okCallbacks[id] = func(ok bool, reason string) {
+-			// we call this with an informative helper for the developer
+-			handleOk(ok, fmt.Sprintf("published twice: %s", reason))
+-
+-			// then we replace it with the previous (and when this is called it will nuke itself accordingly)
+-			r.okCallbacks[id] = previous
++	if _, exists := r.okCallbacks[id]; exists || len(r.okCallbacks) >= 48 {
++		r.okCallbacksMutex.Unlock()
++		return errors.New("publish already in flight or acknowledgement budget exhausted")
++	}
++	r.okCallbacks[id] = func(ok bool, reason string) {
++		select {
++		case answer <- result{ok, reason}:
++		default:
+ 		}
+ 	}
+ 	r.okCallbacksMutex.Unlock()
+-
+-	// publish event
+-	envb, _ := env.MarshalJSON()
+-	if err := r.WriteWithError(envb); err != nil {
++	defer func() { r.okCallbacksMutex.Lock(); delete(r.okCallbacks, id); r.okCallbacksMutex.Unlock() }()
++	encoded, err := env.MarshalJSON()
++	if err != nil {
+ 		return err
+ 	}
+-
+-	for {
+-		select {
+-		case ok := <-gotOk:
+-			if ok {
+-				return nil
+-			}
+-			return err
+-		case <-ctx.Done():
+-			r.okCallbacksMutex.Lock()
+-			if cb, _ := r.okCallbacks[id]; cb != nil {
+-				cb(false, "timeout")
+-			}
+-			r.okCallbacksMutex.Unlock()
+-			return fmt.Errorf("publish: %w", context.Cause(ctx))
+-		case <-r.connectionContext.Done():
+-			r.okCallbacks = make(map[ID]okcallback)
+-			return fmt.Errorf("relay: %w", context.Cause(r.connectionContext))
+-		}
++	if err := r.writeWithContext(ctx, encoded); err != nil {
++		return err
++	}
++	select {
++	case result := <-answer:
++		if result.ok {
++			return nil
++		}
++		return fmt.Errorf("msg: %s", result.reason)
++	case <-ctx.Done():
++		return fmt.Errorf("publish: %w", context.Cause(ctx))
++	case <-r.Context().Done():
++		return fmt.Errorf("relay: %w", context.Cause(r.Context()))
+ 	}
+ }
+ 
+@@ -604,13 +595,9 @@
+ 
+ 	if err := sub.Fire(); err != nil {
+ 		sub.cancel(ErrFireFailed)
++		sub.Unsub()
+ 		return nil, fmt.Errorf("couldn't subscribe to %v at %s: %w", filter, r.URL, err)
+ 	}
+-
+-	go func() {
+-		<-ctx.Done()
+-		sub.cancel(nil)
+-	}()
+ 
+ 	return sub, nil
+ }
+@@ -620,6 +607,21 @@
+ // Remember to cancel subscriptions, either by calling `.Unsub()` on them or ensuring their `context.Context` will be canceled at some point.
+ // Failure to do that will result in a huge number of halted goroutines being created.
+ func (r *Relay) PrepareSubscription(ctx context.Context, filter Filter, opts SubscriptionOptions) *Subscription {
++	return r.prepareSubscription(ctx, []Filter{filter}, opts, false)
++}
++
++func (r *Relay) prepareSubscription(ctx context.Context, filters []Filter, opts SubscriptionOptions, count bool) *Subscription {
++	cloned := make([]Filter, len(filters))
++	for i, filter := range filters {
++		cloned[i] = filter.Clone()
++	}
++	filter := cloned[0]
++	r.closeMutex.Lock()
++	defer r.closeMutex.Unlock()
++	active := !r.closed.Load() && r.connectionContext.Err() == nil
++	if active {
++		r.subscriptionWorkers.Add(1)
++	}
+ 	current := subscriptionIDCounter.Add(1)
+ 	ctx, cancel := context.WithCancelCause(ctx)
+ 
+@@ -632,10 +634,22 @@
+ 		EndOfStoredEvents: make(chan EndOfStoredEvent, 1),
+ 		ClosedReason:      make(chan string, 1),
+ 		Filter:            filter,
+-		match:             filter.Matches,
+-		eoseTimedOut:      make(chan struct{}),
+-	}
+-
++		filters:           cloned,
++		match: func(event Event) bool {
++			for _, filter := range cloned {
++				if filter.Matches(event) {
++					return true
++				}
++			}
++			return false
++		},
++		eoseTimedOut: make(chan struct{}),
++		done:         make(chan struct{}),
++	}
++
++	if count {
++		sub.countResult = make(chan CountEnvelope, 1)
++	}
+ 	sub.checkDuplicate = opts.CheckDuplicate
+ 	sub.checkDuplicateReplaceable = opts.CheckDuplicateReplaceable
+ 
+@@ -647,21 +661,14 @@
+ 	defer subIdPool.Put(buf)
+ 	sub.id = string(buf)
+ 
++	if !active {
++		sub.cancel(ErrDisconnected)
++		close(sub.Events)
++		close(sub.done)
++		return sub
++	}
+ 	// we track subscriptions only by their counter, no need for the full id
+ 	r.Subscriptions.Store(int64(sub.counter), sub)
+-
+-	// start counting down for dispatching the fake EOSE
+-	if opts.MaxWaitForEOSE != math.MaxInt64 {
+-		if opts.MaxWaitForEOSE == 0 {
+-			opts.MaxWaitForEOSE = time.Second * 7
+-		}
+-
+-		go func() {
+-			time.Sleep(opts.MaxWaitForEOSE)
+-			close(sub.eoseTimedOut)
+-			sub.dispatchEose(nil)
+-		}()
+-	}
+ 
+ 	// if the relay connection dies, cancel this subscription
+ 	go func() {
+@@ -675,9 +682,12 @@
+ 
+ 	// start handling events, eose, unsub etc:
+ 	go func() {
++		defer r.subscriptionWorkers.Done()
++		defer close(sub.done)
+ 		<-sub.Context.Done()
+ 
+-		// mark subscription as closed and send a CLOSE to the relay (naive sync.Once implementation)
++		sub.fireMutex.Lock()
++		// Serialize cleanup after any in-flight REQ.
+ 		if sub.live.CompareAndSwap(true, false) {
+ 			closeMsg := CloseEnvelope(sub.id)
+ 			closeb, _ := (&closeMsg).MarshalJSON()
+@@ -688,6 +698,8 @@
+ 
+ 		// remove subscription from our map
+ 		sub.Relay.Subscriptions.Delete(sub.counter)
++		sub.releaseBudget()
++		sub.fireMutex.Unlock()
+ 
+ 		// do this so we don't have the possibility of closing the Events channel and then trying to send to it
+ 		sub.mu.Lock()
+@@ -703,9 +715,8 @@
+ 
+ // implement Querier interface
+ func (r *Relay) QueryEvents(filter Filter) iter.Seq[Event] {
+-	ctx, cancel := context.WithCancel(r.connectionContext)
+-
+ 	return func(yield func(Event) bool) {
++		ctx, cancel := context.WithCancel(r.connectionContext)
+ 		defer cancel()
+ 
+ 		sub, err := r.Subscribe(ctx, filter, SubscriptionOptions{Label: "queryevents"})
+@@ -715,8 +726,8 @@
+ 
+ 		for {
+ 			select {
+-			case evt := <-sub.Events:
+-				if !yield(evt) {
++			case evt, ok := <-sub.Events:
++				if !ok || !yield(evt) {
+ 					return
+ 				}
+ 			case <-sub.EndOfStoredEvents:
+@@ -760,18 +771,12 @@
+ 	hasAuthed := false
+ 
+ 	for {
+-		sub := r.PrepareSubscription(ctx, filter, opts)
+-		sub.countResult = make(chan CountEnvelope, 1)
++		sub := r.prepareSubscription(ctx, []Filter{filter}, opts, true)
+ 
+ 		if err := sub.Fire(); err != nil {
+ 			sub.cancel(ErrFireFailed)
+ 			return CountEnvelope{}, fmt.Errorf("couldn't count %v at %s: %w", filter, r.URL, err)
+ 		}
+-
+-		go func() {
+-			<-ctx.Done()
+-			sub.cancel(nil)
+-		}()
+ 
+ 		for {
+ 			select {
+@@ -810,7 +815,9 @@
+ 
+ // Close closes the relay connection.
+ func (r *Relay) Close() error {
+-	return r.close(errors.New("Close() called"))
++	r.close(errors.New("Close() called"))
++	<-r.shutdownDone
++	return nil
+ }
+ 
+ func (r *Relay) close(reason error) error {
+--- a/subscription.go
++++ b/subscription.go
+@@ -16,8 +16,12 @@
+ 
+ // Subscription represents a subscription to a relay.
+ type Subscription struct {
+-	counter int64
+-	id      string
++	fireMutex sync.Mutex
++	budgeted  bool
++	done      chan struct{}
++	filters   []Filter
++	counter   int64
++	id        string
+ 
+ 	Relay  *Relay
+ 	Filter Filter
+@@ -76,8 +80,7 @@
+ 	// CheckDuplicateReplaceable is like CheckDuplicate, but runs on replaceable/addressable events
+ 	CheckDuplicateReplaceable func(rk ReplaceableKey, ts Timestamp) bool
+ 
+-	// a fake EndOfStoredEvents will be dispatched at this time if nothing is received before.
+-	// defaults to 7s (in order to disable, set it to time.Duration(math.MaxInt64))
++	// Retained for API compatibility. Holoboard never synthesizes EOSE; use a context deadline.
+ 	MaxWaitForEOSE time.Duration
+ }
+ 
+@@ -85,59 +88,40 @@
+ func (sub *Subscription) GetID() string { return sub.id }
+ 
+ func (sub *Subscription) dispatchEvent(evt Event) {
+-	isStored := false
+-	if !sub.eosed.Load() {
+-		sub.storedwg.Add(1)
+-		isStored = true
++	sub.mu.Lock()
++	defer sub.mu.Unlock()
++	if sub.live.Load() {
++		select {
++		case sub.Events <- evt:
++		case <-sub.Context.Done():
++		case <-sub.Relay.Context().Done():
++		}
+ 	}
+-
+-	go func() {
+-		if isStored {
+-			if sub.live.Load() {
+-				select {
+-				case sub.Events <- evt:
+-				case <-sub.Context.Done():
+-				case <-sub.eoseTimedOut:
+-				}
+-			}
+-			sub.storedwg.Done()
+-		} else {
+-			if sub.live.Load() {
+-				select {
+-				case sub.Events <- evt:
+-				case <-sub.Context.Done():
+-				}
+-			}
+-		}
+-	}()
+ }
+ 
+ func (sub *Subscription) dispatchEose(hint []string) {
+ 	if sub.eosed.CompareAndSwap(false, true) {
+-		sub.match = sub.Filter.MatchesIgnoringTimestampConstraints
+-		go func() {
+-			sub.storedwg.Wait()
+-			sub.EndOfStoredEvents <- EndOfStoredEvent{Hint: hint}
+-		}()
++		select {
++		case sub.EndOfStoredEvents <- EndOfStoredEvent{Hint: hint}:
++		case <-sub.Context.Done():
++		}
+ 	}
+ }
+ 
+-// handleClosed handles the CLOSED message from a relay.
+ func (sub *Subscription) handleClosed(reason string) {
+-	go func() {
+-		// A relay can close a completed ID query immediately after EOSE.
+-		// Deliver pending history before notifying consumers or canceling it.
+-		sub.storedwg.Wait()
+-		sub.ClosedReason <- reason
+-		sub.live.Store(false) // set this so we don't send an unnecessary CLOSE to the relay
+-		sub.cancel(fmt.Errorf("CLOSED received: %s", reason))
+-	}()
++	select {
++	case sub.ClosedReason <- reason:
++	default:
++	}
++	sub.live.Store(false)
++	sub.cancel(fmt.Errorf("CLOSED received: %s", reason))
+ }
+ 
+ // Unsub closes the subscription, sending "CLOSE" to relay as in NIP-01.
+-// Unsub() also closes the channel sub.Events and makes a new one.
++// Unsub waits for cleanup and closes sub.Events.
+ func (sub *Subscription) Unsub() {
+ 	sub.cancel(errors.New("Unsub() called"))
++	<-sub.done
+ }
+ 
+ // Sub sets sub.Filters and then calls sub.Fire(ctx).
+@@ -149,15 +133,28 @@
+ 
+ // Fire sends the "REQ" command to the relay.
+ func (sub *Subscription) Fire() error {
++	sub.fireMutex.Lock()
++	defer sub.fireMutex.Unlock()
++	if err := sub.acquireBudget(); err != nil {
++		return err
++	}
++	if sub.Context.Err() != nil {
++		sub.releaseBudget()
++		return sub.Context.Err()
++	}
+ 	var reqb []byte
+ 	if sub.countResult == nil {
+-		reqb, _ = ReqEnvelope{sub.id, []Filter{sub.Filter}}.MarshalJSON()
++		filters := sub.filters
++		if filters == nil {
++			filters = []Filter{sub.Filter}
++		}
++		reqb, _ = ReqEnvelope{sub.id, filters}.MarshalJSON()
+ 	} else {
+ 		reqb, _ = CountEnvelope{sub.id, sub.Filter, nil, nil}.MarshalJSON()
+ 	}
+ 
+ 	sub.live.Store(true)
+-	if err := sub.Relay.WriteWithError(reqb); err != nil {
++	if err := sub.Relay.writeWithContext(sub.Context, reqb); err != nil {
+ 		err := fmt.Errorf("failed to write: %w", err)
+ 		sub.cancel(err)
+ 		return err
+--- a/subscription_budget.go
++++ b/subscription_budget.go
+@@ -0,0 +1,44 @@
++package nostr
++
++import (
++	"fmt"
++	"sync"
++)
++
++var subscriptionBudget = struct {
++	sync.Mutex
++	total  int
++	relays map[string]int
++}{relays: map[string]int{}}
++
++func (sub *Subscription) acquireBudget() error {
++	subscriptionBudget.Lock()
++	defer subscriptionBudget.Unlock()
++	if sub.Context.Err() != nil {
++		return sub.Context.Err()
++	}
++	if sub.budgeted {
++		return nil
++	}
++	if subscriptionBudget.total >= 48 || subscriptionBudget.relays[sub.Relay.URL] >= 8 {
++		return fmt.Errorf("outbound subscription budget exhausted")
++	}
++	sub.budgeted = true
++	subscriptionBudget.total++
++	subscriptionBudget.relays[sub.Relay.URL]++
++	return nil
++}
++
++func (sub *Subscription) releaseBudget() {
++	subscriptionBudget.Lock()
++	defer subscriptionBudget.Unlock()
++	if !sub.budgeted {
++		return
++	}
++	sub.budgeted = false
++	subscriptionBudget.total--
++	subscriptionBudget.relays[sub.Relay.URL]--
++	if subscriptionBudget.relays[sub.Relay.URL] == 0 {
++		delete(subscriptionBudget.relays, sub.Relay.URL)
++	}
++}
+--- a/types.go
++++ b/types.go
+@@ -39,7 +39,7 @@
+ 	if len(buf) != 66 {
+ 		return fmt.Errorf("must be a quoted hex string of 64 characters")
+ 	}
+-	err := xhex.Decode(id[:], buf[1:65])
++	err := decodeHex(id[:], buf[1:65])
+ 	return err
+ }
+ 
+@@ -49,7 +49,7 @@
+ 	if len(idh) != 64 {
+ 		return id, fmt.Errorf("pubkey should be 64-char hex, got '%s'", idh)
+ 	}
+-	if err := xhex.Decode(id[:], unsafe.Slice(unsafe.StringData(idh), 64)); err != nil {
++	if err := decodeHex(id[:], unsafe.Slice(unsafe.StringData(idh), 64)); err != nil {
+ 		return id, fmt.Errorf("'%s' is not valid hex: %w", idh, err)
+ 	}
+ 
+@@ -57,8 +57,11 @@
+ }
+ 
+ func MustIDFromHex(idh string) ID {
++	if len(idh) != 64 {
++		panic("expected 64-character hex")
++	}
+ 	id := ID{}
+-	if err := xhex.Decode(id[:], unsafe.Slice(unsafe.StringData(idh), 64)); err != nil {
++	if err := decodeHex(id[:], unsafe.Slice(unsafe.StringData(idh), 64)); err != nil {
+ 		panic(err)
+ 	}
+ 	return id
+--- a/utils.go
++++ b/utils.go
+@@ -3,6 +3,8 @@
+ import (
+ 	"bytes"
+ 	"cmp"
++	"encoding/hex"
++	"fmt"
+ 	"net/url"
+ 	"unsafe"
+ 
+@@ -35,7 +37,7 @@
+ 		return nil, xhex.ErrLength
+ 	}
+ 	dst := make([]byte, len(src)/2)
+-	err := xhex.Decode(dst, src)
++	err := decodeHex(dst, src)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+@@ -105,3 +107,12 @@
+ 	return previous.CreatedAt < next.CreatedAt ||
+ 		(previous.CreatedAt == next.CreatedAt && bytes.Compare(previous.ID[:], next.ID[:]) == 1)
+ }
++
++// decodeHex validates untrusted input on every architecture, including xhex's SIMD paths.
++func decodeHex(dst, src []byte) error {
++	if len(src) != 2*len(dst) {
++		return fmt.Errorf("invalid hexadecimal length")
++	}
++	_, err := hex.Decode(dst, src)
++	return err
++}

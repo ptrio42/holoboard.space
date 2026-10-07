@@ -5,13 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 const maxLookupRelays = 12
@@ -141,7 +142,7 @@ func connectRelay(ctx context.Context, value string) (*nostr.Relay, error) {
 			<-relayNetwork.sockets
 		})
 	}
-	dial := nostr.WithConnectionDialer(func(ctx context.Context, network, address string) (net.Conn, error) {
+	dial := func(ctx context.Context, network, address string) (net.Conn, error) {
 		select {
 		case relayNetwork.dials <- struct{}{}:
 		case <-ctx.Done():
@@ -149,14 +150,17 @@ func connectRelay(ctx context.Context, value string) (*nostr.Relay, error) {
 		}
 		defer func() { <-relayNetwork.dials }()
 		return dialRelayAddress(ctx, network, address, trusted, net.DefaultResolver.LookupNetIP)
-	})
-	relay := nostr.NewRelay(ctx, u.String(), dial)
-	if err := relay.Connect(ctx); err != nil {
+	}
+	transport := &http.Transport{DialContext: dial, TLSHandshakeTimeout: 5 * time.Second, DisableKeepAlives: true}
+	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	relay := nostr.NewRelay(ctx, u.String())
+	if err := relay.ConnectWithClient(ctx, client); err != nil {
 		relay.Close()
+		transport.CloseIdleConnections()
 		release()
 		return nil, err
 	}
-	context.AfterFunc(relay.Context(), release)
+	context.AfterFunc(relay.Context(), func() { relay.Close(); transport.CloseIdleConnections(); release() })
 	return relay, nil
 }
 

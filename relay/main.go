@@ -11,9 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/fiatjaf/khatru"
-	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
+	"fiatjaf.com/nostr"
+	"fiatjaf.com/nostr/khatru"
 )
 
 // loadEnvFile loads environment variables from a .env file if it exists
@@ -112,12 +111,12 @@ func main() {
 	relayPrivkey := os.Getenv("RELAY_PRIVKEY")
 	if relayPrivkey == "" {
 		// Generate a new keypair for demo purposes
-		relayPrivkey = nostr.GeneratePrivateKey()
+		relayPrivkey = generatePrivateKey()
 		log.Printf("Generated an ephemeral relay identity")
 		log.Printf("IMPORTANT: Set RELAY_PRIVKEY environment variable to persist this key")
 	}
 
-	relayPubkey, err := nostr.GetPublicKey(relayPrivkey)
+	relayPubkey, err := publicKeyForSecret(relayPrivkey)
 	if err != nil {
 		log.Fatalf("Failed to derive public key: %v", err)
 	}
@@ -224,9 +223,6 @@ func main() {
 	defer cancel()
 	accountPublisher.Start(ctx)
 
-	// Initialize SimplePool for mention monitoring
-	pool := nostr.NewSimplePool(ctx)
-
 	if err := invoiceManager.StartPaymentWatcher(ctx); err != nil {
 		log.Fatalf("Failed to start payment watcher: %v", err)
 	}
@@ -292,7 +288,7 @@ func main() {
 	go publishRelayLists(ctx, relayPrivkey, dmRelays, fetchRelays)
 
 	// Start mention monitor to watch for relay pubkey tags (promotional flow)
-	mentionMonitor := NewMentionMonitor(relayPubkey, relayPrivkey, storage, fetcher, pool)
+	mentionMonitor := NewMentionMonitor(relayPubkey, relayPrivkey, storage, fetcher)
 	mentionMonitor.SetAccountPublisher(accountPublisher)
 	mentionMonitor.Start(ctx, fetchRelays)
 	log.Printf("Mention monitor started, watching for @relay mentions")
@@ -311,7 +307,7 @@ func main() {
 	// and the npub is derived, so it cannot go stale.
 	contact := getEnv("RELAY_CONTACT", "")
 	if contact == "" {
-		if npub, err := nip19.EncodePublicKey(relayPubkey); err == nil {
+		if npub, err := encodePublicKey(relayPubkey); err == nil {
 			contact = npub
 		} else {
 			log.Printf("Could not encode relay npub for NIP-11 contact: %v", err)
@@ -367,7 +363,7 @@ func main() {
 	// Push newly promoted notes to whoever is already subscribed. khatru has
 	// BroadcastEvent for exactly this and nothing was calling it, so a note only
 	// showed up after the page was reloaded.
-	monitor.SetBroadcaster(relay.BroadcastEvent)
+	monitor.SetBroadcaster(func(event *nostr.Event) { relay.BroadcastEvent(*event) })
 
 	// The ledger the board is ranked by. Events are signed over their tags, so
 	// the sats total cannot ride along on the notes themselves; this is how it
@@ -408,7 +404,7 @@ func main() {
 	hasInfoEvent := false
 	storage.mu.RLock()
 	for _, post := range storage.posts {
-		if post.Event.PubKey == relayPubkey {
+		if post.Event.PubKey.Hex() == relayPubkey {
 			hasInfoEvent = true
 			break
 		}
@@ -421,10 +417,10 @@ func main() {
 			log.Printf("Failed to create info event: %v", err)
 		} else {
 			// Add a small initial payment to make the info event visible
-			if err := storage.AddPayment(infoEvent.ID, 1, infoEvent); err != nil {
+			if err := storage.AddPayment(infoEvent.ID.Hex(), 1, infoEvent); err != nil {
 				log.Printf("Failed to store info event: %v", err)
 			} else {
-				log.Printf("Info event published: %s", infoEvent.ID)
+				log.Printf("Info event published: %s", infoEvent.ID.Hex())
 			}
 		}
 	} else {

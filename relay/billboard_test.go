@@ -12,8 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
+	"fiatjaf.com/nostr"
 )
 
 func testBillboard(text string) *BillboardConfig {
@@ -23,7 +22,7 @@ func testBillboard(text string) *BillboardConfig {
 func billboardFixture(t *testing.T) (*Storage, *InvoiceManager, *PaymentMonitor, string) {
 	t.Helper()
 	storage := newTestStorage(t)
-	id := seedPromotedPost(t, storage, nostr.GeneratePrivateKey())
+	id := seedPromotedPost(t, storage, generatePrivateKey())
 	monitor := NewPaymentMonitor(storage, "relay", NewPostFetcher(nil), NewLNURLResolver())
 	manager := NewInvoiceManager(NewMockLightningBackend(), storage, monitor, 1000)
 	return storage, manager, monitor, id
@@ -312,7 +311,7 @@ func TestPreviewDoesNotPromoteAndRejectsRemovedNotes(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Event.ID != id || body.Fee != 100 {
+	if body.Event.ID.Hex() != id || body.Fee != 100 {
 		t.Fatal("preview missing event or current price")
 	}
 	if _, err := storage.RemovePost(id); err != nil {
@@ -335,13 +334,13 @@ func TestPreviewFetchesUnpaidNoteAndBillboardSettlementSurvivesRestart(t *testin
 	}
 	defer public.Close()
 	note := &nostr.Event{Kind: 1, CreatedAt: nostr.Now(), Tags: nostr.Tags{}, Content: "A fresh signal 世界"}
-	if err := note.Sign(nostr.GeneratePrivateKey()); err != nil {
+	if err := signEvent(note, generatePrivateKey()); err != nil {
 		t.Fatal(err)
 	}
 	if err := public.Publish(ctx, *note); err != nil {
 		t.Fatal(err)
 	}
-	reference, err := nip19.EncodeEvent(note.ID, []string{relayURL}, "")
+	reference, err := encodeEventReference(note.ID.Hex(), []string{relayURL}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,11 +358,11 @@ func TestPreviewFetchesUnpaidNoteAndBillboardSettlementSurvivesRestart(t *testin
 	if allocation.AuthorShare != 20 {
 		t.Fatal("new campaigns must default to 20% author support")
 	}
-	if storage.HasPost(note.ID) || len(storage.ListPendingInvoices()) != 0 || len(storage.Ledger()) != 0 {
+	if storage.HasPost(note.ID.Hex()) || len(storage.ListPendingInvoices()) != 0 || len(storage.Ledger()) != 0 {
 		t.Fatal("preview added unpaid content to board")
 	}
 	// With no relay hints the second request must use the preview cache.
-	rec = postPromote(t, preview, map[string]string{"note": note.ID}, "1.2.3.4")
+	rec = postPromote(t, preview, map[string]string{"note": note.ID.Hex()}, "1.2.3.4")
 	if rec.Code != 200 {
 		t.Fatalf("cached preview: %d %s", rec.Code, rec.Body.String())
 	}
@@ -380,7 +379,7 @@ func TestPreviewFetchesUnpaidNoteAndBillboardSettlementSurvivesRestart(t *testin
 	if !ok || pending.AuthorShare == nil || *pending.AuthorShare != 20 {
 		t.Fatal("new campaign invoice lost the default author split")
 	}
-	if storage.HasPost(note.ID) {
+	if storage.HasPost(note.ID.Hex()) {
 		t.Fatal("minting an invoice published an unpaid note")
 	}
 	reloaded, err := NewStorage(storage.dataFile)
@@ -393,11 +392,11 @@ func TestPreviewFetchesUnpaidNoteAndBillboardSettlementSurvivesRestart(t *testin
 	if err := monitor.ProcessInvoicePayment(invoice.PaymentHash, 121); err != nil {
 		t.Fatal(err)
 	}
-	post, _ := reloaded.GetPost(note.ID)
+	post, _ := reloaded.GetPost(note.ID.Hex())
 	if post.TotalSatsPaid != 21 || post.Billboard.Text != "世界" {
 		t.Fatal("first promotion allocation incorrect")
 	}
-	if ok, err := post.Event.CheckSignature(); err != nil || !ok {
+	if ok, err := verifyNostrEvent(post.Event); err != nil || !ok {
 		t.Fatal("billboard changed the original signed note")
 	}
 }

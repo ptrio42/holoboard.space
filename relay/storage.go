@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 // Payment is one sum paid for one note, at one moment.
@@ -524,7 +524,7 @@ func (s *Storage) QueryPosts(ctx context.Context, filter nostr.Filter) []*nostr.
 	// Apply filter and collect matching events
 	var results []*nostr.Event
 	for _, post := range posts {
-		if filter.Matches(post.Event) {
+		if filter.Matches(*post.Event) {
 			results = append(results, post.Event)
 		}
 	}
@@ -904,7 +904,7 @@ func (s *Storage) GetPromotedNoteReference(replyID string) (string, []string, st
 	defer s.mu.RUnlock()
 
 	for _, publication := range s.accountPublications {
-		if publication != nil && publication.NoteID != "" && (publication.Type == accountPublicationQuote || publication.Type == accountPublicationReply) && publication.Event != nil && publication.Event.ID == replyID {
+		if publication != nil && publication.NoteID != "" && (publication.Type == accountPublicationQuote || publication.Type == accountPublicationReply) && publication.Event != nil && publication.Event.ID.Hex() == replyID {
 			id, hints, author := quotedNoteReference(publication.Event)
 			if id == publication.NoteID {
 				return id, hints, author, true
@@ -982,6 +982,6 @@ const kindComment = 1111
 // replies written as kind:1, which are fragments of a conversation in exactly
 // the same way. Excluding 1111 while accepting those drew the line at the kind
 // number rather than at anything a reader would notice.
-func isPromotable(kind int) bool {
+func isPromotable(kind nostr.Kind) bool {
 	return kind == 1 || kind == kindComment
 }

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 type metadataEntry struct {
@@ -24,12 +24,12 @@ var metadataCache = struct {
 
 // Both NIP-65 and NIP-17 discovery share bounded, deduplicated metadata reads.
 // A timeout can return observed signed data, but never caches a false absence.
-func queryRelayMetadata(ctx context.Context, kind int, author string, searchOn []string) *nostr.Event {
+func queryRelayMetadata(ctx context.Context, kind nostr.Kind, author string, searchOn []string) *nostr.Event {
 	event, _ := queryRelayMetadataStatus(ctx, kind, author, searchOn)
 	return event
 }
 
-func queryRelayMetadataStatus(ctx context.Context, kind int, author string, searchOn []string) (*nostr.Event, bool) {
+func queryRelayMetadataStatus(ctx context.Context, kind nostr.Kind, author string, searchOn []string) (*nostr.Event, bool) {
 	sources := safeRelayCandidates(append(append([]string{}, searchOn...), discoveryRelays...))
 	key := fmt.Sprintf("%d:%s:%s", kind, author, strings.Join(sources, ","))
 	metadataCache.Lock()
@@ -74,7 +74,7 @@ func queryRelayMetadataStatus(ctx context.Context, kind int, author string, sear
 				return
 			}
 			defer relay.Close()
-			events, err := relay.QuerySync(ctx, nostr.Filter{Kinds: []int{kind}, Authors: []string{author}, Limit: 1})
+			events, err := relay.QuerySync(ctx, nostr.Filter{Kinds: []nostr.Kind{kind}, Authors: publicKeys(author), Limit: 1})
 			results <- result{events, err}
 		}(url)
 	}
@@ -86,10 +86,10 @@ func queryRelayMetadataStatus(ctx context.Context, kind int, author string, sear
 			complete = false
 		}
 		for _, event := range answer.events {
-			if event.Kind != kind || event.PubKey != author {
+			if event.Kind != kind || event.PubKey.Hex() != author {
 				continue
 			}
-			valid, err := event.CheckSignature()
+			valid, err := verifyNostrEvent(event)
 			if err == nil && valid && newerReplaceableEvent(event, newest) {
 				newest = event
 			}

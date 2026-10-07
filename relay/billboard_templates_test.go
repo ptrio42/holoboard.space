@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 	"net/http"
 	"strings"
 	"testing"
@@ -129,7 +129,7 @@ func TestAdditionalBillboardTemplatesSettleAndSurviveBoost(t *testing.T) {
 			if template == "slides" && post.Billboard.Slides[1] != config.Slides[1] {
 				t.Fatal("boost changed slides")
 			}
-			if ok, err := post.Event.CheckSignature(); err != nil || !ok {
+			if ok, err := verifyNostrEvent(post.Event); err != nil || !ok {
 				t.Fatal("original signature changed")
 			}
 		})

@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"fiatjaf.com/nostr"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
-	"github.com/nbd-wtf/go-nostr"
 )
 
 func readMentionRequest(w http.ResponseWriter, r *http.Request) (net.Conn, *bufio.ReadWriter, string, nostr.Filter, error) {
@@ -92,7 +92,7 @@ func signedTestMention(t *testing.T, pubkey string, createdAt nostr.Timestamp) *
 		Tags:      nostr.Tags{{"p", pubkey}},
 		Content:   "A regular mention without a promotion command.",
 	}
-	if err := event.Sign(nostr.GeneratePrivateKey()); err != nil {
+	if err := signEvent(event, generatePrivateKey()); err != nil {
 		t.Fatal(err)
 	}
 	return event
@@ -148,7 +148,7 @@ func TestMentionMonitorKeepsOtherRelaysAfterClosed(t *testing.T) {
 	if err := publisher.Publish(ctx, *event); err != nil {
 		t.Fatal(err)
 	}
-	waitForMention(t, storage, event.ID)
+	waitForMention(t, storage, event.ID.Hex())
 }
 
 func TestMentionMonitorBackfillsAfterReconnect(t *testing.T) {
@@ -174,7 +174,7 @@ func TestMentionMonitorBackfillsAfterReconnect(t *testing.T) {
 			}
 		} else {
 			filterSeen <- filter
-			if filter.Since != nil && *filter.Since <= event.CreatedAt {
+			if filter.Since != 0 && filter.Since <= event.CreatedAt {
 				if err := sendMentionEnvelope(conn, "EVENT", id, event); err != nil {
 					t.Error(err)
 					return
@@ -195,10 +195,10 @@ func TestMentionMonitorBackfillsAfterReconnect(t *testing.T) {
 		monitor.Wait()
 	}()
 	monitor.Start(ctx, []string{"ws" + strings.TrimPrefix(server.URL, "http")})
-	waitForMention(t, storage, event.ID)
+	waitForMention(t, storage, event.ID.Hex())
 	select {
 	case filter := <-filterSeen:
-		if filter.Since == nil || *filter.Since > event.CreatedAt {
+		if filter.Since == 0 || filter.Since > event.CreatedAt {
 			t.Errorf("reconnect since = %v, missed a note from an hour ago", filter.Since)
 		}
 	case <-time.After(time.Second):

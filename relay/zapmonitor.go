@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 // ZapMonitor listens to external relays for zaps directed to our relay
@@ -34,8 +34,8 @@ func (zm *ZapMonitor) Start(ctx context.Context) error {
 	// Create filter for zap receipts directed to our relay
 	since := nostr.Timestamp(time.Now().Add(-30 * 24 * time.Hour).Unix())
 	filter := nostr.Filter{
-		Since: &since,
-		Kinds: []int{9735}, // Zap receipts
+		Since: since,
+		Kinds: []nostr.Kind{9735}, // Zap receipts
 		Tags: nostr.TagMap{
 			"p": []string{zm.relayPubkey}, // Zaps directed to us
 		},
@@ -85,7 +85,7 @@ func (zm *ZapMonitor) monitorConnection(ctx context.Context, relayURL string, fi
 		return
 	}
 	defer relay.Close()
-	sub, err := relay.Subscribe(ctx, []nostr.Filter{filter})
+	sub, err := relay.SubscribeFilters(ctx, []nostr.Filter{filter})
 	if err != nil {
 		return
 	}
@@ -110,7 +110,8 @@ func (zm *ZapMonitor) monitorConnection(ctx context.Context, relayURL string, fi
 			// EndOfStoredEvents is a buffered signal, not a recurring clock.
 		case <-sub.ClosedReason:
 			return
-		case event, ok := <-sub.Events:
+		case received, ok := <-sub.Events:
+			event := &received
 			if !ok {
 				return
 			}

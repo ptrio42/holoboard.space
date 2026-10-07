@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/fiatjaf/khatru"
+	"fiatjaf.com/nostr/khatru"
 )
 
 func TestRelayServiceURLConcurrentInitialization(t *testing.T) {

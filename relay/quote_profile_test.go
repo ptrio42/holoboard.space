@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 func TestQuoteSplitsUseVerifiedRecipientProfileRelays(t *testing.T) {
@@ -16,8 +16,8 @@ func TestQuoteSplitsUseVerifiedRecipientProfileRelays(t *testing.T) {
 	boardRelay, noteRelay, authorRelay := startTestRelay(t), startTestRelay(t), startTestRelay(t)
 	storage, publisher, note := accountPublicationFixture(t, boardRelay)
 	publisher.profile = findRecipientProfile
-	authorKey := nostr.GeneratePrivateKey()
-	if err := note.Sign(authorKey); err != nil {
+	authorKey := generatePrivateKey()
+	if err := signEvent(note, authorKey); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -35,8 +35,8 @@ func TestQuoteSplitsUseVerifiedRecipientProfileRelays(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		event := nostr.Event{Kind: fixture.kind, CreatedAt: nostr.Now(), Tags: fixture.tags, Content: fixture.content}
-		if err := event.Sign(fixture.key); err != nil {
+		event := nostr.Event{Kind: nostr.Kind(fixture.kind), CreatedAt: nostr.Now(), Tags: fixture.tags, Content: fixture.content}
+		if err := signEvent(&event, fixture.key); err != nil {
 			t.Fatal(err)
 		}
 		if err := connection.Publish(ctx, event); err != nil {
@@ -48,11 +48,11 @@ func TestQuoteSplitsUseVerifiedRecipientProfileRelays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if valid, err := quote.CheckSignature(); err != nil || !valid {
+	if valid, err := verifyNostrEvent(quote); err != nil || !valid {
 		t.Fatalf("quote signature: %v %v", valid, err)
 	}
-	splits := quote.Tags.GetAll([]string{"zap"})
-	if len(splits) != 2 || fmt.Sprint(splits[0]) != fmt.Sprint(nostr.Tag{"zap", publisher.relayPubkey, boardRelay, "70"}) || fmt.Sprint(splits[1]) != fmt.Sprint(nostr.Tag{"zap", note.PubKey, authorRelay, "30"}) {
+	splits := collectTags(quote.Tags, "zap")
+	if len(splits) != 2 || fmt.Sprint(splits[0]) != fmt.Sprint(nostr.Tag{"zap", publisher.relayPubkey, boardRelay, "70"}) || fmt.Sprint(splits[1]) != fmt.Sprint(nostr.Tag{"zap", note.PubKey.Hex(), authorRelay, "30"}) {
 		t.Fatalf("recipient profile sources: %v", splits)
 	}
 	// A client following each hint can retrieve that recipient's payment profile.
@@ -61,24 +61,24 @@ func TestQuoteSplitsUseVerifiedRecipientProfileRelays(t *testing.T) {
 			t.Fatalf("unusable profile hint %v", split)
 		}
 	}
-	if _, err := storage.CreditZapWithPublication(note.ID, 21, note, "first", "first-hash", quote, publisher.Targets()); err != nil {
+	if _, err := storage.CreditZapWithPublication(note.ID.Hex(), 21, note, "first", "first-hash", quote, publisher.Targets()); err != nil {
 		t.Fatal(err)
 	}
-	if err := storage.MarkAccountPublicationDelivered(quotePublicationKey(note.ID), quote.ID, publisher.Targets()); err != nil {
+	if err := storage.MarkAccountPublicationDelivered(quotePublicationKey(note.ID.Hex()), quote.ID.Hex(), publisher.Targets()); err != nil {
 		t.Fatal(err)
 	}
 	for _, payment := range []string{"boost", "revival"} {
 		if payment == "revival" {
-			for i := range storage.posts[note.ID].Payments {
-				storage.posts[note.ID].Payments[i].At = time.Now().Add(-2 * 365 * 24 * time.Hour)
+			for i := range storage.posts[note.ID.Hex()].Payments {
+				storage.posts[note.ID.Hex()].Payments[i].At = time.Now().Add(-2 * 365 * 24 * time.Hour)
 			}
 		}
 		replacement := cloneNostrEvent(quote)
 		replacement.Tags = append(replacement.Tags, nostr.Tag{"changed", payment})
-		if err := replacement.Sign(publisher.relayPrivkey); err != nil {
+		if err := signEvent(replacement, publisher.relayPrivkey); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := storage.CreditZapWithPublication(note.ID, 1, note, payment, payment+"-hash", replacement, publisher.Targets()); err != nil {
+		if _, err := storage.CreditZapWithPublication(note.ID.Hex(), 1, note, payment, payment+"-hash", replacement, publisher.Targets()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -86,9 +86,9 @@ func TestQuoteSplitsUseVerifiedRecipientProfileRelays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, _ := loaded.QuotePublication(note.ID)
-	post, _ := loaded.GetPost(note.ID)
-	if record.Event.ID != quote.ID || campaignAuthorShare(post) != 30 {
+	record, _ := loaded.QuotePublication(note.ID.Hex())
+	post, _ := loaded.GetPost(note.ID.Hex())
+	if record.Event.ID.Hex() != quote.ID.Hex() || campaignAuthorShare(post) != 30 {
 		t.Fatal("boost, revival or restart changed the public quote or split")
 	}
 }
@@ -99,8 +99,8 @@ func TestQuoteMissingProfileDoesNotInventRelayOrRedirectAuthorShare(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	splits := quote.Tags.GetAll([]string{"zap"})
-	if len(splits) != 2 || splits[0][2] != "" || splits[1][2] != "" || splits[1][1] != note.PubKey || splits[1][3] != "20" {
+	splits := collectTags(quote.Tags, "zap")
+	if len(splits) != 2 || splits[0][2] != "" || splits[1][2] != "" || splits[1][1] != note.PubKey.Hex() || splits[1][3] != "20" {
 		t.Fatalf("unverified sources or redirected author support: %v", splits)
 	}
 }

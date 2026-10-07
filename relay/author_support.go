@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
+	"fiatjaf.com/nostr"
 	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/zpay32"
-	"github.com/nbd-wtf/go-nostr"
 )
 
 // AuthorSupport only prepares and verifies payments sent directly to the author.
@@ -92,8 +92,8 @@ func (a *AuthorSupport) campaignShare(ctx context.Context, note *nostr.Event, sh
 	if note == nil || share == 0 {
 		return share
 	}
-	profile, err := a.profile(ctx, note.PubKey, hints)
-	if err == nil && validRecipientProfile(profile, note.PubKey) && profileHasNoPaymentAddress(profile) {
+	profile, err := a.profile(ctx, note.PubKey.Hex(), hints)
+	if err == nil && validRecipientProfile(profile, note.PubKey.Hex()) && profileHasNoPaymentAddress(profile) {
 		return 0
 	}
 	return share
@@ -216,10 +216,10 @@ func (a *AuthorSupport) endpoint(ctx context.Context, author string, hints ...st
 	if err != nil {
 		return authorEndpoint{}, err
 	}
-	if profile == nil || profile.Kind != 0 || profile.PubKey != author || profile.GetID() != profile.ID {
+	if profile == nil || profile.Kind != 0 || profile.PubKey.Hex() != author || profile.GetID().Hex() != profile.ID.Hex() {
 		return authorEndpoint{}, fmt.Errorf("invalid author profile")
 	}
-	if valid, err := profile.CheckSignature(); err != nil || !valid {
+	if valid, err := verifyNostrEvent(profile); err != nil || !valid {
 		return authorEndpoint{}, fmt.Errorf("invalid author profile signature")
 	}
 	metadata := paymentProfileMetadata(profile)
@@ -388,18 +388,18 @@ func (a *AuthorSupport) Handler() http.HandlerFunc {
 			return
 		}
 		hints, _ := noteHints(req.Note)
-		if quote, ok := a.storage.QuotePublication(note.ID); ok && quote.Event != nil {
+		if quote, ok := a.storage.QuotePublication(note.ID.Hex()); ok && quote.Event != nil {
 			_, quoteHints, _ := quotedNoteReference(quote.Event)
 			hints = append(hints, quoteHints...)
 		}
-		details, err := a.endpoint(ctx, note.PubKey, hints...)
+		details, err := a.endpoint(ctx, note.PubKey.Hex(), hints...)
 		if r.URL.Path == "/api/support" {
 			if err != nil {
 				code, reason := "unavailable", "Author support is unavailable. Choose visibility only or try again later."
 				if err == errAuthorHasNoAddress {
 					code, reason = "no_address", "The author has no Lightning payment address."
 				}
-				writeJSON(w, 200, authorEndpoint{Author: note.PubKey, ReasonCode: code, Reason: reason})
+				writeJSON(w, 200, authorEndpoint{Author: note.PubKey.Hex(), ReasonCode: code, Reason: reason})
 				return
 			}
 			writeJSON(w, 200, details)
@@ -418,8 +418,8 @@ func (a *AuthorSupport) Handler() http.HandlerFunc {
 			resolver := NewLNURLResolver()
 			resolver.resolved = true
 			resolver.pubkeys["author"] = details.NostrPubkey
-			zap, err := ValidateZapReceipt(req.Receipt, note.PubKey, resolver)
-			if err != nil || zap.PaymentHash != hex.EncodeToString(invoice.PaymentHash[:]) || firstTag(zap.Request, "e") != note.ID {
+			zap, err := ValidateZapReceipt(req.Receipt, note.PubKey.Hex(), resolver)
+			if err != nil || zap.PaymentHash != hex.EncodeToString(invoice.PaymentHash[:]) || firstTag(zap.Request, "e") != note.ID.Hex() {
 				writeError(w, 400, "receipt does not match this author payment")
 				return
 			}
@@ -439,11 +439,11 @@ func (a *AuthorSupport) Handler() http.HandlerFunc {
 		query.Set("amount", fmt.Sprint(req.Amount*1000))
 		description := details.metadata
 		if req.Zap != nil {
-			if !details.AllowsNostr || req.Zap.Kind != 9734 || req.Zap.GetID() != req.Zap.ID || countTags(req.Zap, "p") != 1 || firstTag(req.Zap, "p") != note.PubKey || countTags(req.Zap, "e") != 1 || firstTag(req.Zap, "e") != note.ID || firstTag(req.Zap, "amount") != fmt.Sprint(req.Amount*1000) {
+			if !details.AllowsNostr || req.Zap.Kind != 9734 || req.Zap.GetID().Hex() != req.Zap.ID.Hex() || countTags(req.Zap, "p") != 1 || firstTag(req.Zap, "p") != note.PubKey.Hex() || countTags(req.Zap, "e") != 1 || firstTag(req.Zap, "e") != note.ID.Hex() || firstTag(req.Zap, "amount") != fmt.Sprint(req.Amount*1000) {
 				writeError(w, 400, "zap request does not match the author payment")
 				return
 			}
-			if valid, err := req.Zap.CheckSignature(); err != nil || !valid {
+			if valid, err := verifyNostrEvent(req.Zap); err != nil || !valid {
 				writeError(w, 400, "invalid zap signature")
 				return
 			}
@@ -480,10 +480,10 @@ func (a *AuthorSupport) Handler() http.HandlerFunc {
 			return
 		}
 		hash := hex.EncodeToString(invoice.PaymentHash[:])
-		if err := a.storage.AddAuthorInvoice(hash, AuthorInvoiceContext{NoteID: note.ID, Author: note.PubKey, NostrPubkey: details.NostrPubkey, InvoiceDigest: authorInvoiceDigest(response.Invoice)}); err != nil {
+		if err := a.storage.AddAuthorInvoice(hash, AuthorInvoiceContext{NoteID: note.ID.Hex(), Author: note.PubKey.Hex(), NostrPubkey: details.NostrPubkey, InvoiceDigest: authorInvoiceDigest(response.Invoice)}); err != nil {
 			writeError(w, 503, "could not save author invoice verification details; no payment was requested")
 			return
 		}
-		writeJSON(w, 200, map[string]any{"invoice": response.Invoice, "payment_hash": hex.EncodeToString(invoice.PaymentHash[:]), "amount_sats": req.Amount, "expires_at": expires.Unix(), "author": note.PubKey, "nostr_pubkey": details.NostrPubkey})
+		writeJSON(w, 200, map[string]any{"invoice": response.Invoice, "payment_hash": hex.EncodeToString(invoice.PaymentHash[:]), "amount_sats": req.Amount, "expires_at": expires.Unix(), "author": note.PubKey.Hex(), "nostr_pubkey": details.NostrPubkey})
 	}
 }

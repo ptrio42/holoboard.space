@@ -11,10 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"fiatjaf.com/nostr"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
-	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
 func TestPreviewFindsNotesUsingAvailableReferenceHints(t *testing.T) {
@@ -22,11 +21,11 @@ func TestPreviewFindsNotesUsingAvailableReferenceHints(t *testing.T) {
 	discoveryRelays = nil
 	t.Cleanup(func() { discoveryRelays = previous })
 	index, outbox := startTestRelay(t), startTestRelay(t)
-	key := nostr.GeneratePrivateKey()
+	key := generatePrivateKey()
 	note := &nostr.Event{Kind: 1, CreatedAt: nostr.Now(), Content: "Only on the write relay", Tags: nostr.Tags{}}
 	list := &nostr.Event{Kind: kindRelayList, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"r", outbox, "write"}}}
 	for source, event := range map[string]*nostr.Event{index: list, outbox: note} {
-		if err := event.Sign(key); err != nil {
+		if err := signEvent(event, key); err != nil {
 			t.Fatal(err)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -48,13 +47,13 @@ func TestPreviewFindsNotesUsingAvailableReferenceHints(t *testing.T) {
 		want         int
 	}{
 		{"relay hint only", "", []string{outbox}, []string{index}, http.StatusOK},
-		{"author without relay hint", note.PubKey, nil, []string{index}, http.StatusOK},
-		{"empty hint with author fallback", note.PubKey, []string{index}, []string{index}, http.StatusOK},
+		{"author without relay hint", note.PubKey.Hex(), nil, []string{index}, http.StatusOK},
+		{"empty hint with author fallback", note.PubKey.Hex(), []string{index}, []string{index}, http.StatusOK},
 		{"ID without hints on a configured relay", "", nil, []string{outbox}, http.StatusOK},
 		{"ID alone cannot locate an unknown write relay", "", nil, []string{index}, http.StatusNotFound},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			reference, err := nip19.EncodeEvent(note.ID, test.hints, test.author)
+			reference, err := encodeEventReference(note.ID.Hex(), test.hints, test.author)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -72,7 +71,7 @@ func TestPreviewFindsNotesUsingAvailableReferenceHints(t *testing.T) {
 				var preview struct {
 					Event *nostr.Event `json:"event"`
 				}
-				if err := json.Unmarshal(response.Body.Bytes(), &preview); err != nil || preview.Event == nil || preview.Event.ID != note.ID {
+				if err := json.Unmarshal(response.Body.Bytes(), &preview); err != nil || preview.Event == nil || preview.Event.ID.Hex() != note.ID.Hex() {
 					t.Fatalf("preview lost the original note: %s", response.Body.String())
 				}
 			}
@@ -87,7 +86,7 @@ func TestPreviewFindsNotesUsingAvailableReferenceHints(t *testing.T) {
 // response. An immutable ID is sufficient to finish this lookup immediately.
 func TestFetchPostReturnsBeforeEOSE(t *testing.T) {
 	event := &nostr.Event{Kind: 1, CreatedAt: nostr.Now(), Content: "Available before EOSE", Tags: nostr.Tags{}}
-	if err := event.Sign(nostr.GeneratePrivateKey()); err != nil {
+	if err := signEvent(event, generatePrivateKey()); err != nil {
 		t.Fatal(err)
 	}
 	closed := make(chan struct{}, 1)
@@ -123,8 +122,8 @@ func TestFetchPostReturnsBeforeEOSE(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
 	defer cancel()
 	started := time.Now()
-	got, source, err := NewPostFetcher([]string{startTestRelay(t)}).FetchPostFromWithRelay(ctx, event.ID, []string{url}, "")
-	if err != nil || got == nil || got.ID != event.ID || source != url {
+	got, source, err := NewPostFetcher([]string{startTestRelay(t)}).FetchPostFromWithRelay(ctx, event.ID.Hex(), []string{url}, "")
+	if err != nil || got == nil || got.ID.Hex() != event.ID.Hex() || source != url {
 		t.Fatalf("delivered event was not found: event=%v source=%q err=%v", got, source, err)
 	}
 	if elapsed := time.Since(started); elapsed > 800*time.Millisecond {

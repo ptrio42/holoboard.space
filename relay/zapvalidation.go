@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
+	"fiatjaf.com/nostr"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/zpay32"
-	"github.com/nbd-wtf/go-nostr"
 )
 
 // A zap receipt is not evidence of anything on its own. Anyone can generate a
@@ -232,19 +232,19 @@ func ValidateZapReceipt(receipt *nostr.Event, relayPubkey string, resolver *LNUR
 	if !resolver.Ready() {
 		return nil, fmt.Errorf("no zapper key known yet, refusing to credit the zap")
 	}
-	if !resolver.Accepts(receipt.PubKey) {
+	if !resolver.Accepts(receipt.PubKey.Hex()) {
 		return nil, fmt.Errorf("receipt signed by %s, which is not this relay's LNURL server",
-			short(receipt.PubKey, 16))
+			short(receipt.PubKey.Hex(), 16))
 	}
 
 	if recipient := firstTag(receipt, "p"); recipient != relayPubkey {
 		return nil, fmt.Errorf("receipt is addressed to %s, not to this relay", short(recipient, 16))
 	}
 
-	if receipt.GetID() != receipt.ID {
+	if receipt.GetID().Hex() != receipt.ID.Hex() {
 		return nil, fmt.Errorf("zap receipt id does not match its content")
 	}
-	if valid, err := receipt.CheckSignature(); err != nil || !valid {
+	if valid, err := verifyNostrEvent(receipt); err != nil || !valid {
 		return nil, fmt.Errorf("zap receipt is not validly signed")
 	}
 
@@ -294,12 +294,11 @@ func ValidateZapReceipt(receipt *nostr.Event, relayPubkey string, resolver *LNUR
 		return nil, fmt.Errorf("description is kind %d, not a zap request", request.Kind)
 	}
 
-	// Appendix D1. go-nostr checks the signature against the id, but does not
-	// check that the id matches the content, and this JSON came from a stranger.
-	if request.GetID() != request.ID {
+	// Appendix D1 binds both the supplied ID and signature to the request body.
+	if request.GetID().Hex() != request.ID.Hex() {
 		return nil, fmt.Errorf("zap request id does not match its content")
 	}
-	if ok, err := request.CheckSignature(); err != nil || !ok {
+	if ok, err := verifyNostrEvent(&request); err != nil || !ok {
 		return nil, fmt.Errorf("zap request is not validly signed")
 	}
 
@@ -328,7 +327,7 @@ func ValidateZapReceipt(receipt *nostr.Event, relayPubkey string, resolver *LNUR
 	}
 
 	// Appendix D8.
-	if p := firstTag(&request, "P"); p != "" && p != receipt.PubKey {
+	if p := firstTag(&request, "P"); p != "" && p != receipt.PubKey.Hex() {
 		return nil, fmt.Errorf("zap request names a different receipt signer")
 	}
 

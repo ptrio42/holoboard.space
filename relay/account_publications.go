@@ -9,8 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
+	"fiatjaf.com/nostr"
 )
 
 const promotionQuoteCopy = "Paid promotion on Holoboard. Zap this Holoboard post to boost the quoted note."
@@ -135,13 +134,13 @@ func (s *Storage) QueuePromotionalReply(mentionID, noteID, requester string, rep
 		return nil
 	}
 	s.accountPublications[key] = newAccountPublication(accountPublicationReply, noteID, reply, targets)
-	s.promotionalReplies[reply.ID] = noteID
-	s.promotionRequesters[reply.ID] = requester
+	s.promotionalReplies[reply.ID.Hex()] = noteID
+	s.promotionRequesters[reply.ID.Hex()] = requester
 	s.processedMentions[mentionID] = true
 	if err := s.save(); err != nil {
 		delete(s.accountPublications, key)
-		delete(s.promotionalReplies, reply.ID)
-		delete(s.promotionRequesters, reply.ID)
+		delete(s.promotionalReplies, reply.ID.Hex())
+		delete(s.promotionRequesters, reply.ID.Hex())
 		delete(s.processedMentions, mentionID)
 		return fmt.Errorf("save promotional reply: %w", err)
 	}
@@ -177,7 +176,7 @@ func (s *Storage) MarkAccountPublicationDelivered(key, eventID string, relays []
 	defer s.mu.Unlock()
 
 	record, ok := s.accountPublications[key]
-	if !ok || record == nil || record.Event == nil || record.Event.ID != eventID || record.Cancelled {
+	if !ok || record == nil || record.Event == nil || record.Event.ID.Hex() != eventID || record.Cancelled {
 		return nil
 	}
 	original := record
@@ -272,14 +271,14 @@ func (publisher *AccountPublisher) BuildQuoteWithSplit(note *nostr.Event, relayH
 	if authorShare < 0 || authorShare > 99 {
 		return nil, fmt.Errorf("author share must be between 0 and 99 percent")
 	}
-	if note == nil || note.ID == "" || note.PubKey == "" {
+	if note == nil || note.ID == nostr.ZeroID || note.PubKey == nostr.ZeroPK {
 		return nil, fmt.Errorf("cannot quote a note without an id and author")
 	}
 	var relays []string
 	if relayHint != "" {
 		relays = []string{relayHint}
 	}
-	reference, err := nip19.EncodeEvent(note.ID, relays, note.PubKey)
+	reference, err := encodeEventReference(note.ID.Hex(), relays, note.PubKey.Hex())
 	if err != nil {
 		return nil, fmt.Errorf("encode promoted note reference: %w", err)
 	}
@@ -289,12 +288,12 @@ func (publisher *AccountPublisher) BuildQuoteWithSplit(note *nostr.Event, relayH
 	}
 	parts = append(parts, "nostr:"+reference)
 	event := &nostr.Event{
-		PubKey:    publisher.relayPubkey,
+		PubKey:    nostr.MustPubKeyFromHex(publisher.relayPubkey),
 		CreatedAt: nostr.Now(),
 		Kind:      1,
 		Tags: nostr.Tags{
-			{"q", note.ID, relayHint, note.PubKey},
-			{"p", note.PubKey},
+			{"q", note.ID.Hex(), relayHint, note.PubKey.Hex()},
+			{"p", note.PubKey.Hex()},
 		},
 		Content: strings.Join(parts, "\n\n"),
 	}
@@ -318,14 +317,14 @@ func (publisher *AccountPublisher) BuildQuoteWithSplit(note *nostr.Event, relayH
 		lookups.Add(1)
 		go func() {
 			defer lookups.Done()
-			authorProfile, authorProfileRelay = publisher.profile(ctx, note.PubKey, sources)
+			authorProfile, authorProfileRelay = publisher.profile(ctx, note.PubKey.Hex(), sources)
 		}()
 	}
 	lookups.Wait()
-	if validRecipientProfile(authorProfile, note.PubKey) && profileHasNoPaymentAddress(authorProfile) {
+	if validRecipientProfile(authorProfile, note.PubKey.Hex()) && profileHasNoPaymentAddress(authorProfile) {
 		authorShare = 0
 	}
-	if !validRecipientProfile(authorProfile, note.PubKey) || !profileHasPaymentAddress(authorProfile) {
+	if !validRecipientProfile(authorProfile, note.PubKey.Hex()) || !profileHasPaymentAddress(authorProfile) {
 		authorProfileRelay = ""
 	}
 	// An unavailable profile must not reject a paid promotion, fabricate a
@@ -333,9 +332,9 @@ func (publisher *AccountPublisher) BuildQuoteWithSplit(note *nostr.Event, relayH
 	// visibility for a new quote. Existing campaign quotes are never replaced.
 	event.Tags = append(event.Tags, nostr.Tag{"zap", publisher.relayPubkey, boardProfileRelay, fmt.Sprint(100 - authorShare)})
 	if authorShare > 0 {
-		event.Tags = append(event.Tags, nostr.Tag{"zap", note.PubKey, authorProfileRelay, fmt.Sprint(authorShare)})
+		event.Tags = append(event.Tags, nostr.Tag{"zap", note.PubKey.Hex(), authorProfileRelay, fmt.Sprint(authorShare)})
 	}
-	if err := event.Sign(publisher.relayPrivkey); err != nil {
+	if err := signEvent(event, publisher.relayPrivkey); err != nil {
 		return nil, fmt.Errorf("sign promotion quote: %w", err)
 	}
 	return event, nil
@@ -343,7 +342,7 @@ func (publisher *AccountPublisher) BuildQuoteWithSplit(note *nostr.Event, relayH
 
 func (publisher *AccountPublisher) buildDeletion(quoteID string) (*nostr.Event, error) {
 	event := &nostr.Event{
-		PubKey:    publisher.relayPubkey,
+		PubKey:    nostr.MustPubKeyFromHex(publisher.relayPubkey),
 		CreatedAt: nostr.Now(),
 		Kind:      5,
 		Tags: nostr.Tags{
@@ -352,7 +351,7 @@ func (publisher *AccountPublisher) buildDeletion(quoteID string) (*nostr.Event, 
 		},
 		Content: "",
 	}
-	if err := event.Sign(publisher.relayPrivkey); err != nil {
+	if err := signEvent(event, publisher.relayPrivkey); err != nil {
 		return nil, fmt.Errorf("sign quote deletion: %w", err)
 	}
 	return event, nil
@@ -368,7 +367,7 @@ func (publisher *AccountPublisher) RemovePost(postID string) (int64, error) {
 	if !ok || quote == nil || quote.Event == nil {
 		return publisher.storage.RemovePost(postID)
 	}
-	deletion, err := publisher.buildDeletion(quote.Event.ID)
+	deletion, err := publisher.buildDeletion(quote.Event.ID.Hex())
 	if err != nil {
 		return 0, err
 	}
@@ -450,7 +449,7 @@ func (s *Storage) ExtendAccountPublicationTargets(key, eventID string, targets [
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	record := s.accountPublications[key]
-	if record == nil || record.Event == nil || record.Event.ID != eventID || record.Cancelled {
+	if record == nil || record.Event == nil || record.Event.ID.Hex() != eventID || record.Cancelled {
 		return fmt.Errorf("publication is no longer pending")
 	}
 	updated := cloneAccountPublication(record)
@@ -488,7 +487,7 @@ func (publisher *AccountPublisher) publishPending(ctx context.Context) int {
 			}
 			stop()
 			destinations = safeRelayCandidates(destinations)
-			if err := publisher.storage.ExtendAccountPublicationTargets(job.Key, job.Record.Event.ID, destinations); err != nil {
+			if err := publisher.storage.ExtendAccountPublicationTargets(job.Key, job.Record.Event.ID.Hex(), destinations); err != nil {
 				log.Printf("Could not persist publication routing: %v", err)
 				continue
 			}
@@ -515,7 +514,7 @@ func (publisher *AccountPublisher) publishPending(ctx context.Context) int {
 		for result := range results {
 			if result.err != nil {
 				log.Printf("Account %s %s was not accepted by %s: %v",
-					job.Record.Type, short(job.Record.Event.ID, 8), result.relay, result.err)
+					job.Record.Type, short(job.Record.Event.ID.Hex(), 8), result.relay, result.err)
 				continue
 			}
 			accepted = append(accepted, result.relay)
@@ -523,13 +522,13 @@ func (publisher *AccountPublisher) publishPending(ctx context.Context) int {
 		if len(accepted) == 0 {
 			continue
 		}
-		if err := publisher.storage.MarkAccountPublicationDelivered(job.Key, job.Record.Event.ID, accepted); err != nil {
+		if err := publisher.storage.MarkAccountPublicationDelivered(job.Key, job.Record.Event.ID.Hex(), accepted); err != nil {
 			log.Printf("Could not save account %s delivery for %s: %v",
-				job.Record.Type, short(job.Record.Event.ID, 8), err)
+				job.Record.Type, short(job.Record.Event.ID.Hex(), 8), err)
 			continue
 		}
 		log.Printf("Account %s %s reached %d/%d pending relays",
-			job.Record.Type, short(job.Record.Event.ID, 8), len(accepted), len(job.Pending))
+			job.Record.Type, short(job.Record.Event.ID.Hex(), 8), len(accepted), len(job.Pending))
 	}
 
 	remaining := publisher.storage.PendingAccountPublications()
@@ -556,8 +555,8 @@ func publishSignedEvent(ctx context.Context, relayURL string, event *nostr.Event
 		return err
 	}
 
-	if err := relay.Auth(ctx, func(authEvent *nostr.Event) error {
-		return authEvent.Sign(privkey)
+	if err := relay.Auth(ctx, func(_ context.Context, authEvent *nostr.Event) error {
+		return signEvent(authEvent, privkey)
 	}); err != nil {
 		return fmt.Errorf("relay wanted auth and refused it: %w", err)
 	}

@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 const mainBoardSize = 21
@@ -51,7 +51,7 @@ func quoteAuthorShare(quote *nostr.Event) *int {
 		return nil
 	}
 	for _, tag := range quote.Tags {
-		if len(tag) >= 4 && tag[0] == "zap" && tag[1] != quote.PubKey {
+		if len(tag) >= 4 && tag[0] == "zap" && tag[1] != quote.PubKey.Hex() {
 			share, err := strconv.Atoi(tag[3])
 			if err == nil && share >= 0 && share <= 99 {
 				return &share

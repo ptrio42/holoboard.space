@@ -8,8 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
+	"fiatjaf.com/nostr"
 )
 
 var publicPromoteCommand = regexp.MustCompile(`(?i)^\s*(?:(?:(?:nostr:)?(?:npub1|nprofile1)[023456789acdefghjklmnpqrstuvwxyz]+|@[^\s,:]+)[,:]?\s+)*promote(?:\s+((?:nostr:)?(?:note1|nevent1)[023456789acdefghjklmnpqrstuvwxyz]+|[0-9a-f]{64}))?\s*[.!]?\s*$`)
@@ -20,19 +19,17 @@ type MentionMonitor struct {
 	relaySeckey string
 	storage     *Storage
 	fetcher     *PostFetcher
-	pool        *nostr.SimplePool
 	publisher   *AccountPublisher
 	runner      sync.WaitGroup
 }
 
 // NewMentionMonitor creates a new mention monitor
-func NewMentionMonitor(relayPubkey, relaySeckey string, storage *Storage, fetcher *PostFetcher, pool *nostr.SimplePool) *MentionMonitor {
+func NewMentionMonitor(relayPubkey, relaySeckey string, storage *Storage, fetcher *PostFetcher) *MentionMonitor {
 	return &MentionMonitor{
 		relayPubkey: relayPubkey,
 		relaySeckey: relaySeckey,
 		storage:     storage,
 		fetcher:     fetcher,
-		pool:        pool,
 	}
 }
 
@@ -45,9 +42,8 @@ func (mm *MentionMonitor) Start(ctx context.Context, relays []string) {
 	trustConfiguredRelays(relays)
 	log.Printf("Starting mention monitor for pubkey %s", mm.relayPubkey)
 
-	// Keep relay subscriptions independent. In go-nostr's SubMany, a CLOSED
-	// response from one relay cancels every subscription, leaving this monitor
-	// silent until the process restarts.
+	// Keep relay subscriptions independent so a CLOSED response from one
+	// source cannot stop this monitor on every other relay.
 	events := make(chan *nostr.Event)
 	var watchers sync.WaitGroup
 	for _, url := range relays {
@@ -68,7 +64,7 @@ func (mm *MentionMonitor) Start(ctx context.Context, relays []string) {
 		for event := range events {
 			// Process mention
 			if err := mm.ProcessMention(ctx, event); err != nil {
-				log.Printf("Failed to process mention from %s: %v", event.PubKey, err)
+				log.Printf("Failed to process mention from %s: %v", event.PubKey.Hex(), err)
 			}
 			// Keep the newest event time for diagnostics. Reconnects use the
 			// bounded lookback instead of this watermark to catch late events.
@@ -132,18 +128,18 @@ func (mm *MentionMonitor) followOnce(ctx context.Context, url string, out chan<-
 	since := nostr.Timestamp(time.Now().Add(-maxMentionBacklog).Unix())
 	filter := nostr.Filter{
 		Limit: 200,
-		Kinds: []int{1},
+		Kinds: []nostr.Kind{1},
 		Tags:  nostr.TagMap{"p": []string{mm.relayPubkey}},
-		Since: &since,
+		Since: since,
 	}
-	sub, err := relay.Subscribe(ctx, []nostr.Filter{filter})
+	sub, err := relay.SubscribeFilters(ctx, []nostr.Filter{filter})
 	if err != nil {
 		log.Printf("Mention monitor could not subscribe on %s: %v", url, err)
 		relay.Close()
 		return
 	}
 	defer func() {
-		// go-nostr also calls Unsub from a goroutine when a context ends.
+		// Subscription cleanup can race with the caller cancelling its context.
 		// Wait for that goroutine to finish before closing the connection,
 		// so its final CLOSE write cannot race with Relay.Close.
 		sub.Unsub()
@@ -173,7 +169,8 @@ func (mm *MentionMonitor) followOnce(ctx context.Context, url string, out chan<-
 		case reason := <-sub.ClosedReason:
 			log.Printf("Mention monitor subscription closed by %s: %s", url, reason)
 			return
-		case event, more := <-sub.Events:
+		case received, more := <-sub.Events:
+			event := &received
 			count++
 			if !more {
 				log.Printf("Mention monitor connection closed by %s", url)
@@ -214,11 +211,11 @@ func mentionedNote(mentionEvent *nostr.Event) string {
 // ProcessMention handles a mention event
 func (mm *MentionMonitor) ProcessMention(ctx context.Context, mentionEvent *nostr.Event) error {
 	// Check if already processed
-	if mm.storage.IsMentionProcessed(mentionEvent.ID) {
+	if mm.storage.IsMentionProcessed(mentionEvent.ID.Hex()) {
 		return nil
 	}
 
-	log.Printf("Processing mention from %s: %s", short(mentionEvent.PubKey, 8), short(mentionEvent.Content, 50))
+	log.Printf("Processing mention from %s: %s", short(mentionEvent.PubKey.Hex(), 8), short(mentionEvent.Content, 50))
 
 	noteReference, isCommand := parsePromotionCommand(mentionEvent)
 	if !isCommand {
@@ -228,8 +225,8 @@ func (mm *MentionMonitor) ProcessMention(ctx context.Context, mentionEvent *nost
 		// interrupts: naming the board in a note, to recommend it or argue
 		// about it, came back with instructions nobody asked for. Only the
 		// explicit promote command signals that the author wants a response.
-		log.Printf("Mention %s is not a promotion command, leaving it alone", short(mentionEvent.ID, 8))
-		return mm.storage.MarkMentionProcessed(mentionEvent.ID)
+		log.Printf("Mention %s is not a promotion command, leaving it alone", short(mentionEvent.ID.Hex(), 8))
+		return mm.storage.MarkMentionProcessed(mentionEvent.ID.Hex())
 	}
 
 	if noteReference == "" {
@@ -241,7 +238,7 @@ func (mm *MentionMonitor) ProcessMention(ctx context.Context, mentionEvent *nost
 
 	// Validate note ID format
 	if len(noteID) != 64 {
-		log.Printf("Invalid note ID format in mention %s: %s", mentionEvent.ID, noteID)
+		log.Printf("Invalid note ID format in mention %s: %s", mentionEvent.ID.Hex(), noteID)
 		return mm.SendUsageInstructions(ctx, mentionEvent)
 	}
 
@@ -268,7 +265,7 @@ func (mm *MentionMonitor) ProcessMention(ctx context.Context, mentionEvent *nost
 	}
 
 	// Mark mention as processed
-	return mm.storage.MarkMentionProcessed(mentionEvent.ID)
+	return mm.storage.MarkMentionProcessed(mentionEvent.ID.Hex())
 }
 
 const promotionalReplyCopy = `🚀 Promote on Holoboard
@@ -284,20 +281,20 @@ func (mm *MentionMonitor) buildPromotionalReply(mentionEvent *nostr.Event, noteT
 	if relayHint != "" {
 		relays = []string{relayHint}
 	}
-	reference, err := nip19.EncodeEvent(noteToPromote.ID, relays, noteToPromote.PubKey)
+	reference, err := encodeEventReference(noteToPromote.ID.Hex(), relays, noteToPromote.PubKey.Hex())
 	if err != nil {
 		return nostr.Event{}, fmt.Errorf("encode promoted note reference: %w", err)
 	}
 
 	return nostr.Event{
-		PubKey:    mm.relayPubkey,
+		PubKey:    nostr.MustPubKeyFromHex(mm.relayPubkey),
 		CreatedAt: nostr.Timestamp(time.Now().Unix()),
 		Kind:      1,
 		Tags: nostr.Tags{
-			{"e", mentionEvent.ID, "", "root"},
-			{"p", mentionEvent.PubKey},
-			{"q", noteToPromote.ID, relayHint, noteToPromote.PubKey},
-			{"promoted_note", noteToPromote.ID},
+			{"e", mentionEvent.ID.Hex(), "", "root"},
+			{"p", mentionEvent.PubKey.Hex()},
+			{"q", noteToPromote.ID.Hex(), relayHint, noteToPromote.PubKey.Hex()},
+			{"promoted_note", noteToPromote.ID.Hex()},
 		},
 		Content: promotionalReplyCopy + "\n\nnostr:" + reference,
 	}, nil
@@ -311,21 +308,21 @@ func (mm *MentionMonitor) CreatePromotionalReply(ctx context.Context, mentionEve
 	}
 
 	// Sign the event
-	if err := replyEvent.Sign(mm.relaySeckey); err != nil {
+	if err := signEvent(&replyEvent, mm.relaySeckey); err != nil {
 		return fmt.Errorf("failed to sign reply: %w", err)
 	}
 	if mm.publisher != nil {
-		if err := mm.storage.QueuePromotionalReply(mentionEvent.ID, noteToPromote.ID, mentionEvent.PubKey, &replyEvent, mm.publisher.Targets()); err != nil {
+		if err := mm.storage.QueuePromotionalReply(mentionEvent.ID.Hex(), noteToPromote.ID.Hex(), mentionEvent.PubKey.Hex(), &replyEvent, mm.publisher.Targets()); err != nil {
 			return err
 		}
 		mm.publisher.Wake()
-		log.Printf("Queued promotional reply %s for note %s", short(replyEvent.ID, 8), short(noteToPromote.ID, 8))
+		log.Printf("Queued promotional reply %s for note %s", short(replyEvent.ID.Hex(), 8), short(noteToPromote.ID.Hex(), 8))
 		return nil
 	}
 
 	// Publish to relays
 	relays := mm.fetcher.Relays()
-	log.Printf("Publishing promotional reply %s for note %s", short(replyEvent.ID, 8), short(noteToPromote.ID, 8))
+	log.Printf("Publishing promotional reply %s for note %s", short(replyEvent.ID.Hex(), 8), short(noteToPromote.ID.Hex(), 8))
 
 	for _, relay := range relays {
 		pub, err := connectRelay(ctx, relay)
@@ -345,15 +342,15 @@ func (mm *MentionMonitor) CreatePromotionalReply(ctx context.Context, mentionEve
 
 	// Store the mapping: promotional reply ID -> note to promote ID
 	_, hints, author := quotedNoteReference(&replyEvent)
-	reference, err := nip19.EncodeEvent(noteToPromote.ID, hints, author)
+	reference, err := encodeEventReference(noteToPromote.ID.Hex(), hints, author)
 	if err != nil {
 		return fmt.Errorf("encode promotional reply mapping: %w", err)
 	}
-	if err := mm.storage.AddPromotionalReplyWithRequester(replyEvent.ID, reference, mentionEvent.PubKey); err != nil {
+	if err := mm.storage.AddPromotionalReplyWithRequester(replyEvent.ID.Hex(), reference, mentionEvent.PubKey.Hex()); err != nil {
 		return fmt.Errorf("failed to store promotional reply mapping: %w", err)
 	}
 
-	log.Printf("Created promotional reply %s for note %s", short(replyEvent.ID, 8), short(noteToPromote.ID, 8))
+	log.Printf("Created promotional reply %s for note %s", short(replyEvent.ID.Hex(), 8), short(noteToPromote.ID.Hex(), 8))
 	return nil
 }
 
@@ -373,22 +370,22 @@ I'll reply with the note quoted. Zap that Holoboard reply with any amount to pro
 The more sats, the higher the ranking. Anyone can boost any note!`
 
 	replyEvent := nostr.Event{
-		PubKey:    mm.relayPubkey,
+		PubKey:    nostr.MustPubKeyFromHex(mm.relayPubkey),
 		CreatedAt: nostr.Timestamp(time.Now().Unix()),
 		Kind:      1,
 		Tags: nostr.Tags{
-			{"e", mentionEvent.ID, "", "root"},
-			{"p", mentionEvent.PubKey},
+			{"e", mentionEvent.ID.Hex(), "", "root"},
+			{"p", mentionEvent.PubKey.Hex()},
 		},
 		Content: instructionsContent,
 	}
 
-	if err := replyEvent.Sign(mm.relaySeckey); err != nil {
+	if err := signEvent(&replyEvent, mm.relaySeckey); err != nil {
 		return fmt.Errorf("failed to sign instructions: %w", err)
 	}
 
 	if mm.publisher != nil {
-		if err := mm.storage.QueueAccountReply(mentionEvent.ID, &replyEvent, mm.publisher.Targets()); err != nil {
+		if err := mm.storage.QueueAccountReply(mentionEvent.ID.Hex(), &replyEvent, mm.publisher.Targets()); err != nil {
 			return err
 		}
 		mm.publisher.Wake()
@@ -406,7 +403,7 @@ The more sats, the higher the ranking. Anyone can boost any note!`
 	}
 
 	// Mark as processed so we don't spam
-	return mm.storage.MarkMentionProcessed(mentionEvent.ID)
+	return mm.storage.MarkMentionProcessed(mentionEvent.ID.Hex())
 }
 
 // SendErrorReply sends an error message reply
@@ -414,22 +411,22 @@ func (mm *MentionMonitor) SendErrorReply(ctx context.Context, mentionEvent *nost
 	replyContent := fmt.Sprintf("❌ %s", errorMsg)
 
 	replyEvent := nostr.Event{
-		PubKey:    mm.relayPubkey,
+		PubKey:    nostr.MustPubKeyFromHex(mm.relayPubkey),
 		CreatedAt: nostr.Timestamp(time.Now().Unix()),
 		Kind:      1,
 		Tags: nostr.Tags{
-			{"e", mentionEvent.ID, "", "root"},
-			{"p", mentionEvent.PubKey},
+			{"e", mentionEvent.ID.Hex(), "", "root"},
+			{"p", mentionEvent.PubKey.Hex()},
 		},
 		Content: replyContent,
 	}
 
-	if err := replyEvent.Sign(mm.relaySeckey); err != nil {
+	if err := signEvent(&replyEvent, mm.relaySeckey); err != nil {
 		return fmt.Errorf("failed to sign error reply: %w", err)
 	}
 
 	if mm.publisher != nil {
-		if err := mm.storage.QueueAccountReply(mentionEvent.ID, &replyEvent, mm.publisher.Targets()); err != nil {
+		if err := mm.storage.QueueAccountReply(mentionEvent.ID.Hex(), &replyEvent, mm.publisher.Targets()); err != nil {
 			return err
 		}
 		mm.publisher.Wake()
@@ -447,7 +444,7 @@ func (mm *MentionMonitor) SendErrorReply(ctx context.Context, mentionEvent *nost
 	}
 
 	// Mark as processed
-	return mm.storage.MarkMentionProcessed(mentionEvent.ID)
+	return mm.storage.MarkMentionProcessed(mentionEvent.ID.Hex())
 }
 
 // maxMentionBacklog caps how far back each connection looks for missed mentions.

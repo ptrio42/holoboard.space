@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip04"
-	"github.com/nbd-wtf/go-nostr/nip44"
+	"fiatjaf.com/nostr"
+	"fiatjaf.com/nostr/nip04"
+	"fiatjaf.com/nostr/nip44"
 )
 
 // NWCBackend talks to a Lightning wallet over Nostr Wallet Connect.
@@ -112,7 +111,7 @@ func ParseNWCURI(uri string) (*NWCBackend, error) {
 		return nil, fmt.Errorf("secret is not 64 hex characters")
 	}
 
-	clientPubkey, err := nostr.GetPublicKey(secret)
+	clientPubkey, err := publicKeyForSecret(secret)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive client pubkey from secret: %w", err)
 	}
@@ -175,8 +174,8 @@ func (b *NWCBackend) LoadInfo(ctx context.Context) error {
 	defer relay.Close()
 
 	events, err := relay.QuerySync(ctx, nostr.Filter{
-		Kinds:   []int{nwcKindInfo},
-		Authors: []string{b.walletPubkey},
+		Kinds:   []nostr.Kind{nwcKindInfo},
+		Authors: publicKeys(b.walletPubkey),
 		Limit:   1,
 	})
 	if err != nil {
@@ -240,46 +239,36 @@ func (b *NWCBackend) encryptionScheme() string {
 // encryptFor seals plaintext for the wallet using the given scheme.
 func (b *NWCBackend) encryptFor(scheme, plaintext string) (string, error) {
 	if scheme == encNIP44 {
-		key, err := nip44.GenerateConversationKey(b.walletPubkey, b.secret)
+		key, err := conversationKey(b.walletPubkey, b.secret)
 		if err != nil {
 			return "", fmt.Errorf("failed to derive nip44 conversation key: %w", err)
 		}
 		return nip44Encrypt(plaintext, key)
 	}
 
-	key, err := nip04.ComputeSharedSecret(b.walletPubkey, b.secret)
+	key, err := computeSharedSecret(b.walletPubkey, b.secret)
 	if err != nil {
 		return "", fmt.Errorf("failed to derive nip04 shared secret: %w", err)
 	}
 	return nip04.Encrypt(plaintext, key)
 }
 
-// nip44Encrypt seals plaintext under a freshly generated nonce.
-//
-// go-nostr v0.34.5 cannot generate one itself. nip44.Encrypt means to fill in a
-// random nonce when the caller passes none, but the variable it fills is
-// shadowed by a second := inside the if, so the outer nonce stays nil and
-// messageKeys rejects it with "nonce must be 32 bytes". Supplying our own is
-// the library's documented escape hatch and does exactly what it intended.
-func nip44Encrypt(plaintext string, conversationKey []byte) (string, error) {
-	nonce := make([]byte, 32)
-	if _, err := rand.Read(nonce); err != nil {
-		return "", fmt.Errorf("failed to generate nip44 nonce: %w", err)
-	}
-	return nip44.Encrypt(plaintext, conversationKey, nip44.WithCustomNonce(nonce))
+// nip44Encrypt uses the library's random nonce generation (fixed in this successor).
+func nip44Encrypt(plaintext string, conversationKey [32]byte) (string, error) {
+	return nip44.Encrypt(plaintext, conversationKey)
 }
 
 // decryptFrom opens ciphertext that the wallet sealed with the given scheme.
 func (b *NWCBackend) decryptFrom(scheme, ciphertext string) (string, error) {
 	if scheme == encNIP44 {
-		key, err := nip44.GenerateConversationKey(b.walletPubkey, b.secret)
+		key, err := conversationKey(b.walletPubkey, b.secret)
 		if err != nil {
 			return "", fmt.Errorf("failed to derive nip44 conversation key: %w", err)
 		}
 		return nip44.Decrypt(ciphertext, key)
 	}
 
-	key, err := nip04.ComputeSharedSecret(b.walletPubkey, b.secret)
+	key, err := computeSharedSecret(b.walletPubkey, b.secret)
 	if err != nil {
 		return "", fmt.Errorf("failed to derive nip04 shared secret: %w", err)
 	}
@@ -359,7 +348,7 @@ func (b *NWCBackend) request(ctx context.Context, method string, params any, res
 	}
 
 	req := nostr.Event{
-		PubKey:    b.clientPubkey,
+		PubKey:    nostr.MustPubKeyFromHex(b.clientPubkey),
 		CreatedAt: nostr.Now(),
 		Kind:      nwcKindRequest,
 		Tags:      nostr.Tags{{"p", b.walletPubkey}},
@@ -368,7 +357,7 @@ func (b *NWCBackend) request(ctx context.Context, method string, params any, res
 	if scheme == encNIP44 {
 		req.Tags = append(req.Tags, nostr.Tag{"encryption", encNIP44})
 	}
-	if err := req.Sign(b.secret); err != nil {
+	if err := signEvent(&req, b.secret); err != nil {
 		return fmt.Errorf("failed to sign %s request: %w", method, err)
 	}
 
@@ -382,10 +371,10 @@ func (b *NWCBackend) request(ctx context.Context, method string, params any, res
 	// Subscribe before publishing. A wallet can answer faster than we could
 	// open a subscription afterwards, and the reply is ephemeral, so missing it
 	// means it is gone for good.
-	sub, err := relay.Subscribe(ctx, nostr.Filters{{
-		Kinds:   []int{nwcKindResponse},
-		Authors: []string{b.walletPubkey},
-		Tags:    nostr.TagMap{"e": []string{req.ID}, "p": []string{b.clientPubkey}},
+	sub, err := relay.SubscribeFilters(ctx, []nostr.Filter{{
+		Kinds:   []nostr.Kind{nwcKindResponse},
+		Authors: publicKeys(b.walletPubkey),
+		Tags:    nostr.TagMap{"e": []string{req.ID.Hex()}, "p": []string{b.clientPubkey}},
 	}})
 	if err != nil {
 		return fmt.Errorf("failed to subscribe for %s response: %w", method, err)
@@ -401,11 +390,12 @@ func (b *NWCBackend) request(ctx context.Context, method string, params any, res
 		case <-ctx.Done():
 			return fmt.Errorf("timed out waiting for %s response: %w", method, ctx.Err())
 
-		case evt, ok := <-sub.Events:
+		case received, ok := <-sub.Events:
+			evt := &received
 			if !ok {
 				return fmt.Errorf("subscription closed while waiting for %s response", method)
 			}
-			if evt == nil || evt.PubKey != b.walletPubkey {
+			if evt == nil || evt.PubKey.Hex() != b.walletPubkey {
 				continue
 			}
 
@@ -607,11 +597,11 @@ func (b *NWCBackend) watchOnce(ctx context.Context, ch chan PaidInvoice) (delive
 	defer relay.Close()
 
 	since := nostr.Now()
-	sub, err := relay.Subscribe(ctx, nostr.Filters{{
-		Kinds:   []int{nwcKindNotificationNIP04, nwcKindNotificationNIP44},
-		Authors: []string{b.walletPubkey},
+	sub, err := relay.SubscribeFilters(ctx, []nostr.Filter{{
+		Kinds:   []nostr.Kind{nwcKindNotificationNIP04, nwcKindNotificationNIP44},
+		Authors: publicKeys(b.walletPubkey),
 		Tags:    nostr.TagMap{"p": []string{b.clientPubkey}},
-		Since:   &since,
+		Since:   since,
 	}})
 	if err != nil {
 		log.Printf("NWC: failed to subscribe for notifications: %v", err)
@@ -626,17 +616,18 @@ func (b *NWCBackend) watchOnce(ctx context.Context, ch chan PaidInvoice) (delive
 		case <-ctx.Done():
 			return delivered
 
-		case evt, ok := <-sub.Events:
+		case received, ok := <-sub.Events:
+			evt := &received
 			if !ok {
 				return delivered
 			}
-			if evt == nil || evt.PubKey != b.walletPubkey {
+			if evt == nil || evt.PubKey.Hex() != b.walletPubkey {
 				continue
 			}
 
 			paid, err := b.parsePaymentNotification(evt)
 			if err != nil {
-				log.Printf("NWC: ignoring notification %s: %v", short(evt.ID, 8), err)
+				log.Printf("NWC: ignoring notification %s: %v", short(evt.ID.Hex(), 8), err)
 				continue
 			}
 			if paid == nil {

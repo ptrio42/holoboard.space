@@ -9,9 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip04"
-	"github.com/nbd-wtf/go-nostr/nip19"
+	"fiatjaf.com/nostr"
+	"fiatjaf.com/nostr/nip04"
 )
 
 const (
@@ -136,7 +135,7 @@ func newPromotionNotification(post *PromotedPost, contact *PromotionContact, amo
 }
 
 func noteReference(id string) string {
-	note, err := nip19.EncodeNote(id)
+	note, err := encodeNoteReference(id)
 	if err != nil {
 		return id
 	}
@@ -368,10 +367,10 @@ func (s *Storage) markOutboundDMDelivered(key, eventID string, accepted []string
 		return nil
 	}
 	if senderCopy {
-		if message.SenderEvent == nil || message.SenderEvent.ID != eventID {
+		if message.SenderEvent == nil || message.SenderEvent.ID.Hex() != eventID {
 			return nil
 		}
-	} else if message.Event == nil || message.Event.ID != eventID {
+	} else if message.Event == nil || message.Event.ID.Hex() != eventID {
 		return nil
 	}
 	originalNotifications := cloneNotificationMap(s.notifications)
@@ -536,7 +535,7 @@ func (dm *DMMonitor) publishPendingDM(ctx context.Context, message *OutboundDM) 
 		} else {
 			event, err = legacyDM(message.Content, message.Recipient, dm.relayPubkey, dm.relayPrivkey)
 			if event != nil {
-				messageID = event.ID
+				messageID = event.ID.Hex()
 			}
 		}
 		if err != nil {
@@ -571,7 +570,7 @@ func (dm *DMMonitor) publishPendingDM(ctx context.Context, message *OutboundDM) 
 		accepted = append(accepted, target)
 	}
 	if len(accepted) > 0 {
-		if err := dm.storage.markOutboundDMDelivered(message.Key, message.Event.ID, accepted, false); err != nil {
+		if err := dm.storage.markOutboundDMDelivered(message.Key, message.Event.ID.Hex(), accepted, false); err != nil {
 			log.Printf("Failed to record queued DM %s delivery: %v", message.Key, err)
 		}
 	}
@@ -592,7 +591,7 @@ func (dm *DMMonitor) publishPendingDM(ctx context.Context, message *OutboundDM) 
 		senderAccepted = append(senderAccepted, target)
 	}
 	if len(senderAccepted) > 0 {
-		if err := dm.storage.markOutboundDMDelivered(message.Key, message.SenderEvent.ID, senderAccepted, true); err != nil {
+		if err := dm.storage.markOutboundDMDelivered(message.Key, message.SenderEvent.ID.Hex(), senderAccepted, true); err != nil {
 			log.Printf("Failed to record queued DM sender-copy delivery %s: %v", message.Key, err)
 		}
 	}
@@ -608,10 +607,10 @@ func legacyDM(content, recipient, senderPubkey, senderPrivkey string) (*nostr.Ev
 		return nil, err
 	}
 	event := &nostr.Event{
-		PubKey: senderPubkey, CreatedAt: nostr.Now(), Kind: 4,
+		PubKey: nostr.MustPubKeyFromHex(senderPubkey), CreatedAt: nostr.Now(), Kind: 4,
 		Tags: nostr.Tags{{"p", recipient}}, Content: encrypted,
 	}
-	if err := event.Sign(senderPrivkey); err != nil {
+	if err := signEvent(event, senderPrivkey); err != nil {
 		return nil, err
 	}
 	return event, nil
@@ -620,7 +619,7 @@ func legacyDM(content, recipient, senderPubkey, senderPrivkey string) (*nostr.Ev
 // Small wrappers keep encryption injectable at the file boundary and make the
 // construction path shared with the existing synchronous code.
 func nip04SharedSecret(pubkey, privkey string) ([]byte, error) {
-	return nip04.ComputeSharedSecret(pubkey, privkey)
+	return computeSharedSecret(pubkey, privkey)
 }
 
 func nip04Encrypt(content string, secret []byte) (string, error) {

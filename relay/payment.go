@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
+	"fiatjaf.com/nostr"
+	"fiatjaf.com/nostr/nip19"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/zpay32"
-	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
 // PaymentMonitor handles zap events and payment verification
@@ -70,7 +70,7 @@ func NewPaymentMonitor(storage *Storage, relayPubkey string, fetcher *PostFetche
 
 // ProcessZap processes a zap event (kind 9735)
 func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event) error {
-	if pm.storage.IsZapProcessed(zapEvent.ID) {
+	if pm.storage.IsZapProcessed(zapEvent.ID.Hex()) {
 		return nil
 	}
 
@@ -81,7 +81,7 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 	// invented string bought whatever rank they felt like.
 	details, err := ValidateZapReceipt(zapEvent, pm.relayPubkey, pm.zapValidator)
 	if err != nil {
-		return fmt.Errorf("rejected zap %s: %w", short(zapEvent.ID, 8), err)
+		return fmt.Errorf("rejected zap %s: %w", short(zapEvent.ID.Hex(), 8), err)
 	}
 
 	if _, settled := pm.storage.InvoiceReceipt(details.PaymentHash); settled {
@@ -97,7 +97,7 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 	amountSats := details.AmountSats
 	bolt11 := firstTag(zapEvent, "bolt11")
 
-	log.Printf("Zap %s verified: %d sats", short(zapEvent.ID, 8), amountSats)
+	log.Printf("Zap %s verified: %d sats", short(zapEvent.ID.Hex(), 8), amountSats)
 
 	// Extract the post ID from multiple possible sources, with priority order:
 	// 1. HIGHEST PRIORITY: Check if zapped event is a promotional reply (from mention flow)
@@ -190,7 +190,7 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 		return fmt.Errorf("invalid post ID format: %s", postID)
 	}
 
-	log.Printf("Received zap %s for post %s: %d sats", zapEvent.ID, postID, amountSats)
+	log.Printf("Received zap %s for post %s: %d sats", zapEvent.ID.Hex(), postID, amountSats)
 
 	post, exists := pm.storage.GetPost(postID)
 	var event *nostr.Event
@@ -216,7 +216,7 @@ func (pm *PaymentMonitor) ProcessZap(ctx context.Context, zapEvent *nostr.Event)
 	if pm.accountPublisher != nil {
 		targets = pm.accountPublisher.Targets()
 	}
-	credited, err := pm.storage.CreditZapWithPublicationAndContact(postID, amountSats, event, zapEvent.ID, details.PaymentHash, quote, targets, contact)
+	credited, err := pm.storage.CreditZapWithPublicationAndContact(postID, amountSats, event, zapEvent.ID.Hex(), details.PaymentHash, quote, targets, contact)
 	if err != nil {
 		return fmt.Errorf("failed to credit zap: %w", err)
 	}
@@ -304,15 +304,15 @@ func (pm *PaymentMonitor) getPromotedNoteFromChain(promotionalReplyID string) (s
 	defer cancel()
 
 	// Step 1: Fetch the promotional reply
-	promotionalReply, err := pm.fetchEvent(ctx, promotionalReplyID, []int{1}) // kind:1 notes
+	promotionalReply, err := pm.fetchEvent(ctx, promotionalReplyID, []nostr.Kind{1}) // kind:1 notes
 	if err != nil {
 		return "", nil, "", fmt.Errorf("failed to fetch promotional reply: %w", err)
 	}
 
-	if promotionalReply.PubKey != pm.relayPubkey || promotionalReply.GetID() != promotionalReply.ID {
+	if promotionalReply.PubKey.Hex() != pm.relayPubkey || promotionalReply.GetID().Hex() != promotionalReply.ID.Hex() {
 		return "", nil, "", fmt.Errorf("payment target is not a Holoboard post")
 	}
-	if valid, err := promotionalReply.CheckSignature(); err != nil || !valid {
+	if valid, err := verifyNostrEvent(promotionalReply); err != nil || !valid {
 		return "", nil, "", fmt.Errorf("invalid Holoboard post signature")
 	}
 	quotedID, quotedHints, quotedAuthor := quotedNoteReference(promotionalReply)
@@ -338,7 +338,7 @@ func (pm *PaymentMonitor) getPromotedNoteFromChain(promotionalReplyID string) (s
 	log.Printf("Found mention ID %s from promotional reply %s", short(mentionID, 8), short(promotionalReplyID, 8))
 
 	// Step 3: Fetch the original mention
-	mention, err := pm.fetchEvent(ctx, mentionID, []int{1}) // kind:1 notes
+	mention, err := pm.fetchEvent(ctx, mentionID, []nostr.Kind{1}) // kind:1 notes
 	if err != nil {
 		if quotedID != "" {
 			return quotedID, quotedHints, quotedAuthor, nil
@@ -369,7 +369,7 @@ func (pm *PaymentMonitor) getPromotedNoteFromChain(promotionalReplyID string) (s
 }
 
 // fetchEvent fetches a single event by ID from configured relays
-func (pm *PaymentMonitor) fetchEvent(ctx context.Context, eventID string, kinds []int) (*nostr.Event, error) {
+func (pm *PaymentMonitor) fetchEvent(ctx context.Context, eventID string, kinds []nostr.Kind) (*nostr.Event, error) {
 	if pm.fetcher == nil {
 		return nil, fmt.Errorf("no fetcher configured")
 	}
@@ -382,7 +382,7 @@ func (pm *PaymentMonitor) fetchEvent(ctx context.Context, eventID string, kinds 
 	// Create a filter for this specific event
 	filters := []nostr.Filter{
 		{
-			IDs:   []string{eventID},
+			IDs:   eventIDs(eventID),
 			Kinds: kinds,
 			Limit: 1,
 		},
@@ -398,7 +398,7 @@ func (pm *PaymentMonitor) fetchEvent(ctx context.Context, eventID string, kinds 
 		defer relay.Close()
 
 		// Query for the event
-		sub, err := relay.Subscribe(ctx, filters)
+		sub, err := relay.SubscribeFilters(ctx, filters)
 		if err != nil {
 			log.Printf("Failed to subscribe to relay %s: %v", relayURL, err)
 			continue
@@ -406,7 +406,11 @@ func (pm *PaymentMonitor) fetchEvent(ctx context.Context, eventID string, kinds 
 
 		// Wait for the event (with timeout)
 		select {
-		case event := <-sub.Events:
+		case received, ok := <-sub.Events:
+			event := &received
+			if !ok {
+				return nil, errLookupIncomplete
+			}
 			if event != nil {
 				log.Printf("Fetched event %s from %s", short(eventID, 8), relayURL)
 				return event, nil
@@ -610,7 +614,7 @@ func queryAll(ctx context.Context, relays []string, postID string) (*nostr.Event
 				return
 			}
 			defer relay.Close()
-			sub, err := relay.Subscribe(ctx, []nostr.Filter{{IDs: []string{postID}, Limit: 1}})
+			sub, err := relay.SubscribeFilters(ctx, []nostr.Filter{{IDs: eventIDs(postID), Limit: 1}})
 			if err != nil {
 				answer.err = errLookupIncomplete
 				return
@@ -618,15 +622,16 @@ func queryAll(ctx context.Context, relays []string, postID string) (*nostr.Event
 			defer sub.Unsub()
 			for {
 				select {
-				case event, ok := <-sub.Events:
+				case received, ok := <-sub.Events:
+					event := &received
 					if !ok {
 						answer.err = errLookupIncomplete
 						return
 					}
-					if event.ID != postID {
+					if event.ID.Hex() != postID {
 						continue
 					}
-					valid, err := event.CheckSignature()
+					valid, err := verifyNostrEvent(event)
 					if err != nil || !valid {
 						continue
 					}
@@ -733,12 +738,13 @@ func normalizeEventID(identifier string) string {
 
 		switch prefix {
 		case "note":
-			// note is a direct hex event ID
-			return strings.ToLower(value.(string))
+			if pointer, ok := value.(nostr.EventPointer); ok {
+				return pointer.ID.Hex()
+			}
 		case "nevent":
 			// nevent contains event pointer with additional data
 			if ep, ok := value.(nostr.EventPointer); ok {
-				return strings.ToLower(ep.ID)
+				return strings.ToLower(ep.ID.Hex())
 			}
 		}
 	}
@@ -842,5 +848,5 @@ func noteHints(reference string) (relays []string, author string) {
 	if !ok {
 		return nil, ""
 	}
-	return pointer.Relays, pointer.Author
+	return pointer.Relays, referenceAuthor(pointer.Author)
 }

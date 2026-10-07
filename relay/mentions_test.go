@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 // A quote can carry the target while the text carries explicit intent.

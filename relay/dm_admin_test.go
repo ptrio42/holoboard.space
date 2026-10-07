@@ -3,9 +3,6 @@ package main
 import (
 	"context"
 	"testing"
-
-	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
 // adminFixture builds a monitor with no relays, so replies fail to publish and
@@ -15,13 +12,13 @@ func adminFixture(t *testing.T) (*DMMonitor, *Storage, string) {
 	t.Helper()
 
 	storage := newTestStorage(t)
-	postID := seedPromotedPost(t, storage, nostr.GeneratePrivateKey())
+	postID := seedPromotedPost(t, storage, generatePrivateKey())
 
 	monitor := NewPaymentMonitor(storage, "relay", NewPostFetcher(nil), NewLNURLResolver())
 	invoices := NewInvoiceManager(NewMockLightningBackend(), storage, monitor, 1000)
 
-	relayPrivkey := nostr.GeneratePrivateKey()
-	relayPubkey, _ := nostr.GetPublicKey(relayPrivkey)
+	relayPrivkey := generatePrivateKey()
+	relayPubkey, _ := publicKeyForSecret(relayPrivkey)
 
 	dm := NewDMMonitor(nil, relayPubkey, relayPrivkey, invoices, storage)
 	// Nothing here should touch the network; finding a real inbox would.
@@ -34,11 +31,11 @@ func adminFixture(t *testing.T) (*DMMonitor, *Storage, string) {
 func TestOnlyTheAdminCanRemove(t *testing.T) {
 	dm, storage, postID := adminFixture(t)
 
-	adminPrivkey := nostr.GeneratePrivateKey()
-	adminPubkey, _ := nostr.GetPublicKey(adminPrivkey)
+	adminPrivkey := generatePrivateKey()
+	adminPubkey, _ := publicKeyForSecret(adminPrivkey)
 	dm.WithAdmin(adminPubkey)
 
-	strangerPubkey, _ := nostr.GetPublicKey(nostr.GeneratePrivateKey())
+	strangerPubkey, _ := publicKeyForSecret(generatePrivateKey())
 
 	// A stranger asking is ignored, and told nothing.
 	if err := dm.handleCommand(context.Background(), strangerPubkey, "REMOVE "+postID, "", true); err != nil {
@@ -79,7 +76,7 @@ func TestNoAdminConfiguredMeansNobodyCanRemove(t *testing.T) {
 func TestAdminRestoreByDM(t *testing.T) {
 	dm, storage, postID := adminFixture(t)
 
-	adminPubkey, _ := nostr.GetPublicKey(nostr.GeneratePrivateKey())
+	adminPubkey, _ := publicKeyForSecret(generatePrivateKey())
 	dm.WithAdmin(adminPubkey)
 
 	_ = dm.handleCommand(context.Background(), adminPubkey, "REMOVE "+postID, "", true)
@@ -97,10 +94,10 @@ func TestAdminRestoreByDM(t *testing.T) {
 func TestAdminAcceptsPastedReferences(t *testing.T) {
 	dm, storage, postID := adminFixture(t)
 
-	adminPubkey, _ := nostr.GetPublicKey(nostr.GeneratePrivateKey())
+	adminPubkey, _ := publicKeyForSecret(generatePrivateKey())
 	dm.WithAdmin(adminPubkey)
 
-	encoded, err := nip19.EncodeNote(postID)
+	encoded, err := encodeNoteReference(postID)
 	if err != nil {
 		t.Fatalf("failed to encode: %v", err)
 	}
@@ -124,9 +121,9 @@ func TestUnknownCommandsAreIgnored(t *testing.T) {
 }
 
 func TestNormalizePubkey(t *testing.T) {
-	privkey := nostr.GeneratePrivateKey()
-	pubkey, _ := nostr.GetPublicKey(privkey)
-	npub, err := nip19.EncodePublicKey(pubkey)
+	privkey := generatePrivateKey()
+	pubkey, _ := publicKeyForSecret(privkey)
+	npub, err := encodePublicKey(pubkey)
 	if err != nil {
 		t.Fatalf("failed to encode: %v", err)
 	}
@@ -142,7 +139,7 @@ func TestNormalizePubkey(t *testing.T) {
 		}
 	}
 
-	note, _ := nip19.EncodeNote(pubkey)
+	note, _ := encodeNoteReference(pubkey)
 	for _, bad := range []string{"", "nonsense", "npub1notreal", note} {
 		if _, err := normalizePubkey(bad); err == nil {
 			t.Errorf("%q was accepted as a pubkey", bad)

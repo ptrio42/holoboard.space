@@ -7,7 +7,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 var backfillSlots = make(chan struct{}, 4)
@@ -37,14 +37,14 @@ func backfillRelay(ctx context.Context, relay *nostr.Relay, filter nostr.Filter,
 			if event.CreatedAt < oldest {
 				oldest = event.CreatedAt
 			}
-			if seen[event.ID] {
+			if seen[event.ID.Hex()] {
 				continue
 			}
 			if len(seen) >= 4096 {
 				log.Printf("Nostr backlog incomplete on %s: event budget exhausted", relay.URL)
 				return
 			}
-			seen[event.ID] = true
+			seen[event.ID.Hex()] = true
 			added++
 			if err := emit(ctx, event); err != nil {
 				log.Printf("Nostr backlog processing paused on %s: %v", relay.URL, err)
@@ -67,7 +67,7 @@ func backfillRelay(ctx context.Context, relay *nostr.Relay, filter nostr.Filter,
 		}
 		previous = oldest
 		until := oldest
-		filter.Until = &until
+		filter.Until = until
 	}
 	log.Printf("Nostr backlog incomplete on %s: page or event budget exhausted", relay.URL)
 }

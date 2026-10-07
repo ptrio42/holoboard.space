@@ -8,15 +8,15 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
+	"fiatjaf.com/nostr"
+	"fiatjaf.com/nostr/nip19"
 )
 
 func accountPublicationFixture(t *testing.T, targets ...string) (*Storage, *AccountPublisher, *nostr.Event) {
 	t.Helper()
 	storage := newTestStorage(t)
-	privkey := nostr.GeneratePrivateKey()
-	pubkey, err := nostr.GetPublicKey(privkey)
+	privkey := generatePrivateKey()
+	pubkey, err := publicKeyForSecret(privkey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func accountPublicationFixture(t *testing.T, targets ...string) (*Storage, *Acco
 	publisher.profile = func(context.Context, string, []string) (*nostr.Event, string) { return nil, "" }
 	publisher.readRelays = nil
 	note := &nostr.Event{Kind: 1, CreatedAt: nostr.Now(), Tags: nostr.Tags{}, Content: "Worth sharing"}
-	if err := note.Sign(nostr.GeneratePrivateKey()); err != nil {
+	if err := signEvent(note, generatePrivateKey()); err != nil {
 		t.Fatal(err)
 	}
 	return storage, publisher, note
@@ -50,20 +50,20 @@ func TestBuildPromotionQuote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if quote.Kind != 1 || quote.PubKey != publisher.relayPubkey {
-		t.Fatalf("quote identity kind=%d pubkey=%s", quote.Kind, quote.PubKey)
+	if quote.Kind != 1 || quote.PubKey.Hex() != publisher.relayPubkey {
+		t.Fatalf("quote identity kind=%d pubkey=%s", quote.Kind, quote.PubKey.Hex())
 	}
-	if ok, err := quote.CheckSignature(); err != nil || !ok {
+	if ok, err := verifyNostrEvent(quote); err != nil || !ok {
 		t.Fatalf("invalid quote signature: valid=%v err=%v", ok, err)
 	}
 	q := tagByName(quote, "q")
-	wantQ := nostr.Tag{"q", note.ID, "wss://source.example", note.PubKey}
+	wantQ := nostr.Tag{"q", note.ID.Hex(), "wss://source.example", note.PubKey.Hex()}
 	if fmt.Sprint(q) != fmt.Sprint(wantQ) {
 		t.Fatalf("q tag=%v, want %v", q, wantQ)
 	}
 	p := tagByName(quote, "p")
-	if len(p) != 2 || p[1] != note.PubKey {
-		t.Fatalf("p tag=%v, want author %s", p, note.PubKey)
+	if len(p) != 2 || p[1] != note.PubKey.Hex() {
+		t.Fatalf("p tag=%v, want author %s", p, note.PubKey.Hex())
 	}
 	if tagByName(quote, "e") != nil {
 		t.Fatal("top-level quote must not be marked as a reply")
@@ -77,7 +77,7 @@ func TestBuildPromotionQuote(t *testing.T) {
 		t.Fatalf("quote reference is not an nevent: prefix=%q err=%v", prefix, err)
 	}
 	pointer := decoded.(nostr.EventPointer)
-	if pointer.ID != note.ID || pointer.Author != note.PubKey || len(pointer.Relays) != 1 || pointer.Relays[0] != "wss://source.example" {
+	if pointer.ID.Hex() != note.ID.Hex() || pointer.Author != note.PubKey || len(pointer.Relays) != 1 || pointer.Relays[0] != "wss://source.example" {
 		t.Fatalf("quote pointer=%+v", pointer)
 	}
 }
@@ -106,12 +106,12 @@ func TestFirstPaymentQueuesOneDurableQuote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	credited, err := storage.CreditZapWithPublication(note.ID, 21, note, "zap-one", "hash-one", first, publisher.Targets())
+	credited, err := storage.CreditZapWithPublication(note.ID.Hex(), 21, note, "zap-one", "hash-one", first, publisher.Targets())
 	if err != nil || !credited {
 		t.Fatalf("first credit: credited=%v err=%v", credited, err)
 	}
-	record, ok := storage.QuotePublication(note.ID)
-	if !ok || record.Event.ID != first.ID || len(record.Targets) != 2 {
+	record, ok := storage.QuotePublication(note.ID.Hex())
+	if !ok || record.Event.ID.Hex() != first.ID.Hex() || len(record.Targets) != 2 {
 		t.Fatalf("first quote record=%+v", record)
 	}
 
@@ -119,21 +119,21 @@ func TestFirstPaymentQueuesOneDurableQuote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	credited, err = storage.CreditZapWithPublication(note.ID, 5, note, "zap-two", "hash-two", second, publisher.Targets())
+	credited, err = storage.CreditZapWithPublication(note.ID.Hex(), 5, note, "zap-two", "hash-two", second, publisher.Targets())
 	if err != nil || !credited {
 		t.Fatalf("boost credit: credited=%v err=%v", credited, err)
 	}
-	record, _ = storage.QuotePublication(note.ID)
-	if record.Event.ID != first.ID {
-		t.Fatalf("boost replaced quote %s with %s", first.ID, record.Event.ID)
+	record, _ = storage.QuotePublication(note.ID.Hex())
+	if record.Event.ID.Hex() != first.ID.Hex() {
+		t.Fatalf("boost replaced quote %s with %s", first.ID.Hex(), record.Event.ID.Hex())
 	}
 
 	reloaded, err := NewStorage(storage.dataFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, ok = reloaded.QuotePublication(note.ID)
-	if !ok || record.Event.ID != first.ID {
+	record, ok = reloaded.QuotePublication(note.ID.Hex())
+	if !ok || record.Event.ID.Hex() != first.ID.Hex() {
 		t.Fatal("quote did not survive reload")
 	}
 }
@@ -141,8 +141,8 @@ func TestFirstPaymentQueuesOneDurableQuote(t *testing.T) {
 func TestInvoiceSettlementQueuesQuoteThroughPaymentMonitor(t *testing.T) {
 	storage, publisher, note := accountPublicationFixture(t, "wss://one.example")
 	invoice := &PendingInvoice{
-		PostID: note.ID, PaymentHash: "invoice-hash", AmountSats: 34,
-		Event: note, RelayHints: []string{"wss://source.example"}, Author: note.PubKey,
+		PostID: note.ID.Hex(), PaymentHash: "invoice-hash", AmountSats: 34,
+		Event: note, RelayHints: []string{"wss://source.example"}, Author: note.PubKey.Hex(),
 	}
 	if err := storage.AddPendingInvoice(invoice); err != nil {
 		t.Fatal(err)
@@ -152,8 +152,8 @@ func TestInvoiceSettlementQueuesQuoteThroughPaymentMonitor(t *testing.T) {
 	if err := monitor.ProcessInvoicePayment(invoice.PaymentHash, invoice.AmountSats); err != nil {
 		t.Fatal(err)
 	}
-	record, ok := storage.QuotePublication(note.ID)
-	if !ok || record.Event == nil || firstTag(record.Event, "q") != note.ID {
+	record, ok := storage.QuotePublication(note.ID.Hex())
+	if !ok || record.Event == nil || firstTag(record.Event, "q") != note.ID.Hex() {
 		t.Fatalf("invoice settlement did not queue quote: %+v", record)
 	}
 	if err := monitor.ProcessInvoicePayment(invoice.PaymentHash, invoice.AmountSats); err != nil {
@@ -170,7 +170,7 @@ func TestAccountOutboxRetriesOnlyUndeliveredRelaysWithSameEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := storage.CreditZapWithPublication(note.ID, 21, note, "zap", "hash", quote, publisher.Targets()); err != nil {
+	if _, err := storage.CreditZapWithPublication(note.ID.Hex(), 21, note, "zap", "hash", quote, publisher.Targets()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -180,7 +180,7 @@ func TestAccountOutboxRetriesOnlyUndeliveredRelaysWithSameEvent(t *testing.T) {
 	publisher.publish = func(_ context.Context, relay string, event *nostr.Event) error {
 		mu.Lock()
 		defer mu.Unlock()
-		calls[relay] = append(calls[relay], event.ID)
+		calls[relay] = append(calls[relay], event.ID.Hex())
 		if relay == "wss://two.example" && !allowSecond {
 			return fmt.Errorf("temporarily unavailable")
 		}
@@ -189,7 +189,7 @@ func TestAccountOutboxRetriesOnlyUndeliveredRelaysWithSameEvent(t *testing.T) {
 	if remaining := publisher.publishPending(context.Background()); remaining != 1 {
 		t.Fatalf("remaining=%d, want 1", remaining)
 	}
-	record, _ := storage.QuotePublication(note.ID)
+	record, _ := storage.QuotePublication(note.ID.Hex())
 	if len(record.Delivered) != 1 || record.Delivered[0] != "wss://one.example" {
 		t.Fatalf("delivered=%v", record.Delivered)
 	}
@@ -208,8 +208,8 @@ func TestAccountOutboxRetriesOnlyUndeliveredRelaysWithSameEvent(t *testing.T) {
 	}
 	for relay, ids := range calls {
 		for _, id := range ids {
-			if id != quote.ID {
-				t.Fatalf("%s received changing event id %s, want %s", relay, id, quote.ID)
+			if id != quote.ID.Hex() {
+				t.Fatalf("%s received changing event id %s, want %s", relay, id, quote.ID.Hex())
 			}
 		}
 	}
@@ -230,7 +230,7 @@ func TestConcurrentFirstPaymentsQueueOneQuote(t *testing.T) {
 		go func(i int) {
 			defer workers.Done()
 			_, err := storage.CreditZapWithPublication(
-				note.ID, 1, note, fmt.Sprintf("zap-%d", i), fmt.Sprintf("hash-%d", i), quote, publisher.Targets(),
+				note.ID.Hex(), 1, note, fmt.Sprintf("zap-%d", i), fmt.Sprintf("hash-%d", i), quote, publisher.Targets(),
 			)
 			errors <- err
 		}(i)
@@ -242,12 +242,12 @@ func TestConcurrentFirstPaymentsQueueOneQuote(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	post, _ := storage.GetPost(note.ID)
+	post, _ := storage.GetPost(note.ID.Hex())
 	if post.TotalSatsPaid != payments {
 		t.Fatalf("total=%d, want %d", post.TotalSatsPaid, payments)
 	}
-	record, ok := storage.QuotePublication(note.ID)
-	if !ok || record.Event.ID != quote.ID || len(storage.accountPublications) != 1 {
+	record, ok := storage.QuotePublication(note.ID.Hex())
+	if !ok || record.Event.ID.Hex() != quote.ID.Hex() || len(storage.accountPublications) != 1 {
 		t.Fatalf("concurrent quote record=%+v publications=%d", record, len(storage.accountPublications))
 	}
 }
@@ -258,13 +258,13 @@ func TestDeliverySaveFailureRetriesSameEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := storage.CreditZapWithPublication(note.ID, 21, note, "zap", "hash", quote, publisher.Targets()); err != nil {
+	if _, err := storage.CreditZapWithPublication(note.ID.Hex(), 21, note, "zap", "hash", quote, publisher.Targets()); err != nil {
 		t.Fatal(err)
 	}
 
 	var ids []string
 	publisher.publish = func(_ context.Context, _ string, event *nostr.Event) error {
-		ids = append(ids, event.ID)
+		ids = append(ids, event.ID.Hex())
 		return nil
 	}
 	path := storage.dataFile
@@ -276,8 +276,8 @@ func TestDeliverySaveFailureRetriesSameEvent(t *testing.T) {
 	if remaining := publisher.publishPending(context.Background()); remaining != 0 {
 		t.Fatalf("retry left remaining=%d", remaining)
 	}
-	if len(ids) != 2 || ids[0] != ids[1] || ids[0] != quote.ID {
-		t.Fatalf("retry event ids=%v, want %s twice", ids, quote.ID)
+	if len(ids) != 2 || ids[0] != ids[1] || ids[0] != quote.ID.Hex() {
+		t.Fatalf("retry event ids=%v, want %s twice", ids, quote.ID.Hex())
 	}
 }
 
@@ -289,13 +289,13 @@ func TestPaymentAndQuoteRollBackTogether(t *testing.T) {
 	}
 	path := storage.dataFile
 	storage.dataFile = filepath.Join(t.TempDir(), "missing", "board.json")
-	if _, err := storage.CreditZapWithPublication(note.ID, 21, note, "zap", "hash", quote, publisher.Targets()); err == nil {
+	if _, err := storage.CreditZapWithPublication(note.ID.Hex(), 21, note, "zap", "hash", quote, publisher.Targets()); err == nil {
 		t.Fatal("expected save failure")
 	}
-	if _, ok := storage.GetPost(note.ID); ok {
+	if _, ok := storage.GetPost(note.ID.Hex()); ok {
 		t.Fatal("failed save left promoted post")
 	}
-	if _, ok := storage.QuotePublication(note.ID); ok {
+	if _, ok := storage.QuotePublication(note.ID.Hex()); ok {
 		t.Fatal("failed save left quote outbox record")
 	}
 	if storage.IsZapProcessed("zap") {
@@ -310,7 +310,7 @@ func TestInvoiceAndQuoteRollBackTogether(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invoice := &PendingInvoice{PostID: note.ID, PaymentHash: "invoice-hash", AmountSats: 21, Event: note}
+	invoice := &PendingInvoice{PostID: note.ID.Hex(), PaymentHash: "invoice-hash", AmountSats: 21, Event: note}
 	if err := storage.AddPendingInvoice(invoice); err != nil {
 		t.Fatal(err)
 	}
@@ -319,13 +319,13 @@ func TestInvoiceAndQuoteRollBackTogether(t *testing.T) {
 	if _, err := storage.SettleInvoiceWithPublication(invoice.PaymentHash, note, quote, publisher.Targets()); err == nil {
 		t.Fatal("expected save failure")
 	}
-	if _, ok := storage.GetPost(note.ID); ok {
+	if _, ok := storage.GetPost(note.ID.Hex()); ok {
 		t.Fatal("failed settlement left promoted post")
 	}
 	if _, ok := storage.GetPendingInvoice(invoice.PaymentHash); !ok {
 		t.Fatal("failed settlement lost pending invoice")
 	}
-	if _, ok := storage.QuotePublication(note.ID); ok {
+	if _, ok := storage.QuotePublication(note.ID.Hex()); ok {
 		t.Fatal("failed settlement left quote")
 	}
 	if _, ok := storage.InvoiceReceipt(invoice.PaymentHash); ok {
@@ -340,24 +340,24 @@ func TestRemovalQueuesDeletionAndRestoreDoesNotQuoteAgain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := storage.CreditZapWithPublication(note.ID, 21, note, "zap-one", "hash-one", quote, publisher.Targets()); err != nil {
+	if _, err := storage.CreditZapWithPublication(note.ID.Hex(), 21, note, "zap-one", "hash-one", quote, publisher.Targets()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := publisher.RemovePost(note.ID); err != nil {
+	if _, err := publisher.RemovePost(note.ID.Hex()); err != nil {
 		t.Fatal(err)
 	}
-	quoteRecord, _ := storage.QuotePublication(note.ID)
+	quoteRecord, _ := storage.QuotePublication(note.ID.Hex())
 	if !quoteRecord.Cancelled {
 		t.Fatal("removal did not cancel pending quote")
 	}
-	deletion := storage.accountPublications[deletionPublicationKey(quote.ID)]
+	deletion := storage.accountPublications[deletionPublicationKey(quote.ID.Hex())]
 	if deletion == nil || deletion.Event == nil || deletion.Event.Kind != 5 {
 		t.Fatalf("deletion record=%+v", deletion)
 	}
-	if firstTag(deletion.Event, "e") != quote.ID || firstTag(deletion.Event, "k") != "1" || deletion.Event.Content != "" {
+	if firstTag(deletion.Event, "e") != quote.ID.Hex() || firstTag(deletion.Event, "k") != "1" || deletion.Event.Content != "" {
 		t.Fatalf("invalid deletion event: %+v", deletion.Event)
 	}
-	if ok, err := deletion.Event.CheckSignature(); err != nil || !ok {
+	if ok, err := verifyNostrEvent(deletion.Event); err != nil || !ok {
 		t.Fatalf("invalid deletion signature: valid=%v err=%v", ok, err)
 	}
 	pending := storage.PendingAccountPublications()
@@ -365,22 +365,22 @@ func TestRemovalQueuesDeletionAndRestoreDoesNotQuoteAgain(t *testing.T) {
 		t.Fatalf("pending after removal=%+v", pending)
 	}
 
-	if err := publisher.RestorePost(note.ID); err != nil {
+	if err := publisher.RestorePost(note.ID.Hex()); err != nil {
 		t.Fatal(err)
 	}
 	newQuote, err := publisher.BuildQuote(note, "wss://other.example")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := storage.CreditZapWithPublication(note.ID, 7, note, "zap-two", "hash-two", newQuote, publisher.Targets()); err != nil {
+	if _, err := storage.CreditZapWithPublication(note.ID.Hex(), 7, note, "zap-two", "hash-two", newQuote, publisher.Targets()); err != nil {
 		t.Fatal(err)
 	}
-	quoteRecord, _ = storage.QuotePublication(note.ID)
-	if quoteRecord.Event.ID != quote.ID || !quoteRecord.Cancelled {
+	quoteRecord, _ = storage.QuotePublication(note.ID.Hex())
+	if quoteRecord.Event.ID.Hex() != quote.ID.Hex() || !quoteRecord.Cancelled {
 		t.Fatal("restored note received another quote")
 	}
 
-	if _, err := publisher.RemovePost(note.ID); err != nil {
+	if _, err := publisher.RemovePost(note.ID.Hex()); err != nil {
 		t.Fatal(err)
 	}
 	if len(storage.accountPublications) != 2 {
@@ -394,7 +394,7 @@ func TestRemovalWaitsForInflightQuoteBeforeQueuingDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := storage.CreditZapWithPublication(note.ID, 21, note, "zap", "hash", quote, publisher.Targets()); err != nil {
+	if _, err := storage.CreditZapWithPublication(note.ID.Hex(), 21, note, "zap", "hash", quote, publisher.Targets()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -414,7 +414,7 @@ func TestRemovalWaitsForInflightQuoteBeforeQueuingDeletion(t *testing.T) {
 
 	removed := make(chan error, 1)
 	go func() {
-		_, err := publisher.RemovePost(note.ID)
+		_, err := publisher.RemovePost(note.ID.Hex())
 		removed <- err
 	}()
 	select {
@@ -422,7 +422,7 @@ func TestRemovalWaitsForInflightQuoteBeforeQueuingDeletion(t *testing.T) {
 		t.Fatalf("removal completed while quote was in flight: %v", err)
 	default:
 	}
-	if storage.accountPublications[deletionPublicationKey(quote.ID)] != nil {
+	if storage.accountPublications[deletionPublicationKey(quote.ID.Hex())] != nil {
 		t.Fatal("deletion was queued before the in-flight quote completed")
 	}
 
@@ -431,7 +431,7 @@ func TestRemovalWaitsForInflightQuoteBeforeQueuingDeletion(t *testing.T) {
 	if err := <-removed; err != nil {
 		t.Fatal(err)
 	}
-	deletion := storage.accountPublications[deletionPublicationKey(quote.ID)]
+	deletion := storage.accountPublications[deletionPublicationKey(quote.ID.Hex())]
 	if deletion == nil || deletion.Event == nil {
 		t.Fatal("deletion was not queued after the quote completed")
 	}
@@ -443,18 +443,18 @@ func TestRemovalAndDeletionRollBackTogether(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := storage.CreditZapWithPublication(note.ID, 21, note, "zap", "hash", quote, publisher.Targets()); err != nil {
+	if _, err := storage.CreditZapWithPublication(note.ID.Hex(), 21, note, "zap", "hash", quote, publisher.Targets()); err != nil {
 		t.Fatal(err)
 	}
 	path := storage.dataFile
 	storage.dataFile = filepath.Join(t.TempDir(), "missing", "board.json")
-	if _, err := publisher.RemovePost(note.ID); err == nil {
+	if _, err := publisher.RemovePost(note.ID.Hex()); err == nil {
 		t.Fatal("expected removal save failure")
 	}
-	if _, ok := storage.GetPost(note.ID); !ok || storage.IsRemoved(note.ID) {
+	if _, ok := storage.GetPost(note.ID.Hex()); !ok || storage.IsRemoved(note.ID.Hex()) {
 		t.Fatal("failed removal changed board state")
 	}
-	record, _ := storage.QuotePublication(note.ID)
+	record, _ := storage.QuotePublication(note.ID.Hex())
 	if record.Cancelled {
 		t.Fatal("failed removal cancelled quote")
 	}
@@ -466,29 +466,29 @@ func TestRemovalAndDeletionRollBackTogether(t *testing.T) {
 
 func TestLegacyPostIsNeverBackfilled(t *testing.T) {
 	storage, publisher, note := accountPublicationFixture(t, "wss://one.example")
-	if err := storage.AddPayment(note.ID, 1, note); err != nil {
+	if err := storage.AddPayment(note.ID.Hex(), 1, note); err != nil {
 		t.Fatal(err)
 	}
 	quote, err := publisher.BuildQuote(note, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := storage.CreditZapWithPublication(note.ID, 5, note, "zap-one", "hash-one", quote, publisher.Targets()); err != nil {
+	if _, err := storage.CreditZapWithPublication(note.ID.Hex(), 5, note, "zap-one", "hash-one", quote, publisher.Targets()); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := storage.QuotePublication(note.ID); ok {
+	if _, ok := storage.QuotePublication(note.ID.Hex()); ok {
 		t.Fatal("existing post was backfilled on boost")
 	}
-	if _, err := storage.RemovePost(note.ID); err != nil {
+	if _, err := storage.RemovePost(note.ID.Hex()); err != nil {
 		t.Fatal(err)
 	}
-	if err := storage.RestorePost(note.ID); err != nil {
+	if err := storage.RestorePost(note.ID.Hex()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := storage.CreditZapWithPublication(note.ID, 5, note, "zap-two", "hash-two", quote, publisher.Targets()); err != nil {
+	if _, err := storage.CreditZapWithPublication(note.ID.Hex(), 5, note, "zap-two", "hash-two", quote, publisher.Targets()); err != nil {
 		t.Fatal(err)
 	}
-	record, ok := storage.QuotePublication(note.ID)
+	record, ok := storage.QuotePublication(note.ID.Hex())
 	if !ok || !record.Suppressed || record.Event != nil {
 		t.Fatalf("legacy tombstone=%+v", record)
 	}

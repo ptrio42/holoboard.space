@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"fiatjaf.com/nostr"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/nbd-wtf/go-nostr"
 )
 
 func TestExpiredInvoiceRecoversAfterWalletFailureAndRestart(t *testing.T) {
@@ -50,19 +50,19 @@ func TestExpiredInvoiceRecoversAfterWalletFailureAndRestart(t *testing.T) {
 func TestZapRetryAfterNoteFetchFailure(t *testing.T) {
 	storage := newTestStorage(t)
 	note := &nostr.Event{Kind: 1, CreatedAt: nostr.Now(), Tags: nostr.Tags{}, Content: "Initially unavailable note"}
-	if err := note.Sign(nostr.GeneratePrivateKey()); err != nil {
+	if err := signEvent(note, generatePrivateKey()); err != nil {
 		t.Fatal(err)
 	}
-	zapper := nostr.GeneratePrivateKey()
-	zapperPubkey, err := nostr.GetPublicKey(zapper)
+	zapper := generatePrivateKey()
+	zapperPubkey, err := publicKeyForSecret(zapper)
 	if err != nil {
 		t.Fatal(err)
 	}
-	description := zapRequestJSON(t, nostr.GeneratePrivateKey(), nostr.Tags{{"p", testRelayPubkey}}, note.ID)
+	description := zapRequestJSON(t, generatePrivateKey(), nostr.Tags{{"p", testRelayPubkey}}, note.ID.Hex())
 	receipt := &nostr.Event{Kind: 9735, CreatedAt: nostr.Now(), Tags: nostr.Tags{
 		{"p", testRelayPubkey}, {"description", description}, {"bolt11", mintInvoice(t, 21000, description, &chaincfg.MainNetParams)},
 	}}
-	if err := receipt.Sign(zapper); err != nil {
+	if err := signEvent(receipt, zapper); err != nil {
 		t.Fatal(err)
 	}
 	resolver := seedResolver(zapperPubkey)
@@ -74,7 +74,7 @@ func TestZapRetryAfterNoteFetchFailure(t *testing.T) {
 		t.Fatal("expected temporary note fetch failure")
 	}
 	// The note becomes available after a separate promotion, and the receipt is replayed.
-	if err := storage.AddPayment(note.ID, 1, note); err != nil {
+	if err := storage.AddPayment(note.ID.Hex(), 1, note); err != nil {
 		t.Fatal(err)
 	}
 	reloaded, err := NewStorage(storage.dataFile)
@@ -85,7 +85,7 @@ func TestZapRetryAfterNoteFetchFailure(t *testing.T) {
 	if err := monitor.ProcessZap(context.Background(), receipt); err != nil {
 		t.Fatal(err)
 	}
-	post, _ := reloaded.GetPost(note.ID)
+	post, _ := reloaded.GetPost(note.ID.Hex())
 	if post.TotalSatsPaid != 22 {
 		t.Fatalf("valid zap never credited on replay: total=%d, want 22", post.TotalSatsPaid)
 	}
@@ -121,20 +121,20 @@ func recoverableZap(t *testing.T) (*Storage, *PaymentMonitor, *nostr.Event, *nos
 	t.Helper()
 	storage := newTestStorage(t)
 	note := &nostr.Event{Kind: 1, CreatedAt: nostr.Now(), Tags: nostr.Tags{}, Content: "Recovery test note"}
-	if err := note.Sign(nostr.GeneratePrivateKey()); err != nil {
+	if err := signEvent(note, generatePrivateKey()); err != nil {
 		t.Fatal(err)
 	}
-	if err := storage.AddPayment(note.ID, 1, note); err != nil {
+	if err := storage.AddPayment(note.ID.Hex(), 1, note); err != nil {
 		t.Fatal(err)
 	}
-	key := nostr.GeneratePrivateKey()
-	pubkey, _ := nostr.GetPublicKey(key)
-	description := zapRequestJSON(t, nostr.GeneratePrivateKey(), relayPTag(), note.ID)
+	key := generatePrivateKey()
+	pubkey, _ := publicKeyForSecret(key)
+	description := zapRequestJSON(t, generatePrivateKey(), relayPTag(), note.ID.Hex())
 	receipt := &nostr.Event{Kind: 9735, CreatedAt: nostr.Now(), Tags: nostr.Tags{
 		{"p", testRelayPubkey}, {"description", description},
 		{"bolt11", mintInvoice(t, 21000, description, &chaincfg.MainNetParams)},
 	}}
-	if err := receipt.Sign(key); err != nil {
+	if err := signEvent(receipt, key); err != nil {
 		t.Fatal(err)
 	}
 	return storage, NewPaymentMonitor(storage, testRelayPubkey, NewPostFetcher(nil), seedResolver(pubkey)), note, receipt, key
@@ -151,8 +151,8 @@ func TestZapSaveFailureCanRetryWithoutDuplicateCredit(t *testing.T) {
 	if err := monitor.ProcessZap(context.Background(), receipt); err == nil {
 		t.Fatal("expected save failure")
 	}
-	post, _ := storage.GetPost(note.ID)
-	if post.TotalSatsPaid != 1 || len(post.Payments) != 1 || storage.IsZapProcessed(receipt.ID) {
+	post, _ := storage.GetPost(note.ID.Hex())
+	if post.TotalSatsPaid != 1 || len(post.Payments) != 1 || storage.IsZapProcessed(receipt.ID.Hex()) {
 		t.Fatal("failed save changed credit or deduplication marker")
 	}
 	if _, ok := storage.InvoiceReceipt(details.PaymentHash); ok {
@@ -170,8 +170,8 @@ func TestZapSaveFailureCanRetryWithoutDuplicateCredit(t *testing.T) {
 	if err := monitor.ProcessZap(context.Background(), receipt); err != nil {
 		t.Fatal(err)
 	}
-	post, _ = reloaded.GetPost(note.ID)
-	if post.TotalSatsPaid != 22 || !reloaded.IsZapProcessed(receipt.ID) {
+	post, _ = reloaded.GetPost(note.ID.Hex())
+	if post.TotalSatsPaid != 22 || !reloaded.IsZapProcessed(receipt.ID.Hex()) {
 		t.Fatal("retry did not credit exactly once")
 	}
 }
@@ -180,7 +180,7 @@ func TestConcurrentZapReceiptsCreditSamePaymentOnce(t *testing.T) {
 	storage, monitor, note, receipt, key := recoverableZap(t)
 	other := *receipt
 	other.Tags = append(append(nostr.Tags(nil), receipt.Tags...), nostr.Tag{"alt", "second receipt"})
-	if err := other.Sign(key); err != nil {
+	if err := signEvent(&other, key); err != nil {
 		t.Fatal(err)
 	}
 	var wg sync.WaitGroup
@@ -207,7 +207,7 @@ func TestConcurrentZapReceiptsCreditSamePaymentOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	post, _ := reloaded.GetPost(note.ID)
+	post, _ := reloaded.GetPost(note.ID.Hex())
 	if post.TotalSatsPaid != 22 || len(post.Payments) != 2 {
 		t.Fatal("concurrent receipts duplicated credit")
 	}
@@ -261,13 +261,13 @@ func TestInvalidZapRemainsUnprocessed(t *testing.T) {
 			receipt.Tags[i] = nostr.Tag{"bolt11", "invalid"}
 		}
 	}
-	if err := receipt.Sign(key); err != nil {
+	if err := signEvent(receipt, key); err != nil {
 		t.Fatal(err)
 	}
 	if err := monitor.ProcessZap(context.Background(), receipt); err == nil {
 		t.Fatal("expected validation failure")
 	}
-	if storage.IsZapProcessed(receipt.ID) {
+	if storage.IsZapProcessed(receipt.ID.Hex()) {
 		t.Fatal("invalid zap marked as processed")
 	}
 }
@@ -279,8 +279,8 @@ func TestZapAndWalletNotificationShareInvoiceAllocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	config := testBillboard(note.Content)
-	expireBillboardPost(storage, note.ID)
-	invoice := &PendingInvoice{PostID: note.ID, Event: note, PaymentHash: details.PaymentHash,
+	expireBillboardPost(storage, note.ID.Hex())
+	invoice := &PendingInvoice{PostID: note.ID.Hex(), Event: note, PaymentHash: details.PaymentHash,
 		Invoice: firstTag(receipt, "bolt11"), AmountSats: 21, BillboardFee: 10, Billboard: config,
 		CreatedAt: time.Now().Add(-2 * time.Hour), ExpiresAt: time.Now().Add(-time.Hour)}
 	if err := storage.AddPendingInvoice(invoice); err != nil {
@@ -310,7 +310,7 @@ func TestZapAndWalletNotificationShareInvoiceAllocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	post, _ := reloaded.GetPost(note.ID)
+	post, _ := reloaded.GetPost(note.ID.Hex())
 	result, ok := reloaded.InvoiceReceipt(details.PaymentHash)
 	if !ok || !result.BillboardApplied || result.PromotionSats != 11 || result.BillboardFee != 10 || post.Billboard == nil || post.TotalSatsPaid != 12 {
 		t.Fatal("zap and notification did not preserve stored invoice allocation exactly once")

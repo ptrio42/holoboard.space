@@ -3,9 +3,10 @@ package main
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 // newTestMonitor builds a PaymentMonitor backed by a throwaway data file and a
@@ -39,7 +40,7 @@ func TestProcessZapSurvivesShortEventID(t *testing.T) {
 
 			zapRequest := `{"kind":9734,"tags":[["e","` + id + `"]],"content":""}`
 			zap := &nostr.Event{
-				ID:   "aa" + id + "deadbeef",
+				ID:   nostr.MustIDFromHex(strings.Repeat("a", 64)),
 				Kind: 9735,
 				Tags: nostr.Tags{
 					{"p", relayPubkey},
@@ -67,7 +68,7 @@ func TestProcessZapSurvivesShortCommentID(t *testing.T) {
 
 	zapRequest := `{"kind":9734,"tags":[],"content":"promote note1short"}`
 	zap := &nostr.Event{
-		ID:   "bb00deadbeef",
+		ID:   nostr.MustIDFromHex(strings.Repeat("b", 64)),
 		Kind: 9735,
 		Tags: nostr.Tags{
 			{"p", relayPubkey},

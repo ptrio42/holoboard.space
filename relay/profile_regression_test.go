@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"fiatjaf.com/nostr"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
-	"github.com/nbd-wtf/go-nostr"
 )
 
 func TestRecipientProfileComparesAuthorWriteRelays(t *testing.T) {
@@ -35,8 +35,8 @@ func TestRecipientProfileComparesAuthorWriteRelays(t *testing.T) {
 				writeRelay = "ws" + strings.TrimPrefix(failure.URL, "http")
 			}
 			storage, publisher, note := accountPublicationFixture(t, noteRelay)
-			key := nostr.GeneratePrivateKey()
-			if err := note.Sign(key); err != nil {
+			key := generatePrivateKey()
+			if err := signEvent(note, key); err != nil {
 				t.Fatal(err)
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -63,8 +63,8 @@ func TestRecipientProfileComparesAuthorWriteRelays(t *testing.T) {
 				}{writeRelay, 0, now, test.current, nostr.Tags{}})
 			}
 			for _, fixture := range fixtures {
-				event := &nostr.Event{Kind: fixture.kind, CreatedAt: fixture.at, Content: fixture.content, Tags: fixture.tags}
-				if err := event.Sign(key); err != nil {
+				event := &nostr.Event{Kind: nostr.Kind(fixture.kind), CreatedAt: fixture.at, Content: fixture.content, Tags: fixture.tags}
+				if err := signEvent(event, key); err != nil {
 					t.Fatal(err)
 				}
 				connection, err := nostr.RelayConnect(ctx, fixture.source)
@@ -80,13 +80,13 @@ func TestRecipientProfileComparesAuthorWriteRelays(t *testing.T) {
 					latest = event
 				}
 			}
-			profile, source := findRecipientProfile(ctx, note.PubKey, []string{noteRelay})
+			profile, source := findRecipientProfile(ctx, note.PubKey.Hex(), []string{noteRelay})
 			if test.unavailable {
 				if profile != nil || source != "" {
 					t.Fatal("old empty profile established absence despite unavailable write relay")
 				}
-			} else if profile == nil || profile.ID != latest.ID || source != writeRelay {
-				t.Fatalf("selected stale profile: %+v on %q; expected %s on %q", profile, source, latest.ID, writeRelay)
+			} else if profile == nil || profile.ID.Hex() != latest.ID.Hex() || source != writeRelay {
+				t.Fatalf("selected stale profile: %+v on %q; expected %s on %q", profile, source, latest.ID.Hex(), writeRelay)
 			}
 			support := NewAuthorSupport(storage, NewPostFetcher([]string{noteRelay}))
 			if share := support.campaignShare(ctx, note, 20, nil); share != test.want {
@@ -95,7 +95,7 @@ func TestRecipientProfileComparesAuthorWriteRelays(t *testing.T) {
 			support.client.Transport = supportTransport(func(*http.Request) (*http.Response, error) {
 				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"tag":"payRequest","callback":"https://wallet.example/callback","metadata":"[[\"text/plain\",\"Author support\"]]","minSendable":1000,"maxSendable":1000000}`)), Header: make(http.Header)}, nil
 			})
-			_, endpointError := support.endpoint(ctx, note.PubKey)
+			_, endpointError := support.endpoint(ctx, note.PubKey.Hex())
 			if test.want == 0 && endpointError != errAuthorHasNoAddress {
 				t.Fatalf("new removal not identified: %v", endpointError)
 			}
@@ -114,7 +114,7 @@ func TestRecipientProfileComparesAuthorWriteRelays(t *testing.T) {
 				t.Fatalf("quote share %d, want %d: %v", share, test.want, quote.Tags)
 			}
 			if test.want > 0 && !test.unavailable {
-				splits := quote.Tags.GetAll([]string{"zap"})
+				splits := collectTags(quote.Tags, "zap")
 				if len(splits) != 2 || splits[1][2] != writeRelay {
 					t.Fatalf("quote has a stale author profile hint: %v", splits)
 				}
@@ -128,9 +128,9 @@ func TestRecipientProfileUsesDiscoveryWithoutRelayList(t *testing.T) {
 	previous := discoveryRelays
 	discoveryRelays = []string{index}
 	t.Cleanup(func() { discoveryRelays = previous })
-	key := nostr.GeneratePrivateKey()
+	key := generatePrivateKey()
 	profile := &nostr.Event{Kind: 0, CreatedAt: nostr.Now(), Tags: nostr.Tags{}, Content: `{"lud16":"author@wallet.example"}`}
-	if err := profile.Sign(key); err != nil {
+	if err := signEvent(profile, key); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -144,8 +144,8 @@ func TestRecipientProfileUsesDiscoveryWithoutRelayList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	selected, source := findRecipientProfile(ctx, profile.PubKey, nil)
-	if selected == nil || selected.ID != profile.ID || source != index {
+	selected, source := findRecipientProfile(ctx, profile.PubKey.Hex(), nil)
+	if selected == nil || selected.ID.Hex() != profile.ID.Hex() || source != index {
 		t.Fatalf("discovery profile not found without a relay list: %+v, %q", selected, source)
 	}
 }
@@ -172,7 +172,7 @@ func TestRecipientProfileUnavailableRelaysRespectDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	started := time.Now()
-	key, _ := nostr.GetPublicKey(nostr.GeneratePrivateKey())
+	key, _ := publicKeyForSecret(generatePrivateKey())
 	sourceRelay := "ws" + strings.TrimPrefix(server.URL, "http")
 	trustConfiguredRelays([]string{sourceRelay})
 	profile, source := findRecipientProfile(ctx, key, []string{sourceRelay})
@@ -197,11 +197,11 @@ func TestReplaceableProfilesUseNIP01TieBreak(t *testing.T) {
 		want               bool
 	}{
 		{nil, nil, false},
-		{&nostr.Event{CreatedAt: 2, ID: "b"}, nil, true},
-		{&nostr.Event{CreatedAt: 2, ID: "b"}, &nostr.Event{CreatedAt: 1, ID: "a"}, true},
-		{&nostr.Event{CreatedAt: 1, ID: "a"}, &nostr.Event{CreatedAt: 2, ID: "b"}, false},
-		{&nostr.Event{CreatedAt: 2, ID: "a"}, &nostr.Event{CreatedAt: 2, ID: "b"}, true},
-		{&nostr.Event{CreatedAt: 2, ID: "b"}, &nostr.Event{CreatedAt: 2, ID: "a"}, false},
+		{&nostr.Event{CreatedAt: 2, ID: nostr.MustIDFromHex(strings.Repeat("b", 64))}, nil, true},
+		{&nostr.Event{CreatedAt: 2, ID: nostr.MustIDFromHex(strings.Repeat("b", 64))}, &nostr.Event{CreatedAt: 1, ID: nostr.MustIDFromHex(strings.Repeat("a", 64))}, true},
+		{&nostr.Event{CreatedAt: 1, ID: nostr.MustIDFromHex(strings.Repeat("a", 64))}, &nostr.Event{CreatedAt: 2, ID: nostr.MustIDFromHex(strings.Repeat("b", 64))}, false},
+		{&nostr.Event{CreatedAt: 2, ID: nostr.MustIDFromHex(strings.Repeat("a", 64))}, &nostr.Event{CreatedAt: 2, ID: nostr.MustIDFromHex(strings.Repeat("b", 64))}, true},
+		{&nostr.Event{CreatedAt: 2, ID: nostr.MustIDFromHex(strings.Repeat("b", 64))}, &nostr.Event{CreatedAt: 2, ID: nostr.MustIDFromHex(strings.Repeat("a", 64))}, false},
 	} {
 		if got := newerReplaceableEvent(test.candidate, test.current); got != test.want {
 			t.Fatalf("tie break: %+v", test)
