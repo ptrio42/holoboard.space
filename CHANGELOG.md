@@ -6,6 +6,12 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+### Changed
+
+- Compact the mobile header into a linked H, Promote action and pixel wallet
+  icon above section navigation. Move Help to a single footer link and keep
+  new-note counts compact on phones.
+
 ## 2026-10-07
 
 ### Fixed

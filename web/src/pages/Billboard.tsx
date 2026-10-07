@@ -56,7 +56,7 @@ export default function Billboard() {
         window.history.replaceState(null, "", `/waiting?view=${next}`);
     };
     return <BoardLayout newWaitingCount={updates.count} section={waiting ? "waiting" : "board"} onPromote={() => { setPromotion(null); setOpen(true); }}
-        headerContent={waiting && <div role="group" aria-label="Waiting room sort" className="board-sort mt-4 flex flex-wrap items-center justify-center gap-2 md:justify-start">
+        headerContent={waiting && <div role="group" aria-label="Waiting room sort" className="board-sort mt-2 flex flex-wrap items-center justify-center gap-2 md:mt-4 md:justify-start">
                 <span className="mr-1 hidden text-xs text-cyan-200/70 min-[360px]:inline">Sort</span>
                 {(["top", "new", "hot"] as const).map((sort) => <PixelButton key={sort} size="sm" variant="ghost" aria-pressed={view === sort} onClick={() => chooseView(sort)}>{sort === "top" ? "Rank" : sort === "new" ? "New" : "Hot"}</PixelButton>)}
                 <button type="button" aria-label="How sorting works" className="focus-pixel inline-flex min-h-11 min-w-11 items-center justify-center font-pixel text-[10px] text-cyan-200/70 hover:text-neon-cyan" onClick={() => { setPromotion(null); setLinkedSection(RANKING_SECTION); setOpen(true); }}>?</button>

@@ -112,7 +112,7 @@ async function setup(context: BrowserContext, page: Page, options: { restoredPro
     };
     page.on("pageerror", (error) => state.errors.push(error.message));
     await page.goto("/help");
-    await page.getByRole("navigation", { name: "Connections and help" }).getByRole("button", { name: /^Wallet/ }).click();
+    await page.getByRole("navigation", { name: "Connections" }).getByRole("button", { name: /^Wallet/ }).click();
     await page.getByLabel("NWC connection string").fill(uri);
     await page.getByRole("button", { name: "Connect NWC wallet", exact: true }).click();
     await expect(page.getByText("Connected: Fixture wallet.", { exact: false })).toBeVisible();
@@ -220,7 +220,7 @@ test("a lost response stays protected after refresh and status checking never re
     await page.clock.fastForward(61000);
     await expect(page.getByRole("button", { name: "Check payment status", exact: true })).toBeVisible();
     await page.reload();
-    await page.getByRole("navigation", { name: "Connections and help" }).getByRole("button", { name: /^Wallet/ }).click();
+    await page.getByRole("navigation", { name: "Connections" }).getByRole("button", { name: /^Wallet/ }).click();
     await expect(page.getByText("Connected: Fixture wallet.", { exact: false })).toBeVisible();
     await page.getByRole("navigation", { name: "Wallet views" }).getByRole("button", { name: "Send", exact: true }).click();
     await page.getByRole("button", { name: "Check payment status", exact: true }).click();
@@ -279,7 +279,7 @@ test("a connection without lookup can review another invoice and retain the prot
     await sendReview(page, walletInvoice({ hash: incomingHash }));
     expect(state.charges).toBe(1);
     await page.reload();
-    await page.getByRole("navigation", { name: "Connections and help" }).getByRole("button", { name: /^Wallet/ }).click();
+    await page.getByRole("navigation", { name: "Connections" }).getByRole("button", { name: /^Wallet/ }).click();
     await expect(page.getByText("Connected: Fixture wallet.", { exact: false })).toBeVisible();
     await page.getByRole("navigation", { name: "Wallet views" }).getByRole("button", { name: "Send", exact: true }).click();
     await page.getByRole("button", { name: "Review unresolved payment", exact: true }).click();
@@ -306,7 +306,7 @@ for (const restoredProof of [null, "ff".repeat(32)]) test(`restored submitted pr
     await page.getByRole("button", { name: "Check payment status", exact: true }).click();
     await expect(page.getByText("Payment confirmed.", { exact: true })).toBeVisible();
     await page.reload();
-    await page.getByRole("navigation", { name: "Connections and help" }).getByRole("button", { name: /^Wallet/ }).click();
+    await page.getByRole("navigation", { name: "Connections" }).getByRole("button", { name: /^Wallet/ }).click();
     await expect(page.getByText("Connected: Fixture wallet.", { exact: false })).toBeVisible();
     await page.getByRole("navigation", { name: "Wallet views" }).getByRole("button", { name: "Send", exact: true }).click();
     await expect(page.getByText("Payment confirmed.", { exact: true })).toBeVisible();

@@ -1231,7 +1231,7 @@ for (const wallet of ["NWC", "WebLN"] as const) test(`${wallet} quick boost prep
 test("global connections and legacy ranking help work without promotion", async ({ context, page }) => {
     const state = await setup(context, page);
     await page.getByRole("button", { name: "Close dialog", exact: true }).click();
-    await page.getByRole("navigation", { name: "Connections and help", exact: true }).getByRole("button", { name: "Wallet", exact: true }).click();
+    await page.getByRole("navigation", { name: "Connections", exact: true }).getByRole("button", { name: "Wallet", exact: true }).click();
     await expect(page.getByLabel("NWC connection string")).toBeVisible();
     await page.getByRole("button", { name: "Close dialog", exact: true }).click();
     await page.goto("/#how-ranking-works");
