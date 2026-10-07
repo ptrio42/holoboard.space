@@ -81,3 +81,6 @@ export const ENABLE_DISCUSSIONS = import.meta.env.VITE_ENABLE_DISCUSSIONS === "t
 
 /** Read-only profiles ship independently of signer support. */
 export const ENABLE_PROFILES = import.meta.env.VITE_ENABLE_PROFILES === "true";
+
+/** Reply publication needs a separately approved signer and discussion release. */
+export const ENABLE_REPLY_PUBLICATION = ENABLE_DISCUSSIONS && ENABLE_NOSTR_CONNECT && import.meta.env.VITE_ENABLE_REPLY_PUBLICATION === "true";

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { SATS_ENDPOINT } from "../config";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { ENABLE_REPLY_PUBLICATION, SATS_ENDPOINT } from "../config";
+import type { Event } from "nostr-tools";
 import { useDiscussion } from "../hooks/useDiscussion";
 import { useSatsMap } from "../hooks/useSatsMap";
 import { nostrCache } from "../lib/nostrCache";
@@ -12,6 +13,7 @@ import { PixelButton } from "../components/ui/PixelButton";
 import { StatusMessage } from "../components/ui/StatusMessage";
 import { readingBackLabel } from "../lib/readingRoutes";
 import { PromoteModal } from "../components/PromoteModal/PromoteModal";
+const ReplyComposer = ENABLE_REPLY_PUBLICATION ? lazy(() => import("../components/Discussion/ReplyComposer").then(module => ({ default: module.ReplyComposer }))) : null;
 
 interface ReadingState { expanded: string[]; collapsed: string[]; page: number; pendingPage: number; context: boolean }
 const STORAGE_KEY = "holoboard-discussion-reading-v1";
@@ -32,6 +34,7 @@ export default function Discussion({ focusId, author, from }: { focusId: string;
     const ledger = useSatsMap(SATS_ENDPOINT);
     const [reading, setReading] = useState(() => savedState(focusId));
     const [promote, setPromote] = useState(false);
+    const [replyTo, setReplyTo] = useState<Event>();
     useEffect(() => {
         try {
             const saved = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "{}");
@@ -54,6 +57,7 @@ export default function Discussion({ focusId, author, from }: { focusId: string;
             {tree && <p className="mb-1 text-xs text-cyan-100/60">{row.depth === 1 ? "Reply" : `Reply level ${row.depth}`}</p>}
             <DiscussionNote node={node} event={node?.event ? bodies.get(node.event.id) : undefined} focus={row.key === `event:${focusId}`}
                 promoted={!!node?.event && ledger.sats.has(node.event.id)}>
+                {ENABLE_REPLY_PUBLICATION && node?.event && bodies.has(node.event.id) && <button type="button" className="note-action inline-flex min-h-11 items-center" onClick={() => setReplyTo(bodies.get(node.event!.id))}>Reply</button>}
                 {tree && children > 0 && <button type="button" className="note-action inline-flex min-h-11 items-center" aria-expanded={expanded.has(row.key)}
                     onClick={() => toggle(row.key)}>{expanded.has(row.key) ? "Hide replies" : `Show replies (${children})`}</button>}
             </DiscussionNote>
@@ -112,5 +116,6 @@ export default function Discussion({ focusId, author, from }: { focusId: string;
             </>}
         </main>
         {promote && <PromoteModal onClose={() => setPromote(false)} onPaid={ledger.refresh} />}
+        {ReplyComposer && replyTo && snapshot && <Suspense fallback={<StatusMessage loading>Opening reply editor...</StatusMessage>}><ReplyComposer key={replyTo.id} parent={replyTo} graph={snapshot.graph} onClose={() => setReplyTo(undefined)} /></Suspense>}
     </BoardLayout>;
 }

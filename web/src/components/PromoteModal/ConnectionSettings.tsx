@@ -8,13 +8,13 @@ import { QrCode } from "../ui/QrCode";
 import { WalletPanel } from "../Wallet/WalletPanel";
 
 const FIELD = "focus-pixel w-full border-2 border-cyan-400/40 bg-void px-3 py-2 text-base text-cyan-100";
-export function ConnectionSettings({ disabled = false, section = "all", embedded = false, paymentOnly = false }: { disabled?: boolean; section?: "all" | "wallet" | "signer"; embedded?: boolean; paymentOnly?: boolean }) {
+export function ConnectionSettings({ disabled = false, section = "all", embedded = false, paymentOnly = false, purpose = "zap" }: { disabled?: boolean; section?: "all" | "wallet" | "signer"; embedded?: boolean; paymentOnly?: boolean; purpose?: "zap" | "reply" }) {
     const connections = useConnections();
     const [walletUri, setWalletUri] = useState("");
     const [bunkerUri, setBunkerUri] = useState("");
     const [expanded, setExpanded] = useState(false);
     const content = <div className="promotion-typography space-y-5 text-sm leading-relaxed text-cyan-100/75">
-            {!paymentOnly && connections.walletStatus !== "connected" && <p className="text-xs">Invoice links, copying and QR payments work without connecting.</p>}
+            {section !== "signer" && !paymentOnly && connections.walletStatus !== "connected" && <p className="text-xs">Invoice links, copying and QR payments work without connecting.</p>}
             {section !== "signer" && <section className="space-y-3" aria-label="Payment wallet">
                 {section === "all" && <h3 className="promotion-section-title text-neon-cyan">Payment wallet</h3>}
                 {connections.walletStatus === "connected" ? <>
@@ -38,7 +38,7 @@ export function ConnectionSettings({ disabled = false, section = "all", embedded
             </section>}
             {section !== "wallet" && <section className="space-y-3" aria-label="Nostr signer">
                 <h3 className="promotion-section-title text-neon-cyan">Nostr signer</h3>
-                <p>A signer is optional. It identifies a public zap to the author and does not pay invoices.</p>
+                <p>{purpose === "reply" ? "Connect the account that will sign your reply. Connecting does not publish anything." : "A signer is optional. It identifies a public zap to the author and does not pay invoices."}</p>
                 {connections.signerStatus === "connected" ? <>
                     <p role="status">Connected {connections.signerKind === "extension" ? "extension" : "remote signer"}: {shortNpub(connections.signerPubkey)}</p>
                     <PixelButton size="sm" variant="ghost" disabled={disabled} onClick={disconnectSigner}>Disconnect signer</PixelButton>

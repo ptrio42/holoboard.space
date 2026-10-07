@@ -220,6 +220,7 @@ the browser use three bytes per JavaScript string unit as a conservative bound.
 | Profile campaign scan | 8 pages of at most 21 entries, 128 retained note references, 64 KiB per admitted event; one 8-second HTTP request at a time per view | Existing campaign API, no new route |
 | Browser publication | Two outbox deliveries globally; four transport publication jobs; 12 destinations, 64 KiB per event, eight-second acknowledgement waits | Existing account outbox remains separate |
 | Browser publication storage | 32 records and 1 MiB in a separate IndexedDB database; 16 admitted transactions and three-second storage deadlines | No payment-ledger change |
+| Reply drafts | Eight parents, 16 KiB UTF-8 text each, separate tab session storage; no automatic eviction | No payment-ledger change |
 | Incoming relay clients | Not applicable | 128 clients, 16 listener filters per client, 1024 filters overall, 8 filters per REQ, 32 stored-event queries |
 
 The browser cache has its own `holoboard-nostr-read-v1` database. It expires
@@ -312,8 +313,60 @@ Retries reuse the stored signed event and omit already accepted destinations.
 If acknowledgement checkpointing fails, the saved inconclusive entry remains
 available and the error states that the event may already be public. Public
 outbox state is independent of expendable read cache, signers, wallets, invoice
-sessions and the backend payment ledger. These primitives have no product UI
-entry point yet; actual network publication remains outside automated checks.
+sessions and the backend payment ledger. Explicitly forgetting a local receipt
+frees capacity but cannot delete a public event or cancel an earlier attempt.
+Late acknowledgements cannot recreate a forgotten record. Tests intercept
+remote traffic; actual public-network publication remains outside these checks.
+
+### Reply editor
+
+`VITE_ENABLE_REPLY_PUBLICATION=true` exposes Reply controls only when discussions
+and Nostr Connect are also enabled. All three flags remain false by default.
+The editor consumes the current verified discussion graph; reviewing and signing
+both check structural context. Missing or conflicting ancestry blocks preparation.
+The selected original item is the parent, including when it is a promoted middle
+reply. Promotion membership never supplies root tags or admits the new reply to
+the paid board.
+
+Review, Sign reply and Publish reply are separate actions. Signing prepares safe
+destinations and saves the exact signed event without publishing. The user then
+reviews the signed text, account, relay destinations and discovery limitations
+and explicitly consents before sending. Saved replies are inspected without
+automatic sends after reload or reconnection. Retry uses the same event ID and
+only unresolved destinations. Relay outcomes distinguish acceptance, rejection,
+uncertainty and attempts that were not sent. View reply opens the signed event
+as a new reading focus instead of changing a historical read's cutoff.
+
+Changing the connected signer clears consent and stops owned routing or delivery.
+Closing the editor does the same; a late signature cannot resume a closed flow.
+An already sent event can remain public after cancellation. Only the connected
+account matching a saved event's public key can authorize its send in the editor.
+Drafts are independent of account state and persist in this tab's session storage,
+with eight parents and 16 KiB of UTF-8 text each. Storage failures remain visible;
+the editor never overwrites malformed storage or evicts another draft. Invoice,
+wallet and signer records are separate. Signed replies use the durable outbox,
+not the expendable read cache.
+
+Browser acceptance uses isolated fixture keys and intercepted relays for NIP-07
+and NIP-46, consent and account changes, promoted middle ancestry, stable-address
+NIP-22 comments, missing context, forged signatures, late approval after closing,
+draft reload and exact-ID retry after partial acceptance. This establishes local
+protocol and UI behavior, not physical Amber compatibility or public propagation.
+
+For the intercepted reply suite, start a fresh Playwright-owned development
+server with matching flags:
+
+```sh
+cd web
+VITE_ENABLE_DISCUSSIONS=true VITE_ENABLE_NOSTR_CONNECT=true \
+VITE_ENABLE_REPLY_PUBLICATION=true npm run test:e2e -- tests/replyPublication.spec.ts
+```
+
+The disabled configuration must keep Reply controls absent even if one required
+flag is enabled alone. The editor loads on demand only behind the combined gate.
+Keep restored destinations explicit; retry does not silently substitute newly
+advertised relay preferences. No manual or automated release check may publish
+real user events without the required authorization.
 
 ### Backend account delivery
 
@@ -400,9 +453,12 @@ available independently of signer support.
 Reported Amber connection failures need reproduction; their cause is not yet
 established. Current code exposes a browser extension and NIP-46 remote flows,
 including `nostrconnect://` and pasted `bunker://` strings. Both remote connection
-paths currently request only `sign_event:9734` (zap requests). This is a confirmed
-limitation of the requested permissions for future publishing, not a confirmed
-explanation of the reported connection failures. No direct NIP-55 web adapter
+paths request `sign_event:9734` (zap requests) by default. Opting into the reply
+editor also requests `sign_event:1` and `sign_event:1111`, using the optional
+[NIP-46 permissions](https://github.com/nostr-protocol/nips/blob/master/46.md).
+Restored zap-only sessions require explicit reconnection to request the new scope;
+restoration cannot silently expand it. This earlier scope limitation does not
+establish the cause of reported connection failures. No direct NIP-55 web adapter
 is implemented.
 
 ### Confirmed signer defects and local fixes
@@ -500,7 +556,7 @@ current here; keep detailed discussion semantics in
 | Discussion reading | Read-only screen implemented behind `VITE_ENABLE_DISCUSSIONS`, disabled by default. | Original-item focus, expandable paid/unpaid branches, unresolved context, bounded display pages and local browser navigation checks. |
 | Profile reading | Read-only screen implemented and locally verified behind `VITE_ENABLE_PROFILES`, disabled by default. | Shared bounded metadata reads, explicit freshness/source outcomes, verified active campaign membership, discussion return navigation and selected public-relay reads. |
 | Signer compatibility | Local signer boundaries hardened and protocol fixtures verified; disabled by default. Physical Amber failures unresolved. | Fresh signature/template checks, connection-generation ownership, both NIP-46 initiation methods, bounded request lifetimes and validated relay changes. Device/environment matrix remains open. |
-| User-authored publication | Structural preparation, bounded routing and durable browser delivery primitives implemented and locally verified; no editor entry point yet. | Signed graph round trips, durable checkpoints before sending, exact-ID retry, per-relay acknowledgement, cancellation, native IndexedDB reload/failure and separate-tab concurrency. Editor consent and signer release acceptance remain. |
+| User-authored publication | Structural preparation, bounded routing, durable browser outbox and opt-in reply editor implemented; disabled by default. | Signed graph round trips, explicit account/destination consent, durable checkpoints before sending, exact-ID retry, per-relay acknowledgement, cancellation, native IndexedDB reload/failure and separate-tab concurrency. Physical signer and public propagation acceptance remain. |
 
 Keep stages reviewable and independently releasable where their dependencies
 allow. Before closing a stage, compare the final diff to its acceptance criteria
@@ -511,72 +567,57 @@ migration retain their explicit approval requirements.
 
 ### Current verification and next action
 
-The isolated discussion screen branch includes the foundation, pinned library
-migration and production fixes through `e651ac6`, including ordinary LNURL invoices and
-the current payment and waiting-room interface.
-The application and every retained dependency package passed the Go race
-suite. Additional regressions check the global subscription cap, malformed
-frames, escaped subscription IDs and forged authentication IDs. Frontend
-verification passed 293 unit tests and production builds with discussions
-disabled and enabled. Four wire checks use the actual transport, and discussion fixtures cover discovery,
-recovery and resource limits. Across desktop Chrome, Android-sized Chrome and
-iPhone-sized WebKit, 21 discussion scenarios passed. A further 36 selected
-reading, anonymous-invoice, NWC, disabled-feature and waiting-room checks passed.
-Browser fixtures use local protocol mocks and no live funds. ESLint passed for
-the changed screen, navigation and test modules. The backend is unchanged from the verified retrieval stage; its Go race and Linux build
-evidence carries forward.
+The isolated discussion branch includes the foundation, pinned library migration
+and production fixes through `e651ac6`. The main checkout stays independent;
+implementation does not enable signer support or deploy any feature.
 
-Both backend binaries build for Linux amd64 with CGO disabled. The Docker
-image has not been built in this environment because the local daemon is
-unavailable. A container build and the documented release smoke checks remain
-part of release verification. Amber device compatibility, live-wallet behavior
-and public publication are outside these local checks. Signer entry points
-remain disabled by default.
+Frontend acceptance covers 356 unit cases across 42 files. Changed-module lint
+and production builds with all four features enabled and disabled pass. The
+disabled build excludes the reply editor chunk and controls. The combined
+enabled browser regression passed 87 scenarios across desktop
+Chrome, Android-sized Chrome and iPhone-sized WebKit, covering reading, signer
+protocols, payment consent and reply integration. The reply editor separately
+exercised 33 distinct project/scenario pairs across its main and focused runs,
+covering ancestry, consent, storage failures, account ownership, partial delivery,
+relay rejection, cancellation and reload. Nine native outbox scenarios cover
+actual IndexedDB transactions, cache isolation, exact-ID retry and separate-tab
+concurrency. These suites overlap and their counts must not be added as unique
+coverage. All publication/payment fixtures intercept remote traffic and use
+isolated keys; they do not spend funds or publish public notes. The final default
+configuration passed 21 invoice, hidden-signer, disabled-reply and native-outbox
+checks. A further nine browser checks verify that removing each required reply
+flag keeps the editor absent. The defaults preserve anonymous payments.
 
-The bounded discussion retrieval coordinator now feeds the existing relation
-normalizer and graph. Its fixtures cover a promoted middle reply, unpaid
-intermediate parents, NIP-10 and NIP-22, missing/conflicting references, partial
-relay coverage, timestamp saturation, routing hints and shared-view cancellation.
-Wire tests exercise signed frames through the actual read transport.
-The read-only discussion screen now consumes this service behind a disabled
-feature flag. Its focused ancestor path, expandable replies, explicit unresolved
-branches and promotion badges keep display decisions outside the relation core.
-Reproducible real-relay and production-bundle resource checks are described
-below. They cover selected public reads and finite navigation workloads, without
-claiming complete discovery or universal absence of memory leaks.
+The application and retained Go dependency packages passed the full race suite.
+Regressions include global subscription limits, malformed frames, escaped
+subscription IDs, forged authentication IDs, incoming frame order, listener
+races, stored-query cancellation and historical ledger decoding. Both backend
+binaries build for Linux amd64 with CGO disabled. The backend is unchanged by
+the reading and reply UI stages, so that evidence carries forward. The Docker
+image has not been built because the local daemon is unavailable. A container
+build and the documented release smoke checks remain release requirements.
 
-Profile checks passed 306 frontend unit cases, followed by 14 focused cases
-including an additional invalid campaign-count regression. The combined enabled
-profile/discussion browser suite passed 42 scenarios across the three browser
-projects; the amended profile suite passed its 21 enabled scenarios. A further
-27 selected default-release checks passed with both screens and signer support
-disabled. Enabled and default production builds and changed-module lint checks
-pass. Independent profile/discussion flag configuration has a separate desktop
-check. No payment or identity storage is removed by the new screen.
+Controlled public-relay checks loaded kind-1 notes, a middle kind-1111 comment
+with its parent/root, a kind-30023 article and an author's profile plus current
+campaign membership. Runtime checks cover finite navigation/cancellation workloads
+with physical wire counters and retained Chromium heap measurements. Their scope,
+commands and measured limits are below. They do not prove complete discovery,
+public propagation or universal absence of memory leaks.
 
-Profile reading and local signer boundary checks are verified. The signer stage
-passed 322 frontend unit cases and the enabled build; 24 focused cases cover
-application and installed dependency behavior. Thirty-three protocol browser
-scenarios passed across desktop Chrome, Android-sized Chrome and iPhone-sized
-WebKit. They cover both NIP-46 initiation methods and NIP-07, including payment
-consent and account changes. Default-release invoice and hidden-signer checks
-and the default production build pass separately. Physical-device reproduction
-remains open. Structural reply preparation passed eight signed round-trip
-fixtures against the shared relation model, with type checks and lint. It has no
-signing or network side effects. The [preparation contract](nostr-discussions.md#reply-preparation)
-records its conservative context and resource rules. Browser delivery primitives
-passed 349 frontend unit cases and nine native-storage browser scenarios across
-the three browser projects. Those scenarios intercept every remote frame and
-use local fixture keys. Enabled builds and changed-module lint pass. Resource
-and reading regressions cover the combined transport before the next stage
-connects the reply editor with explicit public consent and account ownership.
-Production publication stays behind the signer release gate.
-Continue routine work
-autonomously through these stages; keep external publication, spending,
-deployment, main pushes and existing-data migrations behind explicit approval.
-Physical-device and live-wallet evidence remains open when unavailable and does
-not block unrelated implementation. Deployed-client interoperability remains
-separate from local automated checks. Integration does not enable signer support.
+Remaining release gates are physical signer compatibility, deliberate public
+propagation/interoperability checks and the container/release smoke procedure.
+Reported Amber failures still need device reproduction; protocol fixtures do not
+establish their cause. Live-wallet behavior remains separate from mocked payment
+regressions. Direct NIP-55 support, deletion/moderation discovery and verified
+NIP-05 domains are separate features, not implied by the implemented editor.
+
+Continue routine authorized checks and fixes autonomously. Preserve the isolated
+branch and false-default flags while another release is prepared from main.
+Integration must rerun acceptance against its actual base, without clearing saved
+invoices, identities, public outbox entries or the production ledger. Deployment,
+public publication, spending, main pushes, external configuration changes and
+existing-data migrations still require explicit authorization. Unavailable device
+or wallet evidence must remain open without blocking unrelated implementation.
 
 ### Real-relay and runtime resource checks
 
@@ -719,6 +760,9 @@ ledger and receipts, including payments recorded since any backup. The separate
 read cache is expendable and the old cache remains available to an old frontend.
 Actual deployment, public publication and external configuration changes still
 require explicit authorization.
+Feature-flag rollback must preserve the separate browser publication outbox and
+saved payment sessions. Disabling publication hides its entry points without
+erasing signed events or evidence of uncertain delivery.
 
 Protocol references: [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md),
 [NIP-65](https://github.com/nostr-protocol/nips/blob/master/65.md),

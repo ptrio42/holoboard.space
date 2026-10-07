@@ -96,3 +96,14 @@ it.each(["accepted", "uncertain"] as const)("cannot downgrade a newer %s outcome
     await new PublicOutbox(store, accepted).send(event.id); rejectOld(); await pending;
     expect(store.records[0].relays[urls[0]].state).toBe(state);
 });
+it("forgets only an explicitly selected local receipt and cannot recreate it through a late acknowledgement", async () => {
+    const event = make(); let finish!: () => void;
+    const publish = vi.fn<typeof publishSignedEvent>().mockImplementation((signed, targets) => new Promise(resolve => { finish = () => resolve({ id: signed.id, relays: { [targets[0]]: { state: "accepted" } } }); }));
+    const outbox = new PublicOutbox(store, publish); await outbox.enqueue(event, urls);
+    const delivery = outbox.send(event.id);
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    await expect(outbox.forget(event.id)).rejects.toThrow("Wait");
+    await new PublicOutbox(store, publish).forget(event.id); finish();
+    await expect(delivery).rejects.toThrow("may already be public");
+    expect(await outbox.list()).toEqual([]); expect(publish).toHaveBeenCalledOnce();
+});

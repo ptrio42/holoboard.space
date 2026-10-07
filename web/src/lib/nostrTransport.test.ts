@@ -80,6 +80,18 @@ describe("public delivery acknowledgements", () => {
         await flush(); const socket = FakeSocket.sockets[0]; socket.open(); await flush(); socket.close();
         expect((await publish).relays[url].state).toBe("uncertain");
     });
+    it("does not preempt an awaiting publication when higher-priority reads exhaust the shared socket budget", async () => {
+        const event = signed(), urls = Array.from({ length: 8 }, (_, i) => `wss://awaiting${i}.example.com`);
+        const publish = publishSignedEvent(event, urls);
+        for (let round = 0; round < 4; round++) { await flush(); for (const socket of FakeSocket.sockets) if (socket.readyState === 0) socket.open(); }
+        await flush(); expect(FakeSocket.sockets).toHaveLength(8);
+        expect(FakeSocket.sockets.every(socket => socket.sent.some(frame => frame[0] === "EVENT"))).toBe(true);
+        const read = await queryNostr({ kinds: [1] }, ["wss://higher-priority.example.com"], { priority: 3 });
+        expect(read.relays["wss://higher-priority.example.com"]).toBe("budget");
+        expect(FakeSocket.sockets).toHaveLength(8);
+        for (const socket of FakeSocket.sockets) { expect(socket.readyState).toBe(1); socket.frame(["OK", event.id, true, ""]); }
+        expect(Object.values((await publish).relays).every(outcome => outcome.state === "accepted")).toBe(true);
+    });
 });
 describe("Nostr wire lifecycle", () => {
     it("does not queue an already cancelled read behind pending dials", async () => {

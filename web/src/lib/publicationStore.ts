@@ -14,10 +14,12 @@ export class IndexedPublicationStore implements PublicationStore {
         if (this.opening) return this.opening;
         const opening = new Promise<IDBDatabase>((resolve, reject) => {
             if (typeof indexedDB === "undefined") { reject(new Error("Durable publication storage is unavailable.")); return; }
+            // Native open() can throw synchronously when storage is blocked.
+            // Do not create a deadline for a request that never started.
+            const request = indexedDB.open("holoboard-public-outbox-v1", 1);
             let ended = false;
             const fail = () => { ended = true; clearTimeout(timer); reject(new Error("Could not open durable publication storage.")); };
             const timer = setTimeout(fail, 3000);
-            const request = indexedDB.open("holoboard-public-outbox-v1", 1);
             request.onupgradeneeded = () => {
                 if (ended) request.transaction?.abort();
                 else request.result.createObjectStore("events", { keyPath: "id" });

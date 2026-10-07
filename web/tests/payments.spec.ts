@@ -102,7 +102,7 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
                     const uri = new URL((await page.getByRole("link", { name: "Open Amber / signer" }).getAttribute("href"))!);
                     state.approveSigner = async (secret?: string) => {
                         const client = uri.hostname;
-                        expect(uri.searchParams.get("perms")).toBe("sign_event:9734");
+                        expect(uri.searchParams.get("perms")).toBe(process.env.VITE_ENABLE_REPLY_PUBLICATION === "true" && process.env.VITE_ENABLE_DISCUSSIONS === "true" ? "sign_event:9734,sign_event:1,sign_event:1111" : "sign_event:9734");
                         sendEvent(finalizeEvent({ kind: 24133, created_at: Math.floor(Date.now()/1000), tags: [["p", client]], content: nip44.encrypt(JSON.stringify({ id: "connect", result: secret ?? uri.searchParams.get("secret") }), nip44.getConversationKey(signerKey, client)) }, signerKey));
                     };
                     if (!options.deferSigner) await state.approveSigner();

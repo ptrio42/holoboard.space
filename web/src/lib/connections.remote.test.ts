@@ -3,8 +3,8 @@ import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure
 import type { BunkerPointer } from "nostr-tools/nip46";
 import { connectRemote, disconnectSigner, getConnectedSigner, getConnections } from "./connections";
 
-const fixtures = vi.hoisted(() => ({ clients: [] as Record<string, unknown>[], pools: [] as Record<string, unknown>[], fromURI: vi.fn(), request: vi.fn(), sign: vi.fn(), account: "", pointer: { pubkey: "a".repeat(64), relays: ["wss://relay.example.com"], secret: "one-time-secret" } }));
-vi.mock("../config", () => ({ ENABLE_NOSTR_CONNECT: true, PUBLIC_RELAYS: ["wss://relay.example.com"], RELAY_URL: "wss://relay.example.com" }));
+const fixtures = vi.hoisted(() => ({ replyEnabled: false, clients: [] as Record<string, unknown>[], pools: [] as Record<string, unknown>[], fromURI: vi.fn(), request: vi.fn(), sign: vi.fn(), account: "", pointer: { pubkey: "a".repeat(64), relays: ["wss://relay.example.com"], secret: "one-time-secret" } }));
+vi.mock("../config", () => ({ ENABLE_NOSTR_CONNECT: true, get ENABLE_REPLY_PUBLICATION() { return fixtures.replyEnabled; }, PUBLIC_RELAYS: ["wss://relay.example.com"], RELAY_URL: "wss://relay.example.com" }));
 vi.mock("nostr-tools/abstract-pool", () => ({ AbstractSimplePool: class {
     constructor(options: Record<string, unknown>) { fixtures.pools.push({ ...options, destroy: vi.fn() }); Object.assign(this, fixtures.pools.at(-1)); }
 } }));
@@ -19,6 +19,7 @@ vi.mock("nostr-tools/nip46", () => {
 const key = generateSecretKey();
 const template = { kind: 9734, created_at: 1700000000, content: "", tags: [] };
 beforeEach(() => {
+    fixtures.replyEnabled = false;
     fixtures.clients.length = 0; fixtures.pools.length = 0; fixtures.request.mockReset(); fixtures.sign.mockReset(); fixtures.fromURI.mockReset();
     fixtures.account = getPublicKey(key); fixtures.pointer = { pubkey: "a".repeat(64), relays: ["wss://relay.example.com"], secret: "one-time-secret" };
     fixtures.request.mockImplementation(async (method: string) => method === "switch_relays" ? "null" : "ack");
@@ -34,6 +35,23 @@ it("binds the user account separately from the bunker key and sends client metad
     expect(fixtures.request.mock.calls[0]).toEqual(["connect", ["a".repeat(64), "one-time-secret", "sign_event:9734", JSON.stringify({ name: "Holoboard", url: "http://127.0.0.1:4173" })]]);
     await expect(getConnectedSigner()!.signEvent(template)).resolves.toHaveProperty("pubkey", getPublicKey(key));
     expect(fixtures.request.mock.calls.map(call => call[0])).toEqual(["connect", "switch_relays"]);
+});
+it("requests reply permissions only for the opted-in editor and does not silently expand restored zap sessions", async () => {
+    fixtures.replyEnabled = true;
+    await connectRemote("bunker://fixture");
+    expect(fixtures.request.mock.calls[0][1][2]).toBe("sign_event:9734,sign_event:1,sign_event:1111");
+    expect(getConnections().signerCanReply).toBe(true);
+    disconnectSigner(); fixtures.request.mockClear();
+    const session = { kind: "remote" as const, clientKey: "b".repeat(64), pointer: fixtures.pointer, pubkey: getPublicKey(key) };
+    await connectRemote(undefined, session);
+    expect(getConnections()).toMatchObject({ signerStatus: "connected", signerCanReply: false });
+    await expect(getConnectedSigner()!.signEvent({ ...template, kind: 1 })).rejects.toThrow("reply permissions");
+    await expect(getConnectedSigner()!.signEvent({ ...template, kind: 1111 })).rejects.toThrow("reply permissions");
+    expect(fixtures.sign).not.toHaveBeenCalled();
+    expect(fixtures.request.mock.calls.map(call => call[0])).toEqual(["switch_relays"]);
+    disconnectSigner();
+    await connectRemote(undefined, { ...session, replyPermissions: true });
+    expect(getConnections().signerCanReply).toBe(true);
 });
 it("validates switched relay destinations before creating a replacement subscription", async () => {
     fixtures.request.mockImplementation(async (method: string) => method === "switch_relays" ? '["ws://127.0.0.1:9000"]' : "ack");

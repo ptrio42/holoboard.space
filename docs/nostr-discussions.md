@@ -347,8 +347,9 @@ Dedicated read-only profiles now use the shared metadata service behind the
 independent, disabled-by-default `VITE_ENABLE_PROFILES` flag. They show verified
 active Holoboard campaign membership and preserve discussion branches and reading
 positions on return. The [profile contract](nostr.md#profile-screen) describes
-source coverage and scan limits. Deletion/moderation discovery and user-authored
-replies remain separate stages. Controlled real-relay reading and finite runtime
+source coverage and scan limits. Reply composition has its own disabled-by-default
+flag and signer release gate. Deletion/moderation discovery remains separate.
+Controlled real-relay reading and finite runtime
 heap/navigation checks now supplement local signed-event fixtures. Their scope,
 results and repeatable commands are in
 [the Nostr reference](nostr.md#real-relay-and-runtime-resource-checks).
@@ -383,8 +384,11 @@ recipients and at most the graph's bounded ancestry depth. These are application
 limits. Eight signed round-trip fixtures re-admit prepared events through the
 relation graph, covering a promoted middle reply, unpaid ancestors, clock skew,
 missing/conflicting context, stable addresses, pinned versions, external scopes,
-forged parent objects and limits. There is no reply editor or public delivery
-entry point yet; signer/device and delivery acceptance remain separate.
+forged parent objects and limits. The opt-in [reply editor](nostr.md#reply-editor)
+uses this builder for review and rechecks the current graph before signing.
+It separates signing from explicit public delivery and preserves the exact
+signed ID for retry. Signer/device and public propagation acceptance remain
+separate from local structural and protocol tests.
 
 ### Reading acceptance
 

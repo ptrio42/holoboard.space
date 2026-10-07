@@ -35,6 +35,11 @@ export class PublicOutbox {
     private store: PublicationStore;
     private publish: typeof publishSignedEvent;
     async list() { return validate(await this.store.read()); }
+    /** Removing a receipt cannot cancel delivery or delete a public event. */
+    async forget(id: string) {
+        if (this.running.has(id)) throw new Error("Wait for this delivery to finish before forgetting its local receipt.");
+        await this.change(records => records.filter(record => record.id !== id));
+    }
     private change(update: (records: PublicationRecord[]) => PublicationRecord[]) {
         return this.store.change(records => validate(update(validate(records))));
     }
@@ -74,6 +79,7 @@ export class PublicOutbox {
             // happened just before send. Retry always uses the stored exact ID.
             record = (await this.change(records => records.map(value => value.id !== id ? value : { ...value, attempts: value.attempts + 1,
                 relays: Object.fromEntries(Object.entries(value.relays).map(([url, outcome]) => [url, targets.includes(url) && outcome.state !== "accepted" ? { state: "uncertain" as const, detail: "Interrupted attempt may have reached the relay." } : outcome])) }))).find(value => value.id === id)!;
+            if (!record) throw new Error("This publication receipt was removed in another tab. Delivery was stopped.");
             if (controller.signal.aborted) return record;
             const attempt = record.attempts;
             let checkpoint = Promise.resolve(), checkpointFailure: unknown;
@@ -84,6 +90,7 @@ export class PublicOutbox {
                     const updated = await this.change(records => records.map(value => value.id !== id ? value : { ...value,
                         relays: { ...value.relays, [url]: value.relays[url]?.state === "accepted" || value.attempts !== attempt && outcome.state !== "accepted" ? value.relays[url] : outcome } }));
                     record = updated.find(value => value.id === id)!;
+                    if (!record) throw new Error("This publication receipt was removed in another tab. Delivery was stopped.");
                 }).catch(failure => { checkpointFailure ??= failure; controller.abort("storage-failed"); });
             };
             let result: Awaited<ReturnType<typeof publishSignedEvent>>;
