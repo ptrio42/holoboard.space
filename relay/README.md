@@ -6,7 +6,7 @@ the board ranking. See the [project README](../README.md) for product rules.
 
 ## Run locally
 
-Use Go 1.23.1 or newer, matching the toolchain in [go.mod](go.mod). Run from
+Use Go 1.27.1 or newer, matching the toolchain in [go.mod](go.mod). Run from
 `relay/`:
 
 ```bash

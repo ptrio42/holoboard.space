@@ -8,6 +8,9 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Update the link-preview HTML parser and build dependencies to include security
+  fixes, and build the relay with a supported Go toolchain.
+
 - Keep quoted-note lookups stable across board refreshes and reuse cached notes.
   Continue waiting for slow relays and offer an explicit retry after a timeout.
 

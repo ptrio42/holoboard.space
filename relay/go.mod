@@ -1,8 +1,8 @@
 module relay.holoboard.space
 
-go 1.22.6
+go 1.26.0
 
-toolchain go1.23.1
+toolchain go1.27.1
 
 require (
 	github.com/btcsuite/btcd v0.24.3-0.20240921052913-67b8efd3ba53
@@ -69,12 +69,12 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.51.0 // indirect
-	golang.org/x/crypto v0.22.0 // indirect
+	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/exp v0.0.0-20240325151524-a685a6edb6d8 // indirect
-	golang.org/x/net v0.24.0 // indirect
+	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/sync v0.7.0 // indirect
-	golang.org/x/sys v0.20.0 // indirect
-	golang.org/x/term v0.19.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/term v0.46.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
