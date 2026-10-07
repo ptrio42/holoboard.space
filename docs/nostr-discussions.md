@@ -344,8 +344,10 @@ reply feed. Closing and reopening refreshes that timestamp. Full screen behavior
 and configuration are in [the Nostr reference](nostr.md#discussion-screen).
 
 Dedicated profile screens, deletion/moderation discovery and user-authored
-replies remain separate stages. Controlled real-relay reading and runtime heap
-observation remain release evidence beyond local signed-event fixtures.
+replies remain separate stages. Controlled real-relay reading and finite runtime
+heap/navigation checks now supplement local signed-event fixtures. Their scope,
+results and repeatable commands are in
+[the Nostr reference](nostr.md#real-relay-and-runtime-resource-checks).
 
 ## Acceptance before a discussion screen ships
 
@@ -374,7 +376,11 @@ observation remain release evidence beyond local signed-event fixtures.
   sibling conversations and comments on reactions/zaps retain their own context.
 
 The unit fixtures establish the implemented graph properties within its stated
-bounds. Browser fixtures separately exercise the reading screen. Real-network
-coverage, runtime heap behavior and deployed-client compatibility remain outside
-those local checks.
-No network-wide completeness claim is made.
+bounds. Browser fixtures separately exercise the reading screen. Public-relay
+checks loaded a kind-1 focus, a promoted middle kind-1111 comment with its parent
+and root, and a kind-30023 article with ID and address read scopes. Failed sources
+and unqueried work stayed explicit. Production-bundle checks cover 24 rotations
+through four cache-backed, 128-reply trees, plus eight cancelled-read cycles per
+browser project. Heap evidence covers retained Chromium JavaScript after garbage
+collection, not total browser memory or all future workloads. These checks do
+not establish deployed-client compatibility or network-wide completeness.

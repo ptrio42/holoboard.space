@@ -410,18 +410,94 @@ Wire tests exercise signed frames through the actual read transport.
 The read-only discussion screen now consumes this service behind a disabled
 feature flag. Its focused ancestor path, expandable replies, explicit unresolved
 branches and promotion badges keep display decisions outside the relation core.
-The next verification step is a bounded read-only smoke against real relays and
-repeated navigation under load. Check an original promoted middle reply and,
-where available, an addressable comment; record selected-source outcomes without
-claiming complete discovery. Observe active queries, sockets and heap across
-repeated open/close cycles, large observed trees and unavailable sources. Separate
-retained caches from growing live work and verify cancellation after navigation.
-These checks can run autonomously without publishing events or spending funds.
+Reproducible real-relay and production-bundle resource checks are described
+below. They cover selected public reads and finite navigation workloads, without
+claiming complete discovery or universal absence of memory leaks.
 
-Bounded profile reading is the next feature stage. Real-relay reading and runtime
-heap/layout observations remain discussion release evidence; local fixtures do
-not establish deployed-client interoperability. Integration does not enable
-signer support.
+Bounded profile reading is the next feature stage. Deployed-client
+interoperability remains separate from the automated reading checks. Integration
+does not enable signer support.
+
+### Real-relay and runtime resource checks
+
+Run the public-read smoke against an isolated local development server with
+discussions enabled, signers disabled and public read endpoints configured:
+
+```sh
+cd web
+VITE_ENABLE_DISCUSSIONS=true VITE_ENABLE_NOSTR_CONNECT=false \
+  VITE_RELAY_URL=wss://relay.holoboard.space \
+  VITE_API_URL=https://relay.holoboard.space \
+  VITE_SATS_ENDPOINT=https://relay.holoboard.space/api/board \
+  npm run dev -- --host 127.0.0.1 --port 4194 --strictPort
+# In another terminal, from web/:
+HOLOBOARD_LIVE_READS=1 node scripts/discussion-live-smoke.mjs
+```
+
+The script requires explicit public-read opt-in and a loopback preview origin.
+It blocks non-read WebSocket frames before sending and blocks non-read HTTP
+methods. It selects a promoted kind-1 root and kind-1111 comment from the public
+board, then attempts a kind-30023 article read. Missing required board fixtures
+fail the smoke; unavailable article discovery stays explicit in its JSON report.
+Reports and screenshots go to temporary storage. Source outcomes, skipped work,
+resolved ancestry, read scopes, socket peaks and idle cleanup remain separate
+observations. Development-module inspection supports this smoke and is not a
+production heap measurement.
+
+Run the offline resource suite against a freshly built production bundle:
+
+```sh
+cd web
+VITE_ENABLE_DISCUSSIONS=true VITE_ENABLE_NOSTR_CONNECT=false npm run build
+HOLOBOARD_RESOURCE_CHECKS=1 npx playwright test \
+  --config playwright.resources.config.ts
+```
+
+The suite intercepts all remote traffic. A fresh browser context receives 518
+signed fixtures through the expendable IndexedDB read cache, then reloads for
+normal verification and hydration. Four roots each have 128 direct replies;
+only 48 replies render per local page. The desktop test rotates through all four
+roots for 24 open/close cycles, collects garbage through CDP after leaving each
+view and compares retained JavaScript heap medians after warmup. Its explicit
+allowance is the larger of 2 MiB and 20 percent of the reference median. This
+checks cache-backed graph and view lifetimes, not bulk network ingestion or
+total browser/process memory.
+
+Eight additional navigation cycles per browser project cancel relay reads that
+never send EOSE. Relay-side counters independently observe REQ/CLOSE, connection
+closure and the socket/subscription ceilings after the application's governor.
+They must observe nonzero activity before their upper bounds can pass. Do not
+rely on a native-WebSocket wrapper installed before Playwright routing: routing
+can replace that wrapper and leave an apparently successful zero-valued probe.
+In the installed Playwright version, `waitForFunction` treats a returned promise
+as truthy before its boolean result resolves. Keep its predicate synchronous;
+poll asynchronous module inspection with awaited `page.evaluate` calls and an
+explicit deadline (or `expect.poll` in tests). Assert the final observed state
+separately so an ineffective wait cannot pass cleanup verification.
+Heap measurements run only on desktop Chromium. Mobile-sized Chrome and WebKit
+exercise cancellation and idle cleanup, not physical Android/iPhone devices.
+
+Verified on 2026-10-07: the public smoke loaded all three event kinds. The
+promoted NIP-22 middle comment resolved its parent and matched its root; the
+article scheduled `#e`, `#E`, `#a` and `#A` reads. Relay failures and unqueried
+branches remained explicit, so this is selected-source evidence. Actual socket,
+connecting-socket and REQ peaks stayed within 12, 4 and 48 respectively, with no
+write frames or page exceptions.
+
+Four resource scenarios passed: one desktop heap workload and one cancelled-read
+workload on each of the three browser projects. The two mobile-project heap cases were
+intentionally skipped. Post-GC heap medians increased from 7,281,048
+to 7,423,524 bytes (142,476 bytes, about 0.14 MiB), within the 2 MiB allowance.
+Mock-relay peaks were seven sockets and eight subscriptions. Leaving each view
+closed its pending requests; idle socket counts fell to at most one. These
+finite measurements support the stated lifetime bounds, not a claim that every
+memory leak is excluded. JSON reports accompany test output.
+
+Closing a discussion cancels its owned work. The mounted board can still perform
+its own bounded profile reads, and native sockets can remain in CLOSING while
+the relay completes the close handshake. Record active requests, open sockets
+and closing sockets separately. A short wait for every physical connection to
+disappear can otherwise misidentify shared work or handshake delay as a leak.
 
 ### Verification ownership and release gates
 
