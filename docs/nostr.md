@@ -152,6 +152,49 @@ configuration against a matching fresh Vite server; flags are build/server
 configuration, not runtime URL switches. Preserve separate checks for the
 production default and the enabled screen.
 
+## Profile screen
+
+Set `VITE_ENABLE_PROFILES=true` to enable `/profile/<hex-public-key>` and local
+author/mention links. The flag is false by default and independent of
+`VITE_ENABLE_DISCUSSIONS` and signer support. Disabled profiles retain the
+existing external profile links. Both screens can run without an account.
+
+`profileReads.ts` shares metadata work between bylines and profile views.
+Cached kind-0 data renders immediately; opening the screen checks configured
+sources and the author's discovered NIP-65 write relays. Leaving closes the
+view's handle, and the last close cancels work, including relay discovery and
+queued admission. A returning view joins cancelled work before starting a fresh
+read. React StrictMode startup uses the same cancellable microtask pattern as
+discussions. Empty checked sources, failed sources, malformed latest metadata
+and cached data remain distinct. A cached read alone never extends its TTL.
+
+Profile ordering follows [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md):
+newest timestamp, then lowest ID. Fields follow kind-0 metadata and
+[NIP-24](https://github.com/nostr-protocol/nips/blob/master/24.md).
+The screen shows a name, biography, safe website, public key and avatar.
+NIP-05 is a claimed, explicitly unverified address. No domain verification,
+automatic biography embeds, follower counts, profile editing or public event
+publication are added. Website and image URLs reject unsupported schemes and credentials;
+React text nodes keep signed markup inert.
+
+Active promoted notes come from Holoboard's existing campaign API, joined to
+verified exact event IDs and authors. The initial read checks TOP 21 and one
+waiting-room page. Each `Load more promotions` checks one further page; the
+screen states the checked range and any remaining pages or errors. Rank comes
+from the board, not public tags. A promotion does not imply the author paid for
+it. The initial version excludes expired promotions and the author's general
+public-note feed. Empty checked pages do not claim the author has never been
+promoted. Concurrent campaign changes can move entries between pages, so the
+scan is not an atomic snapshot; IDs are deduplicated and reads are bounded.
+
+Readers preserve safe local return paths and waiting-room sorts. Discussion
+branch state and history scroll positions survive profile navigation under the
+existing bounded storage rules. Return URLs allow at most two nested reader
+levels and never arbitrary external destinations. The profile list renders 21
+notes per local page; note previews reuse safe rendering without automatic
+quotes or link cards. Signature-verified bodies live in the shared expendable
+cache, and evicted bodies remain explicit placeholders.
+
 ## Resource limits
 
 These are application defaults, not protocol requirements. Byte estimates in
@@ -172,6 +215,8 @@ the browser use three bytes per JavaScript string unit as a conservative bound.
 | Discussion sessions | 4 active/closing sessions and 16 view handles; one shared graph with 2048 events, 6144 nodes and 8 MiB | Not applicable |
 | Discussion session work | 64 descendant targets, 64 ancestor lookups, 256 branch/source records, 8 relays per predicate, 8 author discoveries; 128 queries over its lifetime, 16 per batch, 16 page attempts per descendant branch | Not applicable |
 | Discussion admission | 1024 observed events, 4 MiB of received serialized events, 256 KiB per event; 30-second batches and 4-second queries | Not applicable |
+| Profile metadata | 64 active/closing author reads, 256 view handles; 64 KiB per signed profile, six fields of at most 2048 characters each; 12-second reads, 4-second discovery and 6-second metadata queries | Not applicable |
+| Profile campaign scan | 8 pages of at most 21 entries, 128 retained note references, 64 KiB per admitted event; one 8-second HTTP request at a time per view | Existing campaign API, no new route |
 | Incoming relay clients | Not applicable | 128 clients, 16 listener filters per client, 1024 filters overall, 8 filters per REQ, 32 stored-event queries |
 
 The browser cache has its own `holoboard-nostr-read-v1` database. It expires
@@ -367,7 +412,7 @@ current here; keep detailed discussion semantics in
 | Go library migration | Implemented and locally verified; ready for integration, not deployed. | Pinned revision, reproducible patch, historical-format fixture including unknown fields, full Go race suite, Linux builds and payment/browser regressions. |
 | Discussion retrieval | Implemented and locally verified; consumed by the opt-in reading screen. | Bounded discovery and missing-parent retrieval, cancellation, pagination and honest per-relay coverage, feeding the shared relation engine. |
 | Discussion reading | Read-only screen implemented behind `VITE_ENABLE_DISCUSSIONS`, disabled by default. | Original-item focus, expandable paid/unpaid branches, unresolved context, bounded display pages and local browser navigation checks. |
-| Profile reading | Dedicated screen not implemented. | Bounded profile reads and explicit freshness, identity and navigation behavior. |
+| Profile reading | Read-only screen implemented and locally verified behind `VITE_ENABLE_PROFILES`, disabled by default. | Shared bounded metadata reads, explicit freshness/source outcomes, verified active campaign membership, discussion return navigation and selected public-relay reads. |
 | Signer compatibility | Disabled by default; Amber failures unresolved. Begin reproduction early. | Record tested methods and environments, validate connection and signing, preserve drafts and handle account/lifecycle changes. |
 | User-authored publication | Not implemented. | Correct reply references, explicit consent, verified signed payloads, delivery outcomes and retry without duplicate events. |
 
@@ -414,9 +459,23 @@ Reproducible real-relay and production-bundle resource checks are described
 below. They cover selected public reads and finite navigation workloads, without
 claiming complete discovery or universal absence of memory leaks.
 
-Bounded profile reading is the next feature stage. Deployed-client
-interoperability remains separate from the automated reading checks. Integration
-does not enable signer support.
+Profile checks passed 306 frontend unit cases, followed by 14 focused cases
+including an additional invalid campaign-count regression. The combined enabled
+profile/discussion browser suite passed 42 scenarios across the three browser
+projects; the amended profile suite passed its 21 enabled scenarios. A further
+27 selected default-release checks passed with both screens and signer support
+disabled. Enabled and default production builds and changed-module lint checks
+pass. Independent profile/discussion flag configuration has a separate desktop
+check. No payment or identity storage is removed by the new screen.
+
+Profile reading is locally verified. The next
+stage reviews combined changes and reproduces signer failures by connection
+method, followed by preparing user-authored replies. Continue routine work
+autonomously through these stages; keep external publication, spending,
+deployment, main pushes and existing-data migrations behind explicit approval.
+Physical-device and live-wallet evidence remains open when unavailable and does
+not block unrelated implementation. Deployed-client interoperability remains
+separate from local automated checks. Integration does not enable signer support.
 
 ### Real-relay and runtime resource checks
 
@@ -432,6 +491,8 @@ VITE_ENABLE_DISCUSSIONS=true VITE_ENABLE_NOSTR_CONNECT=false \
   npm run dev -- --host 127.0.0.1 --port 4194 --strictPort
 # In another terminal, from web/:
 HOLOBOARD_LIVE_READS=1 node scripts/discussion-live-smoke.mjs
+# To include profiles, also enable VITE_ENABLE_PROFILES on the server and run:
+HOLOBOARD_LIVE_READS=1 HOLOBOARD_PROFILE_READS=1 node scripts/discussion-live-smoke.mjs
 ```
 
 The script requires explicit public-read opt-in and a loopback preview origin.
@@ -439,7 +500,9 @@ It blocks non-read WebSocket frames before sending and blocks non-read HTTP
 methods. It selects a promoted kind-1 root and kind-1111 comment from the public
 board, then attempts a kind-30023 article read. Missing required board fixtures
 fail the smoke; unavailable article discovery stays explicit in its JSON report.
-Reports and screenshots go to temporary storage. Source outcomes, skipped work,
+The optional profile case checks the promoted comment author's metadata and
+active campaign membership, then closes its owning handle. Reports omit full
+profile biographies and contact fields. Reports and screenshots go to temporary storage. Source outcomes, skipped work,
 resolved ancestry, read scopes, socket peaks and idle cleanup remain separate
 observations. Development-module inspection supports this smoke and is not a
 production heap measurement.
@@ -484,10 +547,19 @@ branches remained explicit, so this is selected-source evidence. Actual socket,
 connecting-socket and REQ peaks stayed within 12, 4 and 48 respectively, with no
 write frames or page exceptions.
 
+The profile-enabled public smoke also loaded the selected author's metadata and
+one active promoted note from two campaign pages (38 entries). Metadata sources
+completed; this is selected-source evidence, not global absence or completeness.
+After background board reads finished, the native wire probe and application
+governor both returned to zero REQs and one closing socket. Observed peaks were
+12 sockets, four connecting sockets and 40 REQs, with no write frames or page errors.
+
 Four resource scenarios passed: one desktop heap workload and one cancelled-read
 workload on each of the three browser projects. The two mobile-project heap cases were
-intentionally skipped. Post-GC heap medians increased from 7,281,048
-to 7,423,524 bytes (142,476 bytes, about 0.14 MiB), within the 2 MiB allowance.
+intentionally skipped. With the profile reader included, post-GC heap medians
+increased from 7,351,940 to 7,539,292 bytes (187,352 bytes, about 0.18 MiB),
+within the 2 MiB allowance. This workload measures discussion lifetimes after
+the shared profile-reader change; it does not measure repeated profile-screen heap use.
 Mock-relay peaks were seven sockets and eight subscriptions. Leaving each view
 closed its pending requests; idle socket counts fell to at most one. These
 finite measurements support the stated lifetime bounds, not a claim that every

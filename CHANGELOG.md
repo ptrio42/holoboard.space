@@ -10,6 +10,8 @@ record deployment, not announcement publication.
 
 - Add an opt-in read-only discussion screen for original promoted notes, with
   expandable replies, promotion highlights and explicit partial context.
+- Add opt-in author profiles with shared relay reads, explicit source coverage
+  and active promoted notes, preserving navigation back to discussions.
 
 ### Fixed
 

@@ -10,6 +10,7 @@ import { BoardLayout } from "../components/BoardLayout/BoardLayout";
 import { DiscussionNote } from "../components/Discussion/DiscussionNote";
 import { PixelButton } from "../components/ui/PixelButton";
 import { StatusMessage } from "../components/ui/StatusMessage";
+import { readingBackLabel } from "../lib/readingRoutes";
 import { PromoteModal } from "../components/PromoteModal/PromoteModal";
 
 interface ReadingState { expanded: string[]; collapsed: string[]; page: number; pendingPage: number; context: boolean }
@@ -74,7 +75,7 @@ export default function Discussion({ focusId, author, from }: { focusId: string;
     return <BoardLayout section="discussion" onPromote={() => setPromote(true)}>
         <main id="discussion" tabIndex={-1}>
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-                <a href={from} onClick={navigateReading} className="note-action inline-flex min-h-11 items-center">Back to board</a>
+                <a href={from} onClick={navigateReading} className="note-action inline-flex min-h-11 items-center">{readingBackLabel(from)}</a>
                 <h2 className="font-pixel text-xs text-neon-cyan">Discussion</h2>
             </div>
             {error && <div role="alert"><p className="mb-3 text-sm text-neon-pink">Could not open this discussion. Try again.</p><PixelButton onClick={retry}>Try again</PixelButton></div>}

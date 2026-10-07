@@ -4,7 +4,7 @@ import { matchFilter, type Event, type Filter } from "nostr-tools";
 interface RecordEntry { event: Event; expires: number; size: number }
 const MAX_ENTRIES = 2048;
 const MAX_BYTES = 8_388_608;
-export function newerEvent(candidate: Event, current?: Event): boolean {
+export function newerEvent(candidate: Pick<Event, "id" | "created_at">, current?: Pick<Event, "id" | "created_at">): boolean {
     return !current || candidate.created_at > current.created_at || (candidate.created_at === current.created_at && candidate.id < current.id);
 }
 export function replaceableKey(event: Event): string | undefined {

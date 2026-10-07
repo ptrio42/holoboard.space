@@ -1,5 +1,6 @@
+import { ProfileLink } from "../ui/ProfileLink";
 import { useProfileValue } from "../../hooks/useProfile";
-import { njumpUrl, shortNpub } from "../../lib/nostr";
+import { shortNpub } from "../../lib/nostr";
 
 /**
  * A person mentioned inside a note.
@@ -18,13 +19,11 @@ export function NostrMention({ pubkey, relays = [] }: { pubkey: string; relays?:
     const name = profile?.displayName?.trim() || profile?.name?.trim();
 
     return (
-        <a
-            href={njumpUrl(pubkey)}
-            target="_blank"
-            rel="noopener noreferrer nofollow"
+        <ProfileLink
+            pubkey={pubkey} hints={relays}
             title={profile?.nip05 || undefined}
         >
             {name ? `@${name}` : shortNpub(pubkey)}
-        </a>
+        </ProfileLink>
     );
 }

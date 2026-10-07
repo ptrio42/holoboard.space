@@ -2,30 +2,7 @@ import type { DiscussionSnapshot } from "./discussionReads";
 import { projectThread, type ThreadGraph, type ThreadNode, type ThreadRow } from "./threadGraph";
 
 export const DISCUSSION_PAGE_SIZE = 48;
-const HEX_ID = /^[0-9a-f]{64}$/;
-export function boardReturnPath(value: string | null): string {
-    if (!value) return "/";
-    const [path, query = ""] = value.split("?");
-    if (path !== "/" && path !== "/waiting" && path !== "/expired") return "/";
-    const view = new URLSearchParams(query).get("view");
-    return path === "/waiting" && ["top", "new", "hot"].includes(view ?? "") ? `${path}?view=${view}` : path;
-}
-export function discussionRoute(path: string) {
-    const url = new URL(path, "https://holoboard.invalid");
-    const match = /^\/discussion\/([0-9a-f]{64})\/?$/.exec(url.pathname);
-    if (!match) return null;
-    const author = url.searchParams.get("author");
-    return { focusId: match[1], author: author && HEX_ID.test(author) ? author : undefined,
-        from: boardReturnPath(url.searchParams.get("from")) };
-}
-export function discussionHref(id: string, author?: string, from = "/") {
-    if (!HEX_ID.test(id)) throw new TypeError("Invalid discussion ID");
-    const params = new URLSearchParams();
-    if (author && HEX_ID.test(author)) params.set("author", author);
-    const back = boardReturnPath(from);
-    if (back !== "/") params.set("from", back);
-    return `/discussion/${id}${params.size ? `?${params}` : ""}`;
-}
+export { boardReturnPath, discussionRoute, discussionHref } from "./readingRoutes";
 /** Chronology orders siblings only. Promotion and author identity cannot change edges. */
 export const chronologicalReplies = (a: ThreadNode, b: ThreadNode) =>
     (a.event?.created_at ?? 0) - (b.event?.created_at ?? 0);

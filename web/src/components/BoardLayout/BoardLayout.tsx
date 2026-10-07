@@ -10,14 +10,14 @@ const sections: { id: BoardSection; href: string; label: string }[] = [
 ];
 
 export function BoardLayout({ section, onPromote, headerContent, children, newWaitingCount = 0 }: {
-    section: BoardSection | "discussion";
+    section: BoardSection | "discussion" | "profile";
     onPromote: () => void;
     headerContent?: ReactNode;
     children: ReactNode;
     newWaitingCount?: number;
 }) {
     return <div className="mx-auto min-h-dvh w-full max-w-5xl px-4 pt-4 pb-20 sm:px-6 md:pt-6">
-        <a href={section === "discussion" ? "#discussion" : "#board"} className="skip-link pixel-frame focus-pixel border-2 border-neon-gold bg-void px-4 py-2 font-pixel text-[10px] text-neon-gold">Skip to notes</a>
+        <a href={section === "profile" ? "#profile" : section === "discussion" ? "#discussion" : "#board"} className="skip-link pixel-frame focus-pixel border-2 border-neon-gold bg-void px-4 py-2 font-pixel text-[10px] text-neon-gold">Skip to notes</a>
         <header className="mb-4 md:mb-6">
             <div className="grid grid-cols-[minmax(44px,1fr)_auto_minmax(44px,1fr)] items-center gap-x-2 gap-y-2 md:grid-cols-[minmax(0,1fr)_auto_auto] md:gap-x-5 md:gap-y-3">
                 <h1 className="min-w-0 font-pixel text-2xl leading-tight tracking-widest text-neon-pink [text-shadow:0_0_18px_rgba(236,72,153,0.55)]">

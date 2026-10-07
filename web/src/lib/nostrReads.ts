@@ -2,7 +2,7 @@ import { withReadBudget } from "./readBudget";
 import { type Event, type Filter } from "nostr-tools";
 import { PUBLIC_RELAYS, RELAY_URL } from "../config";
 import { DISCOVERY_RELAYS, relayCandidates } from "./relayPolicy";
-import { nostrCache, newerEvent } from "./nostrCache";
+import { nostrCache } from "./nostrCache";
 import { queryNostr, type QueryResult } from "./nostrTransport";
 
 const inflightLists = new Map<string, Promise<Event | undefined>>();
@@ -71,31 +71,5 @@ export async function readNostr(filter: Filter, hints: string[] = [], author?: s
     });
 }
 
-export interface SafeProfile { name?: string; displayName?: string; picture?: string; nip05?: string; about?: string }
-export function profileMetadata(event?: Event): SafeProfile | undefined {
-    if (!event) return;
-    try {
-        const metadata: unknown = JSON.parse(event.content);
-        if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return;
-        const data = metadata as Record<string, unknown>;
-        const text = (key: string) => typeof data[key] === "string" ? data[key].trim().slice(0, 2048) : undefined;
-        const picture = text("picture");
-        return { name: text("name"), displayName: text("display_name") ?? text("displayName"), about: text("about"), nip05: text("nip05"),
-            picture: picture && /^https?:\/\//i.test(picture) ? picture : undefined };
-    } catch { return; }
-}
-const profiles = new Map<string, Promise<SafeProfile | undefined>>();
-export async function readProfile(pubkey: string, hints: string[] = []): Promise<SafeProfile | undefined> {
-    if (!/^[0-9a-f]{64}$/.test(pubkey)) return;
-    await nostrCache.ready;
-    const cached = nostrCache.query({ kinds: [0], authors: [pubkey], limit: 1 })[0];
-    if (cached) return profileMetadata(cached);
-    let pending = profiles.get(pubkey);
-    if (pending) return pending;
-    if (profiles.size >= 128) return;
-    pending = readNostr({ kinds: [0], authors: [pubkey], limit: 1 }, hints, pubkey)
-        .then((result) => profileMetadata(result.events.reduce<Event | undefined>((current, event) => newerEvent(event, current) ? event : current, undefined)))
-        .finally(() => profiles.delete(pubkey));
-    profiles.set(pubkey, pending);
-    return pending;
-}
+export { profileMetadata, type SafeProfile } from "./profileMetadata";
+export { readProfileValue as readProfile } from "./profileReads";

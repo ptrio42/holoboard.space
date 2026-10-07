@@ -78,3 +78,6 @@ export const KIND_COMMENT = 1111;
 
 /** Read-only discussions are opt-in until screen acceptance is complete. */
 export const ENABLE_DISCUSSIONS = import.meta.env.VITE_ENABLE_DISCUSSIONS === "true";
+
+/** Read-only profiles ship independently of signer support. */
+export const ENABLE_PROFILES = import.meta.env.VITE_ENABLE_PROFILES === "true";

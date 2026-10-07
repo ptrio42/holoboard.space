@@ -343,7 +343,11 @@ universal no-jump guarantee. The read uses a fixed session timestamp, not a live
 reply feed. Closing and reopening refreshes that timestamp. Full screen behavior
 and configuration are in [the Nostr reference](nostr.md#discussion-screen).
 
-Dedicated profile screens, deletion/moderation discovery and user-authored
+Dedicated read-only profiles now use the shared metadata service behind the
+independent, disabled-by-default `VITE_ENABLE_PROFILES` flag. They show verified
+active Holoboard campaign membership and preserve discussion branches and reading
+positions on return. The [profile contract](nostr.md#profile-screen) describes
+source coverage and scan limits. Deletion/moderation discovery and user-authored
 replies remain separate stages. Controlled real-relay reading and finite runtime
 heap/navigation checks now supplement local signed-event fixtures. Their scope,
 results and repeatable commands are in

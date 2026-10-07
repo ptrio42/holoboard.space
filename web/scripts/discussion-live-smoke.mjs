@@ -127,6 +127,24 @@ try {
         });
         await page.getByRole("link", { name: "Back to board" }).click();
     }
+    if (process.env.HOLOBOARD_PROFILE_READS === "1") {
+        const pubkey = entries.find(entry => entry.event.kind === 1111)?.event.pubkey ?? entries[0].event.pubkey;
+        await page.goto(`${origin}/profile/${pubkey}`);
+        await page.waitForFunction(() => ["partial", "settled"].includes(document.querySelector('[aria-label="Profile coverage"]')?.getAttribute("data-read-state")), undefined, { timeout: 20000 });
+        report.profileScreen = await page.evaluate(async pubkey => {
+            const { profileReader } = await import("/src/lib/profileReads.ts");
+            const value = profileReader.sessions.get(pubkey)?.value;
+            return { pubkey, loaded: !!value?.profile, state: value?.state, event: value?.event,
+                relays: value?.relays, routing: value?.routing, cachedRouting: value?.cachedRouting,
+                promotedNotes: document.querySelectorAll("[data-profile-note]").length,
+                promotionCoverage: document.querySelector('[aria-label="Promotion coverage"]')?.textContent,
+                overflow: document.documentElement.scrollWidth > innerWidth };
+        }, pubkey);
+        await page.screenshot({ path: "/private/tmp/holoboard-live-profile.png", fullPage: true });
+        await page.getByRole("link", { name: "Back to board" }).click();
+        await waitUntil(() => page.evaluate(async pubkey => !(await import("/src/lib/profileReads.ts")).profileReader.sessions.get(pubkey)?.views.size, pubkey));
+        if (!report.profileScreen.loaded || report.profileScreen.overflow) throw new Error("Live profile smoke failed; inspect report.");
+    }
     await waitUntil(() => page.evaluate(async () => (await import("/src/lib/discussionReads.ts")).discussionCoordinator.sessions.size === 0));
     report.afterClose = await page.evaluate(async () => ({ ...(await import("/src/lib/socketBudget.ts")).socketUsage }));
     report.idleSamples = [];

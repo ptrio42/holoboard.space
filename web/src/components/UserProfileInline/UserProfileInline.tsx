@@ -1,6 +1,7 @@
 import { useProfileValue } from "../../hooks/useProfile";
+import { ProfileLink } from "../ui/ProfileLink";
 import { Avatar } from "../ui/Avatar";
-import { njumpUrl, shortNpub } from "../../lib/nostr";
+import { shortNpub } from "../../lib/nostr";
 
 interface Props {
     pubkey: string;
@@ -18,10 +19,8 @@ export const UserProfileInline = ({ pubkey, size = "sm" }: Props) => {
     const px = size === "sm" ? 28 : 36;
 
     return (
-        <a
-            href={njumpUrl(pubkey)}
-            target="_blank"
-            rel="noopener noreferrer"
+        <ProfileLink
+            pubkey={pubkey}
             className="focus-pixel group inline-flex max-w-full items-center gap-2 no-underline"
         >
             <Avatar pubkey={pubkey} src={profile?.picture} name={name} size={px} />
@@ -30,6 +29,6 @@ export const UserProfileInline = ({ pubkey, size = "sm" }: Props) => {
                 {name}
             </span>
 
-        </a>
+        </ProfileLink>
     );
 };
