@@ -687,6 +687,27 @@ body::after {
 }
 .pixel-status--compact .pixel-status__symbol svg { width: 20px; height: 20px; }
 .pixel-status--compact .pixel-status__copy { font-size: 12px; }
+.pixel-status--icon-only {
+    justify-content: center;
+    min-height: 24px;
+    padding: 4px 0;
+}
+
+.waiting-new-badge {
+    position: absolute;
+    top: -2px;
+    right: -8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 18px;
+    padding: 0 4px;
+    color: var(--color-void);
+    background-color: var(--color-neon-gold);
+    line-height: 1;
+    clip-path: polygon(2px 0, calc(100% - 2px) 0, calc(100% - 2px) 2px, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 2px calc(100% - 2px), 0 calc(100% - 2px), 0 2px, 2px 2px);
+}
 
 .allocation-slider {
     appearance: none;

@@ -674,7 +674,7 @@ test("NWC recovers a lost author response after invoice expiry and reload", asyn
     await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
     await expect.poll(() => state.authorCharges).toBe(1);
     await expect(page.getByRole("button", { name: "Back to promotion", exact: true })).toBeVisible();
-    await expect(page.getByRole("status").filter({ hasText: "Processing author support." })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Processing author support" })).toBeVisible();
     await expect(page.getByRole("button", { name: "I checked my wallet: author support was not paid", exact: true })).toHaveCount(0);
     await page.clock.fastForward(60001);
     await expect(page.getByRole("button", { name: "I checked my wallet: author support was not paid", exact: true })).toBeVisible();
@@ -1447,11 +1447,15 @@ test("restart checks settlement and retains an already paid visibility invoice",
 test("invoice confirmation keeps its recipient until the next invoice is selected", async ({ context, page }) => {
     const state = await setup(context, page);
     await prepareInvoices(page);
+    await expect(page.getByText("Invoice 1 of 2: Holoboard", { exact: true })).toBeVisible();
     state.boardPaid = true;
     await expect(page.getByRole("button", { name: "Next invoice: Author", exact: true })).toBeVisible();
     await expect(page.getByRole("img", { name: "Support the original author invoice QR code", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "Next invoice: Author", exact: true }).click();
     await expect(page.getByRole("img", { name: "Support the original author invoice QR code", exact: true })).toBeVisible();
+    await expect(page.getByText("Invoice 2 of 2: Author", { exact: true })).toBeVisible();
+    await expect(page.getByText("This author invoice has no automatic confirmation here.", { exact: false })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Payment complete", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "I paid the author, checked my wallet", exact: true }).click();
     await expect(page.getByLabel("Author payment", { exact: true }).filter({ hasText: "Marked paid by you, unverified" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Promotion active", exact: true })).toBeVisible();
@@ -1643,8 +1647,13 @@ test("NWC progress stays calm and a complete payment ends with Done", async ({ c
     await connectNwc(page); await prepareInvoices(page);
     await page.getByRole("button", { name: "Pay 210 sats", exact: true }).click();
     await expect.poll(() => !!state.completeAuthorPayment).toBe(true);
-    const progress = page.getByRole("status").filter({ hasText: "Processing author support." });
+    const progress = page.getByRole("status").filter({ hasText: "Processing author support" });
     await expect(progress).toBeVisible();
+    await expect(progress.locator(".sr-only")).toHaveText("Processing author support");
+    await expect(progress.locator(".sr-only")).toHaveCSS("position", "absolute");
+    await expect(progress.locator(".animate-pixel-pulse")).toHaveCount(4);
+    await expect(progress.locator(".pixel-status__copy")).toHaveCount(0);
+    await expect(page.getByText("Waiting for wallet", { exact: true })).toHaveCount(0);
     await expect(progress.locator('[class*="text-neon-gold"]')).toHaveCount(0);
     await expect(page.getByText("Author payment not confirmed", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Payment complete", exact: true })).toHaveCount(0);
@@ -1692,7 +1701,8 @@ test("WebLN completion survives contextual help", async ({ context, page }) => {
     expect(state.boardCharges).toBe(1); expect(state.authorCharges).toBe(1); expect(state.errors).toEqual([]);
 });
 
-test("submitted NWC payment uses a neutral verification panel until confirmed", async ({ context, page }) => {
+test("submitted NWC payment uses an indicator until confirmed without another charge", async ({ context, page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
     const state = await setup(context, page);
     let allowVerification = false;
     await page.route("**/api/support/verify", (route) => allowVerification ? route.fallback() : route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Verification temporarily unavailable" }) }));
@@ -1700,6 +1710,9 @@ test("submitted NWC payment uses a neutral verification panel until confirmed", 
     await page.getByRole("button", { name: "Pay 210 sats", exact: true }).click();
     const progress = page.getByRole("status").filter({ hasText: "Verifying author support" });
     await expect(progress).toBeVisible();
+    await expect(progress.locator(".sr-only")).toHaveText("Verifying author support");
+    await expect(progress.locator(".animate-pixel-pulse").first()).toHaveCSS("animation-iteration-count", "1");
+    await expect(progress.locator(".pixel-status__copy")).toHaveCount(0);
     await expect(progress.locator('[class*="text-neon-gold"]')).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Payment complete", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Back to promotion", exact: true })).toBeVisible();

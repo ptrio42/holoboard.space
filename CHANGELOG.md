@@ -26,6 +26,10 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Accept ordinary author invoices and Wallet Lightning Address invoices with
+  plain descriptions, including Yakihonne wallets, following current LNURL-pay
+  rules. Keep exact amount checks and signed-request description hashes for
+  public zaps.
 - Restore compressed relay requests, including note lookups and wallet
   connections, and finish exact-note lookups as soon as the note arrives.
 - Allow clearing and replacing custom promotion amounts, select the current
@@ -99,6 +103,11 @@ record deployment, not announcement publication.
 
 ### Changed
 
+- Use a compact cyan indicator during promotion wallet payments and verification,
+  with warnings shown after the request ends. Number split invoices and explain
+  confirmation limits for author QR payments.
+- Show new waiting-room notes in a compact notification badge instead of inline
+  text, retaining the full count for screen readers.
 - Compact the mobile header into a linked H, Promote action and pixel wallet
   icon above section navigation. Move Help to a single footer link and keep
   new-note counts compact on phones.

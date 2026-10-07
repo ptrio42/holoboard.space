@@ -30,7 +30,7 @@ export function BoardLayout({ section, onPromote, headerContent, children, newWa
                 </PixelButton>
                 <ConnectionControls className="justify-self-end justify-end" />
                 <nav aria-label="Board sections" className="col-span-3 flex justify-between gap-x-2 font-pixel text-[10px] text-cyan-200/80 md:justify-start md:gap-x-6">
-                    {sections.map(({ id, href, label }) => <a key={id} href={href} aria-current={section === id ? "page" : undefined} className={`focus-pixel relative inline-flex min-h-11 items-center justify-center gap-2 border-b-2 ${section === id ? "border-neon-gold text-neon-gold" : "border-transparent hover:text-neon-cyan"}`}>{label}{id === "waiting" && newWaitingCount > 0 && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 leading-none text-neon-gold md:static md:translate-x-0" aria-label={`${newWaitingCount} new ${newWaitingCount === 1 ? "note" : "notes"} since your last visit`}>({newWaitingCount}<span className="hidden md:inline"> new</span>)</span>}</a>)}
+                    {sections.map(({ id, href, label }) => <a key={id} href={href} aria-current={section === id ? "page" : undefined} className={`focus-pixel relative inline-flex min-h-11 items-center justify-center gap-2 border-b-2 ${section === id ? "border-neon-gold text-neon-gold" : "border-transparent hover:text-neon-cyan"}`}>{label}{id === "waiting" && newWaitingCount > 0 && <span className="waiting-new-badge" aria-label={`${newWaitingCount} new ${newWaitingCount === 1 ? "note" : "notes"} since your last visit`}>{newWaitingCount > 99 ? "99+" : newWaitingCount}</span>}</a>)}
                 </nav>
             </div>
             {headerContent}
