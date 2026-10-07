@@ -6,6 +6,15 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+### Fixed
+
+- Allow clearing and replacing custom promotion amounts, select the current
+  amount on focus and keep invoice preparation disabled for invalid amounts.
+- Let users retry unavailable author payment details without reloading the note
+  or resetting their amount and split.
+- Accept Primal's known ordinary-invoice description variant for the matching
+  recipient, preserving amount checks and strict public-zap validation.
+
 ### Changed
 
 - Compact the mobile header into a linked H, Promote action and pixel wallet

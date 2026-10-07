@@ -69,7 +69,9 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     const [recipient, setRecipient] = useState<PaymentRecipient>(() => recovered.current?.author && (recovered.current.promotionPaid || isMockInvoice(recovered.current.board.invoice)) ? "author" : "board");
     const [restartConfirm, setRestartConfirm] = useState(false);
     const restartedDraft = useRef<Payment | null>(null);
-    const [amount, setAmount] = useState<number>(recovered.current?.draft?.amount ?? (recovered.current ? (recovered.current.board.promotionSats ?? recovered.current.board.amountSats - (recovered.current.board.billboardFeeSats ?? 0)) + (recovered.current.author?.amount_sats ?? 0) : ZAP_PRESETS[1]));
+    const [amountText, setAmountText] = useState(() => String(recovered.current?.draft?.amount ?? (recovered.current ? (recovered.current.board.promotionSats ?? recovered.current.board.amountSats - (recovered.current.board.billboardFeeSats ?? 0)) + (recovered.current.author?.amount_sats ?? 0) : ZAP_PRESETS[1])));
+    const validAmount = /^[0-9]+$/.test(amountText) && Number.isSafeInteger(Number(amountText)) && Number(amountText) >= 1 && Number(amountText) <= 10000000;
+    const amount = validAmount ? Number(amountText) : 0;
     const [amountSelection, setAmountSelection] = useState<AmountSelection>(recovered.current?.draft?.amountSelection ?? { mode: "amount", rank: null, custom: false });
     const [authorShare, setAuthorShare] = useState(recovered.current?.draft?.authorShare ?? recovered.current?.authorShare ?? 20);
     const [preview, setPreview] = useState<NotePreview | null>(null);
@@ -99,7 +101,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     };
     const existingCampaign = !!preview && (preview.active || preview.satsPaid > 0);
     const campaignShare = !existingCampaign && endpoint?.reason_code === "no_address" ? 0 : preview?.authorShare ?? 20;
-    const split = allocatePayment(amount, authorShare);
+    const split = validAmount ? allocatePayment(amount, authorShare) : { promotion: 0, author: 0 };
     const fee = billboardEnabled ? preview?.billboardFeeSats ?? 0 : 0;
     const boost = preview?.active ?? (!!initialReference && parseNoteReference(reference)?.id === parseNoteReference(initialReference)?.id && (currentWeight ?? 0) > 0);
     const knownWeight = preview?.weight ?? currentWeight ?? 0;
@@ -118,7 +120,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         <PaymentTabs id={navigationId} active={method} walletFirst={walletFirst} onChange={setMethod} />, navigationHost) : editorNavigation;
     const restoreDraft = (saved: Payment, loaded: NotePreview) => {
         const draft = saved.draft;
-        setAmount(draft?.amount ?? (saved.board.promotionSats ?? saved.board.amountSats - (saved.board.billboardFeeSats ?? 0)) + (saved.author?.amount_sats ?? 0));
+        setAmountText(String(draft?.amount ?? (saved.board.promotionSats ?? saved.board.amountSats - (saved.board.billboardFeeSats ?? 0)) + (saved.author?.amount_sats ?? 0)));
         setAmountSelection(draft?.amountSelection ?? { mode: "amount", rank: null, custom: false });
         setAuthorShare(draft?.authorShare ?? saved.authorShare ?? loaded.authorShare);
         setConfig(draft?.config ?? loaded.billboard ?? initialBillboard(loaded.event.content));
@@ -151,7 +153,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
             abort.current?.abort();
             if (payment) savePayment({ ...payment, editing: true });
             setPayment(null); recovered.current = null; restartedDraft.current = null;
-            setAmount(ZAP_PRESETS[1]); setAmountSelection({ mode: "amount", rank: null, custom: false });
+            setAmountText(String(ZAP_PRESETS[1])); setAmountSelection({ mode: "amount", rank: null, custom: false });
             setAuthorShare(20); setBillboardEnabled(false); setConfig(initialBillboard(""));
             setNotifyEnabled(false); setNotifyPubkey(""); setPublicZapSigner(undefined);
             setActualRank(null); setRestartConfirm(false); setRecipient("board");
@@ -292,8 +294,23 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         return () => { active = false; window.removeEventListener("pageshow", resume); document.removeEventListener("visibilitychange", resume); };
     }, [authorInvoice, paymentNote, authorProof, tipStatus, busy]);
 
+    const retryAuthorEndpoint = async () => {
+        if (!preview || loading || busy) return;
+        const noteId = preview.event.id;
+        const author = preview.event.pubkey;
+        abort.current?.abort();
+        const controller = new AbortController(); abort.current = controller;
+        setLoading(true); setAuthorInvoiceError("");
+        try {
+            const result = await fetchAuthorEndpoint(reference, controller.signal);
+            if (!controller.signal.aborted && parseNoteReference(latestReference.current)?.id === noteId) setEndpoint(result);
+        } catch {
+            if (!controller.signal.aborted) setEndpoint({ available: false, author, reason_code: "unavailable", reason: "Could not reach the author's wallet. Choose visibility only or try again later.", min_sats: 1, max_sats: 0, allows_nostr: false });
+        } finally { if (!controller.signal.aborted) setLoading(false); }
+    };
+
     const start = async () => {
-        if (!preview || invalidTip) return;
+        if (!preview || !validAmount || invalidTip) return;
         const contact = notifyEnabled ? parsePubkey(notifyPubkey) : null;
         if (notifyEnabled && !contact) { setError("Enter a valid npub for the confirmation DM."); selectTab("options"); return; }
         setBusy(true); setError(""); setAuthorInvoiceError(""); abort.current?.abort();
@@ -443,11 +460,11 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
             setLoadVersion((version) => version + 1);
         } finally { if (!controller.signal.aborted) setBusy(false); }
     };
-    const cannotPrepare = busy || loading || !preview || invalidTip || (billboardEnabled && !validBillboard(config, preview.event.content, preview.images));
+    const cannotPrepare = busy || loading || !preview || !validAmount || invalidTip || (billboardEnabled && !validBillboard(config, preview.event.content, preview.images));
     const submission = <div className="space-y-2">
         {error && <p role="alert" className="text-sm text-neon-pink">{error}</p>}
         <PixelButton className="w-full min-h-11" variant="accent" disabled={cannotPrepare} onClick={() => void start()}>
-            {busy ? "Preparing payments" : `${boost ? "Boost" : "Promote"} ${amount+fee} sats`}
+            {busy ? "Preparing payments" : !validAmount ? "Enter amount" : `${boost ? "Boost" : "Promote"} ${amount+fee} sats`}
         </PixelButton>
         <div className="flex flex-wrap items-center justify-between gap-x-3">
             {hasTabs ? panel !== "compose" && <button type="button" className={actionClass} disabled={busy} onClick={() => selectTab("compose")}> &lt; Back to promotion</button> : paymentOptions}
@@ -520,14 +537,14 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
             <input className={`${FIELD} min-h-11 text-base`} value={reference} placeholder="note1, nevent1, or a note link" spellCheck={false} disabled={busy}
                 onChange={(event) => changeReference(event.target.value)} />
         </label>}
-        {loading && <StatusMessage compact loading>Loading note and author payment details...</StatusMessage>}
+        {loading && <StatusMessage compact loading>{preview ? "Checking author payment details..." : "Loading note and author payment details..."}</StatusMessage>}
         {preview && <PromotionNotePreview preview={preview} compact={boost} expanded={noteExpanded} onToggle={() => setNoteExpanded(!noteExpanded)}>
             {(!initialReference || !boost || pendingSessions.length > 0) && <button type="button" className="promotion-action focus-pixel min-h-11" disabled={busy} onClick={() => setChangingReference(!changingReference)}>{changingReference ? "Done" : "Change note"}</button>}
         </PromotionNotePreview>}
         {!boost && billboardEnabled && <p className="text-xs text-neon-gold">Billboard +{fee} sats, included in the total.</p>}
-        <PromotionAmountPicker amount={amount} currentWeight={knownWeight} max={10000000} appearanceFee={fee} targets={targets} disabled={busy}
+        <PromotionAmountPicker amount={amountText} validAmount={validAmount} currentWeight={knownWeight} max={10000000} appearanceFee={fee} targets={targets} disabled={busy}
             selection={amountSelection} onSelectionChange={setAmountSelection}
-            totalForPromotion={(needed) => totalForPromotion(needed, authorShare)} onChange={setAmount} />
+            totalForPromotion={(needed) => totalForPromotion(needed, authorShare)} onChange={setAmountText} />
         <PromotionSplit author={preview?.event.pubkey} authorShare={authorShare} promotionSats={split.promotion} authorSats={split.author} disabled={busy} onChange={changeAuthorShare}>
             <div className="flex flex-wrap items-center justify-between gap-x-3 text-cyan-100/75">
                 {authorShare !== campaignShare && <button type="button" className={actionClass} disabled={busy} onClick={() => changeAuthorShare(campaignShare)} aria-label={existingCampaign ? "Use campaign split" : "Use default split"}>
@@ -545,7 +562,10 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         {split.author > 0 && (authorInvoiceError || (endpoint && invalidTip)) && <div className="space-y-2 border-l-2 border-neon-gold pl-3 text-sm text-neon-gold">
             <p role="alert">{authorInvoiceError ? `Could not prepare author support: ${authorInvoiceError}` : !endpoint?.available ? endpoint?.reason : `The author's wallet accepts ${endpoint.min_sats} to ${endpoint.max_sats} sats. Increase the amount or change the allocation.`}</p>
             <p>Visibility only would allocate {amount} sats to Holoboard visibility and 0 sats to the author{fee > 0 ? `, plus ${fee} sats for appearance` : ""}. Total: {amount+fee} sats. Review the allocation before preparing an invoice.</p>
-            <PixelButton size="sm" variant="ghost" disabled={busy} onClick={() => { changeAuthorShare(0); setError(""); }}>Choose visibility only</PixelButton>
+            <div className="flex flex-wrap gap-2">
+                {!endpoint?.available && endpoint?.reason_code !== "no_address" && <PixelButton size="sm" variant="ghost" disabled={busy || loading} onClick={() => void retryAuthorEndpoint()}>Retry author wallet</PixelButton>}
+                <PixelButton size="sm" variant="ghost" disabled={busy || loading} onClick={() => { changeAuthorShare(0); setError(""); }}>Choose visibility only</PixelButton>
+            </div>
         </div>}
         {footer(submission)}
     </div></>;

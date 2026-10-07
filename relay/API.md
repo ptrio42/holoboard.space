@@ -240,6 +240,12 @@ advertise Nostr support. Without this field, the invoice uses ordinary LNURL-pay
 and needs no signer.
 
 The service validates invoice amount, description hash, network and expiry.
+Ordinary Primal invoices have a narrowly scoped compatibility rule for the
+[provider's description mismatch](https://github.com/PrimalHQ/primal-web-app/issues/198):
+both HTTPS endpoints must belong to `primal.net` and identify the same recipient,
+and the advertised metadata must match its exact known format. The accepted
+alternate description omits only `@primal.net`. This rule never applies to a
+public zap, which must commit to the exact signed request JSON.
 It never pays or forwards author funds, and this invoice never affects ranking.
 The client handles two independent recipient payments and their partial results.
 These endpoints share a limit of 20 requests per client address in ten minutes.

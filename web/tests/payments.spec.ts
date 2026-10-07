@@ -32,7 +32,7 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
     if (options.blockStorage) await context.addInitScript(() => {
         Object.defineProperty(window, "sessionStorage", { get: () => { throw new DOMException("Storage blocked by this test", "SecurityError"); } });
     });
-    const state = { boardPaid: false, authorPaid: false, boardCharges: 0, authorCharges: 0, authorAttempts: 0, boardProofs: new Map<string, string>([["lnbc-visibility", boardPreimage]]), authorProofs: new Map<string, string>(), expectedSignerPubkey: getPublicKey(userKey), boardRequests: [] as Record<string, unknown>[], authorRequests: [] as Record<string, unknown>[], methods: [] as string[], signerMethods: [] as string[], linkPreviews: [] as string[], errors: [] as string[], completeAuthorPayment: undefined as (() => void) | undefined, approveSigner: undefined as (() => Promise<void>) | undefined };
+    const state = { authorUnavailable: options.authorUnavailable, authorEndpointRequests: 0, boardPaid: false, authorPaid: false, boardCharges: 0, authorCharges: 0, authorAttempts: 0, boardProofs: new Map<string, string>([["lnbc-visibility", boardPreimage]]), authorProofs: new Map<string, string>(), expectedSignerPubkey: getPublicKey(userKey), boardRequests: [] as Record<string, unknown>[], authorRequests: [] as Record<string, unknown>[], methods: [] as string[], signerMethods: [] as string[], linkPreviews: [] as string[], errors: [] as string[], completeAuthorPayment: undefined as (() => void) | undefined, approveSigner: undefined as (() => Promise<void>) | undefined };
     const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Allow-Methods": "GET,POST,OPTIONS" };
     await context.route("**/*", async (route) => {
         const url = new URL(route.request().url());
@@ -53,7 +53,10 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
         else if (url.pathname === "/api/board/campaigns") data = { entries: [entry], targets: options.targets ?? [entry], total: 1, active_posts: 1, has_more: false, total_sats: 210 };
         else if (url.pathname === "/api/promote/preview" && options.secondNote && body.note === otherNote.id) data = { event: otherNote, active: false, sats_paid: 0, weight: 0, rank: 0, billboard_fee_sats: 100, images: [], author_share: 20 };
         else if (url.pathname === "/api/promote/preview") data = { event: promotedNote, active: !options.newCampaign && !options.expiredCampaign, sats_paid: options.newCampaign ? 0 : 210, weight: options.newCampaign || options.expiredCampaign ? 0 : 200, rank: options.newCampaign || options.expiredCampaign ? 0 : options.rank ?? 1, billboard_fee_sats: 100, images: [], author_share: entry.author_share };
-        else if (url.pathname === "/api/support") data = { available: !options.authorUnavailable, reason_code: options.authorUnavailable, reason: options.authorUnavailable === "no_address" ? "The author has no Lightning payment address." : "Author support is unavailable. Choose visibility only or try again later.", author: note.pubkey, min_sats: options.authorMinSats ?? 1, max_sats: 10000000, allows_nostr: true, nostr_pubkey: walletPubkey };
+        else if (url.pathname === "/api/support") {
+            state.authorEndpointRequests++;
+            data = { available: !state.authorUnavailable, reason_code: state.authorUnavailable, reason: state.authorUnavailable === "no_address" ? "The author has no Lightning payment address." : "Author support is unavailable. Choose visibility only or try again later.", author: note.pubkey, min_sats: options.authorMinSats ?? 1, max_sats: 10000000, allows_nostr: true, nostr_pubkey: walletPubkey };
+        }
         else if (url.pathname === "/api/support/invoice") {
             state.authorRequests.push(body);
             if (options.failAuthorInvoice) { status = 503; data = { error: "Author invoice provider unavailable" }; }
@@ -916,7 +919,7 @@ test("promotion preview bounds images and keeps Nostr references clickable", asy
     expect((await thumbnail.boundingBox())!.height).toBeLessThanOrEqual(80);
     await expect(article.locator('a[href^="https://njump.me/nevent1"]')).toHaveCount(1);
     await page.getByRole("button", { name: "Custom", exact: true }).click();
-    await page.getByRole("spinbutton", { name: "Custom total in sats" }).fill("500");
+    await page.getByRole("textbox", { name: "Custom total in sats" }).fill("500");
     await page.getByRole("button", { name: "Show full text", exact: true }).click();
     await expect(article.locator('[aria-label="Original note images"]')).toBeVisible();
     await expect(article.getByRole("link", { name: "Open original image", exact: true })).toHaveAttribute("href", image);
@@ -925,7 +928,7 @@ test("promotion preview bounds images and keeps Nostr references clickable", asy
     await page.getByRole("button", { name: "Show less", exact: true }).click();
     await page.getByRole("tab", { name: /^Payment options/ }).click();
     await page.getByRole("tab", { name: "Promotion", exact: true }).click();
-    await expect(page.getByRole("spinbutton", { name: "Custom total in sats" })).toHaveValue("500");
+    await expect(page.getByRole("textbox", { name: "Custom total in sats" })).toHaveValue("500");
     await expect(thumbnail).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
     expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0); expect(state.errors).toEqual([]);
@@ -962,7 +965,7 @@ test("amount modes and inline split preserve a boost draft across contextual pan
     await page.getByRole("button", { name: "Reach rank 21, estimated total 251 sats", exact: true }).click();
     await page.getByRole("button", { name: "Amount", exact: true }).click();
     await page.getByRole("button", { name: "Custom", exact: true }).click();
-    await expect(page.getByRole("spinbutton", { name: "Custom total in sats" })).toHaveValue("251");
+    await expect(page.getByRole("textbox", { name: "Custom total in sats" })).toHaveValue("251");
     await page.getByRole("button", { name: "Target position", exact: true }).click();
     await openSupport(page);
     await setAuthorShare(page, 50);
@@ -1109,7 +1112,7 @@ test("long original notes scroll while the promotion action stays visible", asyn
 test("customization, contextual help and notifications preserve payment choices", async ({ context, page }) => {
     const state = await setup(context, page, { newCampaign: true });
     await page.getByRole("button", { name: "Custom", exact: true }).click();
-    await page.getByRole("spinbutton", { name: "Custom total in sats" }).fill("500");
+    await page.getByRole("textbox", { name: "Custom total in sats" }).fill("500");
     await openSupport(page);
     await setAuthorShare(page, 35);
     await backToForm(page);
@@ -1130,7 +1133,7 @@ test("customization, contextual help and notifications preserve payment choices"
     await expect(page.getByRole("heading", { name: "Other ways to promote", exact: true })).toBeAttached();
     await expect(page.getByRole("button", { name: "Copy Holoboard pubkey", exact: true })).toBeAttached();
     await backToForm(page);
-    await expect(page.getByRole("spinbutton", { name: "Custom total in sats" })).toHaveValue("500");
+    await expect(page.getByRole("textbox", { name: "Custom total in sats" })).toHaveValue("500");
     await expect(page.getByText("Billboard +100 sats, included in the total.", { exact: true })).toBeVisible();
     await openPaymentOptions(page);
     await expect(page.getByRole("checkbox", { name: "Send me a confirmation DM", exact: true })).toBeChecked();
@@ -1156,7 +1159,7 @@ test("promotion tabs keep the draft and payment action accessible", async ({ con
     await expect(promotion).toHaveAttribute("aria-selected", "true");
     await expect(page.getByRole("tabpanel")).toHaveAccessibleName("Promotion");
     await page.getByRole("button", { name: "Custom", exact: true }).click();
-    await page.getByRole("spinbutton", { name: "Custom total in sats" }).fill("500");
+    await page.getByRole("textbox", { name: "Custom total in sats" }).fill("500");
     await setAuthorShare(page, 35);
     await promotion.focus();
     await page.keyboard.press("ArrowRight");
@@ -1183,7 +1186,7 @@ test("promotion tabs keep the draft and payment action accessible", async ({ con
     await options.focus();
     await page.keyboard.press("Home");
     await expect(promotion).toBeFocused();
-    await expect(page.getByRole("spinbutton", { name: "Custom total in sats" })).toHaveValue("500");
+    await expect(page.getByRole("textbox", { name: "Custom total in sats" })).toHaveValue("500");
     await expect(page.getByRole("slider", { name: "Holoboard share in percent" })).toHaveValue("65");
     await billboard.click();
     await expect(page.getByRole("button", { name: "Neon sign", exact: true })).toHaveAttribute("aria-pressed", "true");
@@ -1363,7 +1366,7 @@ test("restart restores amount, allocation, appearance and notifications after re
     await page.setViewportSize({ width: 320, height: 740 });
     const state = await setup(context, page, { newCampaign: true });
     await page.getByRole("button", { name: "Custom", exact: true }).click();
-    await page.getByRole("spinbutton", { name: "Custom total in sats", exact: true }).fill("500");
+    await page.getByRole("textbox", { name: "Custom total in sats", exact: true }).fill("500");
     await setAuthorShare(page, 35);
     await page.getByRole("tab", { name: /^Billboard/ }).click();
     await page.getByRole("button", { name: "Billboard / +100 sats", exact: true }).click();
@@ -1379,7 +1382,7 @@ test("restart restores amount, allocation, appearance and notifications after re
     await page.screenshot({ path: test.info().outputPath("payment-restart-320.png") });
     await page.getByRole("button", { name: "I haven't paid, restart", exact: true }).click();
     await expect(page.getByRole("button", { name: "Promote 600 sats", exact: true })).toBeEnabled();
-    await expect(page.getByRole("spinbutton", { name: "Custom total in sats", exact: true })).toHaveValue("500");
+    await expect(page.getByRole("textbox", { name: "Custom total in sats", exact: true })).toHaveValue("500");
     await expect(page.getByRole("slider", { name: "Holoboard share in percent" })).toHaveValue("65");
     await page.getByRole("tab", { name: /^Billboard/ }).click();
     await expect(page.getByRole("button", { name: "Neon sign", exact: true })).toHaveAttribute("aria-pressed", "true");
@@ -1486,7 +1489,7 @@ test("legacy sessions restart with known amount and allocation", async ({ contex
     const state = await setup(context, page);
     await setAuthorShare(page, 35);
     await page.getByRole("button", { name: "Custom", exact: true }).click();
-    await page.getByRole("spinbutton", { name: "Custom total in sats", exact: true }).fill("500");
+    await page.getByRole("textbox", { name: "Custom total in sats", exact: true }).fill("500");
     await page.getByRole("button", { name: "Boost 500 sats", exact: true }).click();
     await expect(page.getByRole("button", { name: "Restart payment", exact: true })).toBeEnabled();
     await page.evaluate(() => {
@@ -1708,6 +1711,64 @@ test("submitted NWC payment uses a neutral verification panel until confirmed", 
     expect(state.errors).toEqual([]);
 });
 
+test("unavailable author wallet can be retried without resetting the amount or split", async ({ context, page }) => {
+    const state = await setup(context, page, { newCampaign: true, authorUnavailable: "unavailable" });
+    await expect(page.getByRole("alert")).toContainText("Author support is unavailable.");
+    await page.getByRole("button", { name: "Custom", exact: true }).click();
+    const input = page.getByRole("textbox", { name: "Custom total in sats", exact: true });
+    await input.fill("50");
+    const slider = page.getByRole("slider", { name: "Holoboard share in percent" });
+    await slider.fill("70");
+    state.authorUnavailable = undefined;
+    await page.getByRole("button", { name: "Retry author wallet", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Promote 50 sats", exact: true })).toBeEnabled();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(input).toHaveValue("50");
+    await expect(slider).toHaveAttribute("aria-valuetext", "Holoboard 70%, 35 sats; author 30%, 15 sats");
+    expect(state.authorEndpointRequests).toBe(2);
+    expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
+for (const newCampaign of [false, true]) test(`custom amount can be replaced and cleared in ${newCampaign ? "promotion" : "boost"}`, async ({ context, page }) => {
+    const state = await setup(context, page, { newCampaign });
+    await page.getByRole("button", { name: "Custom", exact: true }).click();
+    const input = page.getByRole("textbox", { name: "Custom total in sats", exact: true });
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue("210");
+    expect(await input.evaluate(element => {
+        const field = element as HTMLInputElement;
+        return [field.selectionStart, field.selectionEnd];
+    })).toEqual([0, 3]);
+    await input.pressSequentially("50");
+    await expect(input).toHaveValue("50");
+    await input.fill("");
+    await expect(input).toHaveValue("");
+    await expect(page.getByRole("button", { name: "Enter amount", exact: true })).toBeDisabled();
+    await openPaymentOptions(page);
+    if (newCampaign) await expect(page.getByRole("button", { name: "Enter amount", exact: true })).toBeDisabled();
+    else await expect(page.getByRole("button", { name: /^(Enter amount|Boost \d+ sats)$/ })).toHaveCount(0);
+    await backToForm(page);
+    await expect(input).toHaveValue("");
+    for (const value of ["0", "-1", "1.5", "1e2", "10000001"]) {
+        await input.fill(value);
+        await expect(input).toHaveValue(value);
+        await expect(input).toHaveAttribute("aria-invalid", "true");
+        await expect(page.getByRole("button", { name: "Enter amount", exact: true })).toBeDisabled();
+    }
+    expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0);
+    await input.fill("");
+    await input.pressSequentially("50");
+    await expect(input).toHaveValue("50");
+    await expect(input).toHaveAttribute("aria-invalid", "false");
+    await expect(page.getByRole("slider", { name: "Holoboard share in percent" })).toHaveAttribute("aria-valuetext", "Holoboard 80%, 40 sats; author 20%, 10 sats");
+    await page.getByRole("button", { name: newCampaign ? "Promote 50 sats" : "Boost 50 sats", exact: true }).click();
+    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toBeVisible();
+    expect(state.boardRequests[0]).toMatchObject({ amount_sats: 40, author_share: 20 });
+    expect(state.authorRequests[0]).toMatchObject({ amount_sats: 10 });
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
 for (const viewport of [{ width: 320, height: 640 }, { width: 1280, height: 720 }]) for (const newCampaign of [false, true]) {
     test(`amount picker stays still in ${newCampaign ? "promote" : "boost"} at ${viewport.width}px`, async ({ context, page }) => {
         await page.setViewportSize(viewport);
@@ -1721,11 +1782,11 @@ for (const viewport of [{ width: 320, height: 640 }, { width: 1280, height: 720 
         expect((await custom.boundingBox())!.y).toBeCloseTo(customBefore!.y, 0);
         await expect(page.getByRole("button", { name: "How ranking works >", exact: true })).toHaveCount(0);
         await custom.click();
-        await page.getByRole("spinbutton", { name: "Custom total in sats" }).fill("500");
+        await page.getByRole("textbox", { name: "Custom total in sats" }).fill("500");
         const edited = await legend.boundingBox();
         await page.getByRole("button", { name: "Amount", exact: true }).click();
         expect((await legend.boundingBox())!.y).toBeCloseTo(edited!.y, 0);
-        await expect(page.getByRole("spinbutton", { name: "Custom total in sats" })).toHaveValue("500");
+        await expect(page.getByRole("textbox", { name: "Custom total in sats" })).toHaveValue("500");
         await expect(page.getByRole("slider", { name: "Holoboard share in percent" })).toHaveValue("80");
         expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0); expect(state.errors).toEqual([]);
     });
@@ -1837,7 +1898,7 @@ test("leaving a pending wallet response cannot affect payment for another note",
 test("changing notes resets allocation, appearance and notification draft", async ({ context, page }) => {
     const state = await setup(context, page, { newCampaign: true, secondNote: true });
     await page.getByRole("button", { name: "Custom", exact: true }).click();
-    await page.getByRole("spinbutton", { name: "Custom total in sats", exact: true }).fill("500");
+    await page.getByRole("textbox", { name: "Custom total in sats", exact: true }).fill("500");
     await setAuthorShare(page, 35);
     await page.getByRole("tab", { name: "Billboard", exact: true }).click();
     await page.getByRole("button", { name: "Billboard / +100 sats", exact: true }).click();
