@@ -36,8 +36,9 @@ transport completeness. The common cursor preserves each full relay page's
 unseen range; failed sources require retrying the page before advancing.
 The discussion normalizer and bounded metadata graph distinguish root claims
 from direct parents for NIP-10/NIP-22, including address and exact-version
-references, missing parents and explicit conflicts. They do not yet coordinate
-descendant discovery or render a discussion screen. The older `threadContext`
+references, missing parents and explicit conflicts. `discussionReads.ts`
+coordinates network reads into that graph; the discussion screen is still
+pending. The older `threadContext`
 helper still serves best-effort context links. Read the
 [client comparison and relation-model contract](nostr-discussions.md) before
 building discussion screens; it records the implemented guarantees and remaining
@@ -47,6 +48,52 @@ Backend exact-ID lookup returns a verified event before EOSE. HTTP preview and
 promotion return 404 only after completed selected-relay searches, 504 for a
 deadline, and 503 for unavailable or busy discovery. Author discovery failures
 remain inconclusive. Existing successful response fields are unchanged.
+
+### Discussion retrieval
+
+Use the shared `discussionCoordinator` from `discussionReads.ts`. `open` takes
+the original promoted event's exact `focusId`, an optional signed `seed`, safe
+relay hints, an optional view-lifetime signal and an update callback. Views of
+the same focus share a session and in-flight `loadMore` batch. Each view must
+close its handle; only the last close cancels shared work. All active discussions
+share one bounded metadata graph. A new session after all work has closed resets
+that graph, leaving the independent read cache available.
+
+`loadMore` resolves ancestors separately from descendant discovery. Exact
+parents use hints, observed sources, configured fallbacks and known authors'
+NIP-65 write relays. Candidate replies use those fallback/hint/source groups and
+the focused authors' read relays. Relay-list discovery also uses reference and
+observed-source hints. An author's outbox is not treated as an index of unknown
+respondents. Sources are bounded and each selected relay has its own branch,
+outcome and inclusive pagination cursor.
+
+Candidate filters cover NIP-10 `e` and NIP-22 `e/E/a/A` tags. Signed, matching
+events pass through the existing normalizer before graph admission; a matching
+tag alone does not establish a parent. Valid missing parents and roots are
+resolved, but only connected descendants become new discovery targets.
+Promotional quotes, ranking and payment state never supply graph edges.
+An exact old address version is fetched by ID even when the replaceable cache
+already holds a newer version. External scopes never become HTTP fetches.
+
+Snapshots expose per-source coverage, routing outcomes, local retention loss,
+resource limitations and the fixed descendant `until` timestamp selected when
+the session opens. `settled` means the selected work has stopped, including
+exhausted searches for still-missing parents; it never promises network-wide
+completeness. Cached replies do not exhaust a network branch. Failed sources
+keep their cursors and retry on a later batch while successful sources advance.
+Transient transport budgets remain retryable; saturated timestamps at 512
+events, oversized events and hard lifetime budgets remain explicit limitations.
+Opening a fresh session refreshes the upper timestamp. This service does not
+yet subscribe to live replies or render reply bodies, deletions or profiles.
+
+Every network request uses `withReadBudget` and `queryNostr`; there is no new
+socket pool. Global admission bounds concurrent work across discussion sessions
+and existing reads. Event metadata is reduced in batches of at most 32, with
+streaming updates scheduled with a 16 ms timer and a flush on request completion.
+Batches yield between requests so queued data cannot starve deadlines or
+navigation. The final close also stops a read waiting for a shared
+handshake without closing another reader's connection or releasing that
+handshake's physical dial slot early.
 
 ## Resource limits
 
@@ -65,6 +112,9 @@ the browser use three bytes per JavaScript string unit as a conservative bound.
 | Receive traffic | 640 messages and 16 MiB per second overall; 200 messages and 5 MiB per socket | 512 messages and 16 MiB per second outbound; 1024 messages and 16 MiB inbound |
 | Query retention | 512 events and 5 MiB | 512 events and 4 MiB |
 | Read cache | 2048 events and 8 MiB, including signatures | 256 immutable notes of at most 8 KiB each; 256 metadata entries of at most 8 KiB each |
+| Discussion sessions | 4 active/closing sessions and 16 view handles; one shared graph with 2048 events, 6144 nodes and 8 MiB | Not applicable |
+| Discussion session work | 64 descendant targets, 64 ancestor lookups, 256 branch/source records, 8 relays per predicate, 8 author discoveries; 128 queries over its lifetime, 16 per batch, 16 page attempts per descendant branch | Not applicable |
+| Discussion admission | 1024 observed events, 4 MiB of received serialized events, 256 KiB per event; 30-second batches and 4-second queries | Not applicable |
 | Incoming relay clients | Not applicable | 128 clients, 16 listener filters per client, 1024 filters overall, 8 filters per REQ, 32 stored-event queries |
 
 The browser cache has its own `holoboard-nostr-read-v1` database. It expires
@@ -258,7 +308,7 @@ current here; keep detailed discussion semantics in
 | --- | --- | --- |
 | Foundation and relation engine | Reviewed and locally verified with current production fixes; ready for integration. | Shared transport/cache/discovery and relation-contract regressions, full Go race suite, frontend unit/build checks and browser coverage. |
 | Go library migration | Implemented and locally verified; ready for integration, not deployed. | Pinned revision, reproducible patch, historical-format fixture including unknown fields, full Go race suite, Linux builds and payment/browser regressions. |
-| Discussion retrieval | Not implemented. | Bounded discovery and missing-parent retrieval, cancellation, pagination and honest per-relay coverage, feeding the shared relation engine. |
+| Discussion retrieval | Implemented and locally verified in the isolated worktree; screen integration pending. | Bounded discovery and missing-parent retrieval, cancellation, pagination and honest per-relay coverage, feeding the shared relation engine. |
 | Discussion and profile reading | New screens not implemented. | Original-item focus, all found replies, promotion badges independent of topology, bounded profile reads and phone/browser navigation checks. |
 | Signer compatibility | Disabled by default; Amber failures unresolved. Begin reproduction early. | Record tested methods and environments, validate connection and signing, preserve drafts and handle account/lifecycle changes. |
 | User-authored publication | Not implemented. | Correct reply references, explicit consent, verified signed payloads, delivery outcomes and retry without duplicate events. |
@@ -276,10 +326,11 @@ The isolated migration branch includes production fixes through `13b6c97`.
 The application and every retained dependency package passed the Go race
 suite. Additional regressions check the global subscription cap, malformed
 frames, escaped subscription IDs and forged authentication IDs. Frontend
-verification passed 251 unit tests and the production build. Across desktop
-Chrome, Android-sized Chrome and iPhone-sized WebKit, 36 selected payment and
-reading checks plus 12 cache/timeout checks passed. Browser fixtures use local
-protocol mocks and no live funds.
+verification passed 282 unit tests and the production build. Four new wire
+checks use the actual transport, and discussion fixtures cover discovery,
+recovery and resource limits. Across desktop Chrome, Android-sized Chrome and
+iPhone-sized WebKit, 21 selected reading, anonymous-invoice, NWC and disabled
+signer checks passed. Browser fixtures use local protocol mocks and no live funds.
 
 Both backend binaries build for Linux amd64 with CGO disabled. The Docker
 image has not been built in this environment because the local daemon is
@@ -288,15 +339,16 @@ part of release verification. Amber device compatibility, live-wallet behavior
 and public publication are outside these local checks. Signer entry points
 remain disabled by default.
 
-The next implementation step is the bounded discussion retrieval coordinator,
-feeding the existing relation normalizer and graph. Start with fixture
-conversations covering a promoted middle reply, unpaid intermediate parents,
-NIP-10 and NIP-22, missing/conflicting references, partial relay coverage,
-timestamp saturation and cancellation. Keep the original promoted item as
-the Holoboard focus, promotional-quote replies separate, and promotion badges
-independent of topology. Share the existing transport, cache and resource
-limits. Implement coverage and retention outcomes before adding discussion
-and profile screens.
+The bounded discussion retrieval coordinator now feeds the existing relation
+normalizer and graph. Its fixtures cover a promoted middle reply, unpaid
+intermediate parents, NIP-10 and NIP-22, missing/conflicting references, partial
+relay coverage, timestamp saturation, routing hints and shared-view cancellation.
+Wire tests exercise signed frames through the actual read transport.
+The next implementation step is a discussion screen using this service, with
+realistic phone fixtures for the focused ancestor path and expandable replies.
+Keep promotion badges independent of topology and show coverage and retention
+limitations before making any completeness claim. Profile reading remains a
+separate bounded screen concern. Integration does not enable signer support.
 
 ### Verification ownership and release gates
 

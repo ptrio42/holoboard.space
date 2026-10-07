@@ -47,14 +47,34 @@ function idleConnection(url: string, connection: Connection) {
     clearTimeout(connection.idle);
     connection.idle = setTimeout(() => { if (!connection.readers.size && !connection.pins) { connections.delete(url); connection.socket.close(); } }, 15_000);
 }
+function waitForConnection(connection: Connection, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) return Promise.reject(signal.reason);
+    return new Promise((resolve, reject) => {
+        const cancelled = () => { signal.removeEventListener("abort", cancelled); reject(signal.reason); };
+        signal.addEventListener("abort", cancelled, { once: true });
+        connection.ready.then(() => {
+            signal.removeEventListener("abort", cancelled); resolve();
+        }, (error: unknown) => {
+            signal.removeEventListener("abort", cancelled); reject(error);
+        });
+    });
+}
 async function connectionFor(url: string, signal: AbortSignal, priority = 0): Promise<Connection> {
     let connection = connections.get(url);
-    if (connection) { clearTimeout(connection.idle); await connection.ready; return connection; }
+    if (connection) {
+        clearTimeout(connection.idle);
+        try { await waitForConnection(connection, signal); return connection; }
+        finally { idleConnection(url, connection); }
+    }
     const release = await dialSlot(signal);
+    let physicalDial = false;
     try {
         if (signal.aborted) throw signal.reason;
         connection = connections.get(url);
-        if (connection) { await connection.ready; return connection; }
+        if (connection) {
+            try { await waitForConnection(connection, signal); return connection; }
+            finally { idleConnection(url, connection); }
+        }
         if (connections.size >= 8) {
             const idle = [...connections].find(([, value]) => value.readers.size === 0 && value.pins === 0 && value.socket.readyState === WebSocket.OPEN);
             const displaced = idle ?? [...connections].find(([, value]) => !value.pins &&
@@ -71,6 +91,10 @@ async function connectionFor(url: string, signal: AbortSignal, priority = 0): Pr
             socket.addEventListener("close", () => { clearTimeout(timer); reject(new Error("Relay connection closed")); }, { once: true });
             socket.addEventListener("error", () => { clearTimeout(timer); reject(new Error("Relay connection failed")); }, { once: true });
         });
+        // A cancelled reader leaves a shared handshake running. Keep its dial
+        // slot until the socket opens or fails, independently of that reader.
+        physicalDial = true;
+        void ready.then(release, release);
         connection = { socket, readers, ready, pins: 0, priority };
         const created = connection;
         connections.set(url, created);
@@ -92,10 +116,9 @@ async function connectionFor(url: string, signal: AbortSignal, priority = 0): Pr
                 if (message[0] === "CLOSED") reader.closed();
             } catch { /* Malformed relay frames cannot enter the application. */ }
         });
-        await ready;
-        idleConnection(url, created);
-        return created;
-    } finally { release(); }
+        try { await waitForConnection(created, signal); return created; }
+        finally { idleConnection(url, created); }
+    } finally { if (!physicalDial) release(); }
 }
 
 /** EOSE describes each queried relay only. A deadline never establishes absence. */

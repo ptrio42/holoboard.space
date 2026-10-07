@@ -1,7 +1,7 @@
 # Discussion assembly: client comparison and design gate
 
-Status: the protocol normalizer and bounded metadata graph are implemented and
-unit tested. Network coordination and the discussion screen remain pending.
+Status: the protocol normalizer, bounded metadata graph and network coordinator
+are implemented. The discussion screen remains pending.
 The client comparison below records source evidence and presentation proposals.
 The shared transport and cache are described in [the Nostr reference](nostr.md).
 
@@ -295,19 +295,36 @@ serve as authoritative root/conflict states. The small application normalizer
 therefore interprets the referenced NIPs directly. No extra framework, relay
 pool or cryptographic implementation was added.
 
+### Implemented retrieval coordinator
+
+[`discussionReads.ts`](../web/src/lib/discussionReads.ts) separates exact ancestor
+resolution from NIP-10/NIP-22 candidate discovery. It shares the verified read
+cache, transport, resource admission and one metadata graph across active views.
+Reference/source hints participate in author relay discovery; ancestors use
+write relays, while descendant candidates also use relevant read relays.
+Root claims can reveal candidates with unloaded parents, but never create edges
+or merge those candidates into a focused subtree. Only resolved connected
+descendants expand the discovery frontier. A promoted middle reply retains its
+actual ancestor context without querying every sibling of the protocol root.
+
+Each predicate/relay pair retains its own pagination and failure state. Inclusive
+timestamp ties expand to 512; an unresolved saturated boundary reports
+truncation. Failed relays retry the same cursor independently. Cache hits do not
+claim network coverage, and local retention loss remains separate. Views of
+the same exact focus share work; the final view cancels it. Detailed API,
+limits and lifetime behavior are in [the Nostr reference](nostr.md#discussion-retrieval).
+Signed-event fixtures and wire tests establish local behavior, not deployed
+client interoperability or discovery of every reply on the Nostr network.
+
 ## Remaining implementation stages
 
-1. Coordinate ancestor resolution separately from descendant discovery. Use
-   known authors' write relays for exact ancestors and candidate reply sources,
-   including relevant inbox relays, for descendants. The root author's outbox
-   cannot enumerate unknown respondents. Keep branch/source coverage and cursors;
-   cancellation and bounded work use the shared admission layer. Exact older
-   address versions may need refetching because the general read cache retains
-   only the latest replaceable version. Keep any display retention bounded.
-2. Choose the initial projection with realistic phone fixtures: focused path,
-   expandable tree or a combination. Keep ordering and visibility separate from
-   topology. Evaluate same-author continuations explicitly, including chronological
-   author series, without silently inheriting a client's personalized ranking.
+Choose the initial screen projection with realistic phone fixtures: focused
+path, expandable tree or a combination. Keep ordering and visibility separate
+from topology. Evaluate same-author continuations explicitly, including
+chronological author series, without silently inheriting a client's personalized
+ranking. Keep any display retention bounded, show missing/retained metadata and
+per-source coverage honestly, and verify expansion and scroll stability in real
+browsers. The retrieval layer's fixed session timestamp is not a live reply feed.
 
 ## Acceptance before a discussion screen ships
 

@@ -37,6 +37,30 @@ describe("Nostr wire lifecycle", () => {
         const result = await query;
         expect(FakeSocket.sockets[0].sent).toEqual([]); expect(result.complete).toBe(false);
     });
+    it("cancels a shared connecting reader promptly without stopping the other reader", async () => {
+        const controller = new AbortController();
+        const first = queryNostr({ kinds: [0] }, ["wss://pending-shared.example.com"], { signal: controller.signal });
+        const second = queryNostr({ kinds: [1] }, ["wss://pending-shared.example.com"]);
+        await flush(); controller.abort();
+        expect((await first).relays["wss://pending-shared.example.com"]).toBe("cancelled");
+        const socket = FakeSocket.sockets[0]; expect(socket.readyState).toBe(0);
+        socket.open(); await flush();
+        const requests = socket.sent.filter((message) => message[0] === "REQ");
+        expect(requests).toHaveLength(1); expect(requests[0][2]).toEqual({ kinds: [1] });
+        socket.frame(["EOSE", requests[0][1]]); expect((await second).complete).toBe(true);
+    });
+    it("keeps cancelled handshakes within the physical dial budget", async () => {
+        const controller = new AbortController();
+        const first = queryNostr({ kinds: [1] }, ["wss://pending1.example.com", "wss://pending2.example.com", "wss://pending3.example.com"], { signal: controller.signal });
+        await flush(); expect(FakeSocket.sockets).toHaveLength(3);
+        controller.abort(); await first;
+        const nextController = new AbortController();
+        const next = queryNostr({ kinds: [1] }, ["wss://pending4.example.com", "wss://pending5.example.com"], { signal: nextController.signal });
+        await flush(); expect(FakeSocket.sockets).toHaveLength(3);
+        for (const socket of FakeSocket.sockets.slice()) socket.open();
+        await flush(); expect(FakeSocket.sockets).toHaveLength(5);
+        nextController.abort(); await next;
+    });
     it("returns an exact ID immediately without requiring EOSE", async () => {
         const note = signed();
         const query = queryNostr({ ids: [note.id] }, ["wss://found.example.com"], { first: true });
