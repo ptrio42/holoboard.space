@@ -202,8 +202,11 @@ text. Confirmation keeps the selected recipient until the payer chooses the next
 When all parts are complete, a result screen shows the credited visibility,
 recipient amounts and current position, with Done and another-payment actions.
 Manually reported author support stays explicitly unverified in that summary.
-Wallet progress and pending verification use cyan status panels; an unresolved
-result asks the payer to check their wallet after the request ends.
+Wallet progress and pending verification use a compact cyan indicator with
+screen-reader status text. An unresolved result asks the payer to check their
+wallet after the request ends. Split QR payments show separate numbered invoices;
+ordinary author invoices explain that external-wallet payments cannot be
+confirmed here automatically and manual reports remain unverified.
 
 **Restart payment** checks backend settlement before clearing an explicitly
 confirmed unpaid session and its last-payment pointer. It restores the saved

@@ -63,7 +63,11 @@ test("waiting-room badge counts all new notes and keeps marks throughout the vis
     state.checkpoint = 2001000;
     state.updates = state.notes.map(event => event.id);
     await resumePage(page);
-    await expect(page.getByLabel("25 new notes since your last visit", { exact: true })).toBeVisible();
+    const badge = page.getByLabel("25 new notes since your last visit", { exact: true });
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveText("25");
+    expect(await badge.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.getByRole("navigation", { name: "Board sections" }).getByRole("link", { name: /^Waiting room/ }).click();
     await expect(page.getByRole("status").filter({ hasText: "25 new notes since your last visit." })).toBeVisible();
     await expect(page.getByLabel("New since your last visit", { exact: true })).toHaveCount(21);
@@ -80,6 +84,27 @@ test("waiting-room badge counts all new notes and keeps marks throughout the vis
     await expect(page.getByRole("article").first()).toBeVisible();
     await expect(page.getByLabel(/new notes since your last visit/)).toHaveCount(0);
     await expect.poll(() => state.queries.at(-1)).toBe("?since=2001000");
+});
+
+test("waiting-room badge stays compact for large counts on narrow screens", async ({ context, page }, testInfo) => {
+    await page.setViewportSize({ width: 320, height: 740 });
+    const state = await mockBoard(context, page);
+    await page.goto("/");
+    await expect.poll(() => page.evaluate(key => localStorage.getItem(key), visitKey)).toBe("2000000");
+    const waiting = page.getByRole("navigation", { name: "Board sections" }).getByRole("link", { name: /^Waiting room/ });
+    const before = await waiting.boundingBox();
+    state.checkpoint = 2001000;
+    state.updates = Array.from({ length: 150 }, (_, index) => index.toString(16).padStart(64, "0"));
+    await resumePage(page);
+    const badge = page.getByLabel("150 new notes since your last visit", { exact: true });
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveText("99+");
+    expect((await waiting.boundingBox())!.width).toBe(before!.width);
+    const badgeBox = (await badge.boundingBox())!;
+    expect(badgeBox.x).toBeGreaterThanOrEqual(0);
+    expect(badgeBox.x + badgeBox.width).toBeLessThanOrEqual(320);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+    await page.screenshot({ path: testInfo.outputPath("waiting-badge-mobile.png") });
 });
 
 test("failed campaign and update requests do not acknowledge a waiting-room visit", async ({ context, page }) => {

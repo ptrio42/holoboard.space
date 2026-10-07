@@ -6,6 +6,14 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+### Changed
+
+- Use a compact cyan indicator during promotion wallet payments and verification,
+  with warnings shown after the request ends. Number split invoices and explain
+  confirmation limits for author QR payments.
+- Show new waiting-room notes in a compact notification badge instead of inline
+  text, retaining the full count for screen readers.
+
 ### Fixed
 
 - Accept ordinary author invoices and Wallet Lightning Address invoices with

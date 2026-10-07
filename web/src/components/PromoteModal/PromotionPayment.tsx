@@ -3,6 +3,7 @@ import { ENABLE_NOSTR_CONNECT } from "../../config";
 import { CopyButton } from "../ui/CopyButton";
 import { PixelButton, PixelLink } from "../ui/PixelButton";
 import { QrCode } from "../ui/QrCode";
+import { StatusMessage } from "../ui/StatusMessage";
 import { ConnectionSettings } from "./ConnectionSettings";
 import { canPayOrCheckInvoice, type PaymentWallet } from "../../lib/walletPayment";
 import { isMockInvoice, MOCK_INVOICE_MESSAGE } from "../../lib/invoice";
@@ -33,6 +34,9 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
     const charge = chargeable.reduce((sum, part) => sum + part.amount, 0);
     const checking = actionable.some((part) => part.attempt?.state === "uncertain" || part.attempt?.state === "submitted");
     const walletLabel = charge === 0 ? "Check payment status" : checking ? `Check & pay up to ${charge} sats` : `Pay ${charge} sats`;
+    const verifying = parts.filter((part) => !part.paid && part.attempt?.state === "submitted");
+    const progress = busy ? walletPart ? `Processing ${walletPart === "board" ? "visibility" : "author support"}` : "Processing payment"
+        : verifying.length ? `Verifying ${verifying.map((part) => part.id === "board" ? "visibility" : "author support").join(" and ")}` : "";
     const blocked = restartBlocked(payment);
     const invoiceAvailable = !selected.paid && now < selected.expires * 1000 && !isMockInvoice(selected.invoice);
     const actionClass = "promotion-action focus-pixel inline-flex min-h-11 items-center text-cyan-200/75 hover:text-neon-cyan disabled:opacity-40";
@@ -50,10 +54,11 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                     <span className="promotion-label text-cyan-100">{part.id === "board" ? "Holoboard" : "Author"}</span>
                     <span>{part.amount} sats</span>
                     <span className={`w-full text-xs ${part.paid || part.attempt?.state === "submitted" ? "text-neon-cyan" : "text-cyan-100/60"}`}>
-                        {part.reported ? "Marked paid by you, unverified" : part.paid ? "Payment verified" : part.attempt?.state === "submitted" ? "Sent, awaiting verification" : walletPart === part.id ? "Waiting for wallet" : part.attempt?.state === "uncertain" ? "Wallet confirmation missing" : now >= part.expires*1000 ? "Invoice expired" : "Awaiting payment"}
+                        {part.reported ? "Marked paid by you, unverified" : part.paid ? "Payment verified" : part.attempt?.state === "submitted" || walletPart === part.id ? <span aria-hidden="true">&nbsp;</span> : part.attempt?.state === "uncertain" ? "Wallet confirmation missing" : now >= part.expires*1000 ? "Invoice expired" : "Awaiting payment"}
                     </span>
                 </button>)}
             </div>
+            {progress && <StatusMessage loading compact iconOnly>{progress}</StatusMessage>}
             {mockPayment && <p role="alert" className="text-xs text-neon-gold">{MOCK_INVOICE_MESSAGE} The saved author invoice is separate; check its payment status before starting again.</p>}
             {!canResume && <p className="text-xs text-neon-gold">This browser cannot save the payment for a refresh. Keep the invoices and check your wallet before refreshing or closing this tab.</p>}
             {payment.promotionPaid && <div className="space-y-1 text-xs text-cyan-100/70" aria-live="polite">
@@ -65,7 +70,9 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
             </div>}
             {method === "invoice" ? <section className="space-y-3" aria-label={selected.label}>
                 {invoiceAvailable && <>
+                    {parts.length > 1 && <p className="promotion-label text-center text-cyan-100/70">Invoice {selected.id === "board" ? 1 : 2} of {parts.length}: {selected.id === "board" ? "Holoboard" : "Author"}</p>}
                     <p className="text-xs text-center text-cyan-100/60">Scan with any Lightning wallet. No account required.</p>
+                    {selected.id === "author" && <p className="text-xs text-cyan-100/60">{payment.publicZap ? "Waiting for the author's wallet to publish a zap receipt. Confirmation may be delayed." : "This author invoice has no automatic confirmation here. Check the payment in your wallet, then mark it paid below. Your report remains unverified."}</p>}
                     <div className="flex justify-center"><QrCode key={selected.hash} value={selected.invoice} label={`${selected.label} invoice QR code`} /></div>
                     <details className="disclosure"><summary className={`${actionClass} cursor-pointer`}>Invoice text</summary>
                         <p className="break-all select-all text-xs text-cyan-100/70">{selected.invoice}</p>
@@ -80,15 +87,7 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                 {!wallet && walletName && !connecting && <p className="text-xs text-neon-gold">This NWC connection has no sending permission. Use Invoice / QR or connect a wallet with sending enabled.</p>}
             </section>}
             {parts.map((part) => !part.paid && !isMockInvoice(part.invoice) && <div key={part.id} className="space-y-2 text-xs text-cyan-100/70">
-                {part.attempt?.state === "submitted" && <div role="status" className="space-y-2 border-l-2 border-neon-cyan/50 bg-cyan-400/5 p-3">
-                    <p className="promotion-label text-neon-cyan">Verifying {part.id === "board" ? "visibility" : "author support"}</p>
-                    <p>Wallet sent this payment. Checking confirmation. It will not be sent again.</p>
-                </div>}
-                {walletPart === part.id && part.attempt?.state !== "submitted" && <div role="status" className="space-y-2 border-l-2 border-neon-cyan/50 bg-cyan-400/5 p-3">
-                    <p className="promotion-label text-neon-cyan">Waiting for wallet</p>
-                    <p>Processing {part.id === "board" ? "visibility" : "author support"}. Keep this payment open while the wallet responds.</p>
-                </div>}
-                {part.attempt?.state === "uncertain" && walletPart !== part.id && <>
+                {part.attempt?.state === "uncertain" && !busy && <>
                     <div role="status" className="space-y-2 border-l-2 border-neon-gold/50 bg-white/[0.03] p-3">
                         <p className="promotion-label text-neon-gold">{part.id === "board" ? "Holoboard" : "Author"} payment not confirmed</p>
                         <p>Your wallet did not confirm the {part.amount} sats {part.id === "board" ? "for Holoboard visibility" : "for the note's author"}. The payment may have succeeded. Look for this amount in your wallet's payment history before paying again.</p>
@@ -97,7 +96,7 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                     </div>
                     <PixelButton size="sm" variant="ghost" disabled={busy} onClick={() => onAcknowledge(part.id)}>I checked my wallet: {part.id === "board" ? "visibility" : "author support"} was not paid</PixelButton>
                 </>}
-                {now >= part.expires * 1000 && (part.id === "board" ? <>
+                {!busy && now >= part.expires * 1000 && (part.id === "board" ? <>
                     <p>The visibility invoice expired. We still check for a delayed confirmation. Check your wallet before starting another payment.</p>
                     {blocked && <PixelButton size="sm" variant="ghost" disabled={busy || (!!part.attempt && part.attempt.state !== "unpaid")} onClick={onReplaceBoard}>Replace visibility invoice after checking wallet</PixelButton>}
                 </> : <>
@@ -107,16 +106,15 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                 </>)}
             </div>)}
             {payment.author && payment.tipStatus === "pending" && method === "invoice" && recipient === "author" && <div className="space-y-2 text-xs text-cyan-100/60">
-                <p>A manual payment may not send a confirmation here. Check your wallet before trying again.</p>
                 <PixelButton size="sm" variant="ghost" disabled={busy} onClick={onReportAuthor}>I paid the author, checked my wallet</PixelButton>
             </div>}
             {ENABLE_NOSTR_CONNECT && payment.publicZap && <button type="button" className={actionClass} disabled={busy} onClick={onSigner}>Nostr signer settings &gt;</button>}
-            {error && <p role="alert" className="text-xs text-neon-pink">{error}</p>}
+            {error && !busy && <p role="alert" className="text-xs text-neon-pink">{error}</p>}
             {blocked && !busy && <p className="text-xs text-cyan-100/60">{blocked}</p>}
         </div>
         {footer(<div className="space-y-2">
             {method === "wallet" ? wallet && <PixelButton className="w-full min-h-11" variant="accent" disabled={busy || connecting || !actionable.length} onClick={onPay}>
-                {busy ? "Waiting for wallet" : walletLabel}
+                {walletLabel}
             </PixelButton> : invoiceAvailable && <div className="flex flex-wrap items-stretch gap-2">
                 <PixelLink className="min-h-11 flex-1" size="sm" variant="accent" href={`lightning:${selected.invoice}`}>Open in wallet</PixelLink>
                 <CopyButton key={selected.hash} value={selected.invoice} label="Copy invoice" />
