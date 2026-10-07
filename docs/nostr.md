@@ -149,6 +149,70 @@ object can copy that symbol, so mutating the copy can reuse a stale verification
 result. Relay JSON does not transport symbols. This finding demonstrates a local
 object-mutation hazard, not a demonstrated remote JSON signature bypass.
 
+## Go library upgrade path
+
+The old [go-nostr](https://github.com/nbd-wtf/go-nostr) and
+[khatru](https://github.com/fiatjaf/khatru) repositories are archived and direct
+users to `fiatjaf.com/nostr` and its `khatru` package. On 2026-10-07, the official
+Go proxy resolved and downloaded `v0.0.0-20261005012418-685c38fc6629`, published
+on October 5. This candidate requires Go 1.25; Holoboard already declares the
+Go 1.27.1 toolchain. Earlier claims that the successor could not be resolved
+are obsolete.
+
+Source inspection confirms API changes, including byte-array event IDs and
+public keys, a rewritten subscription dispatcher and a different client
+WebSocket implementation. IDs need explicit hexadecimal conversion at existing
+API and storage boundaries: the new `ID.String()` includes an `id::` prefix.
+The new Khatru still launches a goroutine per received message. The archived
+v0.19.1 still has unlocked listener-slice readers. These are static findings,
+not runtime verification of the candidate or proof of equivalent protections.
+
+Evaluate a pinned migration of both Go libraries as a separate change before
+adding the discussion network coordinator. Preserve event JSON, ledger keys,
+invoice access and existing NWC sessions. Acceptance must retain ID validation,
+bounded decompression, dial and subscription budgets, REQ/CLOSE ordering,
+cancellation, partial query results and durable publication targets. Port the
+regression fixtures and run the race suite, build and payment/browser checks
+before removing local patches. Keep the production checkout independently
+releasable and avoid data-format migration as part of this dependency change.
+
+## Signer compatibility and publishing gate
+
+Reliable account connection is a prerequisite for user-authored publication.
+Keep `VITE_ENABLE_NOSTR_CONNECT` disabled by default until the signer release
+passes its own acceptance checks. Reading and anonymous invoice payments remain
+available independently of signer support.
+
+Reported Amber connection failures need reproduction; their cause is not yet
+established. Current code exposes a browser extension and NIP-46 remote flows,
+including `nostrconnect://` and pasted `bunker://` strings. Both remote connection
+paths currently request only `sign_event:9734` (zap requests). This is a confirmed
+limitation of the requested permissions for future publishing, not a confirmed
+explanation of the reported connection failures. No direct NIP-55 web adapter
+is implemented.
+
+Track compatibility by method, signer version, OS and browser:
+
+| Method | Required evidence before claiming support |
+| --- | --- |
+| [NIP-07 browser signer](https://github.com/nostr-protocol/nips/blob/master/07.md) | Account access and signing in supported desktop browsers; extension absent, rejection and account changes handled. |
+| [NIP-46 remote signer](https://github.com/nostr-protocol/nips/blob/master/46.md) | Both client-initiated and signer-initiated pairing; same-phone Amber handoff and return; desktop-to-phone QR; a second independent signer; reconnect and permission changes. |
+| [NIP-55 Android signer](https://github.com/nostr-protocol/nips/blob/master/55.md) | Evaluate a direct web flow separately from NIP-46, with real-device callback/clipboard, cancellation and request-correlation checks. Do not label it supported before implementation and verification. |
+
+For each supported path, verify identity, a signed event for each enabled
+publishing action, explicit user consent, signature and template validation,
+relay acknowledgement, partial delivery, safe retry and duplicate prevention.
+Connecting an account must not publish anything. Test rejected and timed-out
+requests, backgrounding and returning to the page, expired permissions,
+disconnect/reconnect and stale responses after account changes. Keep the draft
+through these transitions and isolate signer state from payment state.
+
+Automated protocol tests do not establish Amber/device compatibility. Record
+actual device, browser and signer versions and distinguish tested combinations,
+unsupported combinations and unresolved failures. The goal is reliable access
+through every supported method; a universal compatibility claim requires
+evidence beyond a successful handshake or mocked signer.
+
 ## Regression checks
 
 Inspect the installed or vendored version before attributing behavior to a
@@ -172,6 +236,30 @@ application loads; inspect console and trace output before diagnosing a
 page-load timeout as an application regression.
 
 ## Acceptance and rollout
+
+### Delivery stages
+
+This reference owns the delivery sequence. Keep stage status and acceptance
+current here; keep detailed discussion semantics in
+[the discussion design](nostr-discussions.md).
+
+| Stage | Current state | Completion evidence |
+| --- | --- | --- |
+| Foundation and relation engine | Implemented in the isolated branch; local regression suites passed; final integration review pending. | Review the combined diff against the documented limits and contracts, then rerun relevant checks against the integration base. |
+| Go library migration | Successor downloaded and inspected; no dependency migration implemented. | Pin the revision, preserve API/storage compatibility and required patches, port regression fixtures, pass race/build/payment checks. |
+| Discussion retrieval | Not implemented. | Bounded discovery and missing-parent retrieval, cancellation, pagination and honest per-relay coverage, feeding the shared relation engine. |
+| Discussion and profile reading | New screens not implemented. | Original-item focus, all found replies, promotion badges independent of topology, bounded profile reads and phone/browser navigation checks. |
+| Signer compatibility | Disabled by default; Amber failures unresolved. Begin reproduction early. | Record tested methods and environments, validate connection and signing, preserve drafts and handle account/lifecycle changes. |
+| User-authored publication | Not implemented. | Correct reply references, explicit consent, verified signed payloads, delivery outcomes and retry without duplicate events. |
+
+Keep stages reviewable and independently releasable where their dependencies
+allow. Before closing a stage, compare the final diff to its acceptance criteria
+and record unresolved limitations. Persist the next concrete action or blocker
+so another session can resume. Routine authorized implementation and checks do
+not need repeated approval; deployment, public publication and existing-data
+migration retain their explicit approval requirements.
+
+### Release checks
 
 Security, connection lifetime, discovery, cache, thread primitives and durable
 routing can ship as one foundation change. New discussion/profile screens and

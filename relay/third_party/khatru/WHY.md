@@ -24,20 +24,23 @@ can also produce a nil dereference inside `WriteJSON`, and khatru has no
 
 ## Why a copy rather than a fork
 
-Upstream cannot take the patch. `github.com/fiatjaf/khatru` is archived, and the
-same missing lock is in every tag from v0.7.6 through v0.19.1 and on master. The
-project moved to `fiatjaf.com/nostr/khatru`, which the Go module proxy cannot
-resolve, so it is not usable as a dependency.
+`github.com/fiatjaf/khatru` is archived. Source inspection of its final v0.19.1
+still finds unlocked listener-slice reads alongside locked writes, so that
+version does not remove the reason for our synchronization patch.
 
-That leaves running a patched copy. A fork on GitHub and a directory here do the
-same job; the directory needs no second repository to keep alive, and the patch
-is visible in this repo's diffs rather than in someone else's. Since upstream is
-archived there is also nothing to track: this dependency is frozen whether we
-like it or not, so freezing it deliberately costs nothing.
+The project moved to `fiatjaf.com/nostr/khatru`, in the same module as the
+successor to go-nostr. Earlier module-resolution failures are no longer a reason
+to exclude it: on 2026-10-07, the official Go proxy resolved and downloaded
+`fiatjaf.com/nostr v0.0.0-20261005012418-685c38fc6629`. Its subscription
+dispatcher is rewritten, but source inspection still finds a goroutine per
+incoming message. That does not establish wire-order processing or resource
+budgets equivalent to the local patches. The candidate has not been integrated
+or tested against Holoboard. See the [upgrade assessment](../../../docs/nostr.md#go-library-upgrade-path).
 
-The trade is that `git log` here now contains 2000 lines of someone else's code,
-and any future khatru change means re-copying by hand. Given the upstream is
-dead, that future is unlikely to arrive.
+The local directory keeps the current fixes reviewable without another
+repository. It is a maintained compatibility copy, not a claim that upstream
+development has stopped. A migration must compare behavior, retain regression
+tests and remove only patches demonstrated to be redundant.
 
 ## What was removed from the copy
 
