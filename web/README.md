@@ -51,8 +51,17 @@ npx playwright install chrome webkit
 npm run test:e2e
 ```
 
-Set `HOLOBOARD_TEST_PORT` to use a separate local server when another preview
-is running. Browser tests override HTTP and relay settings with local mocks.
+Give each simultaneous test run its own `HOLOBOARD_TEST_PORT`, including runs
+in separate worktrees. The [Playwright configuration](playwright.config.ts)
+reuses an existing local server on the selected port. Sharing a port can test
+another checkout or lose the server when the run that started it finishes.
+Use a separate `--output` directory for each run's Playwright-managed artifacts:
+
+```bash
+HOLOBOARD_TEST_PORT=4189 npm run test:e2e -- tests/wallet.spec.ts --output=/tmp/holoboard-e2e-4189
+```
+
+Browser tests override HTTP and relay settings with local mocks.
 Payment tests block service workers so requests stay inside Playwright's API
 mocks, as described in the [network testing documentation](https://playwright.dev/docs/network#missing-network-events-and-service-workers).
 The PWA test enables workers and uses a real local mock API for those requests.
