@@ -355,6 +355,39 @@ results and repeatable commands are in
 
 ## Acceptance before a discussion screen ships
 
+### Reply preparation
+
+`replyPreparation.ts` prepares structural reply tags without signing, network
+access or paid board admission. Its graph input has the same verified-ingress
+contract as discussion display; the selected parent's signed body is verified
+again and must match the graph metadata. Missing or conflicting ancestry blocks
+preparation instead of guessing that a promoted focus is the protocol root.
+
+For [NIP-10](https://github.com/nostr-protocol/nips/blob/master/10.md), the builder
+walks the resolved kind-1 ancestor path. Direct root replies use one marked root
+reference; deeper replies retain that root and the exact selected parent, with
+author information and safe relay hints. Valid inherited participants are
+deduplicated; excess participants cause an explicit limit error. Quotes and
+promotion status never supply ancestry or inherited publication tags.
+
+For [NIP-22](https://github.com/nostr-protocol/nips/blob/master/22.md), replies to
+comments preserve the resolved declared uppercase scope and point lowercase
+tags at the exact selected comment. Replies to non-kind-1 items use kind 1111.
+Addressable scopes retain stable addresses and exact parent versions; an
+existing pinned root version cannot move to a newer article. External scopes
+remain opaque and never become fetches. Kind and author tags remain distinct
+for root and parent.
+
+Preparation allows 16 KiB of UTF-8 text, a 64 KiB estimated template, 64 NIP-10
+recipients and at most the graph's bounded ancestry depth. These are application
+limits. Eight signed round-trip fixtures re-admit prepared events through the
+relation graph, covering a promoted middle reply, unpaid ancestors, clock skew,
+missing/conflicting context, stable addresses, pinned versions, external scopes,
+forged parent objects and limits. There is no reply editor or public delivery
+entry point yet; signer/device and delivery acceptance remain separate.
+
+### Reading acceptance
+
 - Original-item replies and replies to Holoboard's promotional quote stay
   separate. Paid and unpaid nodes can alternate along one preserved branch;
   promotion highlighting cannot change its topology or the paid board ranking.

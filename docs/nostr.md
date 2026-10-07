@@ -449,7 +449,7 @@ current here; keep detailed discussion semantics in
 | Discussion reading | Read-only screen implemented behind `VITE_ENABLE_DISCUSSIONS`, disabled by default. | Original-item focus, expandable paid/unpaid branches, unresolved context, bounded display pages and local browser navigation checks. |
 | Profile reading | Read-only screen implemented and locally verified behind `VITE_ENABLE_PROFILES`, disabled by default. | Shared bounded metadata reads, explicit freshness/source outcomes, verified active campaign membership, discussion return navigation and selected public-relay reads. |
 | Signer compatibility | Local signer boundaries hardened and protocol fixtures verified; disabled by default. Physical Amber failures unresolved. | Fresh signature/template checks, connection-generation ownership, both NIP-46 initiation methods, bounded request lifetimes and validated relay changes. Device/environment matrix remains open. |
-| User-authored publication | Not implemented. | Correct reply references, explicit consent, verified signed payloads, delivery outcomes and retry without duplicate events. |
+| User-authored publication | Pure structural reply preparation implemented and locally verified; no editor or public delivery entry point yet. | Signed graph round trips cover NIP-10/NIP-22, promoted middle replies, pinned versions, external scopes and incomplete-context rejection. Consent, durable browser outbox and per-relay delivery are next. |
 
 Keep stages reviewable and independently releasable where their dependencies
 allow. Before closing a stage, compare the final diff to its acceptance criteria
@@ -510,9 +510,13 @@ scenarios passed across desktop Chrome, Android-sized Chrome and iPhone-sized
 WebKit. They cover both NIP-46 initiation methods and NIP-07, including payment
 consent and account changes. Default-release invoice and hidden-signer checks
 and the default production build pass separately. Physical-device reproduction
-remains open. The next stage prepares
-user-authored replies against the shared relation model, with publication held
-behind the signer release gate. Continue routine work
+remains open. Structural reply preparation passed eight signed round-trip
+fixtures against the shared relation model, with type checks and lint. It has no
+signing or network side effects. The [preparation contract](nostr-discussions.md#reply-preparation)
+records its conservative context and resource rules. The next stage prepares a
+durable browser publication outbox and bounded per-relay acknowledgement delivery;
+the editor and production publication stay behind the signer release gate.
+Continue routine work
 autonomously through these stages; keep external publication, spending,
 deployment, main pushes and existing-data migrations behind explicit approval.
 Physical-device and live-wallet evidence remains open when unavailable and does
