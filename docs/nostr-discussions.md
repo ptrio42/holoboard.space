@@ -1,8 +1,9 @@
 # Discussion assembly: client comparison and design gate
 
-Status: source research and a proposed direction for Holoboard. No discussion
-assembler or discussion screen is implemented by this document. The shared
-transport and cache are described in [the Nostr reference](nostr.md).
+Status: the protocol normalizer and bounded metadata graph are implemented and
+unit tested. Network coordination and the discussion screen remain pending.
+The client comparison below records source evidence and presentation proposals.
+The shared transport and cache are described in [the Nostr reference](nostr.md).
 
 ## Assessment
 
@@ -26,6 +27,8 @@ that item's discussion. The proposed presentation keeps the promoted item as
 the focus when it is itself a reply, with its ancestors available as context.
 The focused promoted item and the protocol root are separate concepts. Preserve
 the item's actual parent and root even when only its subtree is initially shown.
+Expiry and renewed promotion keep the discussion attached to the same original
+event ID; promotion lifecycle changes its decoration, not its identity.
 
 Show all discovered replies belonging to that discussion, with promoted replies
 visually distinguished using Holoboard's promotion records for the exact event
@@ -189,7 +192,7 @@ versions reach it. This is confirmed class behavior from the code; whether the
 live cache supplies those distinct objects in a particular screen was not tested.
 Do not infer version deduplication guarantees from the class name alone.
 
-## Protocol semantics and Holoboard's current gaps
+## Protocol semantics and context-link limitations
 
 [NIP-10](https://github.com/nostr-protocol/nips/blob/master/10.md) defines marked
 root/reply references and deprecated positional references. A root-only marked
@@ -214,30 +217,94 @@ Confirmed limitations of Holoboard's current `threadContext` helper:
 - It does not validate `K/k`, reconcile `P/p`, represent conflicting references
   or retain unsupported external scopes.
 
-These limitations are acceptable boundaries for the existing context links,
-not evidence that the helper is ready to serve as the discussion assembler.
+These remain boundaries of the existing context links. The new graph uses
+`threadRelations.ts` instead of deriving ancestry from `threadContext`.
 
-## Proposed implementation stages
+## Implemented relation model
 
-Implement against the original-item anchor and all-discovered-replies policy
-above. Keep presentation choices explicit when deciding how much ancestor
-context to show for a promoted reply. Proceed with these stages:
+[`threadRelations.ts`](../web/src/lib/threadRelations.ts) normalizes kind 1 and
+kind 1111 metadata. It preserves marked/positional provenance, separates root
+claims from direct parents, coalesces repeated hints and reports invalid or
+conflicting references without selecting an arbitrary winner. A sole positional
+reference does not establish the ultimate root. In mixed marked/unmarked notes,
+unmarked tags cannot override the marked relationship. Unknown markers do not
+acquire positional semantics. This conservative compatibility policy avoids
+turning a mention into an inferred parent.
 
-1. Define normalized references with protocol provenance, declared root scope,
-   direct parent, exact IDs, address aliases and resolution/conflict states.
-   Compare reusable pure Applesauce/Welshman helpers against fixtures before
-   adopting a library. Reuse must preserve Holoboard's transport, budgets and
-   storage boundaries; importing a second framework is not an automatic choice.
-2. Build and test a pure graph reducer and its reverse parent index. Keep one
-   node per exact event ID, explicit alias rules and deterministic conflict
-   handling. Missing or hidden parents preserve children through placeholders.
-   A signed root claim does not automatically override a contradictory parent.
-3. Coordinate ancestor resolution separately from descendant discovery. Use
+NIP-22 address and exact-ID tags form one target regardless of tag order. An
+exact ID pins its version, even while missing. Kind and author claims are
+validated, including against a referenced event when it arrives. Required K/k
+or Nostr author metadata that is absent leaves an invalid claim, while the
+candidate remains available for diagnostics. Additional lowercase p tags may be
+mentions: when the author is ambiguous, the graph checks the loaded parent
+against the tagged candidates. Uppercase P has no equivalent mention role.
+External values and their kind strings remain opaque, including unsupported
+NIP-73 types. They are not automatically converted into URLs or fetched.
+
+[`threadGraph.ts`](../web/src/lib/threadGraph.ts) is a pure metadata reducer:
+
+- `createThreadGraph` sets bounded retention. `reduceThreadGraph` admits verified
+  event metadata in batches, rebuilding parent edges and a reverse child index.
+  Signature validation belongs to the existing read ingress, not this module.
+  Content and signatures remain outside this graph. Callers must share one
+  graph store across views rather than allocating an independent store per row.
+- One node represents one exact event ID. Latest-address resolution uses the
+  newest timestamp and lowest ID on ties, retaining loaded older exact versions.
+  Missing event/address targets have placeholders. Root claims never create
+  parent edges, and conflicting roots remain diagnostic without overriding a
+  valid direct parent. Every edge inside a detected cycle is rejected.
+- `projectThread` takes an exact focus ID and returns ancestors in edge order
+  plus bounded descendant rows. Hidden/deleted rows preserve their position and
+  children. Those flags are caller-supplied visibility verdicts; the graph does
+  not itself authenticate deletion requests or decide moderation. An optional
+  sibling comparator changes presentation only, with an ID tie-break. The
+  default key order is deterministic and does not finalize the product's sort.
+
+Default ceilings are 2048 loaded metadata records, 6144 nodes including
+placeholders, 8 MiB of estimated serialized metadata, 256 KiB per record, 512
+inputs per batch and 128 ancestor/descendant levels per projection. Callers can
+lower these limits. They must split larger batches; dropped inputs and retention
+pressure set a sticky `limited` flag. Retention keeps an ID-sorted prefix rather
+than an arrival-order LRU. The estimates bound stored metadata, not total heap
+usage including indexes and temporary projections. Valid parent edges beyond
+the projection depth stay in the graph. Local retention loss does not establish
+anything about relay coverage. `loadedReplyCount` counts the returned loaded
+reply rows, never a network-wide total.
+
+The metadata fixtures cover shuffled arrivals and incremental batches, clock
+skew, missing/late parents, quotes, original-item versus promotional-quote
+conversations, unpaid intermediate replies, hidden/deleted placeholders,
+conflicting claims, address updates and pinned versions, external scopes, cycle
+defenses and resource ceilings. Synthetic IDs isolate graph semantics; existing
+read-ingress tests separately exercise signed-event verification. Browser scroll
+stability and real-network descendant discovery are not verified by these tests.
+
+### Dependency decision
+
+The inspected Applesauce 6.2.0 helpers preserve useful address/ID pointers but
+choose individual tags and do not expose the conflict/provenance model required
+here. Welshman 0.12.2 separates NIP-22 tag groups and ID/address fields, but also
+needs application-level validation and ancestry resolution. These conclusions
+come from the pinned sources linked above; these packages were not installed
+or executed as part of this implementation.
+
+The installed `nostr-tools` 2.25.2 NIP-10 parser was exercised in regression
+fixtures. It supplies a root fallback for a sole positional parent and chooses
+one conflicting marked parent according to tag order. Those heuristics cannot
+serve as authoritative root/conflict states. The small application normalizer
+therefore interprets the referenced NIPs directly. No extra framework, relay
+pool or cryptographic implementation was added.
+
+## Remaining implementation stages
+
+1. Coordinate ancestor resolution separately from descendant discovery. Use
    known authors' write relays for exact ancestors and candidate reply sources,
    including relevant inbox relays, for descendants. The root author's outbox
    cannot enumerate unknown respondents. Keep branch/source coverage and cursors;
-   cancellation and bounded work use the shared admission layer.
-4. Choose the initial projection with realistic phone fixtures: focused path,
+   cancellation and bounded work use the shared admission layer. Exact older
+   address versions may need refetching because the general read cache retains
+   only the latest replaceable version. Keep any display retention bounded.
+2. Choose the initial projection with realistic phone fixtures: focused path,
    expandable tree or a combination. Keep ordering and visibility separate from
    topology. Evaluate same-author continuations explicitly, including chronological
    author series, without silently inheriting a client's personalized ranking.
@@ -267,6 +334,7 @@ context to show for a promoted reply. Proceed with these stages:
 - Opening a middle reply works before its root arrives. Same-author series,
   sibling conversations and comments on reactions/zaps retain their own context.
 
-Runtime performance, scroll stability, adversarial-load behavior and deployed
-client compatibility remain unverified by this source comparison. They require
-fixtures and browser tests during implementation; no full-coverage claim is made.
+The unit fixtures establish the implemented graph properties within its stated
+bounds. Real-network coverage, runtime heap behavior, scroll stability and
+deployed-client compatibility still require integration and browser checks.
+No network-wide completeness claim is made.

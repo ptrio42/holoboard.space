@@ -49,3 +49,11 @@ go test -count=20 -race -run 'TestAuthorSupportDiscoversProfileOutsideConfigured
 The dependency tests use local WebSocket servers and acknowledge socket
 closure. They cover concurrent writes and closes, subscriptions, parent and
 pool cancellation, an unconsumed write result and an unconnected notice handler.
+
+PMCE writes end with a sync flush before the WebSocket frame is flushed; they
+do not close the DEFLATE stream per message. The prior Close call reproduces a
+`wsflate: bad compressor` error on Go 1.27.1. The independent
+`compression_test.go` round-trip/reset fixture also applies without the Nostr
+foundation changes. The message-size fixture generates a sync-flushed frame
+rather than using wsflate's Flush-then-Close helper. See the
+[wsflate Writer contract](https://pkg.go.dev/github.com/gobwas/ws@v1.3.1/wsflate#Writer).

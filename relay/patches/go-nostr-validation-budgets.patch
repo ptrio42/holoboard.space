@@ -1,5 +1,5 @@
 diff --git a/relay/third_party/go-nostr/WHY.md b/relay/third_party/go-nostr/WHY.md
-index 22651cb..451eae0 100644
+index 22651cb..b1d16a3 100644
 --- a/relay/third_party/go-nostr/WHY.md
 +++ b/relay/third_party/go-nostr/WHY.md
 @@ -1,7 +1,7 @@
@@ -24,8 +24,114 @@ index 22651cb..451eae0 100644
  
  The complete patch is
  [`go-nostr-connection-lifecycle.patch`](../../patches/go-nostr-connection-lifecycle.patch).
+@@ -39,3 +42,11 @@ go test -count=20 -race -run 'TestAuthorSupportDiscoversProfileOutsideConfigured
+ The dependency tests use local WebSocket servers and acknowledge socket
+ closure. They cover concurrent writes and closes, subscriptions, parent and
+ pool cancellation, an unconsumed write result and an unconnected notice handler.
++
++PMCE writes end with a sync flush before the WebSocket frame is flushed; they
++do not close the DEFLATE stream per message. The prior Close call reproduces a
++`wsflate: bad compressor` error on Go 1.27.1. The independent
++`compression_test.go` round-trip/reset fixture also applies without the Nostr
++foundation changes. The message-size fixture generates a sync-flushed frame
++rather than using wsflate's Flush-then-Close helper. See the
++[wsflate Writer contract](https://pkg.go.dev/github.com/gobwas/ws@v1.3.1/wsflate#Writer).
+diff --git a/relay/third_party/go-nostr/compression_test.go b/relay/third_party/go-nostr/compression_test.go
+new file mode 100644
+index 0000000..c29c779
+--- /dev/null
++++ b/relay/third_party/go-nostr/compression_test.go
+@@ -0,0 +1,88 @@
++package nostr
++
++import (
++	"bytes"
++	"compress/flate"
++	"context"
++	"io"
++	"net"
++	"testing"
++	"time"
++
++	"github.com/gobwas/ws"
++	"github.com/gobwas/ws/wsflate"
++	"github.com/gobwas/ws/wsutil"
++)
++
++// A message ends with a sync flush, not the compressor's final stream block.
++// wsflate.CompressFrame calls both Flush and Close and fails on Go 1.27.
++func compressedTestFrame(t *testing.T, data []byte) ws.Frame {
++	t.Helper()
++	var buffer bytes.Buffer
++	writer := wsflate.NewWriter(&buffer, func(w io.Writer) wsflate.Compressor {
++		compressor, err := flate.NewWriter(w, 4)
++		if err != nil {
++			t.Fatal(err)
++		}
++		return compressor
++	})
++	if _, err := writer.Write(data); err != nil {
++		t.Fatal(err)
++	}
++	if err := writer.Flush(); err != nil {
++		t.Fatal(err)
++	}
++	frame := ws.NewTextFrame(buffer.Bytes())
++	var err error
++	frame.Header, err = wsflate.SetBit(frame.Header)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return frame
++}
++
++func TestCompressedWritesRoundTripAndReset(t *testing.T) {
++	client, server := net.Pipe()
++	defer client.Close()
++	defer server.Close()
++	client.SetDeadline(time.Now().Add(5 * time.Second))
++	server.SetDeadline(time.Now().Add(5 * time.Second))
++	var state wsflate.MessageState
++	state.SetCompressed(true)
++	writer := wsutil.NewWriter(client, ws.StateClientSide|ws.StateExtended, ws.OpText)
++	writer.SetExtensions(&state)
++	connection := &Connection{conn: client, enableCompression: true, writer: writer, msgStateW: &state,
++		flateWriter: wsflate.NewWriter(nil, func(w io.Writer) wsflate.Compressor {
++			compressor, err := flate.NewWriter(w, 4)
++			if err != nil {
++				t.Fatal(err)
++			}
++			return compressor
++		})}
++	for _, data := range [][]byte{nil, []byte("REQ"), bytes.Repeat([]byte("Nostr"), 1000), []byte("CLOSE")} {
++		done := make(chan error, 1)
++		go func() { done <- connection.WriteMessage(context.Background(), data) }()
++		frame, readErr := ws.ReadFrame(server)
++		writeErr := <-done
++		if writeErr != nil {
++			t.Fatalf("compressed write failed: %v", writeErr)
++		}
++		if readErr != nil {
++			t.Fatal(readErr)
++		}
++		compressed, err := wsflate.IsCompressed(frame.Header)
++		if !frame.Header.Masked || !compressed || err != nil {
++			t.Fatal("expected masked compressed client frame")
++		}
++		ws.Cipher(frame.Payload, frame.Header.Mask, 0)
++		reader := wsflate.NewReader(bytes.NewReader(frame.Payload), func(r io.Reader) wsflate.Decompressor { return flate.NewReader(r) })
++		decoded, err := io.ReadAll(reader)
++		reader.Close()
++		if err != nil {
++			t.Fatal(err)
++		}
++		if !bytes.Equal(decoded, data) {
++			t.Fatal("compressed payload changed")
++		}
++	}
++}
 diff --git a/relay/third_party/go-nostr/connection.go b/relay/third_party/go-nostr/connection.go
-index da1161d..8e03aa8 100644
+index da1161d..cab345f 100644
 --- a/relay/third_party/go-nostr/connection.go
 +++ b/relay/third_party/go-nostr/connection.go
 @@ -29,7 +29,7 @@ type Connection struct {
@@ -47,7 +153,20 @@ index da1161d..8e03aa8 100644
  	conn, _, hs, err := dialer.Dial(ctx, url)
  	if err != nil {
  		return nil, fmt.Errorf("failed to dial: %w", err)
-@@ -162,15 +165,24 @@ func (c *Connection) ReadMessage(ctx context.Context, buf io.Writer) error {
+@@ -118,8 +121,10 @@ func (c *Connection) WriteMessage(ctx context.Context, data []byte) error {
+ 			return fmt.Errorf("failed to write message: %w", err)
+ 		}
+ 
+-		if err := c.flateWriter.Close(); err != nil {
+-			return fmt.Errorf("failed to close flate writer: %w", err)
++		// PMCE messages end with a sync flush. Close adds a final DEFLATE
++		// stream block whose tail wsflate rejects on newer Go toolchains.
++		if err := c.flateWriter.Flush(); err != nil {
++			return fmt.Errorf("failed to flush flate writer: %w", err)
+ 		}
+ 	} else {
+ 		if _, err := io.Copy(c.writer, bytes.NewReader(data)); err != nil {
+@@ -162,15 +167,24 @@ func (c *Connection) ReadMessage(ctx context.Context, buf io.Writer) error {
  		}
  	}
  
@@ -107,6 +226,39 @@ index b0aa421..6d7b194 100644
  	// read and check pubkey
  	pk, err := hex.DecodeString(evt.PubKey)
  	if err != nil {
+diff --git a/relay/third_party/go-nostr/receive_budget.go b/relay/third_party/go-nostr/receive_budget.go
+new file mode 100644
+index 0000000..0a16ce9
+--- /dev/null
++++ b/relay/third_party/go-nostr/receive_budget.go
+@@ -0,0 +1,27 @@
++package nostr
++
++import (
++	"sync"
++	"time"
++)
++
++// Bound aggregate verification/parsing work across all outbound relay sockets.
++var receiveBudget = struct {
++	sync.Mutex
++	start    time.Time
++	messages int
++	bytes    int64
++}{}
++
++func acceptRelayMessage(size int64) bool {
++	receiveBudget.Lock()
++	defer receiveBudget.Unlock()
++	if time.Since(receiveBudget.start) >= time.Second {
++		receiveBudget.start = time.Now()
++		receiveBudget.messages = 0
++		receiveBudget.bytes = 0
++	}
++	receiveBudget.messages++
++	receiveBudget.bytes += size
++	return receiveBudget.messages <= 512 && receiveBudget.bytes <= 16<<20
++}
 diff --git a/relay/third_party/go-nostr/relay.go b/relay/third_party/go-nostr/relay.go
 index 2985761..504f21e 100644
 --- a/relay/third_party/go-nostr/relay.go
@@ -244,39 +396,6 @@ index 32a993e..228c62f 100644
  	id := sub.GetID()
  
  	var reqb []byte
-diff --git a/relay/third_party/go-nostr/receive_budget.go b/relay/third_party/go-nostr/receive_budget.go
-new file mode 100644
-index 0000000..0a16ce9
---- /dev/null
-+++ b/relay/third_party/go-nostr/receive_budget.go
-@@ -0,0 +1,27 @@
-+package nostr
-+
-+import (
-+	"sync"
-+	"time"
-+)
-+
-+// Bound aggregate verification/parsing work across all outbound relay sockets.
-+var receiveBudget = struct {
-+	sync.Mutex
-+	start    time.Time
-+	messages int
-+	bytes    int64
-+}{}
-+
-+func acceptRelayMessage(size int64) bool {
-+	receiveBudget.Lock()
-+	defer receiveBudget.Unlock()
-+	if time.Since(receiveBudget.start) >= time.Second {
-+		receiveBudget.start = time.Now()
-+		receiveBudget.messages = 0
-+		receiveBudget.bytes = 0
-+	}
-+	receiveBudget.messages++
-+	receiveBudget.bytes += size
-+	return receiveBudget.messages <= 512 && receiveBudget.bytes <= 16<<20
-+}
 diff --git a/relay/third_party/go-nostr/subscription_budget.go b/relay/third_party/go-nostr/subscription_budget.go
 new file mode 100644
 index 0000000..b521111
@@ -329,10 +448,10 @@ index 0000000..b521111
 +}
 diff --git a/relay/third_party/go-nostr/validation_budget_test.go b/relay/third_party/go-nostr/validation_budget_test.go
 new file mode 100644
-index 0000000..282e763
+index 0000000..f5e9a2c
 --- /dev/null
 +++ b/relay/third_party/go-nostr/validation_budget_test.go
-@@ -0,0 +1,80 @@
+@@ -0,0 +1,77 @@
 +package nostr
 +
 +import (
@@ -394,10 +513,7 @@ index 0000000..282e763
 +	client, server := net.Pipe()
 +	defer client.Close()
 +	defer server.Close()
-+	frame, err := wsflate.CompressFrame(ws.NewTextFrame(bytes.Repeat([]byte("x"), (1<<20)+1)))
-+	if err != nil {
-+		t.Fatal(err)
-+	}
++	frame := compressedTestFrame(t, bytes.Repeat([]byte("x"), (1<<20)+1))
 +	var state wsflate.MessageState
 +	reader := &wsutil.Reader{Source: client, State: ws.StateClientSide | ws.StateExtended, Extensions: []wsutil.RecvExtension{&state}}
 +	connection := &Connection{conn: client, enableCompression: true, reader: reader, msgStateR: &state,

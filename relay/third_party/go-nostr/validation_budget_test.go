@@ -59,10 +59,7 @@ func TestDecompressedMessageBudget(t *testing.T) {
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
-	frame, err := wsflate.CompressFrame(ws.NewTextFrame(bytes.Repeat([]byte("x"), (1<<20)+1)))
-	if err != nil {
-		t.Fatal(err)
-	}
+	frame := compressedTestFrame(t, bytes.Repeat([]byte("x"), (1<<20)+1))
 	var state wsflate.MessageState
 	reader := &wsutil.Reader{Source: client, State: ws.StateClientSide | ws.StateExtended, Extensions: []wsutil.RecvExtension{&state}}
 	connection := &Connection{conn: client, enableCompression: true, reader: reader, msgStateR: &state,

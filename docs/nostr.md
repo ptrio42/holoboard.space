@@ -34,12 +34,14 @@ expands a saturated timestamp up to 512 events. It reports truncation instead
 of skipping a full timestamp silently. It retains separate exhaustion and
 transport completeness. The common cursor preserves each full relay page's
 unseen range; failed sources require retrying the page before advancing.
-The thread model distinguishes root scope from direct parent for NIP-10 and
-NIP-22, including addressable references.
-It is a reference parser, not a complete discussion assembler. Before building
-discussion screens, read the [client comparison and design gate](nostr-discussions.md),
-which records confirmed parser limitations, alternative client approaches and
-the required graph and coverage tests.
+The discussion normalizer and bounded metadata graph distinguish root claims
+from direct parents for NIP-10/NIP-22, including address and exact-version
+references, missing parents and explicit conflicts. They do not yet coordinate
+descendant discovery or render a discussion screen. The older `threadContext`
+helper still serves best-effort context links. Read the
+[client comparison and relation-model contract](nostr-discussions.md) before
+building discussion screens; it records the implemented guarantees and remaining
+coverage and browser checks.
 
 Backend exact-ID lookup returns a verified event before EOSE. HTTP preview and
 promotion return 404 only after completed selected-relay searches, 504 for a
@@ -128,6 +130,7 @@ No private relay key is logged when an ephemeral identity is generated.
 
 | Dependency | Confirmed behavior and application response |
 | --- | --- |
+| gobwas/ws 1.3.1 via go-nostr | Closing a PMCE compressor emits a final stream block rejected by wsflate on Go 1.27.1. Message writes now sync-flush and reset the compressor. Round-trip/reset fixtures cover the application path; oversized decompressed input remains bounded. |
 | go-nostr 0.34.5, vendored | Signature checking did not compare the supplied ID with the serialized hash. The local patch adds that check, propagates QuerySync timeout/CLOSED errors with partial results, bounds decompressed messages and subscriptions, and uses reader backpressure instead of one goroutine per event. |
 | khatru 0.7.6, vendored | Existing message bounds did not bound clients, listeners or query workers. Local limits reserve these resources before work and process each socket's frames in order. Existing lifecycle/race patches remain applied. |
 | NDK 2.18.1 | Discovery timeout can discard observed lists without stopping the subscription; stop can precede a delayed start. Application reads bypass these paths. |
@@ -155,6 +158,12 @@ nested vendored module explicitly, since Go's `./...` does not traverse it:
 ```sh
 go test -race -count=1 ./... github.com/nbd-wtf/go-nostr
 ```
+
+Use the toolchain declared in `relay/go.mod`. With an older local Go and
+`GOTOOLCHAIN=local`, run the command with `GOTOOLCHAIN=auto` or install the
+declared version explicitly. Include the nested vendored module: its compression
+fixture caught a toolchain compatibility issue not covered by application-only
+tests.
 
 Browser checks should include Chrome and WebKit, slow or absent EOSE, cache
 reloads and anonymous invoice access. Use Playwright's default port 4173, or a

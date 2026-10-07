@@ -142,3 +142,8 @@ partial-result error reporting, DNS-pinned dial injection, reader backpressure,
 message/subscription bounds and inbound relay admission limits. New regression
 fixtures live beside the vendored Go code. Application routing and cache policy
 are described in [the Nostr reference](../../docs/nostr.md).
+
+The validation/budgets patch also sync-flushes compressed writes and includes
+a round-trip/reset fixture for the Go 1.27.1 toolchain. PMCE message boundaries
+use Flush, not Close; wsflate rejects the final DEFLATE block produced by Close.
+This correction can be applied independently when updating the toolchain.
