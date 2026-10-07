@@ -6,6 +6,8 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+## 2026-10-07
+
 ### Fixed
 
 - Restore compressed relay requests, including note lookups and wallet
@@ -18,18 +20,6 @@ record deployment, not announcement publication.
   recipient, preserving amount checks and strict public-zap validation.
 - Find author wallets behind Lightning Address redirects, validating every
   destination and limiting redirect chains.
-
-### Changed
-
-- Compact the mobile header into a linked H, Promote action and pixel wallet
-  icon above section navigation. Move Help to a single footer link and keep
-  new-note counts compact on phones.
-- Label the first three board positions TOP, SECOND and THIRD, showing only
-  the position number for the remaining notes.
-
-## 2026-10-07
-
-### Fixed
 
 - Update the link-preview HTML parser and build dependencies to include security
   fixes, and build the relay with a supported Go toolchain.
@@ -92,6 +82,12 @@ record deployment, not announcement publication.
   available without an account. Nostr signer support is held for a later release.
 
 ### Changed
+
+- Compact the mobile header into a linked H, Promote action and pixel wallet
+  icon above section navigation. Move Help to a single footer link and keep
+  new-note counts compact on phones.
+- Label the first three board positions TOP, SECOND and THIRD, showing only
+  the position number for the remaining notes.
 
 - Improve small-label readability and unselected controls, keep forms clear of
   scanlines and their action footer at the bottom, and use shared pixel loading
