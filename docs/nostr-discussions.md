@@ -359,7 +359,8 @@ observation remain release evidence beyond local signed-event fixtures.
   NIP-10 references; quotes and mention-only references never become replies.
 - NIP-22 address/ID aliases work in either tag order. Kind/author contradictions,
   address updates and unsupported external scopes remain explicit. Exact ID
-  references do not silently move to a newer address version.
+  references do not silently move to a newer address version. An opaque external
+  scope whose text matches a Nostr address cannot resolve through that alias.
 - Missing, late, deleted and muted parents preserve loaded descendants. Resolving
   a placeholder does not duplicate nodes, reset expanded branches or jump the
   reader's scroll position. Root claims alone cannot merge unrelated threads.

@@ -138,6 +138,20 @@ completion, partial results and local retention limits remain distinct.
 fixed; closing and reopening checks newer replies. Leaving closes the view's
 handle and cancels outstanding reads when it was the final view.
 
+### UI lifecycle and browser verification
+
+Reader startup and cleanup must tolerate React StrictMode effect replay. Do not
+open a replacement handle into a still-closing session during that replay.
+Keep delayed startup cancellation-aware and close only the owning view handle.
+`useDiscussion.ts` provides the current integration pattern.
+
+Browser fixtures should wait for a batch to become `paused` or `settled` before
+requesting another batch. An enabled `Load more` button can belong to a
+transitional snapshot and disappear before a click. Run each feature-flag
+configuration against a matching fresh Vite server; flags are build/server
+configuration, not runtime URL switches. Preserve separate checks for the
+production default and the enabled screen.
+
 ## Resource limits
 
 These are application defaults, not protocol requirements. Byte estimates in
@@ -396,10 +410,18 @@ Wire tests exercise signed frames through the actual read transport.
 The read-only discussion screen now consumes this service behind a disabled
 feature flag. Its focused ancestor path, expandable replies, explicit unresolved
 branches and promotion badges keep display decisions outside the relation core.
-The next feature stage is bounded profile reading. A controlled real-relay read
-smoke and runtime heap/layout observation remain discussion release evidence;
-local fixtures do not establish deployed-client interoperability. Integration
-does not enable signer support.
+The next verification step is a bounded read-only smoke against real relays and
+repeated navigation under load. Check an original promoted middle reply and,
+where available, an addressable comment; record selected-source outcomes without
+claiming complete discovery. Observe active queries, sockets and heap across
+repeated open/close cycles, large observed trees and unavailable sources. Separate
+retained caches from growing live work and verify cancellation after navigation.
+These checks can run autonomously without publishing events or spending funds.
+
+Bounded profile reading is the next feature stage. Real-relay reading and runtime
+heap/layout observations remain discussion release evidence; local fixtures do
+not establish deployed-client interoperability. Integration does not enable
+signer support.
 
 ### Verification ownership and release gates
 
