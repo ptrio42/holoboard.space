@@ -280,9 +280,10 @@ amountless invoices with an explicit amount. The wallet validates invoice
 signatures before paying. A Lightning Address resolves directly through
 [LUD-16](https://github.com/lnurl/luds/blob/luds/16.md) and
 [LUD-06](https://github.com/lnurl/luds/blob/luds/06.md), without a proxy. Review
-checks amount and metadata commitment before explicit payment confirmation;
-address providers must support browser CORS requests. Camera and image QR
-reading use `jsqr`, loaded on demand. Camera tracks stop when scanning ends or
+checks the exact amount, network and expiry before explicit payment confirmation.
+Ordinary LNURL-pay invoices may use a plain description or a provider-defined
+description hash. Address providers must support browser CORS requests. Camera
+and image QR reading use `jsqr`, loaded on demand. Camera tracks stop when scanning ends or
 the panel closes. Payment proofs are checked using Web Crypto SHA-256.
 
 Invoice QR codes use uppercase alphanumeric encoding to reduce density.

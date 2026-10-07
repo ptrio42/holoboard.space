@@ -111,10 +111,12 @@ time. Existing quotes are not replaced to add split tags.
 
 Author support uses the author's signed kind 0 profile and
 [LNURL-pay](https://github.com/lnurl/luds/blob/luds/06.md). The service prepares
-invoices from the author's provider and verifies the amount, description hash
-and expiry. It cannot spend from the board wallet or forward funds. HTTPS
-endpoints must resolve to public addresses; redirects, private networks and
-nonstandard ports are rejected. Endpoint details are cached for five minutes.
+invoices from the author's provider and verifies their signature, exact amount,
+network and expiry. Ordinary LNURL-pay invoices may use plain descriptions;
+public zaps require a hash of the exact signed request. It cannot spend from
+the board wallet or forward funds. HTTPS endpoints and up to three redirects
+must resolve to public addresses; private networks and nonstandard ports are
+rejected. Endpoint details are cached for five minutes.
 Profile discovery also checks note relay hints, stored quote sources and the
 author's NIP-65 write relays, using the same signed-profile lookup as quotes.
 Issued author invoices retain their recipient, invoice digest and provider key

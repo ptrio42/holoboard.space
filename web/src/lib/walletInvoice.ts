@@ -97,7 +97,8 @@ export async function prepareWalletInvoice(input: string, amount: string): Promi
     const result = await paymentJson(callback);
     if (typeof result.pr !== "string") throw new Error("The address returned no Lightning invoice.");
     const prepared = readWalletInvoice(result.pr);
-    const metadataHash = await sha256Hex(new TextEncoder().encode(data.metadata));
-    if (prepared.amountMsats !== amountMsats || prepared.descriptionHash !== metadataHash) throw new Error("The address returned an invoice that does not match the requested payment.");
+    // Ordinary LUD-06 invoices may use plain descriptions or provider-defined hashes.
+    // https://github.com/lnurl/luds/blob/luds/06.md
+    if (prepared.amountMsats !== amountMsats) throw new Error("The address returned an invoice that does not match the requested payment.");
     return { ...prepared, recipient, description };
 }

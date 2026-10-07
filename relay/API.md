@@ -249,13 +249,13 @@ destination must use public HTTPS on port 443 without URL credentials. DNS
 addresses are checked before each new connection and the connection uses the
 checked address. Redirects share the original ten-second HTTP request timeout.
 
-The service validates invoice amount, description hash, network and expiry.
-Ordinary Primal invoices have a narrowly scoped compatibility rule for the
-[provider's description mismatch](https://github.com/PrimalHQ/primal-web-app/issues/198):
-both HTTPS endpoints must belong to `primal.net` and identify the same recipient,
-and the advertised metadata must match its exact known format. The accepted
-alternate description omits only `@primal.net`. This rule never applies to a
-public zap, which must commit to the exact signed request JSON.
+The service validates the BOLT11 signature, exact amount, network and expiry.
+Ordinary invoices may contain a plain description (including an empty one) or
+a description hash. Current [LUD-06](https://github.com/lnurl/luds/blob/luds/06.md)
+does not require that hash to match LNURL metadata. The invoice comes from the
+callback resolved through the author's signed profile and checked public HTTPS.
+Public zaps still require a description hash committing to the exact signed
+request JSON, as specified by [NIP-57](https://github.com/nostr-protocol/nips/blob/master/57.md).
 It never pays or forwards author funds, and this invoice never affects ranking.
 The client handles two independent recipient payments and their partial results.
 These endpoints share a limit of 20 requests per client address in ten minutes.

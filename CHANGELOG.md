@@ -6,6 +6,13 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+### Fixed
+
+- Accept ordinary author invoices and Wallet Lightning Address invoices with
+  plain descriptions, including Yakihonne wallets, following current LNURL-pay
+  rules. Keep exact amount checks and signed-request description hashes for
+  public zaps.
+
 ## 2026-10-07
 
 ### Fixed

@@ -38,16 +38,28 @@ describe("Lightning Address invoice preparation", () => {
         vi.stubGlobal("fetch", fetch);
         return fetch;
     }
-    it("requests the exact amount directly and verifies its metadata commitment", async () => {
+    it("requests the exact amount directly and preserves the recipient description", async () => {
         const fetch = mockAddress(walletInvoice({ metadataHash: addressMetadataHash }));
         expect(await prepareWalletInvoice("lightning:name@recipient.example", "21")).toMatchObject({ recipient: "name@recipient.example", description: "Test recipient", amountMsats: 21000 });
         expect(String(fetch.mock.calls[1][0])).toBe("https://recipient.example/pay?token=preserved&amount=21000");
         expect(fetch.mock.calls[0][1]).toMatchObject({ credentials: "omit", referrerPolicy: "no-referrer" });
     });
-    it("rejects amount or metadata mismatches without sending", async () => {
-        for (const options of [{ amountMsats: 22000, metadataHash: addressMetadataHash }, {}]) {
+    it("accepts ordinary plain descriptions and provider-defined description hashes", async () => {
+        for (const options of [{ description: "" }, { description: "Provider invoice" }, { metadataHash: "ab".repeat(32) }]) {
+            mockAddress(walletInvoice(options));
+            expect(await prepareWalletInvoice("name@recipient.example", "21")).toMatchObject({ amountMsats: 21000, recipient: "name@recipient.example", description: "Test recipient" });
+        }
+    });
+    it("rejects wrong amounts for both plain and hashed invoices without sending", async () => {
+        for (const options of [{ amountMsats: 22000, metadataHash: addressMetadataHash }, { amountMsats: 22000 }]) {
             mockAddress(walletInvoice(options));
             await expect(prepareWalletInvoice("name@recipient.example", "21")).rejects.toThrow("does not match");
+        }
+    });
+    it("rejects amountless, expired and testnet address invoices", async () => {
+        for (const options of [{ amountMsats: null }, { timestamp: 1000 }, { network: "tb" }]) {
+            mockAddress(walletInvoice(options));
+            await expect(prepareWalletInvoice("name@recipient.example", "21")).rejects.toThrow();
         }
     });
     it("rejects insecure callbacks before requesting an invoice", async () => {

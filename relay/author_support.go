@@ -32,18 +32,16 @@ type AuthorSupport struct {
 }
 
 type authorEndpoint struct {
-	Author              string `json:"author"`
-	Available           bool   `json:"available"`
-	ReasonCode          string `json:"reason_code,omitempty"`
-	Reason              string `json:"reason,omitempty"`
-	MinSats             int64  `json:"min_sats"`
-	MaxSats             int64  `json:"max_sats"`
-	AllowsNostr         bool   `json:"allows_nostr"`
-	NostrPubkey         string `json:"nostr_pubkey,omitempty"`
-	callback            string
-	metadata            string
-	providerDescription string
-	expires             time.Time
+	Author      string `json:"author"`
+	Available   bool   `json:"available"`
+	ReasonCode  string `json:"reason_code,omitempty"`
+	Reason      string `json:"reason,omitempty"`
+	MinSats     int64  `json:"min_sats"`
+	MaxSats     int64  `json:"max_sats"`
+	AllowsNostr bool   `json:"allows_nostr"`
+	NostrPubkey string `json:"nostr_pubkey,omitempty"`
+	callback    string
+	expires     time.Time
 }
 
 var errAuthorHasNoAddress = fmt.Errorf("author has no Lightning payment address")
@@ -277,7 +275,7 @@ func (a *AuthorSupport) endpoint(ctx context.Context, author string, hints ...st
 	if pay.Max > promoteMaxSats*1000 {
 		pay.Max = promoteMaxSats * 1000
 	}
-	details := authorEndpoint{Author: author, Available: true, MinSats: (pay.Min + 999) / 1000, MaxSats: pay.Max / 1000, AllowsNostr: pay.Allows && isHex64(pay.Key), NostrPubkey: pay.Key, callback: pay.Callback, metadata: pay.Metadata, providerDescription: primalInvoiceDescription(endpoint, pay.Callback, pay.Metadata), expires: time.Now().Add(5 * time.Minute)}
+	details := authorEndpoint{Author: author, Available: true, MinSats: (pay.Min + 999) / 1000, MaxSats: pay.Max / 1000, AllowsNostr: pay.Allows && isHex64(pay.Key), NostrPubkey: pay.Key, callback: pay.Callback, expires: time.Now().Add(5 * time.Minute)}
 	if details.MinSats > details.MaxSats {
 		return authorEndpoint{}, fmt.Errorf("author wallet does not accept whole sats")
 	}
@@ -298,30 +296,9 @@ func (a *AuthorSupport) endpoint(ctx context.Context, author string, hints ...st
 	return details, nil
 }
 
-// Primal's ordinary LNURL invoices omit the domain from their description.
-// Keep this compatibility rule tied to the exact recipient and both HTTPS URLs.
-// https://github.com/PrimalHQ/primal-web-app/issues/198
-func primalInvoiceDescription(endpoint, callback, metadata string) string {
-	lookup, lookupErr := publicPaymentURL(endpoint)
-	pay, payErr := publicPaymentURL(callback)
-	if lookupErr != nil || payErr != nil || !strings.EqualFold(lookup.Hostname(), "primal.net") || !strings.EqualFold(pay.Hostname(), "primal.net") || lookup.RawQuery != "" || pay.RawQuery != "" {
-		return ""
-	}
-	user, ok := strings.CutPrefix(lookup.Path, "/.well-known/lnurlp/")
-	if !ok || user == "" || strings.ContainsAny(user, "/@?#") || pay.Path != "/lnurlp/"+user+"/callback" {
-		return ""
-	}
-	expected, _ := json.Marshal([][]string{{"text/plain", "sats for " + user + "@primal.net"}})
-	if metadata != string(expected) {
-		return ""
-	}
-	description, _ := json.Marshal([][]string{{"text/plain", "sats for " + user}})
-	return string(description)
-}
-
 func decodeSupportInvoice(bolt11 string) (*zpay32.Invoice, error) {
 	invoice, err := zpay32.Decode(bolt11, &chaincfg.MainNetParams)
-	if err != nil || invoice.PaymentHash == nil || invoice.MilliSat == nil || invoice.DescriptionHash == nil {
+	if err != nil || invoice.PaymentHash == nil || invoice.MilliSat == nil {
 		return nil, fmt.Errorf("author wallet returned an invalid Lightning invoice")
 	}
 	return invoice, nil
@@ -447,7 +424,7 @@ func (a *AuthorSupport) Handler() http.HandlerFunc {
 		u, _ := url.Parse(details.callback)
 		query := u.Query()
 		query.Set("amount", fmt.Sprint(req.Amount*1000))
-		description := details.metadata
+		var description string
 		if req.Zap != nil {
 			if !details.AllowsNostr || req.Zap.Kind != 9734 || req.Zap.GetID() != req.Zap.ID || countTags(req.Zap, "p") != 1 || firstTag(req.Zap, "p") != note.PubKey || countTags(req.Zap, "e") != 1 || firstTag(req.Zap, "e") != note.ID || firstTag(req.Zap, "amount") != fmt.Sprint(req.Amount*1000) {
 				writeError(w, 400, "zap request does not match the author payment")
@@ -471,16 +448,18 @@ func (a *AuthorSupport) Handler() http.HandlerFunc {
 			return
 		}
 		invoice, err := decodeSupportInvoice(response.Invoice)
-		descriptionHash := sha256.Sum256([]byte(description))
-		if err != nil || int64(*invoice.MilliSat) != req.Amount*1000 {
-			writeError(w, 502, "author invoice amount or payment description was incorrect")
+		if err != nil {
+			writeError(w, 502, "author wallet returned an invalid Lightning invoice")
 			return
 		}
-		descriptionMatches := *invoice.DescriptionHash == descriptionHash
-		if !descriptionMatches && req.Zap == nil && details.providerDescription != "" {
-			descriptionMatches = *invoice.DescriptionHash == sha256.Sum256([]byte(details.providerDescription))
+		if int64(*invoice.MilliSat) != req.Amount*1000 {
+			writeError(w, 502, "author wallet returned an invoice for a different amount")
+			return
 		}
-		if !descriptionMatches {
+		// LUD-06 no longer binds ordinary invoices to LNURL metadata. NIP-57
+		// still requires the exact signed zap request in the description hash.
+		// https://github.com/lnurl/luds/blob/luds/06.md
+		if req.Zap != nil && (invoice.DescriptionHash == nil || *invoice.DescriptionHash != sha256.Sum256([]byte(description))) {
 			writeError(w, 502, "author wallet returned an invoice with a mismatched payment description; no payment was made")
 			return
 		}
