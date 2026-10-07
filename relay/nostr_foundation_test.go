@@ -263,7 +263,8 @@ func TestMonitorBackfillPaginatesBeyondTheInitialWindow(t *testing.T) {
 	defer server.Close()
 	source := "ws" + strings.TrimPrefix(server.URL, "http")
 	trustConfiguredRelays([]string{source})
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// This checks pagination, not verification throughput under race instrumentation.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	relay, err := connectRelay(ctx, source)
 	if err != nil {

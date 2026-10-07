@@ -1,17 +1,19 @@
 diff --git a/relay/third_party/go-nostr/WHY.md b/relay/third_party/go-nostr/WHY.md
-index 22651cb..b1d16a3 100644
+index 8555cd6..93e3a3d 100644
 --- a/relay/third_party/go-nostr/WHY.md
 +++ b/relay/third_party/go-nostr/WHY.md
-@@ -1,7 +1,7 @@
+@@ -1,8 +1,8 @@
  # Why go-nostr lives in this repo
  
 -This is the Go source of `github.com/nbd-wtf/go-nostr v0.34.5`, with a local
--connection-lifecycle patch. `relay/go.mod` replaces that module with this
+-connection-lifecycle and compressed-message patches. `relay/go.mod` replaces
+-that module with this directory. The upstream MIT license, module files and cryptographic code are
 +This is the Go source of `github.com/nbd-wtf/go-nostr v0.34.5`, with local
-+connection-lifecycle, validation and resource-limit patches. `relay/go.mod` replaces that module with this
- directory. The upstream MIT license, module files and cryptographic code are
++connection-lifecycle, compression, validation and resource-limit patches.
++`relay/go.mod` replaces that module with this directory. The upstream MIT license, module files and cryptographic code are
  unchanged. Upstream tests, examples and non-build assets are omitted; the local
  lifecycle regression tests are included.
+ 
 @@ -18,7 +18,10 @@ publication with shutdown, closes the socket on cancellation and joins the
  reader, writer and subscription cleanup workers. Internal workers request
  shutdown without waiting for themselves. Write results are buffered, notice
@@ -22,9 +24,9 @@ index 22651cb..b1d16a3 100644
 +acceptance, propagates query errors with partial results and adds resource
 +bounds. See [the Nostr reference](../../../docs/nostr.md).
  
- The complete patch is
- [`go-nostr-connection-lifecycle.patch`](../../patches/go-nostr-connection-lifecycle.patch).
-@@ -39,3 +42,11 @@ go test -count=20 -race -run 'TestAuthorSupportDiscoversProfileOutsideConfigured
+ Compressed messages use `wsflate.Writer.Flush` at each message boundary.
+ Finalizing the DEFLATE stream with `Close` instead fails with an unexpected
+@@ -46,3 +49,11 @@ go test -count=20 -race -run 'TestAuthorSupportDiscoversProfileOutsideConfigured
  The dependency tests use local WebSocket servers and acknowledge socket
  closure. They cover concurrent writes and closes, subscriptions, parent and
  pool cancellation, an unconsumed write result and an unconnected notice handler.
@@ -131,7 +133,7 @@ index 0000000..c29c779
 +	}
 +}
 diff --git a/relay/third_party/go-nostr/connection.go b/relay/third_party/go-nostr/connection.go
-index da1161d..cab345f 100644
+index 2e46f1b..e86f6cc 100644
 --- a/relay/third_party/go-nostr/connection.go
 +++ b/relay/third_party/go-nostr/connection.go
 @@ -29,7 +29,7 @@ type Connection struct {
@@ -153,20 +155,7 @@ index da1161d..cab345f 100644
  	conn, _, hs, err := dialer.Dial(ctx, url)
  	if err != nil {
  		return nil, fmt.Errorf("failed to dial: %w", err)
-@@ -118,8 +121,10 @@ func (c *Connection) WriteMessage(ctx context.Context, data []byte) error {
- 			return fmt.Errorf("failed to write message: %w", err)
- 		}
- 
--		if err := c.flateWriter.Close(); err != nil {
--			return fmt.Errorf("failed to close flate writer: %w", err)
-+		// PMCE messages end with a sync flush. Close adds a final DEFLATE
-+		// stream block whose tail wsflate rejects on newer Go toolchains.
-+		if err := c.flateWriter.Flush(); err != nil {
-+			return fmt.Errorf("failed to flush flate writer: %w", err)
- 		}
- 	} else {
- 		if _, err := io.Copy(c.writer, bytes.NewReader(data)); err != nil {
-@@ -162,15 +167,24 @@ func (c *Connection) ReadMessage(ctx context.Context, buf io.Writer) error {
+@@ -164,15 +167,24 @@ func (c *Connection) ReadMessage(ctx context.Context, buf io.Writer) error {
  		}
  	}
  

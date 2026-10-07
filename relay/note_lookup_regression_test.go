@@ -119,6 +119,7 @@ func TestFetchPostReturnsBeforeEOSE(t *testing.T) {
 	}))
 	defer server.Close()
 	url := "ws" + strings.TrimPrefix(server.URL, "http")
+	trustConfiguredRelays([]string{url})
 	ctx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
 	defer cancel()
 	started := time.Now()
