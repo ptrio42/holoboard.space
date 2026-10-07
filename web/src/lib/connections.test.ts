@@ -103,6 +103,46 @@ describe("optional wallet connections", () => {
 });
 
 describe("signer account and event validation", () => {
+    it("rechecks signed objects even when the library has cached a valid signature", async () => {
+        const secret = generateSecretKey();
+        const template = { kind: 9734, created_at: 1700000000, content: "", tags: [] };
+        const event = finalizeEvent(template, secret);
+        event.id = "0".repeat(64); event.sig = "0".repeat(128);
+        vi.stubGlobal("window", { nostr: { getPublicKey: async () => getPublicKey(secret), signEvent: async () => event } });
+        await connectExtension();
+        await expect(getConnectedSigner()!.signEvent(template)).rejects.toThrow();
+    });
+    it("compares a private template snapshot when an extension mutates its input", async () => {
+        const secret = generateSecretKey();
+        const template = { kind: 9734, created_at: 1700000000, content: "original", tags: [["amount", "1000"]] };
+        vi.stubGlobal("window", { nostr: { getPublicKey: async () => getPublicKey(secret), signEvent: async (input: typeof template) => {
+            input.tags[0][1] = "9999"; input.content = "changed";
+            return finalizeEvent(input, secret);
+        } } });
+        await connectExtension();
+        await expect(getConnectedSigner()!.signEvent(template)).rejects.toThrow("changed");
+        expect(template).toMatchObject({ content: "original", tags: [["amount", "1000"]] });
+    });
+    it("revokes previously obtained signer handles after disconnect", async () => {
+        const secret = generateSecretKey(), signEvent = vi.fn();
+        vi.stubGlobal("window", { nostr: { getPublicKey: async () => getPublicKey(secret), signEvent } });
+        await connectExtension(); const handle = getConnectedSigner()!;
+        disconnectSigner();
+        await expect(handle.getPublicKey()).rejects.toThrow("changed");
+        await expect(handle.signEvent({ kind: 1, created_at: 1700000000, content: "", tags: [] })).rejects.toThrow("changed");
+        expect(signEvent).not.toHaveBeenCalled();
+    });
+    it("rejects late signatures after a different account connects", async () => {
+        const secret = generateSecretKey(), other = generateSecretKey();
+        const template = { kind: 1, created_at: 1700000000, content: "reply", tags: [] };
+        let deliver!: (event: ReturnType<typeof finalizeEvent>) => void;
+        vi.stubGlobal("window", { nostr: { getPublicKey: async () => getPublicKey(secret), signEvent: () => new Promise(resolve => { deliver = resolve; }) } });
+        await connectExtension(); const pending = getConnectedSigner()!.signEvent(template);
+        const result = expect(pending).rejects.toThrow("changed");
+        vi.stubGlobal("window", { nostr: { getPublicKey: async () => getPublicKey(other), signEvent: vi.fn() } });
+        await connectExtension(); deliver(finalizeEvent(template, secret)); await result;
+        expect(getConnections().signerPubkey).toBe(getPublicKey(other));
+    });
     it("does not accept changes to the event or connected account", async () => {
         const secret = generateSecretKey(), other = generateSecretKey();
         const signEvent = vi.fn();

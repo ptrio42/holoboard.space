@@ -1,4 +1,4 @@
-import { generateSecretKey, getPublicKey, verifyEvent, type Event, type EventTemplate } from "nostr-tools/pure";
+import { generateSecretKey, getPublicKey, type Event, type EventTemplate } from "nostr-tools/pure";
 import { bytesToHex, hexToBytes } from "nostr-tools/utils";
 import type { BunkerSigner, BunkerPointer } from "nostr-tools/nip46";
 import type { AbstractSimplePool } from "nostr-tools/abstract-pool";
@@ -7,6 +7,8 @@ import { ENABLE_NOSTR_CONNECT, PUBLIC_RELAYS } from "../config";
 import { PaymentRejected, withTimeout, type PaymentWallet } from "./walletPayment";
 import { attachWalletAccount, clearWalletAccount, refreshWalletAccount } from "./walletAccount";
 import { lookupWalletPayment } from "./walletLookup";
+import { verifiedNostrEvent } from "./verifyNostrEvent";
+import { safeRelay } from "./relayPolicy";
 
 export interface ConnectedSigner {
     getPublicKey(): Promise<string>;
@@ -127,19 +129,60 @@ export function hasExtensionSigner(): boolean { return !!extension(); }
 function authUrl(value: string, generation: number) {
     try { const url = new URL(value); if (url.protocol === "https:" && !url.username && !url.password && generation === signerGeneration) update({ signerAuthUrl: url.toString() }); } catch { /* Ignore malformed authentication links. */ }
 }
+class SignerTimeout extends Error {}
+function waitForSigner<T>(request: Promise<T>, signal: AbortSignal, milliseconds: number, message: string): Promise<T> {
+    return new Promise((resolve, reject) => {
+        const finish = (failure?: unknown, value?: T) => {
+            clearTimeout(timer); signal.removeEventListener("abort", abort);
+            if (failure !== undefined) reject(failure); else resolve(value as T);
+        };
+        const abort = () => finish(new Error("The connected signer changed. Review the account and try again."));
+        const timer = setTimeout(() => finish(new SignerTimeout(message)), milliseconds);
+        signal.addEventListener("abort", abort, { once: true });
+        // Always attach both handlers, including for an already-aborted request.
+        request.then(value => finish(undefined, value), failure => finish(failure ?? new Error("The signer declined the request.")));
+        if (signal.aborted) abort();
+    });
+}
 function bindSigner(candidate: ConnectedSigner, pubkey: string): ConnectedSigner {
     if (!HEX.test(pubkey)) throw new Error("The signer returned an invalid public key.");
     const generation = signerGeneration;
+    const signal = signerAbort!.signal;
+    let pending = false, signedRequests = 0;
+    const requireCurrent = () => {
+        if (generation !== signerGeneration) throw new Error("The connected signer changed. Review the account and try again.");
+    };
     return {
-        getPublicKey: async () => pubkey,
+        getPublicKey: async () => { requireCurrent(); return pubkey; },
         signEvent: async (template) => {
+            requireCurrent();
+            if (pending) throw new Error("A signer request is already waiting for approval.");
+            // nostr-tools 2.25.2 retains auth-request bookkeeping after replies.
+            // Bound a remote session until the dependency exposes request cleanup.
+            if (state.signerKind === "remote" && signedRequests >= 64) {
+                disconnectSigner();
+                throw new Error("Reconnect your signer to start a fresh signing session. Your draft is preserved.");
+            }
+            pending = true; signedRequests++;
             try {
-                const event = await withTimeout(candidate.signEvent(template), 120000, "The signer did not respond. Return to Holoboard after approving the request, or try again.");
-                if (!verifyEvent(event) || event.pubkey !== pubkey || event.kind !== template.kind || event.content !== template.content || event.created_at !== template.created_at || JSON.stringify(event.tags) !== JSON.stringify(template.tags)) {
+                // Keep the validation snapshot private. Extensions can mutate
+                // objects passed to them, and callers can edit their own draft.
+                const expected: EventTemplate = { kind: template.kind, created_at: template.created_at, content: template.content, tags: template.tags.map(tag => [...tag]) };
+                const input: EventTemplate = { ...expected, tags: expected.tags.map(tag => [...tag]) };
+                const result = await waitForSigner(candidate.signEvent(input), signal, 120000, "The signer did not respond. Return to Holoboard after approving the request, or try again.");
+                requireCurrent();
+                const event = verifiedNostrEvent(result);
+                if (!event || event.pubkey !== pubkey || event.kind !== expected.kind || event.content !== expected.content || event.created_at !== expected.created_at || JSON.stringify(event.tags) !== JSON.stringify(expected.tags)) {
                     throw new Error("The signer changed the requested event or account.");
                 }
                 return event;
+            } catch (failure) {
+                // The library cannot cancel an individual RPC. Retire its pool
+                // after a timeout so retries cannot accumulate pending requests.
+                if (failure instanceof SignerTimeout && generation === signerGeneration && state.signerKind === "remote") disconnectSigner();
+                throw failure;
             } finally {
+                pending = false;
                 if (generation === signerGeneration) update({ signerAuthUrl: "" });
             }
         },
@@ -148,11 +191,12 @@ function bindSigner(candidate: ConnectedSigner, pubkey: string): ConnectedSigner
 export async function connectExtension() {
     disconnectSigner();
     const generation = signerGeneration;
+    const controller = new AbortController(); signerAbort = controller;
     update({ signerStatus: "connecting", signerKind: "extension" });
     try {
         const candidate = extension();
         if (!candidate) throw new Error("No Nostr browser extension was found. Use Amber or a remote signer instead.");
-        const pubkey = await withTimeout(candidate.getPublicKey(), 30000, "The extension did not respond. Try connecting again.");
+        const pubkey = await waitForSigner(candidate.getPublicKey(), controller.signal, 30000, "The extension did not respond. Try connecting again.");
         if (generation !== signerGeneration) return;
         signer = bindSigner(candidate, pubkey);
         remember(SIGNER_KEY, JSON.stringify({ kind: "extension", pubkey }));
@@ -170,18 +214,30 @@ function signerWebSocket(): typeof WebSocket {
         }
     };
 }
-async function finishRemote(candidate: BunkerSigner, clientKey: Uint8Array, generation: number, expectedPubkey?: string) {
-    const pubkey = await withTimeout(candidate.getPublicKey(), 20000, "The signer did not return an account. Try connecting again.");
+async function finishRemote(candidate: BunkerSigner, clientKey: Uint8Array, generation: number, signal: AbortSignal, create: (pointer: BunkerPointer) => BunkerSigner, expectedPubkey?: string) {
+    const pubkey = await waitForSigner(candidate.getPublicKey(), signal, 20000, "The signer did not return an account. Try connecting again.");
     if (generation !== signerGeneration) { await candidate.close(); return; }
     if (expectedPubkey && expectedPubkey !== pubkey) throw new Error("The connected signer changed account. Connect again to choose the new account.");
+    // Read the RPC result ourselves: the installed switchRelays() mutates its
+    // pointer and opens subscriptions before an application can validate URLs.
+    try {
+        const response = await waitForSigner(candidate.sendRequest("switch_relays", []), signal, 5000, "Signer relay update timed out.");
+        if (generation !== signerGeneration) return;
+        const values: unknown = JSON.parse(response);
+        if (Array.isArray(values) && values.length > 0 && values.length <= 4 && values.every(value => typeof value === "string" && !!safeRelay(value))) {
+            const relays = [...new Set(values.map(value => validateRelay(value)))];
+            if (JSON.stringify([...relays].sort()) !== JSON.stringify(candidate.bp.relays.map(validateRelay).sort())) {
+                const old = candidate;
+                await old.close();
+                candidate = create({ ...old.bp, relays, secret: null }); remote = candidate;
+            }
+        }
+    } catch { /* Older signers may not implement switch_relays. Keep the approved relays. */ }
+    if (generation !== signerGeneration) { await candidate.close(); return; }
     signer = bindSigner(candidate, pubkey); remote = candidate;
     const session: RemoteSession = { kind: "remote", clientKey: bytesToHex(clientKey), pointer: { ...candidate.bp, secret: null }, pubkey };
     remember(SIGNER_KEY, JSON.stringify(session));
     update({ signerStatus: "connected", signerKind: "remote", signerPubkey: pubkey, signerLink: "", signerAuthUrl: "" });
-    // Older signers may not implement switch_relays. Signing remains available.
-    void withTimeout(candidate.switchRelays(), 5000, "Signer relay update timed out.").then(() => {
-        if (generation === signerGeneration) { session.pointer = { ...candidate.bp, secret: null }; remember(SIGNER_KEY, JSON.stringify(session)); }
-    }).catch(() => {});
 }
 export async function connectRemote(input?: string, saved?: RemoteSession) {
     disconnectSigner();
@@ -190,19 +246,20 @@ export async function connectRemote(input?: string, saved?: RemoteSession) {
     update({ signerStatus: "connecting", signerKind: "remote" });
     let candidate: BunkerSigner | undefined;
     try {
-        const [{ BunkerSigner, parseBunkerInput, createNostrConnectURI }, { AbstractSimplePool }] = await Promise.all([import("nostr-tools/nip46"), import("nostr-tools/abstract-pool")]);
+        const [{ BunkerSigner, parseBunkerInput, createNostrConnectURI }, { SignerPool }] = await Promise.all([import("nostr-tools/nip46"), import("./signerPool")]);
         if (generation !== signerGeneration) return;
-        const pool = new AbstractSimplePool({ verifyEvent, websocketImplementation: signerWebSocket(), maxWaitForConnection: 10000 }); signerPool = pool;
+        const pool = new SignerPool({ verifyEvent: event => !!verifiedNostrEvent(event), websocketImplementation: signerWebSocket(), maxWaitForConnection: 10000,
+            allowConnectingToRelay: url => { try { validateRelay(url); return generation === signerGeneration; } catch { return false; } } }); signerPool = pool;
         const key = saved ? hexToBytes(saved.clientKey) : generateSecretKey();
         const params = { pool, skipSwitchRelays: true, onauth: (url: string) => authUrl(url, generation) };
         if (input || saved) {
             if (input && !input.trim().startsWith("bunker://")) throw new Error("Paste a bunker:// connection string from your signer.");
             const pointer = saved?.pointer ?? await parseBunkerInput(input!.trim());
             if (generation !== signerGeneration) return;
-            if (!pointer || !HEX.test(pointer.pubkey) || !pointer.relays.length) throw new Error("The signer connection string is incomplete.");
+            if (!pointer || !HEX.test(pointer.pubkey) || !pointer.relays.length || pointer.relays.length > 4) throw new Error("The signer connection string is incomplete or has too many relays.");
             pointer.relays.forEach(validateRelay);
             candidate = BunkerSigner.fromBunker(key, pointer, params); remote = candidate;
-            if (!saved) await withTimeout(candidate.sendRequest("connect", [pointer.pubkey, pointer.secret ?? "", "sign_event:9734", JSON.stringify({ name: "Holoboard", url: window.location.origin })]), 60000, "The signer did not approve the connection. Try again.");
+            if (!saved) await waitForSigner(candidate.sendRequest("connect", [pointer.pubkey, pointer.secret ?? "", "sign_event:9734", JSON.stringify({ name: "Holoboard", url: window.location.origin })]), controller.signal, 60000, "The signer did not approve the connection. Try again.");
         } else {
             const relays = PUBLIC_RELAYS.slice(0, 2).map(validateRelay);
             const uri = createNostrConnectURI({ clientPubkey: getPublicKey(key), relays, secret: bytesToHex(generateSecretKey()), perms: ["sign_event:9734"], name: "Holoboard", url: window.location.origin });
@@ -211,7 +268,7 @@ export async function connectRemote(input?: string, saved?: RemoteSession) {
             try { candidate = await BunkerSigner.fromURI(key, uri, params, controller.signal); }
             finally { clearTimeout(timer); }
         }
-        await finishRemote(candidate, key, generation, saved?.pubkey);
+        await finishRemote(candidate, key, generation, controller.signal, pointer => BunkerSigner.fromBunker(key, pointer, params), saved?.pubkey);
     } catch {
         await candidate?.close();
         if (generation !== signerGeneration) return;

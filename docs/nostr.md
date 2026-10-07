@@ -288,7 +288,7 @@ No private relay key is logged when an ephemeral identity is generated.
 | NDK 2.18.1 | Discovery timeout can discard observed lists without stopping the subscription; stop can precede a delayed start. Application reads bypass these paths. |
 | NDK React 1.3.12 | Profile reuse has no freshness policy and accepts arbitrary JSON field types. The application profile hook uses a validated, expiring cache and deduplicated reads. |
 | cache-dexie 2.7.7 | Ten indexed tags can erase the index; some paths limit before final matching; persistent storage is not bounded by the memory LRU. The adapter is inactive. |
-| nostr-tools 2.25.2 | Verification can reuse a symbol cached on an event object. Fresh canonical objects are verified at application ingress. Existing Schnorr and encoding implementations remain in use. |
+| nostr-tools 2.25.2 | Verification can reuse a symbol cached on an event object. Fresh canonical objects are verified at read and signer ingress. NIP-46 retains successful auth-request bookkeeping, its switchRelays can reopen after close and accepts unchecked destinations, and malformed decrypted RPC responses reject its event callback. Application guards bound sessions, validate changes before subscribing and contain callback failures. Existing Schnorr, encryption and encoding implementations remain in use. |
 | Alby SDK 8.0.3 | Its dynamically loaded NWC transport uses WebSocket and shares the bootstrap socket/REQ limits. Existing payment proofs and uncertain-attempt protection remain in the payment layer. |
 
 These observations are version-specific. Relay availability, real-world traffic
@@ -354,6 +354,41 @@ limitation of the requested permissions for future publishing, not a confirmed
 explanation of the reported connection failures. No direct NIP-55 web adapter
 is implemented.
 
+### Confirmed signer defects and local fixes
+
+Regression tests first reproduced four application failures: a cached library
+verification flag admitted a forged ID/signature, an extension could mutate the
+template used for comparison, an old signer handle remained usable after
+disconnect, and a signature from an earlier account was accepted after switching.
+`connections.ts` now verifies a fresh signed object, keeps a private deep copy of
+the requested template and checks connection generation before and after signing.
+Disconnect aborts waiting operations immediately. Only one user signing request
+can wait for approval at a time; there is no hidden request queue.
+
+Tests against the installed NIP-46 implementation independently confirm retained
+auth-request entries after success, unchecked relay switching after close
+(including a delayed cleanup exception), and callback rejection for malformed
+encrypted RPC data. Holoboard reads `switch_relays` through `sendRequest`, validates
+at most four safe destinations before replacing the subscription, and ignores
+results from cancelled connections. Unsupported or failed relay switching keeps
+the approved relays. `SignerPool` contains unreadable RPC callbacks while the
+owning request retains its deadline. No cryptographic implementation is replaced.
+
+A remote session accepts at most 64 user signing requests, then requires explicit
+reconnection. This bounds the library's retained request state to at most 67 RPCs
+(connection, identity, optional relay update and signing); it is an application
+limit, not a NIP requirement. A signing timeout retires the remote session and
+its pool, preserving the caller's draft. Initial signer tokens admit at most four
+relays. Public metadata discovery never changes signer transport destinations.
+
+Automated checks exercise both NIP-46 initiation methods, wrong pairing secrets,
+transport/user key separation, cancellation, stale results, restoration account
+changes and signed-payload validation. They use isolated protocol mocks and local
+keys. They do not reproduce a physical Amber handoff, establish an Amber version
+matrix or explain the user's earlier device failures. That cause remains open.
+
+### Compatibility evidence
+
 Track compatibility by method, signer version, OS and browser:
 
 | Method | Required evidence before claiming support |
@@ -413,7 +448,7 @@ current here; keep detailed discussion semantics in
 | Discussion retrieval | Implemented and locally verified; consumed by the opt-in reading screen. | Bounded discovery and missing-parent retrieval, cancellation, pagination and honest per-relay coverage, feeding the shared relation engine. |
 | Discussion reading | Read-only screen implemented behind `VITE_ENABLE_DISCUSSIONS`, disabled by default. | Original-item focus, expandable paid/unpaid branches, unresolved context, bounded display pages and local browser navigation checks. |
 | Profile reading | Read-only screen implemented and locally verified behind `VITE_ENABLE_PROFILES`, disabled by default. | Shared bounded metadata reads, explicit freshness/source outcomes, verified active campaign membership, discussion return navigation and selected public-relay reads. |
-| Signer compatibility | Disabled by default; Amber failures unresolved. Begin reproduction early. | Record tested methods and environments, validate connection and signing, preserve drafts and handle account/lifecycle changes. |
+| Signer compatibility | Local signer boundaries hardened and protocol fixtures verified; disabled by default. Physical Amber failures unresolved. | Fresh signature/template checks, connection-generation ownership, both NIP-46 initiation methods, bounded request lifetimes and validated relay changes. Device/environment matrix remains open. |
 | User-authored publication | Not implemented. | Correct reply references, explicit consent, verified signed payloads, delivery outcomes and retry without duplicate events. |
 
 Keep stages reviewable and independently releasable where their dependencies
@@ -468,9 +503,16 @@ disabled. Enabled and default production builds and changed-module lint checks
 pass. Independent profile/discussion flag configuration has a separate desktop
 check. No payment or identity storage is removed by the new screen.
 
-Profile reading is locally verified. The next
-stage reviews combined changes and reproduces signer failures by connection
-method, followed by preparing user-authored replies. Continue routine work
+Profile reading and local signer boundary checks are verified. The signer stage
+passed 322 frontend unit cases and the enabled build; 24 focused cases cover
+application and installed dependency behavior. Thirty-three protocol browser
+scenarios passed across desktop Chrome, Android-sized Chrome and iPhone-sized
+WebKit. They cover both NIP-46 initiation methods and NIP-07, including payment
+consent and account changes. Default-release invoice and hidden-signer checks
+and the default production build pass separately. Physical-device reproduction
+remains open. The next stage prepares
+user-authored replies against the shared relation model, with publication held
+behind the signer release gate. Continue routine work
 autonomously through these stages; keep external publication, spending,
 deployment, main pushes and existing-data migrations behind explicit approval.
 Physical-device and live-wallet evidence remains open when unavailable and does

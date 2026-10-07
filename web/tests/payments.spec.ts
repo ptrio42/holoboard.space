@@ -32,7 +32,7 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
     if (options.blockStorage) await context.addInitScript(() => {
         Object.defineProperty(window, "sessionStorage", { get: () => { throw new DOMException("Storage blocked by this test", "SecurityError"); } });
     });
-    const state = { authorUnavailable: options.authorUnavailable, authorEndpointRequests: 0, boardPaid: false, authorPaid: false, boardCharges: 0, authorCharges: 0, authorAttempts: 0, boardProofs: new Map<string, string>([["lnbc-visibility", boardPreimage]]), authorProofs: new Map<string, string>(), expectedSignerPubkey: getPublicKey(userKey), boardRequests: [] as Record<string, unknown>[], authorRequests: [] as Record<string, unknown>[], methods: [] as string[], signerMethods: [] as string[], linkPreviews: [] as string[], errors: [] as string[], completeAuthorPayment: undefined as (() => void) | undefined, approveSigner: undefined as (() => Promise<void>) | undefined };
+    const state = { authorUnavailable: options.authorUnavailable, authorEndpointRequests: 0, boardPaid: false, authorPaid: false, boardCharges: 0, authorCharges: 0, authorAttempts: 0, boardProofs: new Map<string, string>([["lnbc-visibility", boardPreimage]]), authorProofs: new Map<string, string>(), expectedSignerPubkey: getPublicKey(userKey), boardRequests: [] as Record<string, unknown>[], authorRequests: [] as Record<string, unknown>[], methods: [] as string[], signerMethods: [] as string[], linkPreviews: [] as string[], errors: [] as string[], completeAuthorPayment: undefined as (() => void) | undefined, approveSigner: undefined as ((secret?: string) => Promise<void>) | undefined };
     const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Allow-Methods": "GET,POST,OPTIONS" };
     await context.route("**/*", async (route) => {
         const url = new URL(route.request().url());
@@ -99,11 +99,11 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
                 const filter = msg[2]; subscriptions.set(msg[1], filter);
                 if (filter.kinds?.includes(13194)) sendEvent(finalizeEvent({ kind: 13194, created_at: Math.floor(Date.now()/1000), tags: options.encryption === "nip04" ? [] : [["encryption", "nip44_v2 nip04"]], content: "get_info pay_invoice lookup_invoice" }, walletKey));
                 if (filter.kinds?.includes(24133) && !filter.authors) {
-                    state.approveSigner = async () => {
-                        const uri = new URL((await page.getByRole("link", { name: "Open Amber / signer" }).getAttribute("href"))!);
+                    const uri = new URL((await page.getByRole("link", { name: "Open Amber / signer" }).getAttribute("href"))!);
+                    state.approveSigner = async (secret?: string) => {
                         const client = uri.hostname;
                         expect(uri.searchParams.get("perms")).toBe("sign_event:9734");
-                        sendEvent(finalizeEvent({ kind: 24133, created_at: Math.floor(Date.now()/1000), tags: [["p", client]], content: nip44.encrypt(JSON.stringify({ id: "connect", result: uri.searchParams.get("secret") }), nip44.getConversationKey(signerKey, client)) }, signerKey));
+                        sendEvent(finalizeEvent({ kind: 24133, created_at: Math.floor(Date.now()/1000), tags: [["p", client]], content: nip44.encrypt(JSON.stringify({ id: "connect", result: secret ?? uri.searchParams.get("secret") }), nip44.getConversationKey(signerKey, client)) }, signerKey));
                     };
                     if (!options.deferSigner) await state.approveSigner();
                 }
@@ -553,7 +553,7 @@ test("an author invoice paid in wallet Send is reused by promotion without anoth
     expect(state.errors).toEqual([]);
 });
 
-test("Amber connection signs a public author zap and restores after reload", async ({ context, page }) => {
+test("NIP-46 protocol pairing signs an author zap and restores after reload", async ({ context, page }) => {
     const state = await setup(context, page);
     await openConnections(page, "signer");
     await page.getByRole("button", { name: "Connect Amber / remote signer", exact: true }).click();
@@ -567,6 +567,41 @@ test("Amber connection signs a public author zap and restores after reload", asy
     expect(state.signerMethods).toContain("get_public_key"); expect(state.signerMethods).toContain("sign_event");
     expect(state.authorRequests[0]).toHaveProperty("zap_request");
     expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0);
+    expect(state.errors).toEqual([]);
+});
+test("bunker pairing separates the transport key from the signing account without paying", async ({ context, page }) => {
+    const state = await setup(context, page);
+    await openConnections(page, "signer");
+    await page.getByText("Use a signer connection string", { exact: true }).click();
+    const uri = `bunker://${getPublicKey(signerKey)}?relay=${encodeURIComponent("ws://127.0.0.1:3334")}&secret=fixture-token`;
+    await page.getByLabel("Bunker connection string", { exact: true }).fill(uri);
+    await page.getByRole("button", { name: "Connect this signer", exact: true }).click();
+    await expect(page.getByText("Connected remote signer:", { exact: false })).toBeVisible();
+    const session = await page.evaluate(() => JSON.parse(sessionStorage.getItem("holoboard-signer")!));
+    expect(session.pubkey).toBe(getPublicKey(userKey)); expect(session.pointer.pubkey).toBe(getPublicKey(signerKey));
+    expect(session.pointer.secret).toBeNull();
+    expect(state.signerMethods).toEqual(["connect", "get_public_key", "switch_relays"]);
+    expect(state.authorRequests).toEqual([]); expect(state.boardRequests).toEqual([]);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+test("client pairing ignores a wrong secret and a cancelled approval cannot reconnect", async ({ context, page }) => {
+    const state = await setup(context, page, { deferSigner: true });
+    await openConnections(page, "signer");
+    await page.getByRole("button", { name: "Connect Amber / remote signer", exact: true }).click();
+    await expect.poll(() => !!state.approveSigner).toBe(true);
+    await state.approveSigner!("wrong-secret");
+    await expect(page.getByRole("button", { name: "Cancel signer connection", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => sessionStorage.getItem("holoboard-signer"))).toBeNull();
+    await state.approveSigner!();
+    await expect(page.getByText("Connected remote signer:", { exact: false })).toBeVisible();
+    await page.getByRole("button", { name: "Disconnect signer", exact: true }).click();
+    await page.getByRole("button", { name: "Connect Amber / remote signer", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Cancel signer connection", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Cancel signer connection", exact: true }).click();
+    await state.approveSigner!();
+    await expect(page.getByRole("button", { name: "Connect Amber / remote signer", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => sessionStorage.getItem("holoboard-signer"))).toBeNull();
+    expect(state.authorRequests).toEqual([]); expect(state.boardRequests).toEqual([]);
     expect(state.errors).toEqual([]);
 });
 test("browser extension connects explicitly and remains optional for invoice payments", async ({ context, page }) => {

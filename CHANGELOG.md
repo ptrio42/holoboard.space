@@ -15,6 +15,8 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Recheck signer signatures and requested payloads, reject stale account responses,
+  validate remote relay changes and close timed-out signer sessions.
 - Verify Nostr event IDs, restrict external relay destinations and bound shared
   connections, subscriptions, history reads and caches. Keep partial results
   when relays time out, cancel reads promptly while connections open and
