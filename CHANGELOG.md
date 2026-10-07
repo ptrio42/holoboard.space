@@ -8,6 +8,7 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Initialize the relay URL safely when multiple clients connect at startup.
 - Keep the Amount and Position picker steady in Promote and Boost, with Custom
   available in both modes and consistent pixel typography in the page footer.
 
@@ -108,7 +109,12 @@ record deployment, not announcement publication.
   and paid parts stay protected. Expired recipient invoices can be replaced
   individually to finish a partially paid promotion. Completed payments end
   with a clear summary and Done action. Wallet progress uses calmer status
-  panels, reserving warning accents for unresolved outcomes.
+  panels, reserving warning accents for unresolved outcomes. Returning to the
+  editor keeps partial and uncertain payments available to resume, with separate
+  records for each note and earlier invoices. New promotions open a blank editor;
+  changing notes clears the previous draft. Billboard explains note loading before
+  its options appear. Missing author-payment confirmations explain the amount
+  and the wallet-history check.
 - A dedicated help page explains ranking, payments and promotion from Nostr,
   with account and relay details available to copy.
 - Unfinished payments resume after a refresh in the same browser tab. Ranking

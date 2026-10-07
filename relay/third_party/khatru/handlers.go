@@ -22,9 +22,11 @@ import (
 // ServeHTTP implements http.Handler interface.
 func (rl *Relay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Vary", "Accept")
-	if rl.ServiceURL == "" {
-		rl.ServiceURL = getServiceBaseURL(r)
-	}
+	rl.serviceURLOnce.Do(func() {
+		if rl.ServiceURL == "" {
+			rl.ServiceURL = getServiceBaseURL(r)
+		}
+	})
 
 	if r.Header.Get("Upgrade") == "websocket" {
 		rl.HandleWebsocket(w, r)

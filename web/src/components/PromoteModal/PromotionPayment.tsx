@@ -9,14 +9,14 @@ import { isMockInvoice, MOCK_INVOICE_MESSAGE } from "../../lib/invoice";
 import { restartBlocked, type PaymentMethod, type PaymentRecipient, type PromotionPayment as Payment } from "./PaymentState";
 
 export function PromotionPayment({ id, payment, method, recipient, onRecipient, wallet, walletName, connecting, busy, walletPart, now,
-    canResume, error, actualRank, onPay, onReplaceAuthor, onReplaceBoard, onReportAuthor, onAcknowledge, onHelp, onSigner, onRestart,
+    canResume, error, actualRank, onPay, onReplaceAuthor, onReplaceBoard, onReportAuthor, onAcknowledge, onHelp, onSigner, onRestart, onBack,
     restartConfirm, onRestartConfirm, hasPublicZapConsent, authorCanReplace, footer }: {
     id: string; payment: Payment; method: PaymentMethod; recipient: PaymentRecipient; onRecipient: (part: PaymentRecipient) => void;
     wallet: PaymentWallet | undefined; walletName: string; connecting: boolean; busy: boolean; now: number;
     walletPart: PaymentRecipient | null;
     canResume: boolean; error: string; actualRank: number | null;
     onPay: () => void; onReplaceAuthor: () => void; onReplaceBoard: () => void; onReportAuthor: () => void; onAcknowledge: (part: PaymentRecipient) => void;
-    onHelp: () => void; onSigner: () => void; onRestart: () => void; restartConfirm: boolean;
+    onHelp: () => void; onSigner: () => void; onRestart: () => void; onBack: () => void; restartConfirm: boolean;
     onRestartConfirm: (value: boolean) => void; hasPublicZapConsent: boolean; authorCanReplace: boolean; footer: (content: ReactNode) => ReactNode;
 }) {
     const mockPayment = isMockInvoice(payment.board.invoice);
@@ -38,6 +38,7 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
     const actionClass = "promotion-action focus-pixel inline-flex min-h-11 items-center text-cyan-200/75 hover:text-neon-cyan disabled:opacity-40";
     return <>
         <div className="space-y-4 text-sm" role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${method}`} tabIndex={0}>
+            <p className="truncate text-xs text-cyan-100/60" title={payment.noteSummary}>For: {payment.noteSummary || payment.draft?.config.text || `note ${payment.board.noteId.slice(0, 8)}...${payment.board.noteId.slice(-6)}`}</p>
             <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <span className="promotion-label text-cyan-100/60">Promotion total</span>
                 <span className="text-neon-cyan">{parts.reduce((sum, part) => sum + part.amount, 0)} sats</span>
@@ -49,7 +50,7 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                     <span className="promotion-label text-cyan-100">{part.id === "board" ? "Holoboard" : "Author"}</span>
                     <span>{part.amount} sats</span>
                     <span className={`w-full text-xs ${part.paid || part.attempt?.state === "submitted" ? "text-neon-cyan" : "text-cyan-100/60"}`}>
-                        {part.reported ? "Marked paid by you, unverified" : part.paid ? "Payment verified" : part.attempt?.state === "submitted" ? "Sent, awaiting verification" : walletPart === part.id ? "Waiting for wallet" : part.attempt?.state === "uncertain" ? "Uncertain, check wallet" : now >= part.expires*1000 ? "Invoice expired" : "Awaiting payment"}
+                        {part.reported ? "Marked paid by you, unverified" : part.paid ? "Payment verified" : part.attempt?.state === "submitted" ? "Sent, awaiting verification" : walletPart === part.id ? "Waiting for wallet" : part.attempt?.state === "uncertain" ? "Wallet confirmation missing" : now >= part.expires*1000 ? "Invoice expired" : "Awaiting payment"}
                     </span>
                 </button>)}
             </div>
@@ -89,8 +90,10 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                 </div>}
                 {part.attempt?.state === "uncertain" && walletPart !== part.id && <>
                     <div role="status" className="space-y-2 border-l-2 border-neon-gold/50 bg-white/[0.03] p-3">
-                        <p className="promotion-label text-neon-gold">Check {part.id === "board" ? "visibility" : "author support"} payment</p>
-                        <p>The {part.id === "board" ? "visibility" : "author"} payment status is uncertain. Check your wallet history. NWC checks the original wallet before retrying.</p>
+                        <p className="promotion-label text-neon-gold">{part.id === "board" ? "Holoboard" : "Author"} payment not confirmed</p>
+                        <p>Your wallet did not confirm the {part.amount} sats {part.id === "board" ? "for Holoboard visibility" : "for the note's author"}. The payment may have succeeded. Look for this amount in your wallet's payment history before paying again.</p>
+                        {part.id === "author" && payment.promotionPaid && <p>Your Holoboard visibility payment is already confirmed.</p>}
+                        <p>{wallet?.id === part.attempt.walletId && wallet.lookupPayment ? "The Wallet action checks the original wallet before retrying. It only sends again if that wallet confirms a failure." : "Reconnect the wallet used for this payment to check it here, or check its history yourself."}</p>
                     </div>
                     <PixelButton size="sm" variant="ghost" disabled={busy} onClick={() => onAcknowledge(part.id)}>I checked my wallet: {part.id === "board" ? "visibility" : "author support"} was not paid</PixelButton>
                 </>}
@@ -123,7 +126,7 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                 <PixelButton className="w-full" size="sm" variant="ghost" disabled={busy} onClick={onRestart}>I haven't paid, restart</PixelButton>
             </div>}
             <div className="flex flex-wrap items-center justify-between gap-x-3">
-                {restartConfirm && !blocked ? <button type="button" className={actionClass} disabled={busy} onClick={() => onRestartConfirm(false)}>Keep payment</button> : <button type="button" className={actionClass} disabled={busy || !!blocked} onClick={() => onRestartConfirm(true)}>Restart payment</button>}
+                {blocked || busy ? <button type="button" className={actionClass} onClick={onBack}>Back to promotion</button> : restartConfirm ? <button type="button" className={actionClass} onClick={() => onRestartConfirm(false)}>Keep payment</button> : <button type="button" className={actionClass} onClick={() => onRestartConfirm(true)}>Restart payment</button>}
                 <button type="button" className={actionClass} aria-label="Payment help >" onClick={onHelp}>Help &gt;</button>
             </div>
         </div>)}

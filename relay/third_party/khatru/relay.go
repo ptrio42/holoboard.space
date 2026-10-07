@@ -44,7 +44,9 @@ func NewRelay() *Relay {
 }
 
 type Relay struct {
-	ServiceURL string
+	// Configure before serving requests; otherwise the first request sets it.
+	ServiceURL     string
+	serviceURLOnce sync.Once
 
 	// these structs keeps track of all the things that can be customized when handling events or requests
 	RejectEvent               []func(ctx context.Context, event *nostr.Event) (reject bool, msg string)

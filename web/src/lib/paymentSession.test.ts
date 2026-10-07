@@ -4,6 +4,22 @@ beforeEach(() => vi.resetModules());
 afterEach(() => vi.unstubAllGlobals());
 
 describe("payment session persistence", () => {
+    it("does not hide a failed archive write when another record saves successfully", async () => {
+        const stored = new Map<string, string>();
+        vi.stubGlobal("sessionStorage", {
+            getItem: (key: string) => stored.get(key) ?? null,
+            setItem: (key: string, value: string) => {
+                if (key === "archive") throw new DOMException("Full", "QuotaExceededError");
+                stored.set(key, value);
+            },
+            removeItem: (key: string) => stored.delete(key),
+        });
+        const session = await import("./paymentSession");
+        expect(session.savePaymentSession("archive", "old invoice", false)).toBe(false);
+        expect(session.savePaymentSession("current", "new invoice")).toBe(false);
+        expect(session.readPaymentSession("archive")).toBe("old invoice");
+        expect(session.paymentSessionIsPersistent()).toBe(false);
+    });
     it("does not resurrect a removed session when storage refuses removal", async () => {
         const stored = new Map<string, string>();
         vi.stubGlobal("sessionStorage", {

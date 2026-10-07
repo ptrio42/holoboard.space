@@ -98,3 +98,22 @@ Responses vary by Accept so caches distinguish metadata from other responses.
 `TestRelayDescriptionAcceptNegotiation` checks the description and CORS headers
 through the vendored relay handler. Metadata follows
 [NIP-11](https://github.com/nostr-protocol/nips/blob/master/11.md).
+
+## khatru-service-url-race.patch
+
+Concurrent first requests read and write `Relay.ServiceURL` without
+synchronization. The patch runs initialization through `sync.Once` before
+dispatching any request, so handlers and WebSocket authentication see the
+completed value. A URL configured before serving is preserved; otherwise the
+first request still supplies the host and scheme, including forwarded headers.
+The field must not be changed after serving starts.
+
+`TestRelayServiceURLConcurrentInitialization` releases 64 concurrent requests
+for direct, forwarded and explicitly configured URLs. Each handler reads the
+URL, and a later request checks that a different host does not replace it.
+Run the regression and full race suite from `relay/`:
+
+```sh
+go test -race -run '^TestRelayServiceURLConcurrentInitialization$' -count=100 ./...
+go test -race ./...
+```

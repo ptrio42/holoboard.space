@@ -1,0 +1,34 @@
+diff --git a/relay/third_party/khatru/handlers.go b/relay/third_party/khatru/handlers.go
+index 725d907..a9b2525 100644
+--- a/relay/third_party/khatru/handlers.go
++++ b/relay/third_party/khatru/handlers.go
+@@ -22,9 +22,11 @@ import (
+ // ServeHTTP implements http.Handler interface.
+ func (rl *Relay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+ 	w.Header().Add("Vary", "Accept")
+-	if rl.ServiceURL == "" {
+-		rl.ServiceURL = getServiceBaseURL(r)
+-	}
++	rl.serviceURLOnce.Do(func() {
++		if rl.ServiceURL == "" {
++			rl.ServiceURL = getServiceBaseURL(r)
++		}
++	})
+ 
+ 	if r.Header.Get("Upgrade") == "websocket" {
+ 		rl.HandleWebsocket(w, r)
+diff --git a/relay/third_party/khatru/relay.go b/relay/third_party/khatru/relay.go
+index 69297db..72a1cab 100644
+--- a/relay/third_party/khatru/relay.go
++++ b/relay/third_party/khatru/relay.go
+@@ -44,7 +44,9 @@ func NewRelay() *Relay {
+ }
+ 
+ type Relay struct {
+-	ServiceURL string
++	// Configure before serving requests; otherwise the first request sets it.
++	ServiceURL     string
++	serviceURLOnce sync.Once
+ 
+ 	// these structs keeps track of all the things that can be customized when handling events or requests
+ 	RejectEvent               []func(ctx context.Context, event *nostr.Event) (reject bool, msg string)

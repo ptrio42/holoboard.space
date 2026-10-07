@@ -1,7 +1,7 @@
 # Why khatru lives in this repo
 
 This is khatru v0.7.6 with local patches for listener synchronization, HTTP
-timeouts and NIP-11 Accept negotiation. See the
+timeouts, NIP-11 Accept negotiation and service URL initialization. See the
 [patch reference](../../patches/README.md).
 `go.mod` points at this directory with a `replace`.
 

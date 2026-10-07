@@ -23,12 +23,15 @@ export interface PromotionPayment {
     billboardApplied?: boolean; feeConverted?: boolean;
     boardAttempt?: WalletAttempt; authorAttempt?: WalletAttempt;
     draft?: PromotionDraft;
+    /** Returning to the editor keeps this session available for explicit resume. */
+    editing?: boolean;
+    noteSummary?: string;
 }
 
 export function restartBlocked(payment: PromotionPayment): string | null {
-    if (payment.promotionPaid || payment.tipStatus !== "pending") return "A part is already paid or marked paid. Keep this session to finish the remaining part.";
+    if (payment.promotionPaid || payment.tipStatus !== "pending") return "A part is already paid or marked paid. Back to promotion keeps these invoices available to finish later.";
     if ([payment.boardAttempt, payment.authorAttempt].some((attempt) => attempt && attempt.state !== "unpaid")) {
-        return "Check the unresolved wallet payment before restarting. Sent and uncertain attempts stay protected, even after expiry.";
+        return "Back to promotion keeps these invoices and their protection against another wallet charge, even after expiry.";
     }
     return null;
 }

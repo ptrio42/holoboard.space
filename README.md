@@ -77,9 +77,17 @@ entered npub.
 **Restart payment** returns an unpaid session to the same promotion choices
 without creating new invoices. Check your wallet before confirming: issued
 invoices are not cancelled. A paid, reported, sent or uncertain part blocks a
-full restart; finish or reconcile that session instead. An expired unpaid
-recipient invoice can be replaced while keeping the other part. Connections
-and shared wallet attempt protection are retained.
+full restart. **Back to promotion** keeps those invoices available under
+**Previous payment for this note**, while allowing another promotion or a
+switch to another note. Resume pays only the remaining parts; a new payment
+has its own full total. Older invoices remain available if a new payment is
+prepared for the same note. Connections and shared wallet protections remain.
+
+The general **Promote a note** action opens a blank editor, with unfinished
+payments available to resume explicitly. Opening a specific note restores only
+that note's payment. Expired invoices with no recorded send attempt reopen in
+the editor. Changing notes clears the previous draft. Billboard is available
+before loading a note and explains what is needed to preview its appearance.
 
 The NWC wallet panel shows balance, Send, Receive and payment history when the
 connection grants access. Send accepts a Lightning invoice, a QR code or a

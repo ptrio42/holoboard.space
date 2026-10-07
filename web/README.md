@@ -166,7 +166,9 @@ estimate changes. The full editor uses **Promotion**, **Billboard** and
 **Payment options** tabs. Billboard appearance is available only for an inactive
 note starting a promotion period. **Payment options** groups wallet connection
 and optional notification DMs. Tabs and the payment action stay visible while
-scrolling; switching tabs preserves the draft. Boosts keep the compact form.
+scrolling; switching tabs preserves the draft. Billboard can be opened before
+loading a note, with a note-link field and an explanation of availability.
+Boosts keep the compact form.
 The footer shows the complete
 amount on the payment action; ranking and removal rules live in help. Contextual
 help and settings panels keep the amount mode and current draft in memory.
@@ -188,8 +190,22 @@ result asks the payer to check their wallet after the request ends.
 confirmed unpaid session and its last-payment pointer. It restores the saved
 promotion draft, without requesting new invoices or clearing shared wallet
 attempts and connections. Older sessions restore known amounts and allocation.
-Paid or reported parts and unresolved wallet attempts block a full restart,
-including after expiry. Expired recipient invoices can be replaced individually
+Paid or reported parts and unresolved wallet attempts block deletion of the
+session, including after expiry. **Back to promotion** returns to the editor
+and keeps the session under **Previous payment for this note**. It can interrupt
+an active wallet request without sending the next part or losing its proof.
+Preparing another payment archives the previous invoices under their note and
+visibility payment hash. Late wallet replies update only their own record and
+never change the current note or last-payment pointer. Resume restores the
+original invoices and reconciles their remaining parts.
+The general promotion action opens a blank editor with an explicit unfinished
+payment list; a specific note restores only its own session. Returning to editing
+survives reopening. Expired, unattempted sessions reopen in the editor while
+retaining their invoices for review. Changing notes clears amount, split,
+appearance, notifications, public-zap consent and stale status messages.
+An archive write failure keeps all records in memory and the persistence notice
+visible, even if the current invoice saves successfully.
+Expired recipient invoices can be replaced individually
 when their own wallet attempt is resolved, preserving the other part.
 Issued invoices remain payable; clearing local state
 cannot cancel them. An unavailable backend does not block an explicitly
