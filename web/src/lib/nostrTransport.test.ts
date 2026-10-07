@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { finalizeEvent, generateSecretKey } from "nostr-tools";
-import { queryNostr } from "./nostrTransport";
+import { publishSignedEvent, queryNostr } from "./nostrTransport";
 import { safeRelay, relayCandidates } from "./relayPolicy";
 
 class FakeSocket extends EventTarget {
@@ -19,6 +19,68 @@ const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve();
 beforeEach(() => { vi.useFakeTimers(); FakeSocket.sockets = []; vi.stubGlobal("WebSocket", FakeSocket); });
 afterEach(() => { for (const socket of FakeSocket.sockets) socket.close(); vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 const signed = () => finalizeEvent({ kind: 1, created_at: 100, tags: [], content: "valid" }, generateSecretKey());
+describe("public delivery acknowledgements", () => {
+    it("shares a read socket, matches exact boolean OK frames and keeps acknowledgement ownership after EOSE", async () => {
+        const event = signed(), url = "wss://delivery-shared.example.com";
+        const read = queryNostr({ kinds: [1] }, [url]);
+        const publish = publishSignedEvent(event, [url]);
+        await flush(); expect(FakeSocket.sockets).toHaveLength(1);
+        const socket = FakeSocket.sockets[0]; socket.open(); await flush();
+        const req = socket.sent.find(frame => frame[0] === "REQ")!;
+        socket.frame(["EOSE", req[1]]); expect((await read).complete).toBe(true);
+        socket.frame(["OK", "f".repeat(64), true, ""]); socket.frame(["OK", event.id, "true", ""]);
+        socket.frame(["OK", event.id, true]); await flush();
+        expect(socket.readyState).toBe(1);
+        socket.frame(["OK", event.id, true, "duplicate: already stored"]);
+        expect((await publish).relays[url]).toEqual({ state: "accepted", detail: "duplicate: already stored" });
+        expect(socket.sent.filter(frame => frame[0] === "EVENT")).toHaveLength(1);
+        expect(socket.sent.filter(frame => frame[0] === "CLOSE")).toEqual([["CLOSE", req[1]]]);
+        await vi.advanceTimersByTimeAsync(15000); expect(socket.readyState).toBe(3);
+    });
+    it("retains partial delivery and treats a missing acknowledgement as uncertain", async () => {
+        const event = signed(), urls = ["wss://accepted.example.com", "wss://rejected.example.com", "wss://uncertain.example.com"];
+        const publish = publishSignedEvent(event, urls, { timeout: 1000 }); await flush();
+        for (const socket of FakeSocket.sockets) socket.open(); await flush();
+        FakeSocket.sockets[0].frame(["OK", event.id, true, ""]);
+        FakeSocket.sockets[1].frame(["OK", event.id, false, "restricted: registration required"]);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect((await publish).relays).toMatchObject({ [urls[0]]: { state: "accepted" }, [urls[1]]: { state: "rejected" }, [urls[2]]: { state: "uncertain" } });
+    });
+    it("cancels before opening without sending and after sending without closing another reader", async () => {
+        const event = signed(), url = "wss://cancel-delivery.example.com", before = new AbortController();
+        const readController = new AbortController();
+        const read = queryNostr({ kinds: [1] }, [url], { signal: readController.signal });
+        const first = publishSignedEvent(event, [url], { signal: before.signal }); await flush(); before.abort();
+        expect((await first).relays[url].state).toBe("not-sent");
+        const socket = FakeSocket.sockets[0]; socket.open(); await flush();
+        expect(socket.sent.some(frame => frame[0] === "EVENT")).toBe(false);
+        const after = new AbortController();
+        const second = publishSignedEvent(event, [url], { signal: after.signal }); await flush(); after.abort();
+        expect((await second).relays[url].state).toBe("uncertain"); expect(socket.readyState).toBe(1);
+        expect(socket.sent.some(frame => frame[0] === "CLOSE")).toBe(false);
+        readController.abort(); await read;
+    });
+    it("rechecks signatures and rejects unsafe destinations before opening a socket", async () => {
+        const event = signed(); event.sig = "0".repeat(128);
+        await expect(publishSignedEvent(event, ["wss://relay.example.com"])).rejects.toThrow("verified");
+        await expect(publishSignedEvent(signed(), ["wss://127.0.0.1"])).rejects.toThrow("destinations");
+        expect(FakeSocket.sockets).toEqual([]);
+    });
+    it("bounds concurrent publications without a hidden queue", async () => {
+        const controller = new AbortController();
+        const active = Array.from({ length: 4 }, (_, i) => publishSignedEvent(signed(), [`wss://publication${i}.example.com`], { signal: controller.signal }));
+        const fifth = await publishSignedEvent(signed(), ["wss://publication5.example.com"]);
+        expect(fifth.relays["wss://publication5.example.com"]).toMatchObject({ state: "not-sent", detail: "Publication budget exhausted." });
+        controller.abort(); await Promise.all(active);
+        expect(FakeSocket.sockets.length).toBeLessThanOrEqual(3);
+    });
+    it("reports closure after sending as uncertain and contains observer exceptions", async () => {
+        const event = signed(), url = "wss://closed-delivery.example.com";
+        const publish = publishSignedEvent(event, [url], { onOutcome: () => { throw new Error("observer failed"); } });
+        await flush(); const socket = FakeSocket.sockets[0]; socket.open(); await flush(); socket.close();
+        expect((await publish).relays[url].state).toBe("uncertain");
+    });
+});
 describe("Nostr wire lifecycle", () => {
     it("does not queue an already cancelled read behind pending dials", async () => {
         const active = queryNostr({ kinds: [1] }, ["wss://dial1.example.com", "wss://dial2.example.com", "wss://dial3.example.com"]);

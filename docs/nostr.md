@@ -7,8 +7,9 @@ primitives without adding another relay pool.
 
 ## Reading
 
-`web/src/lib/nostrTransport.ts` multiplexes subscriptions on one read socket per
-canonical relay URL. The board connection indicator uses that same transport.
+`web/src/lib/nostrTransport.ts` multiplexes subscriptions and explicit public
+delivery acknowledgements on one socket per canonical relay URL. The board
+connection indicator uses that same transport.
 NDK supplies event models; its outbox pool, subscription scheduler and Dexie
 adapter are not active. IDs and signatures are verified with `nostr-tools` on
 fresh event objects, removing cached verification flags first.
@@ -202,7 +203,7 @@ the browser use three bytes per JavaScript string unit as a conservative bound.
 
 | Resource | Browser | Backend |
 | --- | --- | --- |
-| Outbound sockets | 12 across reads, wallet and signer; 8 read sockets | 32 across lookups, monitors, delivery and receiving wallet |
+| Outbound sockets | 12 across reads, wallet and signer; 8 shared read/public-delivery sockets | 32 across lookups, monitors, delivery and receiving wallet |
 | Concurrent dials | 4 overall, 3 for reads; 32 queued read dials | 8; bounded by socket admission |
 | Sockets per relay | 3 across consumers, one in the read service | 4 per configured host and port |
 | Active subscriptions | 48 overall, 8 per relay | 48 overall, 8 per relay |
@@ -217,6 +218,8 @@ the browser use three bytes per JavaScript string unit as a conservative bound.
 | Discussion admission | 1024 observed events, 4 MiB of received serialized events, 256 KiB per event; 30-second batches and 4-second queries | Not applicable |
 | Profile metadata | 64 active/closing author reads, 256 view handles; 64 KiB per signed profile, six fields of at most 2048 characters each; 12-second reads, 4-second discovery and 6-second metadata queries | Not applicable |
 | Profile campaign scan | 8 pages of at most 21 entries, 128 retained note references, 64 KiB per admitted event; one 8-second HTTP request at a time per view | Existing campaign API, no new route |
+| Browser publication | Two outbox deliveries globally; four transport publication jobs; 12 destinations, 64 KiB per event, eight-second acknowledgement waits | Existing account outbox remains separate |
+| Browser publication storage | 32 records and 1 MiB in a separate IndexedDB database; 16 admitted transactions and three-second storage deadlines | No payment-ledger change |
 | Incoming relay clients | Not applicable | 128 clients, 16 listener filters per client, 1024 filters overall, 8 filters per REQ, 32 stored-event queries |
 
 The browser cache has its own `holoboard-nostr-read-v1` database. It expires
@@ -265,6 +268,54 @@ existing DM watermark/lookback policy. Gift-wrap envelope lookback remains
 separate from the decoded DM command's age check.
 
 ## Publication
+
+### Browser delivery primitives
+
+`replyPreparation.ts` supplies structural reply templates; its
+[context contract](nostr-discussions.md#reply-preparation) requires verified
+graph metadata and a matching signed parent. `publicationRoutes.ts` resolves
+NIP-65 write relays for the signed event's author and read relays for at most
+four tagged recipients. It retains configured public publication fallbacks.
+Discovery sources do not become write destinations merely because they returned
+metadata. Routing retains observed lists after partial queries, distinguishes
+cached lists and reports missing sources and selected-recipient limits. Sources
+share read admission and a 12-second deadline. A bounded round-robin selection
+keeps at most 12 destinations across the selected groups.
+
+`PublicOutbox` requires a freshly verified signed kind-1 or kind-1111 event and
+explicit destinations. Enqueue and listing never publish; `send` is a separate
+explicit call. Before sending it commits an inconclusive attempt checkpoint to
+`holoboard-public-outbox-v1`, a separate IndexedDB database. A failed write stops
+delivery. Each relay outcome is then checkpointed, and accepted outcomes cannot
+be downgraded by an older attempt. A tab closing after sending but before saving
+an acknowledgement leaves an inconclusive record, preserving the same signed
+ID for a deliberate retry. No reload or connection restoration starts delivery.
+
+Native read/modify/write transactions serialize separate tabs. The store admits
+32 records and 1 MiB, with at most 16 pending transactions and three-second
+open/transaction deadlines. It never evicts earlier publications automatically.
+Two outbox deliveries can run globally; duplicate actions in one instance join
+the same job. The lower-level transport admits four publications without an
+extra queue and reuses the existing eight-socket pool and physical dial limits.
+An awaiting publication prevents idle cleanup and read preemption from closing
+its shared socket. Completion or cancellation releases only its own waiter.
+
+Delivery interprets [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md)
+`OK` frames for the exact event ID and boolean result. A positive acknowledgement,
+including a positive duplicate response, records relay acceptance. An explicit
+negative response records rejection. Timeout or disconnect after handing the
+event to the socket remains uncertain; cancellation before sending is distinct.
+EOSE is a read outcome and cannot confirm publication. A relay acknowledgement
+does not prove global propagation or another client's display.
+
+Retries reuse the stored signed event and omit already accepted destinations.
+If acknowledgement checkpointing fails, the saved inconclusive entry remains
+available and the error states that the event may already be public. Public
+outbox state is independent of expendable read cache, signers, wallets, invoice
+sessions and the backend payment ledger. These primitives have no product UI
+entry point yet; actual network publication remains outside automated checks.
+
+### Backend account delivery
 
 Account publications retain one signed event and per-relay acknowledgements in
 the durable outbox. Before delivery, pending public replies and quotes discover
@@ -449,7 +500,7 @@ current here; keep detailed discussion semantics in
 | Discussion reading | Read-only screen implemented behind `VITE_ENABLE_DISCUSSIONS`, disabled by default. | Original-item focus, expandable paid/unpaid branches, unresolved context, bounded display pages and local browser navigation checks. |
 | Profile reading | Read-only screen implemented and locally verified behind `VITE_ENABLE_PROFILES`, disabled by default. | Shared bounded metadata reads, explicit freshness/source outcomes, verified active campaign membership, discussion return navigation and selected public-relay reads. |
 | Signer compatibility | Local signer boundaries hardened and protocol fixtures verified; disabled by default. Physical Amber failures unresolved. | Fresh signature/template checks, connection-generation ownership, both NIP-46 initiation methods, bounded request lifetimes and validated relay changes. Device/environment matrix remains open. |
-| User-authored publication | Pure structural reply preparation implemented and locally verified; no editor or public delivery entry point yet. | Signed graph round trips cover NIP-10/NIP-22, promoted middle replies, pinned versions, external scopes and incomplete-context rejection. Consent, durable browser outbox and per-relay delivery are next. |
+| User-authored publication | Structural preparation, bounded routing and durable browser delivery primitives implemented and locally verified; no editor entry point yet. | Signed graph round trips, durable checkpoints before sending, exact-ID retry, per-relay acknowledgement, cancellation, native IndexedDB reload/failure and separate-tab concurrency. Editor consent and signer release acceptance remain. |
 
 Keep stages reviewable and independently releasable where their dependencies
 allow. Before closing a stage, compare the final diff to its acceptance criteria
@@ -513,9 +564,13 @@ and the default production build pass separately. Physical-device reproduction
 remains open. Structural reply preparation passed eight signed round-trip
 fixtures against the shared relation model, with type checks and lint. It has no
 signing or network side effects. The [preparation contract](nostr-discussions.md#reply-preparation)
-records its conservative context and resource rules. The next stage prepares a
-durable browser publication outbox and bounded per-relay acknowledgement delivery;
-the editor and production publication stay behind the signer release gate.
+records its conservative context and resource rules. Browser delivery primitives
+passed 349 frontend unit cases and nine native-storage browser scenarios across
+the three browser projects. Those scenarios intercept every remote frame and
+use local fixture keys. Enabled builds and changed-module lint pass. Resource
+and reading regressions cover the combined transport before the next stage
+connects the reply editor with explicit public consent and account ownership.
+Production publication stays behind the signer release gate.
 Continue routine work
 autonomously through these stages; keep external publication, spending,
 deployment, main pushes and existing-data migrations behind explicit approval.
@@ -602,8 +657,9 @@ governor both returned to zero REQs and one closing socket. Observed peaks were
 
 Four resource scenarios passed: one desktop heap workload and one cancelled-read
 workload on each of the three browser projects. The two mobile-project heap cases were
-intentionally skipped. With the profile reader included, post-GC heap medians
-increased from 7,351,940 to 7,539,292 bytes (187,352 bytes, about 0.18 MiB),
+intentionally skipped. With the profile reader and delivery waiter support
+included, post-GC heap medians increased from 7,334,908 to 7,530,916 bytes
+(196,008 bytes, about 0.19 MiB),
 within the 2 MiB allowance. This workload measures discussion lifetimes after
 the shared profile-reader change; it does not measure repeated profile-screen heap use.
 Mock-relay peaks were seven sockets and eight subscriptions. Leaving each view

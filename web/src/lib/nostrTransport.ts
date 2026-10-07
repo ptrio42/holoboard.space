@@ -9,6 +9,10 @@ export interface QueryResult {
     relays: Record<string, RelayOutcome>;
     complete: boolean;
 }
+export interface DeliveryOutcome {
+    state: "accepted" | "rejected" | "uncertain" | "not-sent";
+    detail?: string;
+}
 interface Reader {
     event: (event: Event) => void;
     eose: () => void;
@@ -19,6 +23,7 @@ interface Connection {
     socket: WebSocket;
     ready: Promise<void>;
     readers: Map<string, Reader>;
+    writers: Map<string, (outcome: DeliveryOutcome) => void>;
     idle?: ReturnType<typeof setTimeout>;
     pins: number;
     priority: number;
@@ -27,6 +32,7 @@ const connections = new Map<string, Connection>();
 let serial = 0;
 let queries = 0;
 let connecting = 0;
+let publications = 0;
 const pending: (() => void)[] = [];
 
 async function dialSlot(signal: AbortSignal): Promise<() => void> {
@@ -43,10 +49,10 @@ async function dialSlot(signal: AbortSignal): Promise<() => void> {
     return () => { connecting--; pending.shift()?.(); };
 }
 function idleConnection(url: string, connection: Connection) {
-    if (connection.readers.size || connection.pins || connection.socket.readyState >= 2) return;
+    if (connection.readers.size || connection.writers.size || connection.pins || connection.socket.readyState >= 2) return;
     clearTimeout(connection.idle);
     connection.idle = setTimeout(() => {
-        if (connection.readers.size || connection.pins) return;
+        if (connection.readers.size || connection.writers.size || connection.pins) return;
         if (connections.get(url) === connection) connections.delete(url);
         connection.socket.close();
     }, 15_000);
@@ -80,8 +86,8 @@ async function connectionFor(url: string, signal: AbortSignal, priority = 0): Pr
             finally { idleConnection(url, connection); }
         }
         if (connections.size >= 8) {
-            const idle = [...connections].find(([, value]) => value.readers.size === 0 && value.pins === 0 && value.socket.readyState === WebSocket.OPEN);
-            const displaced = idle ?? [...connections].find(([, value]) => !value.pins &&
+            const idle = [...connections].find(([, value]) => value.readers.size === 0 && value.writers.size === 0 && value.pins === 0 && value.socket.readyState === WebSocket.OPEN);
+            const displaced = idle ?? [...connections].find(([, value]) => !value.pins && !value.writers.size &&
                 (value.readers.size ? [...value.readers.values()].every((reader) => reader.priority < priority) : value.priority < priority));
             if (!displaced) throw new Error("Nostr read connection budget exhausted");
             for (const reader of displaced[1].readers.values()) reader.closed("budget");
@@ -89,6 +95,7 @@ async function connectionFor(url: string, signal: AbortSignal, priority = 0): Pr
         }
         const socket = new WebSocket(url);
         const readers = new Map<string, Reader>();
+        const writers = new Map<string, (outcome: DeliveryOutcome) => void>();
         const ready = new Promise<void>((resolve, reject) => {
             const timer = setTimeout(() => { socket.close(); reject(new Error("Relay connection timed out")); }, 5000);
             socket.addEventListener("open", () => { clearTimeout(timer); resolve(); }, { once: true });
@@ -99,7 +106,7 @@ async function connectionFor(url: string, signal: AbortSignal, priority = 0): Pr
         // slot until the socket opens or fails, independently of that reader.
         physicalDial = true;
         void ready.then(release, release);
-        connection = { socket, readers, ready, pins: 0, priority };
+        connection = { socket, readers, writers, ready, pins: 0, priority };
         const created = connection;
         connections.set(url, created);
         socket.addEventListener("close", () => {
@@ -107,12 +114,18 @@ async function connectionFor(url: string, signal: AbortSignal, priority = 0): Pr
             clearTimeout(created.idle);
             for (const reader of readers.values()) reader.closed();
             readers.clear();
+            for (const writer of writers.values()) writer({ state: "uncertain", detail: "Connection closed before acknowledgement." });
+            writers.clear();
         });
         socket.addEventListener("message", ({ data }: MessageEvent<unknown>) => {
             if (typeof data !== "string" || data.length > 1_048_576) return;
             try {
                 const message: unknown = JSON.parse(data);
                 if (!Array.isArray(message) || typeof message[1] !== "string") return;
+                if (message[0] === "OK" && typeof message[2] === "boolean" && typeof message[3] === "string") {
+                    writers.get(message[1])?.({ state: message[2] ? "accepted" : "rejected", detail: message[3].slice(0, 256) });
+                    return;
+                }
                 const reader = readers.get(message[1]);
                 if (!reader) return;
                 if (message[0] === "EVENT") reader.event(message[2] as Event);
@@ -123,6 +136,61 @@ async function connectionFor(url: string, signal: AbortSignal, priority = 0): Pr
         try { await waitForConnection(created, signal); return created; }
         finally { idleConnection(url, created); }
     } finally { if (!physicalDial) release(); }
+}
+
+/** Explicit public delivery only. The caller must persist the signed event and
+ * destinations first. No automatic signer, retry, routing or read-cache writes.
+ */
+export async function publishSignedEvent(input: Event, urls: string[], options: {
+    signal?: AbortSignal; timeout?: number; onOutcome?: (relay: string, outcome: DeliveryOutcome) => void;
+} = {}): Promise<{ id: string; relays: Record<string, DeliveryOutcome> }> {
+    if (JSON.stringify(input).length * 3 > 65536) throw new RangeError("Publication exceeds the 64 KiB limit.");
+    const event = verifiedNostrEvent(input);
+    if (!event || ![1, 1111].includes(event.kind)) throw new TypeError("Public delivery requires a verified note or comment.");
+    const candidates = relayCandidates(urls, 12);
+    if (!candidates.length || urls.length > 12 || urls.some(url => !relayCandidates([url]).length)) throw new TypeError("Invalid publication destinations.");
+    const relays: Record<string, DeliveryOutcome> = {};
+    if (publications >= 4) {
+        for (const url of candidates) relays[url] = { state: "not-sent", detail: "Publication budget exhausted." };
+        return { id: event.id, relays };
+    }
+    publications++;
+    const controller = new AbortController();
+    const abort = () => controller.abort(options.signal?.reason);
+    options.signal?.addEventListener("abort", abort, { once: true });
+    if (options.signal?.aborted) abort();
+    const timer = setTimeout(() => controller.abort("timeout"), Math.min(options.timeout ?? 8000, 15000));
+    const report = (url: string, outcome: DeliveryOutcome) => {
+        relays[url] = outcome;
+        try { options.onOutcome?.(url, outcome); } catch { /* Observers cannot strand transport ownership. */ }
+    };
+    try {
+        await Promise.all(candidates.map(async url => {
+            let connection: Connection | undefined;
+            try {
+                connection = await connectionFor(url, controller.signal, 2);
+                if (controller.signal.aborted) { report(url, { state: "not-sent", detail: "Cancelled before sending." }); return; }
+                const current = connection;
+                if (current.writers.has(event.id)) { report(url, { state: "not-sent", detail: "This event is already awaiting acknowledgement." }); return; }
+                await new Promise<void>(resolve => {
+                    let ended = false, sent = false;
+                    const finish = (outcome: DeliveryOutcome) => {
+                        if (ended) return;
+                        ended = true; controller.signal.removeEventListener("abort", cancelled);
+                        current.writers.delete(event.id); report(url, outcome); idleConnection(url, current); resolve();
+                    };
+                    const cancelled = () => finish({ state: sent ? "uncertain" : "not-sent", detail: controller.signal.reason === "timeout" ? "Acknowledgement deadline exceeded." : "Cancelled." });
+                    current.writers.set(event.id, finish);
+                    controller.signal.addEventListener("abort", cancelled, { once: true });
+                    try { current.socket.send(JSON.stringify(["EVENT", event])); sent = true; }
+                    catch { finish({ state: "not-sent", detail: "Could not send the event." }); }
+                });
+            } catch (failure) {
+                report(url, { state: "not-sent", detail: controller.signal.aborted ? "Cancelled before sending." : failure instanceof Error && /budget|queue full/i.test(failure.message) ? "Connection budget exhausted." : "Could not connect to the relay." });
+            } finally { if (connection) idleConnection(url, connection); }
+        }));
+        return { id: event.id, relays };
+    } finally { publications--; clearTimeout(timer); controller.abort(); options.signal?.removeEventListener("abort", abort); }
 }
 
 /** EOSE describes each queried relay only. A deadline never establishes absence. */
