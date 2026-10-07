@@ -44,9 +44,9 @@ interface BoardRowProps {
  * frame, which is what makes the top of the list read as the top of the list.
  */
 const TIERS = [
-    { accent: "#fbbf24", glow: "rgba(251,191,36,0.35)", text: "text-neon-gold" },
-    { accent: "#22d3ee", glow: "rgba(34,211,238,0.28)", text: "text-neon-cyan" },
-    { accent: "#ec4899", glow: "rgba(236,72,153,0.28)", text: "text-neon-pink" },
+    { accent: "#fbbf24", glow: "rgba(251,191,36,0.35)", text: "text-neon-gold", label: "TOP" },
+    { accent: "#22d3ee", glow: "rgba(34,211,238,0.28)", text: "text-neon-cyan", label: "SECOND" },
+    { accent: "#ec4899", glow: "rgba(236,72,153,0.28)", text: "text-neon-pink", label: "THIRD" },
 ];
 /** Blocks in the fade meter. Coarse on purpose: it is read, not measured. */
 const METER_BLOCKS = 5;
@@ -69,6 +69,7 @@ function satsLabel(sats: number): string {
 
 export function BoardRow({ event, rank, sats, weight, expired = false, isNew = false, onPromote, lastPaidAt, firstPaidAt, hotSats, billboard, billboardPreviewSlide }: BoardRowProps) {
     const tier = !expired && rank ? TIERS[rank - 1] ?? DEFAULT_TIER : DEFAULT_TIER;
+    const rankLabel = rank ? TIERS[rank - 1]?.label : undefined;
     const parent = parentOf(event);
     const hasBillboard = !!billboard && !expired;
     const quotedIds = useMemo(() => new Set(noteAttachments(event.content, event.tags, event.id).quotes.map(quote => quote.key)), [event.content, event.tags, event.id]);
@@ -108,9 +109,9 @@ export function BoardRow({ event, rank, sats, weight, expired = false, isNew = f
                         >
                             {rank ?? "?"}
                         </span>
-                        <span className="font-pixel text-[10px] text-cyan-200/80">
-                            {rank === 1 ? "TOP" : "RANK"}
-                        </span>
+                        {rankLabel && <span className="font-pixel text-[10px] text-cyan-200/80">
+                            {rankLabel}
+                        </span>}
                     </div>}
 
                     <div className="min-w-0 flex-1 space-y-3">

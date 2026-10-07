@@ -20,6 +20,8 @@ record deployment, not announcement publication.
 - Compact the mobile header into a linked H, Promote action and pixel wallet
   icon above section navigation. Move Help to a single footer link and keep
   new-note counts compact on phones.
+- Label the first three board positions TOP, SECOND and THIRD, showing only
+  the position number for the remaining notes.
 
 ## 2026-10-07
 
