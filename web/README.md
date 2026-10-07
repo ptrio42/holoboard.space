@@ -57,11 +57,21 @@ Payment tests block service workers so requests stay inside Playwright's API
 mocks, as described in the [network testing documentation](https://playwright.dev/docs/network#missing-network-events-and-service-workers).
 The PWA test enables workers and uses a real local mock API for those requests.
 
-The PWA compatibility test is opt-in. Build a previous frontend from Git in a
-temporary directory and build the current frontend, both with
-`VITE_RELAY_URL=ws://127.0.0.1:3334` and
-`VITE_PUBLIC_RELAYS=ws://127.0.0.1:3334`. Set `HOLOBOARD_LEGACY_DIST` to the
-previous build's `dist` directory and run `npm run test:e2e -- tests/pwa.spec.ts`.
+The PWA compatibility test is opt-in. Build the legacy invoice interface from
+commit `56439d7` in a temporary checkout and build the current frontend. Use
+these settings for both builds, without copying local wallet or relay secrets:
+
+```bash
+VITE_RELAY_URL=ws://127.0.0.1:3334 VITE_API_URL=http://127.0.0.1:3334 \
+VITE_PUBLIC_RELAYS=ws://127.0.0.1:3334 \
+VITE_SATS_ENDPOINT=http://127.0.0.1:3334/api/board \
+VITE_ENABLE_NOSTR_CONNECT=false npm run build
+```
+
+Set `HOLOBOARD_LEGACY_DIST` to that legacy build's `dist` directory and run
+`npm run test:e2e -- tests/pwa.spec.ts` from the current frontend directory.
+The test expects the legacy interface's invoice labels, so selecting an arbitrary
+previous commit does not provide the same compatibility check.
 The test serves both builds and a mock API locally, checks old client requests,
 worker activation, invoice restoration and API navigation outside the PWA shell.
 Status requests must reach the mock API before and after the worker update,

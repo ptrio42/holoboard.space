@@ -88,6 +88,45 @@ this configuration. Keep one running instance for this ledger. See Fly's
 [scaling rules](https://fly.io/docs/launch/scale-count/) and
 [initial redundancy rules](https://fly.io/docs/apps/app-availability/).
 
+## Release verification and rollback
+
+Record the currently deployed backend image and the successful Pages deployment
+before updating. Keep the ledger backup outside the checkout and public build
+artifacts. Confirm the backup is valid JSON and contains `pending_invoices` and
+settlement receipts. Keep the existing relay identity, wallet secrets and volume.
+
+After deploying the backend, check all API routes required by the new frontend:
+
+```bash
+curl --fail 'https://relay.holoboard.space/api/board'
+curl --fail 'https://relay.holoboard.space/api/board/campaigns?view=board&page=1'
+curl --fail 'https://relay.holoboard.space/api/board/waiting-updates'
+curl --fail 'https://relay.holoboard.space/api/link-preview?url=https%3A%2F%2Fexample.com'
+```
+
+Check that campaigns contain the existing board notes and waiting updates return
+JSON. Link preview must return JSON from the preview handler; an unavailable
+preview for a particular website can be valid, but a missing route is not.
+Verify WebSocket connectivity and the unchanged public relay key. Publish the
+frontend only after these checks pass. Keep `VITE_ENABLE_NOSTR_CONNECT=false`
+for this release and use production HTTP and WebSocket origins in Pages.
+
+After Pages reports a successful build, verify TOP 21, Waiting room, a link
+preview and a quoted note. Check both a fresh browser and an already installed
+PWA after updating it. Confirm that a prepared invoice still opens, copies and
+scans, and that reopening its promotion does not issue a replacement invoice.
+On a physical Android device, check opening an invoice in a wallet and returning
+to Holoboard. A real settlement check requires a separately authorized payment;
+mock tests do not spend funds or prove wallet settlement.
+
+If the frontend fails, restore the previous successful Pages deployment while
+keeping the new backend available. For a backend regression, deploy the recorded
+previous backend image against the existing volume only after checking ledger
+format compatibility. Preserve the current ledger before any rollback. Never
+replace it with the pre-deployment backup merely to revert code: payments and
+receipts recorded since that backup would disappear. A data restore requires
+reconciliation of those payments and explicit approval.
+
 ## Restoring the board
 
 A fresh volume is an empty board. The relay will notice it has no info event
