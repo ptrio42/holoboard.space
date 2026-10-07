@@ -8,6 +8,7 @@ import { CompactNoteText } from "./CompactNoteText";
 import { NoteLinkPreview } from "./NoteLinkPreview";
 import { QuoteMedia } from "./QuoteMedia";
 import { NoteExternalLink } from "../ui/NoteControls";
+import { StatusMessage } from "../ui/StatusMessage";
 
 /** One level of quotation only. A quote never imports another ranked row or its animations. */
 export function NoteQuote({ reference }: { reference: NoteQuoteReference }) {
@@ -72,7 +73,7 @@ function QuotePreview({ request, href }: { request: string; href: string }) {
     return (
         <div ref={container} className="note-quote" aria-label="Quoted note" data-note-block>
             <div className="flex items-center justify-between gap-2">
-                <span className="font-pixel text-[8px] tracking-widest text-cyan-300/50">QUOTED NOTE</span>
+                <span className="font-pixel text-[10px] text-cyan-200/80">QUOTED NOTE</span>
                 <NoteExternalLink href={href} label="Open quoted note" className="-my-2 shrink-0" />
             </div>
             {event ? <>
@@ -83,7 +84,9 @@ function QuotePreview({ request, href }: { request: string; href: string }) {
                 <QuoteMedia images={quoteImages(event.content)} />
                 <NoteLinkPreview text={event.content} />
             </> : <div className="mt-2">
-                <p role="status" className="text-xs text-cyan-100/50">{unavailable ? "Preview timed out" : slow ? "Still loading preview…" : "Loading preview…"}</p>
+                <StatusMessage compact loading={!unavailable}>
+                    {unavailable ? "Preview timed out" : slow ? "Still loading preview..." : "Loading preview..."}
+                </StatusMessage>
                 {unavailable && <button type="button" className="note-action mt-1" onClick={() => {
                     setUnavailable(false); setSlow(false); setAttempt((value) => value + 1);
                 }}>Retry preview</button>}

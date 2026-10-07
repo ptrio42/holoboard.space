@@ -24,7 +24,7 @@ export function PromotionAmountPicker({ amount, currentWeight = 0, max = 1000000
             <span className="flex flex-col items-center gap-1"><span>#{target.rank}</span><span className="font-body text-xs tracking-normal text-cyan-200/70">~{formatSats(needed + appearanceFee)}</span></span>
         </PixelButton>;
     };
-    return <fieldset className="min-w-0 space-y-2" disabled={disabled}>
+    return <fieldset className="promotion-amount-picker min-w-0 space-y-2" disabled={disabled}>
         <legend className="promotion-label mb-1 text-cyan-200/70">Amount in sats</legend>
         <div role="group" aria-label="Choose by amount or target position" className="grid grid-cols-2 gap-2">
             <PixelButton size="sm" variant={selection.mode === "amount" ? "accent" : "ghost"} aria-pressed={selection.mode === "amount"}

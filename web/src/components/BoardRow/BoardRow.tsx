@@ -101,14 +101,14 @@ export function BoardRow({ event, rank, sats, weight, expired = false, isNew = f
             <PixelPanel accent={tier.accent} glow={tier.glow}>
                 <article className="flex gap-3 p-4 @xl/row:gap-5 @xl/row:p-5">
                     {/* Fixed width so the content column does not step right at rank 10. */}
-                    {!expired && <div className="flex w-9 shrink-0 flex-col items-center gap-1 @xl/row:w-12">
+                    {!expired && <div className="flex w-10 shrink-0 flex-col items-center gap-1 @xl/row:w-12">
                         <span
                             className={`font-pixel text-lg leading-none @xl/row:text-2xl ${tier.text}`}
                             aria-hidden="true"
                         >
                             {rank ?? "?"}
                         </span>
-                        <span className="font-pixel text-[8px] tracking-widest text-cyan-300/30">
+                        <span className="font-pixel text-[10px] text-cyan-200/80">
                             {rank === 1 ? "TOP" : "RANK"}
                         </span>
                     </div>}
@@ -123,7 +123,7 @@ export function BoardRow({ event, rank, sats, weight, expired = false, isNew = f
                                     </span>
                                     <UserProfileInline pubkey={event.pubkey} />
                                 </h2>
-                                {parent && <div className="mt-1 text-xs text-cyan-100/50">
+                                {parent && <div className="mt-1 text-xs text-cyan-100/75">
                                     {parentIsQuoted ? <span>{parent.label} quoted note</span> : <a
                                         href={parent.href} target="_blank" rel="noopener noreferrer"
                                         className="note-context" title="Open conversation context">
@@ -132,8 +132,8 @@ export function BoardRow({ event, rank, sats, weight, expired = false, isNew = f
                                 </div>}
                             </div>
                             <div className="flex min-h-7 shrink-0 items-center gap-3">
-                                {isNew && <span className="font-pixel text-[8px] text-neon-gold" aria-label="New since your last visit">New</span>}
-                                {expired && <span className="font-pixel text-[8px] tracking-widest text-cyan-300/40">Expired</span>}
+                                {isNew && <span className="font-pixel text-[10px] text-neon-gold" aria-label="New since your last visit">New</span>}
+                                {expired && <span className="font-pixel text-[10px] text-cyan-200/80">Expired</span>}
                                 {typeof sats === "number" && (
                                     <button
                                         type="button"
@@ -196,11 +196,11 @@ export function BoardRow({ event, rank, sats, weight, expired = false, isNew = f
                             expandLabel={hasBillboard ? "Show original" : "Show more"}
                             collapseLabel={hasBillboard ? "Hide original" : "Show less"}
                             expandedContent={hasBillboard ? <div className="mt-3 border-t border-cyan-400/15 pt-3 text-[13px] text-cyan-50/80 @xl/row:text-sm">
-                                <p className="mb-2 text-xs text-cyan-100/50">Original text</p>
+                                <p className="mb-2 text-xs text-cyan-100/75">Original text</p>
                                 <TextRenderer text={event.content} embedQuotes={false} previewLinks={false} />
                             </div> : undefined}
                             footer={control => <>
-                                {expired && typeof lastPaidAt === "number" && lastPaidAt > 0 && <p className="mt-3 text-xs text-cyan-300/40">
+                                {expired && typeof lastPaidAt === "number" && lastPaidAt > 0 && <p className="mt-3 text-xs text-cyan-200/75">
                                     Last payment: <time dateTime={new Date(lastPaidAt * 1000).toISOString()}>{new Date(lastPaidAt * 1000).toLocaleDateString()}</time>
                                 </p>}
                                 {typeof hotSats === "number" && <p className="mt-3 text-xs text-cyan-300/60">{satsLabel(hotSats)} for visibility in the last 24 hours</p>}

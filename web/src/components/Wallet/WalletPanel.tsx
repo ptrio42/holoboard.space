@@ -4,6 +4,7 @@ import { checkWalletReceive, createWalletReceive, getWalletAccount, loadMoreWall
 import { formatSats } from "../../lib/walletInvoice";
 import { CopyButton } from "../ui/CopyButton";
 import { PixelButton, PixelLink } from "../ui/PixelButton";
+import { StatusMessage } from "../ui/StatusMessage";
 import { QrCode } from "../ui/QrCode";
 import { WalletQrScanner } from "./WalletQrScanner";
 import "./WalletPanel.css";
@@ -183,8 +184,8 @@ export function WalletPanel({ disabled = false }: { disabled?: boolean }) {
             {!can("list_transactions") ? <p>History access is not granted. Enable transaction history in your wallet and reconnect.</p> : <>
                 <div className="wallet-history-filters" aria-label="History filters">{([["all", "All"], ["incoming", "Received"], ["outgoing", "Sent"]] as [HistoryFilter, string][]).map(([filter, label]) => <button key={filter} type="button" className="promotion-action focus-pixel" aria-pressed={account.historyFilter === filter} onClick={() => setWalletHistoryFilter(filter)}>{label}</button>)}</div>
                 {account.history.map((tx) => <Transaction key={`${tx.type}:${tx.payment_hash}`} transaction={tx} />)}
-                {!account.historyLoaded && !account.historyError && <p role="status">Loading history...</p>}
-                {account.historyLoaded && !account.history.length && <p>No transactions returned by this wallet connection.</p>}
+                {!account.historyLoaded && !account.historyError && <StatusMessage compact loading>Loading history...</StatusMessage>}
+                {account.historyLoaded && !account.history.length && <StatusMessage compact>No transactions returned by this wallet connection.</StatusMessage>}
                 {account.historyError && <p role="alert" className="text-neon-pink">{account.historyError} {account.history.length > 0 && "The displayed history may be out of date."}</p>}
                 {account.hasMore && <PixelButton size="sm" variant="ghost" disabled={account.loadingMore || account.refreshing} onClick={() => void loadMoreWalletHistory()}>{account.loadingMore ? "Loading history" : "Load more transactions"}</PixelButton>}
                 <p className="text-xs text-cyan-100/50">History covers the transactions your wallet exposes to this connection.</p>

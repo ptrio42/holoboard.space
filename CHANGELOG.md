@@ -67,6 +67,9 @@ record deployment, not announcement publication.
 
 ### Changed
 
+- Improve small-label readability and unselected controls, keep forms clear of
+  scanlines and their action footer at the bottom, and use shared pixel loading
+  and empty states across the board, note previews and wallet history.
 - Label the main board TOP 21 and hold Nostr signer connections for a later
   website release. Wallets, anonymous invoices and manual notification npubs
   remain available.

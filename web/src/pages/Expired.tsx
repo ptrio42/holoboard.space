@@ -5,6 +5,7 @@ import { BoardRow } from "../components/BoardRow/BoardRow";
 import { PromoteModal } from "../components/PromoteModal/PromoteModal";
 import { PixelButton } from "../components/ui/PixelButton";
 import { PixelPanel } from "../components/ui/PixelPanel";
+import { StatusMessage } from "../components/ui/StatusMessage";
 import { useWaitingUpdates } from "../hooks/useWaitingUpdates";
 import { ndk } from "../lib/ndk";
 import { fetchExpired, type ExpiredEntry } from "../lib/expired";
@@ -59,12 +60,12 @@ export default function Expired() {
                     event={new NDKEvent(ndk, entry.event)} expired sats={entry.satsPaid} weight={0}
                     lastPaidAt={entry.lastPaidAt} onPromote={() => { setSelected(entry.event.id); setOpen(true); }} />)}
             </ul>}
-            {loading && <p role="status" className="py-8 text-center font-pixel text-[10px] text-cyan-300/60">Loading expired notes...</p>}
+            {loading && <StatusMessage loading>Loading expired notes...</StatusMessage>}
             {!loading && !error && entries.length === 0 && <PixelPanel>
-                <div className="space-y-3 p-6 text-center">
-                    <h2 className="font-pixel text-xs text-cyan-200/70">No expired notes</h2>
-                    <p className="text-sm text-cyan-100/60">Notes appear here when their promotion fades to zero.</p>
-                </div>
+                <StatusMessage>
+                    <h2 className="font-pixel text-xs text-cyan-200/85">No expired notes</h2>
+                    <p>Notes appear here when their promotion fades to zero.</p>
+                </StatusMessage>
             </PixelPanel>}
             {cursor && !error && <div className="mt-6 flex justify-center">
                 <PixelButton variant="ghost" disabled={loading} onClick={() => void load(cursor)}>Load more</PixelButton>

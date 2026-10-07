@@ -10,7 +10,7 @@ interface ModalProps {
     scrollBody?: boolean;
     mobileFullScreen?: boolean;
     compact?: boolean;
-    /** Keep scannable content clear of the decorative CRT overlay. */
+    /** Keep controls and scannable content clear of the decorative CRT overlay. */
     aboveScanlines?: boolean;
     footerRef?: Ref<HTMLDivElement>;
     navigationRef?: Ref<HTMLDivElement>;
@@ -27,7 +27,7 @@ const FOCUSABLE =
  * The focusable list is re-read on every Tab rather than captured once, because
  * the promotion flow swaps its whole body out as it advances.
  */
-export function Modal({ isOpen, onClose, title, children, panelClassName = "", scrollBody = false, mobileFullScreen = false, compact = false, aboveScanlines = false, footerRef, navigationRef }: ModalProps) {
+export function Modal({ isOpen, onClose, title, children, panelClassName = "", scrollBody = false, mobileFullScreen = false, compact = false, aboveScanlines = true, footerRef, navigationRef }: ModalProps) {
     const panelRef = useRef<HTMLDivElement>(null);
     const overlayRef = useRef<HTMLDivElement>(null);
     const backdropMouseDown = useRef(false);
@@ -158,7 +158,7 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
                         </button>
                     </div>
                     {navigationRef && <div ref={navigationRef} className="shrink-0 border-b border-cyan-400/25 px-4 sm:px-5 empty:hidden" />}
-                    <div data-modal-body className={scrollBody ? "min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-5" : "p-5 sm:p-6"}>{children}</div>
+                    <div data-modal-body className={scrollBody ? "min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5" : "p-5 sm:p-6"}>{children}</div>
                     {footerRef && <div ref={footerRef} className="shrink-0 border-t border-cyan-400/25 bg-panel px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-5 empty:hidden" />}
                 </div>
             </div>

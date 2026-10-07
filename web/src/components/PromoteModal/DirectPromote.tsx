@@ -6,6 +6,7 @@ import { ndk } from "../../lib/ndk";
 import { BillboardEditor } from "./BillboardEditor";
 import { initialBillboard, validBillboard, type BillboardConfig } from "../../lib/billboard";
 import { PixelButton } from "../ui/PixelButton";
+import { StatusMessage } from "../ui/StatusMessage";
 import { checkProgress, fetchNotePreview, describeFailure, requestInvoice, type NotePreview } from "../../lib/promote";
 import { parseNoteReference, parsePubkey } from "../../lib/nostr";
 import { PromotionNotePreview } from "./PromotionNotePreview";
@@ -466,7 +467,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                 <label className="block space-y-2"><span className="promotion-label">Note link</span>
                     <input aria-label="Note link" className={FIELD} value={reference} disabled={busy} placeholder="note1, nevent1, or a note link" spellCheck={false} onChange={(event) => changeReference(event.target.value)} />
                 </label>
-                {loading && <p role="status" className="text-xs">Loading note for Billboard...</p>}
+                {loading && <StatusMessage compact loading>Loading note for Billboard...</StatusMessage>}
                 <p className="text-xs">Billboard can be chosen when starting a promotion period. Active notes keep their current appearance.</p>
             </div>}
         </div>
@@ -519,7 +520,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
             <input className={`${FIELD} min-h-11 text-base`} value={reference} placeholder="note1, nevent1, or a note link" spellCheck={false} disabled={busy}
                 onChange={(event) => changeReference(event.target.value)} />
         </label>}
-        {loading && <p role="status" className="text-sm text-cyan-100/60">Loading note and author payment details...</p>}
+        {loading && <StatusMessage compact loading>Loading note and author payment details...</StatusMessage>}
         {preview && <PromotionNotePreview preview={preview} compact={boost} expanded={noteExpanded} onToggle={() => setNoteExpanded(!noteExpanded)}>
             {(!initialReference || !boost || pendingSessions.length > 0) && <button type="button" className="promotion-action focus-pixel min-h-11" disabled={busy} onClick={() => setChangingReference(!changingReference)}>{changingReference ? "Done" : "Change note"}</button>}
         </PromotionNotePreview>}

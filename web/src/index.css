@@ -121,6 +121,7 @@ body::after {
     --edge: var(--color-neon-cyan);
     --ink: var(--color-neon-cyan);
     display: inline-block;
+    cursor: pointer;
     padding: 3px;
     background-color: var(--edge);
     clip-path: var(--pixel-notch);
@@ -149,14 +150,18 @@ body::after {
 }
 
 .pixel-btn--ghost {
-    --edge: rgba(34, 211, 238, 0.3);
-    --ink: rgba(165, 243, 252, 0.75);
+    --edge: rgba(34, 211, 238, 0.55);
+    --ink: rgba(165, 243, 252, 0.85);
     box-shadow: none;
 }
 
 .pixel-btn--ghost:hover:not(:disabled) {
-    --edge: rgba(34, 211, 238, 0.75);
+    --edge: rgba(34, 211, 238, 0.9);
     --ink: var(--color-neon-cyan);
+}
+
+.pixel-btn--ghost .pixel-btn__face {
+    background-color: color-mix(in srgb, var(--color-neon-cyan) 4%, var(--color-void));
 }
 
 .pixel-btn:disabled {
@@ -593,11 +598,12 @@ body::after {
     padding: 8px 0;
     letter-spacing: normal;
     color: var(--color-neon-cyan);
-    opacity: 0.65;
+    opacity: 0.85;
+    cursor: pointer;
 }
 
 .promotion-tab:hover { opacity: 1; }
-.promotion-tab:disabled { opacity: 0.3; }
+.promotion-tab:disabled { opacity: 0.3; cursor: not-allowed; }
 .promotion-tab[aria-selected="true"] { color: var(--color-neon-gold); opacity: 1; }
 .promotion-tab[aria-selected="true"]::after {
     content: "";
@@ -647,6 +653,40 @@ body::after {
     font-size: 10px;
     letter-spacing: normal;
 }
+
+.promotion-amount-picker .pixel-btn[aria-pressed="true"] .pixel-btn__face {
+    background-color: color-mix(in srgb, var(--color-neon-pink) 12%, var(--color-void));
+}
+
+.pixel-status {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 32px 16px;
+    color: rgb(207 250 254 / 0.8);
+    text-align: center;
+}
+.pixel-status__symbol {
+    display: inline-flex;
+    flex-shrink: 0;
+    color: var(--color-neon-cyan);
+}
+.pixel-status__copy {
+    min-width: 0;
+    font-size: 14px;
+    line-height: 1.65;
+}
+.pixel-status__copy > * + * { margin-top: 8px; }
+.pixel-status--compact {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 4px 0;
+    text-align: left;
+}
+.pixel-status--compact .pixel-status__symbol svg { width: 20px; height: 20px; }
+.pixel-status--compact .pixel-status__copy { font-size: 12px; }
 
 .allocation-slider {
     appearance: none;

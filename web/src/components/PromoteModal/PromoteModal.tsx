@@ -20,7 +20,6 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
     const [presentation, setPresentation] = useState({ compact: !!initialReference && (currentWeight ?? 0) > 0 && !openSection, boost: !!initialReference && (currentWeight ?? 0) > 0, payment: false });
     return <Modal isOpen onClose={onClose} scrollBody footerRef={setFooterHost} navigationRef={setNavigationHost}
         compact={presentation.compact} mobileFullScreen={!presentation.compact}
-        aboveScanlines={presentation.payment}
         title={presentation.payment ? "Promotion payment" : presentation.boost ? "Boost note" : "Promote a note"}
         panelClassName={`promotion-typography ${presentation.compact || presentation.payment ? "max-w-lg" : "max-w-3xl"}`}>
         <DirectPromote initialReference={initialReference} currentWeight={currentWeight}
