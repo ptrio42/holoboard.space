@@ -244,6 +244,11 @@ event with exactly one `p` for the author, one `e` for the original note and an
 advertise Nostr support. Without this field, the invoice uses ordinary LNURL-pay
 and needs no signer.
 
+LNURL metadata and invoice callbacks may follow up to three redirects. Each
+destination must use public HTTPS on port 443 without URL credentials. DNS
+addresses are checked before each new connection and the connection uses the
+checked address. Redirects share the original ten-second HTTP request timeout.
+
 The service validates invoice amount, description hash, network and expiry.
 Ordinary Primal invoices have a narrowly scoped compatibility rule for the
 [provider's description mismatch](https://github.com/PrimalHQ/primal-web-app/issues/198):

@@ -16,6 +16,8 @@ record deployment, not announcement publication.
   or resetting their amount and split.
 - Accept Primal's known ordinary-invoice description variant for the matching
   recipient, preserving amount checks and strict public-zap validation.
+- Find author wallets behind Lightning Address redirects, validating every
+  destination and limiting redirect chains.
 
 ### Changed
 
