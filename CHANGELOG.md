@@ -6,6 +6,11 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+### Added
+
+- Add an opt-in read-only discussion screen for original promoted notes, with
+  expandable replies, promotion highlights and explicit partial context.
+
 ### Fixed
 
 - Verify Nostr event IDs, restrict external relay destinations and bound shared

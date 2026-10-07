@@ -1,7 +1,7 @@
 # Discussion assembly: client comparison and design gate
 
 Status: the protocol normalizer, bounded metadata graph and network coordinator
-are implemented. The discussion screen remains pending.
+are implemented. An opt-in read-only discussion screen consumes these services.
 The client comparison below records source evidence and presentation proposals.
 The shared transport and cache are described in [the Nostr reference](nostr.md).
 
@@ -276,8 +276,9 @@ skew, missing/late parents, quotes, original-item versus promotional-quote
 conversations, unpaid intermediate replies, hidden/deleted placeholders,
 conflicting claims, address updates and pinned versions, external scopes, cycle
 defenses and resource ceilings. Synthetic IDs isolate graph semantics; existing
-read-ingress tests separately exercise signed-event verification. Browser scroll
-stability and real-network descendant discovery are not verified by these tests.
+read-ingress tests separately exercise signed-event verification. These unit
+tests do not verify browser scrolling or real-network descendant discovery; the
+screen has separate browser fixtures.
 
 ### Dependency decision
 
@@ -316,15 +317,35 @@ limits and lifetime behavior are in [the Nostr reference](nostr.md#discussion-re
 Signed-event fixtures and wire tests establish local behavior, not deployed
 client interoperability or discovery of every reply on the Nostr network.
 
-## Remaining implementation stages
+## Implemented reading screen and remaining stages
 
-Choose the initial screen projection with realistic phone fixtures: focused
-path, expandable tree or a combination. Keep ordering and visibility separate
-from topology. Evaluate same-author continuations explicitly, including
-chronological author series, without silently inheriting a client's personalized
-ranking. Keep any display retention bounded, show missing/retained metadata and
-per-source coverage honestly, and verify expansion and scroll stability in real
-browsers. The retrieval layer's fixed session timestamp is not a live reply feed.
+The opt-in discussion screen combines a focused ancestor path with expandable
+reply branches. `VITE_ENABLE_DISCUSSIONS` is disabled by default. The original
+signed event remains the center, including a promoted middle reply. Current
+promotion badges join exact event IDs from board data. They cannot affect
+ancestry, reply ordering or board membership.
+
+Siblings use ascending timestamps and an ID tie-break. Ancestors stay in edge
+order even with clock skew. Same-author series use the same sibling policy;
+account-dependent client ranking is not inherited. Root-only evidence with an
+unresolved parent path stays in a separate unresolved-branches section. Late
+parents preserve opened branches, while an explicit collapse remains effective.
+Pages render at most 48 replies per section and initially eight ancestors;
+retained records outside that display window remain reachable. Counts describe
+found connected replies. Coverage details and retention limits stay visible,
+and additional network batches require `Load more`.
+
+Branch state survives internal focus navigation and reloads within a bounded
+session-storage record. The board stays mounted during discussion reading.
+Visible note anchors are preserved during graph updates when the note remains
+rendered; arbitrary media resizing and browser scroll clamping are not a
+universal no-jump guarantee. The read uses a fixed session timestamp, not a live
+reply feed. Closing and reopening refreshes that timestamp. Full screen behavior
+and configuration are in [the Nostr reference](nostr.md#discussion-screen).
+
+Dedicated profile screens, deletion/moderation discovery and user-authored
+replies remain separate stages. Controlled real-relay reading and runtime heap
+observation remain release evidence beyond local signed-event fixtures.
 
 ## Acceptance before a discussion screen ships
 
@@ -352,6 +373,7 @@ browsers. The retrieval layer's fixed session timestamp is not a live reply feed
   sibling conversations and comments on reactions/zaps retain their own context.
 
 The unit fixtures establish the implemented graph properties within its stated
-bounds. Real-network coverage, runtime heap behavior, scroll stability and
-deployed-client compatibility still require integration and browser checks.
+bounds. Browser fixtures separately exercise the reading screen. Real-network
+coverage, runtime heap behavior and deployed-client compatibility remain outside
+those local checks.
 No network-wide completeness claim is made.

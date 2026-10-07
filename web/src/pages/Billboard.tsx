@@ -10,8 +10,8 @@ import { fetchCampaigns, type CampaignPage, type CampaignView } from "../lib/cam
 import { useWaitingUpdates } from "../hooks/useWaitingUpdates";
 import { ndk } from "../lib/ndk";
 
-export default function Billboard() {
-    const waiting = window.location.pathname === "/waiting";
+export default function Billboard({ pathname = window.location.pathname }: { pathname?: string }) {
+    const waiting = pathname === "/waiting";
     const selectedView = new URLSearchParams(window.location.search).get("view");
     const [view, setView] = useState<CampaignView>(waiting ? selectedView === "new" || selectedView === "hot" ? selectedView : "top" : "board");
     const [pages, setPages] = useState(1);

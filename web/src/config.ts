@@ -75,3 +75,6 @@ export const ZAP_PRESETS = [21, 210, 2_100, 21_000];
 
 /** NIP-22 comment. Ranked alongside plain notes; see the board subscription. */
 export const KIND_COMMENT = 1111;
+
+/** Read-only discussions are opt-in until screen acceptance is complete. */
+export const ENABLE_DISCUSSIONS = import.meta.env.VITE_ENABLE_DISCUSSIONS === "true";

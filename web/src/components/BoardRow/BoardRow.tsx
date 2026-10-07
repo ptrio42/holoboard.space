@@ -1,3 +1,5 @@
+import { ENABLE_DISCUSSIONS } from "../../config";
+import { DiscussionLink } from "../ui/DiscussionLink";
 import type { BillboardConfig } from "../../lib/billboard";
 import { BillboardScreen } from "../BillboardScreen/BillboardScreen";
 import { NoteAttachments } from "../TextRenderer/NoteAttachments";
@@ -208,7 +210,8 @@ export function BoardRow({ event, rank, sats, weight, expired = false, isNew = f
                                 {typeof firstPaidAt === "number" && firstPaidAt > 0 && <p className="mt-3 text-xs text-cyan-300/60">First promoted: <time dateTime={new Date(firstPaidAt * 1000).toISOString()}>{new Date(firstPaidAt * 1000).toLocaleDateString()}</time></p>}
                                 <div className="note-footer">
                                     {control}
-                                    <div className="ml-auto flex shrink-0 items-center gap-5">
+                                    <div className="ml-auto flex flex-wrap items-center justify-end gap-x-5">
+                                        {ENABLE_DISCUSSIONS && <DiscussionLink id={event.id} author={event.pubkey} seed={event.rawEvent()} />}
                                         <NoteExternalLink href={njumpUrl(event.id, "note")} />
                                         {onPromote && <PixelButton size="sm" variant="ghost" onClick={onPromote} className="note-boost">
                                             {expired ? "Promote again" : "Boost"}

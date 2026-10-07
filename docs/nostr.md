@@ -37,8 +37,8 @@ unseen range; failed sources require retrying the page before advancing.
 The discussion normalizer and bounded metadata graph distinguish root claims
 from direct parents for NIP-10/NIP-22, including address and exact-version
 references, missing parents and explicit conflicts. `discussionReads.ts`
-coordinates network reads into that graph; the discussion screen is still
-pending. The older `threadContext`
+coordinates network reads into that graph; an opt-in read-only screen consumes
+the shared service. The older `threadContext`
 helper still serves best-effort context links. Read the
 [client comparison and relation-model contract](nostr-discussions.md) before
 building discussion screens; it records the implemented guarantees and remaining
@@ -95,6 +95,48 @@ navigation. The final close also stops a read waiting for a shared
 handshake without closing another reader's connection or releasing that
 handshake's physical dial slot early. Idle cleanup checks connection identity
 and cannot evict a replacement socket after an earlier handshake failed.
+
+## Discussion screen
+
+Set `VITE_ENABLE_DISCUSSIONS=true` to enable read-only discussions; it is false
+by default. This flag does not enable signer entry points or publication.
+Board and expired-note footers link to `/discussion/<exact-event-id>`, with an
+optional author hint. URLs accept canonical hexadecimal IDs. The `from`
+parameter preserves a board section and waiting-room sort without allowing an
+external redirect. Board navigation seeds the cache only after fresh signature
+and ID verification.
+
+The original event remains the focus, with ancestors in parent-edge order and
+expandable descendants. Siblings use ascending timestamps with an ID tie-break;
+same-author continuations use the same policy. Promotion badges join the current
+ledger by exact ID and cannot change topology, ordering or board membership.
+Missing context remains explicit. Candidate branches with a root claim but no
+resolved path to the focus appear separately as unresolved branches. Opaque
+external scopes never acquire Nostr-address alias semantics.
+
+Each connected/unresolved reply page renders at most 48 notes. Remaining found
+replies are accessible through local pages. Eight nearest ancestors appear
+initially; earlier context can be revealed within the existing graph depth cap.
+Collapse is a display choice and does not reduce network/graph budgets. Existing
+safe text rendering is reused, with automatic quote/link previews held on this
+screen to avoid extra embed trees. Profiles use the shared bounded reader.
+Cache-evicted bodies remain placeholders. Deletion/moderation discovery is not
+added by this screen.
+
+Internal discussion navigation keeps the board mounted. Reading positions use
+browser history and an in-memory map of at most 16 locations. Branch expansion,
+explicit collapse, local pages and context expansion survive reloads through
+session storage for at most eight discussions, separately from payment and
+identity storage. Late parents expose the path to an already opened branch;
+explicit collapse takes precedence. Graph updates preserve a visible reading
+anchor when that row remains rendered. Media resizing and browser scroll
+clamping are not covered by a universal no-jump guarantee.
+
+The counter names found connected replies, not a network-wide total. Source
+completion, partial results and local retention limits remain distinct.
+`Load more` starts another bounded batch. The displayed opening timestamp is
+fixed; closing and reopening checks newer replies. Leaving closes the view's
+handle and cancels outstanding reads when it was the final view.
 
 ## Resource limits
 
@@ -309,8 +351,9 @@ current here; keep detailed discussion semantics in
 | --- | --- | --- |
 | Foundation and relation engine | Reviewed and locally verified with current production fixes; ready for integration. | Shared transport/cache/discovery and relation-contract regressions, full Go race suite, frontend unit/build checks and browser coverage. |
 | Go library migration | Implemented and locally verified; ready for integration, not deployed. | Pinned revision, reproducible patch, historical-format fixture including unknown fields, full Go race suite, Linux builds and payment/browser regressions. |
-| Discussion retrieval | Implemented and locally verified in the isolated worktree; screen integration pending. | Bounded discovery and missing-parent retrieval, cancellation, pagination and honest per-relay coverage, feeding the shared relation engine. |
-| Discussion and profile reading | New screens not implemented. | Original-item focus, all found replies, promotion badges independent of topology, bounded profile reads and phone/browser navigation checks. |
+| Discussion retrieval | Implemented and locally verified; consumed by the opt-in reading screen. | Bounded discovery and missing-parent retrieval, cancellation, pagination and honest per-relay coverage, feeding the shared relation engine. |
+| Discussion reading | Read-only screen implemented behind `VITE_ENABLE_DISCUSSIONS`, disabled by default. | Original-item focus, expandable paid/unpaid branches, unresolved context, bounded display pages and local browser navigation checks. |
+| Profile reading | Dedicated screen not implemented. | Bounded profile reads and explicit freshness, identity and navigation behavior. |
 | Signer compatibility | Disabled by default; Amber failures unresolved. Begin reproduction early. | Record tested methods and environments, validate connection and signing, preserve drafts and handle account/lifecycle changes. |
 | User-authored publication | Not implemented. | Correct reply references, explicit consent, verified signed payloads, delivery outcomes and retry without duplicate events. |
 
@@ -323,18 +366,20 @@ migration retain their explicit approval requirements.
 
 ### Current verification and next action
 
-The isolated discussion branch includes the foundation, pinned library migration
-and production fixes through `e651ac6`, including ordinary LNURL invoices and
+The isolated discussion screen branch includes the foundation, pinned library
+migration and production fixes through `e651ac6`, including ordinary LNURL invoices and
 the current payment and waiting-room interface.
 The application and every retained dependency package passed the Go race
 suite. Additional regressions check the global subscription cap, malformed
 frames, escaped subscription IDs and forged authentication IDs. Frontend
-verification passed 286 unit tests and the production build. Four wire
-checks use the actual transport, and discussion fixtures cover discovery,
+verification passed 293 unit tests and production builds with discussions
+disabled and enabled. Four wire checks use the actual transport, and discussion fixtures cover discovery,
 recovery and resource limits. Across desktop Chrome, Android-sized Chrome and
-iPhone-sized WebKit, 33 selected reading, anonymous-invoice, NWC, disabled signer
-and waiting-room checks passed. Browser fixtures use local protocol mocks and
-no live funds. ESLint passed for the changed transport and discussion modules.
+iPhone-sized WebKit, 21 discussion scenarios passed. A further 36 selected
+reading, anonymous-invoice, NWC, disabled-feature and waiting-room checks passed.
+Browser fixtures use local protocol mocks and no live funds. ESLint passed for
+the changed screen, navigation and test modules. The backend is unchanged from the verified retrieval stage; its Go race and Linux build
+evidence carries forward.
 
 Both backend binaries build for Linux amd64 with CGO disabled. The Docker
 image has not been built in this environment because the local daemon is
@@ -348,11 +393,13 @@ normalizer and graph. Its fixtures cover a promoted middle reply, unpaid
 intermediate parents, NIP-10 and NIP-22, missing/conflicting references, partial
 relay coverage, timestamp saturation, routing hints and shared-view cancellation.
 Wire tests exercise signed frames through the actual read transport.
-The next implementation step is a discussion screen using this service, with
-realistic phone fixtures for the focused ancestor path and expandable replies.
-Keep promotion badges independent of topology and show coverage and retention
-limitations before making any completeness claim. Profile reading remains a
-separate bounded screen concern. Integration does not enable signer support.
+The read-only discussion screen now consumes this service behind a disabled
+feature flag. Its focused ancestor path, expandable replies, explicit unresolved
+branches and promotion badges keep display decisions outside the relation core.
+The next feature stage is bounded profile reading. A controlled real-relay read
+smoke and runtime heap/layout observation remain discussion release evidence;
+local fixtures do not establish deployed-client interoperability. Integration
+does not enable signer support.
 
 ### Verification ownership and release gates
 
