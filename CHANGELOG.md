@@ -6,6 +6,8 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+## 2026-10-07
+
 ### Fixed
 
 - Update the link-preview HTML parser and build dependencies to include security

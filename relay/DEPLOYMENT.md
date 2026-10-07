@@ -80,8 +80,19 @@ fly status -a holoboard-relay
 curl --fail https://relay.holoboard.space/api/board
 ```
 
-Back up the ledger before deploying, using the command below. Keep the existing
-volume and secrets; updating code does not require recreating either.
+Back up the ledger before deploying. A Fly volume snapshot keeps the private
+ledger on Fly without downloading invoices or settlement records:
+
+```bash
+fly volumes list -a holoboard-relay
+fly volumes snapshots create <volume-id> -a holoboard-relay
+fly volumes snapshots list <volume-id> -a holoboard-relay
+```
+
+Wait for the new snapshot to report `created` and record its ID before deploying.
+Keep the existing volume and secrets; updating code does not require recreating
+either. For an explicitly requested local backup, use the download command below
+and keep the file in private storage outside the repository and public artifacts.
 Updates preserve the existing machine count. Fly also creates only one machine
 on initial deployment when a volume is mounted, so `--ha=false` is optional for
 this configuration. Keep one running instance for this ledger. See Fly's
