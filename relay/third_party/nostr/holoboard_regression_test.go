@@ -328,3 +328,75 @@ func TestHoloboardRejectsMalformedHexAndOverflowKinds(t *testing.T) {
 		}
 	}
 }
+
+func TestHoloboardGlobalSubscriptionAdmission(t *testing.T) {
+	var relays []*Relay
+	var subscriptions []*Subscription
+	for i := 0; i < 7; i++ {
+		url := regressionRelay(t, func(conn *websocket.Conn) {
+			for {
+				if _, _, err := conn.ReadMessage(); err != nil {
+					return
+				}
+			}
+		})
+		relay, err := RelayConnect(context.Background(), url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		relays = append(relays, relay)
+		t.Cleanup(func() { relay.Close() })
+		if i == 6 {
+			break
+		}
+		for j := 0; j < 8; j++ {
+			sub, err := relay.Subscribe(context.Background(), Filter{}, SubscriptionOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			subscriptions = append(subscriptions, sub)
+		}
+	}
+	if sub, err := relays[6].Subscribe(context.Background(), Filter{}, SubscriptionOptions{}); err == nil || sub != nil {
+		t.Fatal("global subscription cap missing")
+	}
+	subscriptions[0].Unsub()
+	replacement, err := relays[6].Subscribe(context.Background(), Filter{}, SubscriptionOptions{})
+	if err != nil {
+		t.Fatal("global slot not released", err)
+	}
+	replacement.Unsub()
+	for _, sub := range subscriptions {
+		sub.Unsub()
+	}
+}
+
+func TestHoloboardMalformedFramesAndEscapedSubscriptionIDs(t *testing.T) {
+	relay := NewRelay(context.Background(), "wss://fixture.example")
+	defer relay.Close()
+	for _, frame := range []string{`["EVENT","unterminated`, `["EVENT"`, `"EVENT"`, `["OK","short",true,""]`} {
+		relay.handleMessage(frame)
+	}
+	id := "quoted\"\\\n"
+	for _, envelope := range []Envelope{
+		&EventEnvelope{SubscriptionID: &id, Event: Event{Kind: 1, Tags: Tags{}}},
+		&ReqEnvelope{SubscriptionID: id, Filters: []Filter{{Kinds: []Kind{1}}}},
+		&CountEnvelope{SubscriptionID: id, Filter: Filter{Kinds: []Kind{1}}},
+	} {
+		encoded, err := envelope.MarshalJSON()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var frame []stdjson.RawMessage
+		if err := stdjson.Unmarshal(encoded, &frame); err != nil {
+			t.Fatal("subscription ID broke JSON", err)
+		}
+		var decoded string
+		if err := stdjson.Unmarshal(frame[1], &decoded); err != nil || decoded != id {
+			t.Fatal("subscription ID changed")
+		}
+		if _, err := ParseMessage(string(encoded)); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

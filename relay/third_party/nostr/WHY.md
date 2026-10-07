@@ -38,7 +38,8 @@ before unsafe conversions. Outbound envelope IDs are JSON-escaped.
 
 The application's own connection manager injects a DNS-pinned HTTP transport
 and disables WebSocket redirects. Existing API fields, tags and ledger keys
-use explicit hexadecimal strings. Signing, encryption and key derivation use
+use explicit hexadecimal strings. Unknown event fields are retained across
+ledger saves, while canonical hashes include only the NIP-01 signed fields. Signing, encryption and key derivation use
 upstream cryptographic implementations. The old NIP-44 nonce workaround is
 unnecessary with this revision. The old gobwas PMCE Flush patch is retired
 because this client uses coder/websocket; compression interoperability remains

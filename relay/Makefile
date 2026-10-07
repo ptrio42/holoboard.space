@@ -37,7 +37,7 @@ clean:
 # Run tests
 test:
 	@echo "Running tests..."
-	@go test -v ./...
+	@go test -v ./... fiatjaf.com/nostr/...
 
 # Format code
 fmt:

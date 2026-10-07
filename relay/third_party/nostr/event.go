@@ -19,6 +19,9 @@ type Event struct {
 	Tags      Tags
 	Content   string
 	Sig       [64]byte
+	// Unknown wire fields are retained for compatibility with existing ledger events.
+	// They do not participate in the NIP-01 canonical hash.
+	extra map[string]any
 }
 
 func (evt Event) String() string {

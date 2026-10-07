@@ -85,7 +85,10 @@ func easyjsonDecodeEvent(in *jlexer.Lexer, out *Event) {
 				in.AddError(err)
 			}
 		default:
-			in.SkipRecursive()
+			if out.extra == nil {
+				out.extra = make(map[string]any)
+			}
+			out.extra[key] = in.Interface()
 		}
 		in.WantComma()
 	}
@@ -139,6 +142,12 @@ func easyjsonEncodeEvent(out *jwriter.Writer, in Event) {
 		out.RawString(HexEncodeToString(in.Sig[:]) + "\"")
 	}
 
+	for key, value := range in.extra {
+		out.RawByte(',')
+		out.String(key)
+		out.RawByte(':')
+		out.Raw(json.Marshal(value))
+	}
 	out.RawByte('}')
 }
 

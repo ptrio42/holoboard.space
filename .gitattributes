@@ -1,1 +1,4 @@
 android/gradlew.bat text eol=crlf
+
+# Unified patch context retains upstream whitespace.
+relay/patches/*.patch -whitespace

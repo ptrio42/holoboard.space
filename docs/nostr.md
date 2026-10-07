@@ -160,6 +160,7 @@ license and reproducible patch are documented in the
 The candidate requires Go 1.25; Holoboard declares Go 1.27.1.
 
 Existing IDs, authors, references and ledger keys remain hexadecimal strings.
+Unknown event fields survive ledger saves without entering the canonical hash.
 The new `ID.String()` and `PubKey.String()` prefixes are never used at these
 boundaries. NIP-19 `note` now decodes to an EventPointer; a missing pointer
 author remains absent rather than becoming a zero-key hint. NIP-44 now
@@ -255,8 +256,8 @@ current here; keep detailed discussion semantics in
 
 | Stage | Current state | Completion evidence |
 | --- | --- | --- |
-| Foundation and relation engine | Implemented in the isolated branch; local regression suites passed; final integration review pending. | Review the combined diff against the documented limits and contracts, then rerun relevant checks against the integration base. |
-| Go library migration | Implemented in an isolated worktree; integration verification pending. | Pinned revision, ported validation/lifetime/resource contracts, reproducible vendor patch, historical-format fixture, race/build/payment/browser checks. |
+| Foundation and relation engine | Reviewed and locally verified with current production fixes; ready for integration. | Shared transport/cache/discovery and relation-contract regressions, full Go race suite, frontend unit/build checks and browser coverage. |
+| Go library migration | Implemented and locally verified; ready for integration, not deployed. | Pinned revision, reproducible patch, historical-format fixture including unknown fields, full Go race suite, Linux builds and payment/browser regressions. |
 | Discussion retrieval | Not implemented. | Bounded discovery and missing-parent retrieval, cancellation, pagination and honest per-relay coverage, feeding the shared relation engine. |
 | Discussion and profile reading | New screens not implemented. | Original-item focus, all found replies, promotion badges independent of topology, bounded profile reads and phone/browser navigation checks. |
 | Signer compatibility | Disabled by default; Amber failures unresolved. Begin reproduction early. | Record tested methods and environments, validate connection and signing, preserve drafts and handle account/lifecycle changes. |
@@ -268,6 +269,34 @@ and record unresolved limitations. Persist the next concrete action or blocker
 so another session can resume. Routine authorized implementation and checks do
 not need repeated approval; deployment, public publication and existing-data
 migration retain their explicit approval requirements.
+
+### Current verification and next action
+
+The isolated migration branch includes production fixes through `13b6c97`.
+The application and every retained dependency package passed the Go race
+suite. Additional regressions check the global subscription cap, malformed
+frames, escaped subscription IDs and forged authentication IDs. Frontend
+verification passed 251 unit tests and the production build. Across desktop
+Chrome, Android-sized Chrome and iPhone-sized WebKit, 36 selected payment and
+reading checks plus 12 cache/timeout checks passed. Browser fixtures use local
+protocol mocks and no live funds.
+
+Both backend binaries build for Linux amd64 with CGO disabled. The Docker
+image has not been built in this environment because the local daemon is
+unavailable. A container build and the documented release smoke checks remain
+part of release verification. Amber device compatibility, live-wallet behavior
+and public publication are outside these local checks. Signer entry points
+remain disabled by default.
+
+The next implementation step is the bounded discussion retrieval coordinator,
+feeding the existing relation normalizer and graph. Start with fixture
+conversations covering a promoted middle reply, unpaid intermediate parents,
+NIP-10 and NIP-22, missing/conflicting references, partial relay coverage,
+timestamp saturation and cancellation. Keep the original promoted item as
+the Holoboard focus, promotional-quote replies separate, and promotion badges
+independent of topology. Share the existing transport, cache and resource
+limits. Implement coverage and retention outcomes before adding discussion
+and profile screens.
 
 ### Release checks
 

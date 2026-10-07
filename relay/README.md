@@ -1,6 +1,6 @@
 # Holoboard relay
 
-A Go relay built on [khatru](https://github.com/fiatjaf/khatru). It serves paid
+A Go relay built on [Khatru](https://pkg.go.dev/fiatjaf.com/nostr/khatru). It serves paid
 Nostr notes (kind 1) and comments (kind 1111), processes promotions and computes
 the board ranking. See the [project README](../README.md) for product rules.
 

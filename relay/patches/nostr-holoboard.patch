@@ -77,7 +77,17 @@
  	v.OK = arr[2].Raw == "true"
 --- a/event.go
 +++ b/event.go
-@@ -26,7 +26,7 @@
+@@ -19,6 +19,9 @@
+ 	Tags      Tags
+ 	Content   string
+ 	Sig       [64]byte
++	// Unknown wire fields are retained for compatibility with existing ledger events.
++	// They do not participate in the NIP-01 canonical hash.
++	extra map[string]any
+ }
+ 
+ func (evt Event) String() string {
+@@ -26,7 +29,7 @@
  	return string(j)
  }
  
@@ -86,7 +96,7 @@
  func (evt Event) GetID() ID {
  	var id ID
  	evt.serializedHash(&id)
-@@ -71,7 +71,7 @@
+@@ -71,7 +74,7 @@
  )
  
  func init() {
@@ -95,7 +105,7 @@
  		escTable[b] = true
  	}
  
-@@ -80,6 +80,8 @@
+@@ -80,6 +83,8 @@
  	escSeq['\n'] = [2]byte{'\\', 'n'}
  	escSeq['\r'] = [2]byte{'\\', 'r'}
  	escSeq['\t'] = [2]byte{'\\', 't'}
@@ -104,7 +114,7 @@
  	for b, seq := range escSeq {
  		if escTable[b] {
  			escSlice[b] = seq[:]
-@@ -175,7 +177,7 @@
+@@ -175,7 +180,7 @@
  		x := w ^ (0x0101010101010101 * v)
  		return (x - 0x0101010101010101) & ^x & 0x8080808080808080
  	}
@@ -158,7 +168,7 @@
  		case "tags":
  			in.Delim('[')
  			if out.Tags == nil {
-@@ -71,8 +79,10 @@
+@@ -71,11 +79,16 @@
  			out.Content = in.String()
  		case "sig":
  			b := in.UnsafeBytes()
@@ -170,7 +180,27 @@
 +				in.AddError(err)
  			}
  		default:
- 			in.SkipRecursive()
+-			in.SkipRecursive()
++			if out.extra == nil {
++				out.extra = make(map[string]any)
++			}
++			out.extra[key] = in.Interface()
+ 		}
+ 		in.WantComma()
+ 	}
+@@ -129,6 +142,12 @@
+ 		out.RawString(HexEncodeToString(in.Sig[:]) + "\"")
+ 	}
+ 
++	for key, value := range in.extra {
++		out.RawByte(',')
++		out.String(key)
++		out.RawByte(':')
++		out.Raw(json.Marshal(value))
++	}
+ 	out.RawByte('}')
+ }
+ 
 --- a/filter_easyjson.go
 +++ b/filter_easyjson.go
 @@ -1,9 +1,9 @@
@@ -351,7 +381,7 @@
 +}
 --- a/holoboard_regression_test.go
 +++ b/holoboard_regression_test.go
-@@ -0,0 +1,330 @@
+@@ -0,0 +1,402 @@
 +package nostr
 +
 +import (
@@ -679,6 +709,78 @@
 +		var filter Filter
 +		if err := stdjson.Unmarshal([]byte(value), &filter); err == nil {
 +			t.Fatalf("malformed filter accepted: %s", value)
++		}
++	}
++}
++
++func TestHoloboardGlobalSubscriptionAdmission(t *testing.T) {
++	var relays []*Relay
++	var subscriptions []*Subscription
++	for i := 0; i < 7; i++ {
++		url := regressionRelay(t, func(conn *websocket.Conn) {
++			for {
++				if _, _, err := conn.ReadMessage(); err != nil {
++					return
++				}
++			}
++		})
++		relay, err := RelayConnect(context.Background(), url)
++		if err != nil {
++			t.Fatal(err)
++		}
++		relays = append(relays, relay)
++		t.Cleanup(func() { relay.Close() })
++		if i == 6 {
++			break
++		}
++		for j := 0; j < 8; j++ {
++			sub, err := relay.Subscribe(context.Background(), Filter{}, SubscriptionOptions{})
++			if err != nil {
++				t.Fatal(err)
++			}
++			subscriptions = append(subscriptions, sub)
++		}
++	}
++	if sub, err := relays[6].Subscribe(context.Background(), Filter{}, SubscriptionOptions{}); err == nil || sub != nil {
++		t.Fatal("global subscription cap missing")
++	}
++	subscriptions[0].Unsub()
++	replacement, err := relays[6].Subscribe(context.Background(), Filter{}, SubscriptionOptions{})
++	if err != nil {
++		t.Fatal("global slot not released", err)
++	}
++	replacement.Unsub()
++	for _, sub := range subscriptions {
++		sub.Unsub()
++	}
++}
++
++func TestHoloboardMalformedFramesAndEscapedSubscriptionIDs(t *testing.T) {
++	relay := NewRelay(context.Background(), "wss://fixture.example")
++	defer relay.Close()
++	for _, frame := range []string{`["EVENT","unterminated`, `["EVENT"`, `"EVENT"`, `["OK","short",true,""]`} {
++		relay.handleMessage(frame)
++	}
++	id := "quoted\"\\\n"
++	for _, envelope := range []Envelope{
++		&EventEnvelope{SubscriptionID: &id, Event: Event{Kind: 1, Tags: Tags{}}},
++		&ReqEnvelope{SubscriptionID: id, Filters: []Filter{{Kinds: []Kind{1}}}},
++		&CountEnvelope{SubscriptionID: id, Filter: Filter{Kinds: []Kind{1}}},
++	} {
++		encoded, err := envelope.MarshalJSON()
++		if err != nil {
++			t.Fatal(err)
++		}
++		var frame []stdjson.RawMessage
++		if err := stdjson.Unmarshal(encoded, &frame); err != nil {
++			t.Fatal("subscription ID broke JSON", err)
++		}
++		var decoded string
++		if err := stdjson.Unmarshal(frame[1], &decoded); err != nil || decoded != id {
++			t.Fatal("subscription ID changed")
++		}
++		if _, err := ParseMessage(string(encoded)); err != nil {
++			t.Fatal(err)
 +		}
 +	}
 +}
@@ -1304,6 +1406,31 @@
  			}
  			goto next
  		case "contact":
+--- a/nip42/holoboard_validation_test.go
++++ b/nip42/holoboard_validation_test.go
+@@ -0,0 +1,22 @@
++package nip42
++
++import (
++	"fiatjaf.com/nostr"
++	"strings"
++	"testing"
++)
++
++func TestHoloboardAuthenticationBindsSuppliedID(t *testing.T) {
++	key := nostr.Generate()
++	event := CreateUnsignedAuthEvent("challenge", key.Public(), "wss://relay.example")
++	if err := event.Sign(key); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := ValidateAuthEvent(event, "challenge", "wss://relay.example"); err != nil {
++		t.Fatal(err)
++	}
++	event.ID = nostr.MustIDFromHex(strings.Repeat("f", 64))
++	if _, err := ValidateAuthEvent(event, "challenge", "wss://relay.example"); err == nil {
++		t.Fatal("forged auth ID accepted")
++	}
++}
 --- a/nip42/nip42.go
 +++ b/nip42/nip42.go
 @@ -85,7 +85,7 @@
