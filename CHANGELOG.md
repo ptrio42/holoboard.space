@@ -8,6 +8,9 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Keep quoted-note previews loading while slower relays are still responding,
+  instead of briefly showing Preview unavailable before the quote arrives.
+
 - Initialize the relay URL safely when multiple clients connect at startup.
 - Keep the Amount and Position picker steady in Promote and Boost, with Custom
   available in both modes and consistent pixel typography in the page footer.

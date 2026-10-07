@@ -1,6 +1,6 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { finalizeEvent, generateSecretKey, type Event } from "nostr-tools/pure";
-import { noteEncode } from "nostr-tools/nip19";
+import { neventEncode, noteEncode } from "nostr-tools/nip19";
 
 test.use({ serviceWorkers: "block", reducedMotion: "reduce" });
 const authorKey = generateSecretKey(), quoteKey = generateSecretKey();
@@ -9,7 +9,7 @@ const makeNote = (content: string, tags: string[][] = [], key = authorKey, kind 
 const quotes = Array.from({ length: 6 }, (_, i) => makeNote(`Quoted source ${i + 1}. ` + "Context for the original note. ".repeat(12), [], quoteKey));
 const profiles = [makeNote(JSON.stringify({ name: "Row author" }), [], authorKey, 0), makeNote(JSON.stringify({ name: "Quote author" }), [], quoteKey, 0)];
 
-async function setup(context: BrowserContext, page: Page, options: { content?: string; billboard?: boolean; tags?: string[][]; availableQuotes?: Event[]; expired?: boolean } = {}) {
+async function setup(context: BrowserContext, page: Page, options: { content?: string; billboard?: boolean; tags?: string[][]; availableQuotes?: Event[]; expired?: boolean; slowQuote?: { deliver?: () => void; fastReplies: number } } = {}) {
     const origin = new URL(test.info().project.use.baseURL!).origin;
     const note = makeNote(options.content ?? "A billboard headline.\n" + quotes.map(quote => `nostr:${noteEncode(quote.id)}`).join("\n"), options.tags);
     const entry = { event: note, id: note.id, rank: 1, weight: 200, sats_paid: 210, first_paid_at: 1700000000, last_paid_at: 1700000000,
@@ -27,6 +27,18 @@ async function setup(context: BrowserContext, page: Page, options: { content?: s
         socket.onMessage(message => {
             const msg = JSON.parse(String(message));
             if (msg[0] !== "REQ") return;
+            if (options.slowQuote && msg.slice(2).some((filter: { ids?: string[] }) => filter.ids?.includes(quotes[0].id))) {
+                if (socket.url().startsWith("wss://slow.example")) {
+                    options.slowQuote.deliver = () => {
+                        socket.send(JSON.stringify(["EVENT", msg[1], quotes[0]]));
+                        socket.send(JSON.stringify(["EOSE", msg[1]]));
+                    };
+                } else {
+                    options.slowQuote.fastReplies++;
+                    socket.send(JSON.stringify(["EOSE", msg[1]]));
+                }
+                return;
+            }
             for (const event of [...profiles, ...(options.availableQuotes ?? quotes)]) {
                 if (msg.slice(2).some((filter: { ids?: string[]; kinds?: number[]; authors?: string[] }) =>
                     (!filter.ids || filter.ids.includes(event.id)) && (!filter.kinds || filter.kinds.includes(event.kind)) &&
@@ -98,11 +110,28 @@ test("long plain notes restore hidden quote actions when expanded", async ({ con
 
 test("unavailable quotes retain an accessible external link", async ({ context, page }) => {
     const row = await setup(context, page, { content: `A billboard headline.\nnostr:${noteEncode(quotes[0].id)}`, availableQuotes: [] });
-    await expect(row.getByText("Preview unavailable", { exact: true })).toBeVisible();
+    await expect(row.getByText("Loading preview", { exact: false })).toBeVisible();
+    await expect(row.getByText("Preview unavailable", { exact: true })).toBeVisible({ timeout: 10000 });
     const link = row.getByRole("link", { name: "Open quoted note" });
     await expect(link).toHaveAttribute("href", /^https:\/\/njump.me\/nevent1/);
     await expect(link).toHaveAttribute("target", "_blank");
     await expect(link).toHaveText("Open");
+});
+
+test("fast empty relays do not mark a slower quoted note unavailable", async ({ context, page }) => {
+    const slowQuote: { deliver?: () => void; fastReplies: number } = { fastReplies: 0 };
+    const reference = neventEncode({ id: quotes[0].id, relays: ["wss://fast.example", "wss://slow.example"] });
+    const row = await setup(context, page, { content: `Quoted context nostr:${reference}`, slowQuote });
+    await expect.poll(() => slowQuote.fastReplies).toBeGreaterThanOrEqual(2);
+    await expect.poll(() => !!slowQuote.deliver).toBe(true);
+    // Allow NDK's early EOSE heuristic to run before the slow relay responds.
+    await page.waitForTimeout(1200);
+    await expect(row.getByText("Loading preview", { exact: false })).toBeVisible();
+    await expect(row.getByText("Preview unavailable", { exact: true })).toHaveCount(0);
+    slowQuote.deliver!();
+    await expect(row.locator(".note-quote__excerpt")).toContainText("Quoted source 1");
+    await expect(row.getByText("Preview unavailable", { exact: true })).toHaveCount(0);
+    await expect(row.getByRole("link", { name: "Open quoted note" })).toBeVisible();
 });
 
 test("short replies keep conversation context near the author", async ({ context, page }) => {

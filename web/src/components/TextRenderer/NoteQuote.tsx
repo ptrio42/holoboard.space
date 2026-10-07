@@ -20,10 +20,13 @@ export function NoteQuote({ reference }: { reference: NoteQuoteReference }) {
         let subscription: NDKSubscription | undefined;
         let timeout: ReturnType<typeof setTimeout> | undefined;
         let stopped = false;
+        let found = false;
         const start = () => {
             if (subscription || stopped) return;
             subscription = ndk.subscribe(reference.filter, {
-                closeOnEose: true,
+                // NDK can emit EOSE after only the faster relays have responded.
+                // Keep slower sources open until the lookup deadline.
+                closeOnEose: false,
                 cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY,
                 // Grouped requests can outlive a row changing from plain text to billboard.
                 groupable: false,
@@ -31,10 +34,15 @@ export function NoteQuote({ reference }: { reference: NoteQuoteReference }) {
             }, false);
             subscription.on("event", (note: NDKEvent) => {
                 if (stopped) return;
+                found = true;
                 setEvent((current) => !current || (note.created_at ?? 0) > (current.created_at ?? 0) ? note : current);
             });
-            subscription.on("eose", () => { if (!stopped) setUnavailable(true); });
-            timeout = setTimeout(() => { if (!stopped) { setUnavailable(true); subscription?.stop(); } }, 8000);
+            timeout = setTimeout(() => {
+                if (stopped) return;
+                stopped = true;
+                setUnavailable(!found);
+                subscription?.stop();
+            }, 8000);
             subscription.start();
         };
         const observer = new IntersectionObserver(([entry]) => {
