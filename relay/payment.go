@@ -513,6 +513,9 @@ func (pf *PostFetcher) FetchPostFromWithRelay(ctx context.Context, postID string
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, "", fmt.Errorf("post lookup: %w", err)
+	}
 	return nil, "", fmt.Errorf("post %s not found on any relay", postID)
 }
 
@@ -544,17 +547,38 @@ func queryAll(ctx context.Context, relays []string, postID string) (*nostr.Event
 
 			relay, err := nostr.RelayConnect(ctx, url)
 			if err != nil {
+				if ctx.Err() == nil {
+					log.Printf("Note lookup %s: connection to %s failed: %v", short(postID, 8), url, err)
+				}
 				return
 			}
 			defer relay.Close()
 
-			events, err := relay.QuerySync(ctx, filter)
-			if err != nil || len(events) == 0 {
+			subscription, err := relay.Subscribe(ctx, nostr.Filters{filter})
+			if err != nil {
+				if ctx.Err() == nil {
+					log.Printf("Note lookup %s: request to %s failed: %v", short(postID, 8), url, err)
+				}
+				return
+			}
+			defer subscription.Unsub()
+			var event *nostr.Event
+			select {
+			case event = <-subscription.Events:
+			case <-subscription.EndOfStoredEvents:
+				return
+			case reason := <-subscription.ClosedReason:
+				log.Printf("Note lookup %s: %s refused the request: %s", short(postID, 8), url, reason)
+				return
+			case <-subscription.Context.Done():
+				return
+			}
+			if event == nil {
 				return
 			}
 			log.Printf("Found post %s on relay %s", short(postID, 8), url)
 			select {
-			case found <- result{event: events[0], relay: url}:
+			case found <- result{event: event, relay: url}:
 			default:
 			}
 		}(url)

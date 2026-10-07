@@ -118,8 +118,10 @@ func (c *Connection) WriteMessage(ctx context.Context, data []byte) error {
 			return fmt.Errorf("failed to write message: %w", err)
 		}
 
-		if err := c.flateWriter.Close(); err != nil {
-			return fmt.Errorf("failed to close flate writer: %w", err)
+		// A WebSocket message needs the sync-flush tail, not a final DEFLATE
+		// block. Keep the compressor reusable for the next message.
+		if err := c.flateWriter.Flush(); err != nil {
+			return fmt.Errorf("failed to flush flate writer: %w", err)
 		}
 	} else {
 		if _, err := io.Copy(c.writer, bytes.NewReader(data)); err != nil {

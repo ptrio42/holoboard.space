@@ -1,8 +1,8 @@
 # Why go-nostr lives in this repo
 
 This is the Go source of `github.com/nbd-wtf/go-nostr v0.34.5`, with a local
-connection-lifecycle patch. `relay/go.mod` replaces that module with this
-directory. The upstream MIT license, module files and cryptographic code are
+connection-lifecycle and compressed-message patches. `relay/go.mod` replaces
+that module with this directory. The upstream MIT license, module files and cryptographic code are
 unchanged. Upstream tests, examples and non-build assets are omitted; the local
 lifecycle regression tests are included.
 
@@ -20,10 +20,17 @@ shutdown without waiting for themselves. Write results are buffered, notice
 delivery can be cancelled, and pooled connections inherit the pool's lifetime.
 No signing, encryption or receipt-validation behavior changes.
 
-The complete patch is
+Compressed messages use `wsflate.Writer.Flush` at each message boundary.
+Finalizing the DEFLATE stream with `Close` instead fails with an unexpected
+stream-tail error on the supported Go toolchain, preventing relay requests.
+Application tests check round trips against a separate WebSocket implementation.
+
+The lifecycle patch is
 [`go-nostr-connection-lifecycle.patch`](../../patches/go-nostr-connection-lifecycle.patch).
+The compression patch is
+[`go-nostr-websocket-flush.patch`](../../patches/go-nostr-websocket-flush.patch).
 To refresh the dependency, compare the upstream lifecycle first, reapply the
-patch if necessary and retain the regression tests. The Dockerfile already
+patches if necessary and retain the regression tests. The Dockerfile already
 copies `third_party` before resolving Go modules.
 
 From `relay/`, run both application and dependency tests. Go's `./...` pattern

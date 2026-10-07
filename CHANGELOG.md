@@ -8,6 +8,8 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Restore compressed relay requests, including note lookups and wallet
+  connections, and finish exact-note lookups as soon as the note arrives.
 - Allow clearing and replacing custom promotion amounts, select the current
   amount on focus and keep invoice preparation disabled for invalid amounts.
 - Let users retry unavailable author payment details without reloading the note

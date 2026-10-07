@@ -89,6 +89,22 @@ cryptography or the existing khatru patches. See
 the upgrade decision and regression commands. The tests verify closure using
 local socket acknowledgements, with the race detector enabled.
 
+## go-nostr-websocket-flush.patch
+
+The vendored connection finalized each compressed WebSocket message with
+`wsflate.Writer.Close`. On the supported Go toolchain this produces a final
+DEFLATE block instead of the sync-flush tail expected by the extension, causing
+`wsflate: bad compressor: unexpected stream tail` before requests are sent.
+This affects note and profile lookups, relay monitors and NWC connections.
+
+Use `Flush` at the message boundary, following the
+[wsflate writer documentation](https://pkg.go.dev/github.com/gobwas/ws/wsflate#Writer)
+and the [upstream compression example](https://github.com/gobwas/ws#compression).
+The compressor remains reusable through the existing per-message reset.
+`TestRelayWebSocketCompressedMessageRoundTrips` checks consecutive messages
+against the separate fasthttp WebSocket implementation, including compressed
+and uncompressed replies, empty messages and larger content.
+
 ## khatru-nip11-accept.patch
 
 Metadata requests with a list of accepted formats previously returned 404.

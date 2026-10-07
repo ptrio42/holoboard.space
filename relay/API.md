@@ -25,6 +25,11 @@ Note lookup queries reference hints and configured relays while discovering the
 author's [NIP-65 write relays](https://github.com/nostr-protocol/nips/blob/master/65.md)
 in parallel. Slow candidate relays do not postpone the outbox lookup until the
 request deadline. Hints are preserved when the reference is a client URL.
+An exact-ID lookup finishes as soon as a verified matching event arrives,
+without waiting for the relay's EOSE response. The request deadline or client
+disconnect cancels the remaining lookups and closes their subscriptions and
+connections. When a reference carries neither relay hints nor an author, the
+note must be on a configured relay or in the board's existing storage and cache.
 
 ## Preview a page link
 
