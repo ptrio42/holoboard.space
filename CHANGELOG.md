@@ -17,6 +17,14 @@ record deployment, not announcement publication.
 - Accept Primal's known ordinary-invoice description variant for the matching
   recipient, preserving amount checks and strict public-zap validation.
 
+- Verify Nostr event IDs, restrict external relay destinations and bound shared
+  connections, subscriptions, history reads and caches. Keep partial results
+  when relays time out and reconnect receipt monitors after disconnects.
+- Preserve author and relay hints in quotes and mentions, refresh validated
+  profiles and avoid showing unverified Nostr addresses as verified.
+- Persist recipient relay routing before public delivery, retry account replies
+  durably and send deletion requests to the original quote destinations.
+
 ### Changed
 
 - Compact the mobile header into a linked H, Promote action and pixel wallet
@@ -31,13 +39,6 @@ record deployment, not announcement publication.
 
 - Update the link-preview HTML parser and build dependencies to include security
   fixes, and build the relay with a supported Go toolchain.
-- Verify Nostr event IDs, restrict external relay destinations and bound shared
-  connections, subscriptions, history reads and caches. Keep partial results
-  when relays time out and reconnect receipt monitors after disconnects.
-- Preserve author and relay hints in quotes and mentions, refresh validated
-  profiles and avoid showing unverified Nostr addresses as verified.
-- Persist recipient relay routing before public delivery, retry account replies
-  durably and send deletion requests to the original quote destinations.
 
 - Keep quoted-note lookups stable across board refreshes and reuse cached notes.
   Continue waiting for slow relays and offer an explicit retry after a timeout.
