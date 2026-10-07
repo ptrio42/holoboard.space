@@ -298,6 +298,27 @@ independent of topology. Share the existing transport, cache and resource
 limits. Implement coverage and retention outcomes before adding discussion
 and profile screens.
 
+### Verification ownership and release gates
+
+Continue implementation and automated verification without waiting for the
+maintainer to provide a device, wallet or manual test session. Pending external
+checks do not block discussion retrieval development in the isolated worktree.
+The implementing agent owns repeatable local protocol, recovery, browser and
+build checks, including automation for additional reproducible failures.
+
+Keep release evidence scoped to what was exercised. Local DM and NWC tests do
+not establish interoperability with an independent client or a live wallet.
+Before releasing the migrated backend, complete the container build and
+controlled interoperability checks for existing DM, payment and publication
+flows. Amber device checks gate the signer release; signer entry points remain
+disabled in the meantime. Record unavailable checks as open release gates,
+without marking them passed or assigning routine verification to the maintainer.
+
+`TestProductionDMFlow` is opt-in and is skipped by the default Go test suite.
+It publishes public discovery metadata and sends a production DM that creates
+an unpaid invoice. Do not use it as an automatic substitute for isolated tests;
+its external actions require the explicit authorization described above.
+
 ### Release checks
 
 Security, connection lifetime, discovery, cache, thread primitives and durable
