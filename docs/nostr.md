@@ -52,9 +52,9 @@ remain inconclusive. Existing successful response fields are unchanged.
 ### Discussion retrieval
 
 Use the shared `discussionCoordinator` from `discussionReads.ts`. `open` takes
-the original promoted event's exact `focusId`, an optional signed `seed`, safe
-relay hints, an optional view-lifetime signal and an update callback. Views of
-the same focus share a session and in-flight `loadMore` batch. Each view must
+the original promoted event's exact `focusId`, an optional author hint or signed
+`seed`, safe relay hints, an optional view-lifetime signal and an update callback.
+Views of the same focus share a session and in-flight `loadMore` batch. Each view must
 close its handle; only the last close cancels shared work. All active discussions
 share one bounded metadata graph. A new session after all work has closed resets
 that graph, leaving the independent read cache available.
@@ -93,7 +93,8 @@ streaming updates scheduled with a 16 ms timer and a flush on request completion
 Batches yield between requests so queued data cannot starve deadlines or
 navigation. The final close also stops a read waiting for a shared
 handshake without closing another reader's connection or releasing that
-handshake's physical dial slot early.
+handshake's physical dial slot early. Idle cleanup checks connection identity
+and cannot evict a replacement socket after an earlier handshake failed.
 
 ## Resource limits
 
@@ -322,15 +323,18 @@ migration retain their explicit approval requirements.
 
 ### Current verification and next action
 
-The isolated migration branch includes production fixes through `13b6c97`.
+The isolated discussion branch includes the foundation, pinned library migration
+and production fixes through `e651ac6`, including ordinary LNURL invoices and
+the current payment and waiting-room interface.
 The application and every retained dependency package passed the Go race
 suite. Additional regressions check the global subscription cap, malformed
 frames, escaped subscription IDs and forged authentication IDs. Frontend
-verification passed 282 unit tests and the production build. Four new wire
+verification passed 286 unit tests and the production build. Four wire
 checks use the actual transport, and discussion fixtures cover discovery,
 recovery and resource limits. Across desktop Chrome, Android-sized Chrome and
-iPhone-sized WebKit, 21 selected reading, anonymous-invoice, NWC and disabled
-signer checks passed. Browser fixtures use local protocol mocks and no live funds.
+iPhone-sized WebKit, 33 selected reading, anonymous-invoice, NWC, disabled signer
+and waiting-room checks passed. Browser fixtures use local protocol mocks and
+no live funds. ESLint passed for the changed transport and discussion modules.
 
 Both backend binaries build for Linux amd64 with CGO disabled. The Docker
 image has not been built in this environment because the local daemon is

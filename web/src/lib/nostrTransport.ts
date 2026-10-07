@@ -43,9 +43,13 @@ async function dialSlot(signal: AbortSignal): Promise<() => void> {
     return () => { connecting--; pending.shift()?.(); };
 }
 function idleConnection(url: string, connection: Connection) {
-    if (connection.readers.size || connection.pins) return;
+    if (connection.readers.size || connection.pins || connection.socket.readyState >= 2) return;
     clearTimeout(connection.idle);
-    connection.idle = setTimeout(() => { if (!connection.readers.size && !connection.pins) { connections.delete(url); connection.socket.close(); } }, 15_000);
+    connection.idle = setTimeout(() => {
+        if (connection.readers.size || connection.pins) return;
+        if (connections.get(url) === connection) connections.delete(url);
+        connection.socket.close();
+    }, 15_000);
 }
 function waitForConnection(connection: Connection, signal: AbortSignal): Promise<void> {
     if (signal.aborted) return Promise.reject(signal.reason);

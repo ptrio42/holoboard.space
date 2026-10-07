@@ -85,6 +85,7 @@ interface Lookup { target: RelationTarget; filter: Filter }
 interface Route extends DiscussionRouting { attempted: boolean; hints: string[] }
 interface Session {
     focusId: string;
+    focusAuthor?: string;
     hints: string[];
     until: number;
     handles: Map<number, (() => void) | undefined>;
@@ -159,8 +160,9 @@ export class DiscussionCoordinator {
         this.limits = Object.freeze(limits);
     }
 
-    open(options: { focusId: string; seed?: Event; hints?: string[]; signal?: AbortSignal; onUpdate?: () => void }): DiscussionHandle {
+    open(options: { focusId: string; author?: string; seed?: Event; hints?: string[]; signal?: AbortSignal; onUpdate?: () => void }): DiscussionHandle {
         if (!/^[0-9a-f]{64}$/.test(options.focusId)) throw new TypeError("Invalid discussion focus ID");
+        if (options.author && !/^[0-9a-f]{64}$/.test(options.author)) throw new TypeError("Invalid discussion author");
         if (options.signal?.aborted) throw options.signal.reason;
         if (this.handleCount >= this.limits.maxHandles) throw new Error("Discussion handle budget exhausted");
         let session = this.sessions.get(options.focusId);
@@ -174,6 +176,7 @@ export class DiscussionCoordinator {
                 requests: 0, receivedBytes: 0, state: "idle" };
             this.sessions.set(options.focusId, session);
         }
+        session.focusAuthor ??= options.author;
         session.hints = relayCandidates([...session.hints, ...(options.hints ?? []).slice(0, 32)], this.limits.maxRelays);
         if (options.seed?.id === options.focusId) this.admit(session, options.seed);
         const current = session;
@@ -320,7 +323,7 @@ export class DiscussionCoordinator {
     }
 
     private plan(session: Session) {
-        if (!session.observed.has(session.focusId)) this.addLookup(session, exactTarget(session.focusId));
+        if (!session.observed.has(session.focusId)) this.addLookup(session, { ...exactTarget(session.focusId), author: session.focusAuthor });
         // Cache hits can reveal another ancestor. Iterate within a fixed lookup bound.
         for (let pass = 0; pass <= this.limits.maxLookups; pass++) {
             let changed = false;

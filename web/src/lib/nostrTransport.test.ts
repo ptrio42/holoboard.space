@@ -61,6 +61,19 @@ describe("Nostr wire lifecycle", () => {
         await flush(); expect(FakeSocket.sockets).toHaveLength(5);
         nextController.abort(); await next;
     });
+    it("keeps a failed handshake's idle cleanup from evicting a replacement connection", async () => {
+        const url = "wss://replacement.example.com";
+        const failed = queryNostr({ kinds: [0] }, [url]);
+        await flush(); FakeSocket.sockets[0].close(); await failed;
+        const controller = new AbortController();
+        const replacement = queryNostr({ kinds: [1] }, [url], { signal: controller.signal, timeout: 60_000 });
+        await flush(); FakeSocket.sockets[1].open(); await flush();
+        await vi.advanceTimersByTimeAsync(15_000);
+        const shared = queryNostr({ kinds: [0] }, [url], { signal: controller.signal, timeout: 60_000 });
+        await flush();
+        expect(FakeSocket.sockets).toHaveLength(2);
+        controller.abort(); await Promise.all([replacement, shared]);
+    });
     it("returns an exact ID immediately without requiring EOSE", async () => {
         const note = signed();
         const query = queryNostr({ ids: [note.id] }, ["wss://found.example.com"], { first: true });

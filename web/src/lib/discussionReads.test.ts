@@ -138,6 +138,16 @@ describe("Holoboard discussion retrieval", () => {
         expect(vi.mocked(queryNostr).mock.calls.some(([filter, urls]) => filter.authors?.includes(parent.pubkey) && filter.kinds?.includes(10002) && urls.includes(hint))).toBe(true);
     });
 
+    it("can resolve an uncached focus from a known author's write relay without a seed", async () => {
+        const author = key(), focus = note([], 100, author), outbox = "wss://focus-outbox.example.com";
+        list(author, [["r", outbox, "write"]]); network(new Map([[outbox, [focus]]]));
+        const coordinator = new DiscussionCoordinator();
+        const handle = coordinator.open({ focusId: focus.id, author: focus.pubkey }); handles.push(handle);
+        const result = await drain(handle);
+        expect(result.graph.events.has(focus.id)).toBe(true);
+        expect(result.coverage.some((item) => item.purpose === "ancestor" && item.relay === outbox && item.satisfied)).toBe(true);
+    });
+
     it("retries transient shared-transport budgets without advancing the failed branch", async () => {
         const author = key(); list(author);
         const focus = note([], 100, author), child = reply(focus); let limited = true;
