@@ -51,8 +51,17 @@ npx playwright install chrome webkit
 npm run test:e2e
 ```
 
-Set `HOLOBOARD_TEST_PORT` to use a separate local server when another preview
-is running. Browser tests override HTTP and relay settings with local mocks.
+Give each simultaneous test run its own `HOLOBOARD_TEST_PORT`, including runs
+in separate worktrees. The [Playwright configuration](playwright.config.ts)
+reuses an existing local server on the selected port. Sharing a port can test
+another checkout or lose the server when the run that started it finishes.
+Use a separate `--output` directory for each run's Playwright-managed artifacts:
+
+```bash
+HOLOBOARD_TEST_PORT=4189 npm run test:e2e -- tests/wallet.spec.ts --output=/tmp/holoboard-e2e-4189
+```
+
+Browser tests override HTTP and relay settings with local mocks.
 Payment tests block service workers so requests stay inside Playwright's API
 mocks, as described in the [network testing documentation](https://playwright.dev/docs/network#missing-network-events-and-service-workers).
 The PWA test enables workers and uses a real local mock API for those requests.
@@ -375,6 +384,18 @@ helper text uses 12px, and editable values use 16px. Connection controls use the
 same action style in the app header and promotion panels.
 Card frames show rank: gold, cyan and pink for the top three, then dim cyan.
 Paid billboard text has its own selected color inside that frame.
+
+Keep meaningful pixel labels at least 10px and check their contrast against the
+actual panel background, including each rank tier. Unselected amount and position
+choices retain a visible cyan edge and light fill; selected choices use a pink
+fill. Disabled controls remain visibly subdued.
+
+The shared `Modal` keeps controls and QR codes above the CRT scanline overlay.
+Retain the effect on the board and background. Its scrolling body leaves the
+action footer visible and stable across mobile editor tabs; compact boosts
+retain their smaller layout. Reuse `StatusMessage` for loading and empty states.
+Its symbols are decorative, its text is exposed as a status, and its loading
+blocks follow the shared reduced-motion rules.
 
 [Press Start 2P](https://fonts.google.com/specimen/Press+Start+2P), by CodeMan38,
 is bundled as WOFF2 under the SIL Open Font License 1.1.

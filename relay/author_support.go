@@ -142,7 +142,17 @@ func paymentHTTPClient() *http.Client {
 		}
 		return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
 	}
-	return &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	return &http.Client{
+		Transport: transport,
+		Timeout:   10 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > 3 {
+				return fmt.Errorf("too many payment endpoint redirects")
+			}
+			_, err := publicPaymentURL(req.URL.String())
+			return err
+		},
+	}
 }
 
 func NewAuthorSupport(storage *Storage, fetcher *PostFetcher) *AuthorSupport {
