@@ -8,8 +8,8 @@ record deployment, not announcement publication.
 
 ### Fixed
 
-- Keep quoted-note previews loading while slower relays are still responding,
-  instead of briefly showing Preview unavailable before the quote arrives.
+- Keep quoted-note lookups stable across board refreshes and reuse cached notes.
+  Continue waiting for slow relays and offer an explicit retry after a timeout.
 
 - Initialize the relay URL safely when multiple clients connect at startup.
 - Keep the Amount and Position picker steady in Promote and Boost, with Custom

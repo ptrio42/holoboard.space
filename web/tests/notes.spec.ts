@@ -108,14 +108,24 @@ test("long plain notes restore hidden quote actions when expanded", async ({ con
     await expect(row.locator(".note-quote")).toHaveAttribute("inert", "");
 });
 
-test("unavailable quotes retain an accessible external link", async ({ context, page }) => {
-    const row = await setup(context, page, { content: `A billboard headline.\nnostr:${noteEncode(quotes[0].id)}`, availableQuotes: [] });
+test("timed-out quotes retain an accessible external link and can be retried", async ({ context, page }) => {
+    await page.clock.install();
+    const options = { content: `A billboard headline.\nnostr:${noteEncode(quotes[0].id)}`, availableQuotes: [] as Event[] };
+    const row = await setup(context, page, options);
     await expect(row.getByText("Loading preview", { exact: false })).toBeVisible();
-    await expect(row.getByText("Preview unavailable", { exact: true })).toBeVisible({ timeout: 10000 });
+    await page.clock.runFor(31000);
+    await expect(row.getByText("Preview timed out", { exact: true })).toBeVisible();
     const link = row.getByRole("link", { name: "Open quoted note" });
     await expect(link).toHaveAttribute("href", /^https:\/\/njump.me\/nevent1/);
     await expect(link).toHaveAttribute("target", "_blank");
     await expect(link).toHaveText("Open");
+    // A normal board refresh must not silently start a new attempt after timeout.
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await expect(row.getByText("Preview timed out", { exact: true })).toBeVisible();
+    options.availableQuotes = [quotes[0]];
+    await row.getByRole("button", { name: "Retry preview" }).click();
+    await expect(row.locator(".note-quote__excerpt")).toContainText("Quoted source 1");
+    await expect(row.getByText("Preview timed out", { exact: true })).toHaveCount(0);
 });
 
 test("fast empty relays do not mark a slower quoted note unavailable", async ({ context, page }) => {
@@ -132,6 +142,64 @@ test("fast empty relays do not mark a slower quoted note unavailable", async ({ 
     await expect(row.locator(".note-quote__excerpt")).toContainText("Quoted source 1");
     await expect(row.getByText("Preview unavailable", { exact: true })).toHaveCount(0);
     await expect(row.getByRole("link", { name: "Open quoted note" })).toBeVisible();
+});
+
+test("board refreshes do not restart an unfinished quote lookup", async ({ context, page }) => {
+    const slowQuote: { deliver?: () => void; fastReplies: number } = { fastReplies: 0 };
+    const reference = neventEncode({ id: quotes[0].id, relays: ["wss://fast.example", "wss://slow.example"] });
+    const row = await setup(context, page, { billboard: false, content: `Quoted context nostr:${reference}`, slowQuote });
+    await expect.poll(() => !!slowQuote.deliver).toBe(true);
+    await page.waitForTimeout(200);
+    const requestsBeforeRefresh = slowQuote.fastReplies;
+    const refreshed = page.waitForResponse(response => response.url().includes("/campaigns"));
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await refreshed;
+    await page.waitForTimeout(300);
+    expect(slowQuote.fastReplies).toBe(requestsBeforeRefresh);
+    slowQuote.deliver!();
+    await expect(row.locator(".note-quote__excerpt")).toContainText("Quoted source 1");
+});
+
+test("slow quotes keep their lookup open past the initial loading deadline", async ({ context, page }) => {
+    await page.clock.install();
+    const slowQuote: { deliver?: () => void; fastReplies: number } = { fastReplies: 0 };
+    const reference = neventEncode({ id: quotes[0].id, relays: ["wss://fast.example", "wss://slow.example"] });
+    const row = await setup(context, page, { content: `Quoted context nostr:${reference}`, slowQuote });
+    await expect.poll(() => !!slowQuote.deliver).toBe(true);
+    await page.clock.runFor(8100);
+    await expect(row.getByText("Preview unavailable", { exact: true })).toHaveCount(0);
+    await expect(row.getByRole("status")).toContainText("Still loading preview");
+    const requestsBeforeRefresh = slowQuote.fastReplies;
+    await page.clock.runFor(7500);
+    await expect(row.getByRole("status")).toContainText("Still loading preview");
+    expect(slowQuote.fastReplies).toBe(requestsBeforeRefresh);
+    slowQuote.deliver!();
+    await expect(row.locator(".note-quote__excerpt")).toContainText("Quoted source 1");
+});
+
+test("previously loaded quotes remain readable when relays no longer return them", async ({ context, page }) => {
+    await page.clock.install();
+    const options = { content: `Cached context nostr:${noteEncode(quotes[0].id)}`, availableQuotes: [quotes[0]] };
+    const row = await setup(context, page, options);
+    await expect(row.locator(".note-quote__excerpt")).toContainText("Quoted source 1");
+    // The cache adapter persists its pending writes every ten seconds.
+    await page.clock.runFor(11000);
+    await expect.poll(() => page.evaluate(id => new Promise<boolean>((resolve, reject) => {
+        const open = indexedDB.open("holoboard");
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+            const database = open.result;
+            const transaction = database.transaction("events");
+            const get = transaction.objectStore("events").get(id);
+            get.onsuccess = () => resolve(!!get.result);
+            get.onerror = () => reject(get.error);
+            transaction.oncomplete = () => database.close();
+        };
+    }), quotes[0].id)).toBe(true);
+    options.availableQuotes = [];
+    await page.reload();
+    await expect(row.locator(".note-quote__excerpt")).toContainText("Quoted source 1");
+    await expect(row.getByRole("status")).toHaveCount(0);
 });
 
 test("short replies keep conversation context near the author", async ({ context, page }) => {
