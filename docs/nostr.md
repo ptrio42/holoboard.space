@@ -667,6 +667,15 @@ branch and false-default flags while another release is prepared from main.
 The compact reading layout is implemented and visually reviewed. Before treating
 discussion retrieval as finished, review bounded work scheduling against the
 large-thread findings below.
+Before further visual work on readers, incorporate the finalized board-note
+redesign from the independent main checkout into this isolated branch. Use a
+committed checkpoint so ongoing uncommitted work stays untouched. Reconcile the
+shared author, expansion, action/popover and CSS changes rather than replacing
+whole files: retain feature-gated discussion entry points, local profile
+navigation and the unverified NIP-05 presentation. Adapt discussion and profile
+presentation to the new note design, then rerun board, reader, reply and
+default-release acceptance with mobile and desktop visual checks. This
+integration is authorized; main pushes and deployment remain separate gates.
 Integration must rerun acceptance against its actual base, without clearing saved
 invoices, identities, public outbox entries or the production ledger. Deployment,
 public publication, spending, main pushes, external configuration changes and
