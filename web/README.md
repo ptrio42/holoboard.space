@@ -428,7 +428,7 @@ monospace font. Promotion amounts use a compact picker, while original-note text
 and editor panel explanations use a readable body size. The modal scrolls its
 body independently of the action footer, including on small phone screens.
 Promotion actions and short labels share a 10px pixel style; panel headings use
-12px. Board notes and discussion bodies use 16px monospace text. Promotion
+12px. Board notes and discussion bodies use a 16px monospace base size. Promotion
 previews and payment totals use 14px, helper text uses 12px, and editable values
 use 16px. Connection controls use the same action style in the app header and
 promotion panels.
@@ -442,6 +442,12 @@ and quoted context. Assess what is visible before expansion, image legibility,
 available reading and playback actions, and card height across a whole board.
 Extra expansion clicks can reflect hidden content, so they do not establish a more
 effective promotion by themselves. Preserve the original signed content.
+
+Keep public event IDs, frozen fixtures and viewport sizes with the review setup
+so a later comparison can reproduce the same content. Use mock layouts to choose
+a direction, then repeat the comparison with the implemented components. Include
+missing images, partial data, loading and empty states. Check keyboard focus and
+the first visible frame when entering a discussion or returning to the board.
 
 For inline expansion, place `more` at the text cutoff and `less` immediately
 after the expanded text, before media and footer controls. Expand quoted text
