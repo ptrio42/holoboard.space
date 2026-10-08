@@ -82,7 +82,8 @@ export function discussionSources(snapshot: DiscussionSnapshot) {
 }
 export function discussionCoverage(snapshot: DiscussionSnapshot) {
     const failed = snapshot.coverage.filter(work => work.outcome && !["eose", "found"].includes(work.outcome) && !work.satisfied).length;
-    const pending = snapshot.coverage.filter(work => !work.exhausted && !work.truncated && !work.satisfied).length;
+    const queued = (snapshot.queuedWork?.ancestor ?? 0) + (snapshot.queuedWork?.descendants ?? 0);
+    const pending = queued + snapshot.coverage.filter(work => !work.exhausted && !work.truncated && !work.satisfied).length;
     const routingFailed = snapshot.routing.some(route => Object.values(route.relays).some(outcome => outcome !== "eose"));
     const limited = snapshot.retentionLimited || snapshot.limitations.length > 0;
     return { failed, pending, limited, partial: failed > 0 || routingFailed || limited || pending > 0 || snapshot.state === "paused" };

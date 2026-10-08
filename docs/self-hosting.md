@@ -196,6 +196,14 @@ with your website URL in `.env`. Rebuild with the update command. The `VITE_`
 settings are included when the website is built; restarting alone cannot
 change them. [Vite explains this here](https://vite.dev/guide/env-and-mode).
 
+Discussion and profile reading are separate opt-in builds. Set
+`VITE_ENABLE_DISCUSSIONS=true` or `VITE_ENABLE_PROFILES=true` in `.env` and rebuild
+to enable them. Both default to `false`. Reply publication additionally requires
+`VITE_ENABLE_NOSTR_CONNECT=true` and `VITE_ENABLE_REPLY_PUBLICATION=true` alongside
+discussions. Keep signer and publication flags disabled until the compatibility
+checks in the [Nostr reference](nostr.md#signer-compatibility-and-publishing-gate)
+are complete. These flags do not gate ordinary invoice payments.
+
 If your reverse proxy runs on the same host, it can use the default
 `127.0.0.1:8080` address. A proxy in another container needs a shared Docker
 network. Change `WEB_BIND_ADDRESS` only if your hosting setup requires it.

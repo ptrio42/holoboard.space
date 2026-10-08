@@ -101,12 +101,55 @@ this configuration. Keep one running instance for this ledger. See Fly's
 
 ## Release verification and rollback
 
+Before requesting a backend or Compose deployment, run the isolated container
+check from `web/`:
+
+```bash
+npm ci
+npm run test:release-containers
+```
+
+It requires a running local Docker engine and Chrome for Playwright. It builds
+the non-root standalone and Fly backend targets, then exercises the actual
+Compose services behind nginx with all feature flags disabled. The check covers
+HTTP routes, verified stored-event WebSocket reads, anonymous mock-invoice
+creation, graceful shutdown and pending-invoice retention after restart. A
+second frontend image can check explicit opt-in feature build arguments with
+`npm run test:release-containers -- --with-features`. Use that additional build
+when preparing a feature-enabled container release. Ordinary development uses
+native tests and builds; container checks run sequentially when required.
+
+The check uses a temporary environment file, fresh identity and project-scoped
+volume. The backend joins only an internal network. Nginx also joins a preview
+bridge with its published port bound to loopback; browser guards block external
+requests. This follows Docker's [separate frontend/backend network pattern](https://docs.docker.com/engine/network/).
+The check never reads production secrets
+or a checkout's `.env`. Cleanup removes only that invocation's resources,
+including its disposable volume. Do not apply its volume deletion command to
+an existing board. Service workers are blocked for this smoke, so the separate
+PWA update checks still apply. Mock invoices do not verify wallet settlement,
+Amber handoff or public interoperability.
+
 Record the currently deployed backend image and the successful Pages deployment
 before updating. Keep the ledger backup outside the checkout and public build
 artifacts. Confirm the backup is valid JSON and contains `pending_invoices` and
 settlement receipts. Keep the existing relay identity, wallet secrets and volume.
 
-After deploying the backend, check all API routes required by the new frontend:
+A frontend-only release may reuse the current backend when its required API
+contract and public reads pass. From `web/`, run
+`HOLOBOARD_LIVE_READS=1 npm run test:reader-release`; optionally exercise the
+local production build with `HOLOBOARD_PREVIEW_ORIGIN` as described in the
+[frontend checks](../web/README.md#check-changes). This does not require a Fly
+deployment, volume snapshot or ledger migration. It does not establish the
+readiness of a separately migrated backend.
+
+Record the final visual integration commit and rerun combined acceptance before
+approving the reader artifact. A stable source build used for local rollback
+tests is not proof of the exact deployed Pages artifact; record that successful
+deployment separately. Follow the [reader release contract](../docs/nostr.md#read-only-frontend-release).
+
+Check all API routes required by the new frontend against the intended backend,
+whether reusing it or after deploying a backend update:
 
 ```bash
 curl --fail 'https://relay.holoboard.space/api/board'

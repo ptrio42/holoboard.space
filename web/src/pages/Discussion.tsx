@@ -143,7 +143,7 @@ export default function Discussion({ focusId, author, from }: { focusId: string;
                     <ul className="space-y-3">{(reading.context ? projection.ancestors : projection.ancestors.slice(-8)).map(row => note(row))}</ul>
                 </section>}
             </>}
-            {(boardNote || (snapshot && projection)) && <ul className="mb-6">{boardNote && handoff
+            {(boardNote || (snapshot && projection)) && <ul className="mb-6 flow-root">{boardNote && handoff
                 ? <BoardRow event={boardNote} {...handoff.presentation} initiallyExpanded={handoff.origin.expanded} readingFocus
                     onPromote={() => { setPromotion({ id: focusId, weight: handoff.presentation.weight }); setPromote(true); }} />
                 : note(projection!.focus)}</ul>}

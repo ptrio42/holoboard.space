@@ -184,6 +184,17 @@ describe("Holoboard discussion retrieval", () => {
         expect(vi.mocked(queryNostr).mock.calls.flatMap(([, urls]) => urls).some((url) => url.includes("127.0.0.1") || url.includes("relay.local") || url.startsWith("ws:"))).toBe(false);
     });
 
+    it("prioritizes the author's public read relay within a single-query allowance", async () => {
+        const author = key(), inbox = "wss://public-replies.example.com/inbox";
+        list(author, [["r", inbox, "read"]]);
+        const focus = note([], 100, author), child = reply(focus);
+        network(new Map([[inbox, [child]]]));
+        const result = await open(new DiscussionCoordinator({ maxRequests: 1 }), focus).loadMore();
+        expect(result.requests).toBe(1);
+        expect(result.coverage[0].relay).toBe(inbox);
+        expect(result.graph.events.has(child.id)).toBe(true);
+    });
+
     it("uses a public read inbox even when it also receives DMs, without importing DM-only relays", async () => {
         const author = key(), focus = note([], 100, author), child = reply(focus);
         const shared = "wss://public.example.com/inbox", dmOnly = "wss://private.example.com/inbox";
@@ -208,6 +219,19 @@ describe("Holoboard discussion retrieval", () => {
         const result = await drain(open(new DiscussionCoordinator(), article));
         expect(projectThread(result.graph, article.id).replies.map((row) => row.key)).toEqual([`event:${child.id}`, `event:${grandchild.id}`]);
         expect(result.focusId).toBe(article.id);
+    });
+
+    it("shares one admitted target across all exact-ID and address predicates", async () => {
+        const author = key(); list(author);
+        const article = note([["d", "one-target"]], 100, author, 30023), address = `30023:${article.pubkey}:one-target`;
+        const child = note([["A", address], ["K", "30023"], ["P", article.pubkey], ["a", address], ["k", "30023"], ["p", article.pubkey]], 110, author, 1111);
+        network(new Map([[board, [child]]]));
+        const result = await drain(open(new DiscussionCoordinator({ maxTargets: 1 }), article));
+        expect(projectThread(result.graph, article.id).replies.map(row => row.key)).toEqual([`event:${child.id}`]);
+        expect(result.coverage.some(work => work.filter["#a"]?.includes(address))).toBe(true);
+        expect(result.coverage.filter(work => work.purpose === "descendants").every(work =>
+            work.target.type === "event" ? work.target.value === article.id : work.target.exactId === article.id)).toBe(true);
+        expect(result.hasMore).toBe(false);
     });
 
     it("keeps missing parents explicit after every selected relay sends EOSE", async () => {
@@ -282,14 +306,113 @@ describe("Holoboard discussion retrieval", () => {
         second.close(); expect(() => open(coordinator, note())).not.toThrow();
     });
 
+    it("does not reserve target, author or source capacity for an unsent broad frontier", async () => {
+        const author = key(); list(author);
+        const focus = note([], 100, author);
+        const children = Array.from({ length: 70 }, (_, index) => reply(focus, focus, 200 + index));
+        for (const child of children) nostrCache.put(child);
+        network(new Map([[board, children]]));
+        const result = await open(new DiscussionCoordinator({ requestsPerRun: 1 }), focus).loadMore();
+        expect(result.requests).toBe(1);
+        expect(result.coverage).toHaveLength(1);
+        expect(result.routing.map(route => route.author)).toEqual([focus.pubkey]);
+        expect(result.limitations).not.toContain("targets");
+        expect(result.limitations).not.toContain("authors");
+        expect(result.limitations).not.toContain("branches");
+        expect(result.hasMore).toBe(true);
+        expect(projectThread(result.graph, focus.id).replies).toHaveLength(70);
+    }, 60_000);
+
+    it("keeps cached ancestors from consuming missing-parent network lookup capacity", async () => {
+        const author = key(); list(author);
+        const root = note([], 100, author);
+        const grandparent = note([["e", root.id, "", "reply", root.pubkey]], 110, author);
+        const parent = note([["e", grandparent.id, "", "reply", grandparent.pubkey]], 120, author);
+        const focus = note([["e", root.id, "", "root", root.pubkey], ["e", parent.id, "", "reply", parent.pubkey]], 130, author);
+        nostrCache.put(root);
+        network(new Map([[board, [parent, grandparent]]]));
+        const result = await drain(open(new DiscussionCoordinator({ maxLookups: 2 }), focus));
+        expect(projectThread(result.graph, focus.id).ancestors.map(row => row.key)).toEqual([
+            `event:${root.id}`, `event:${grandparent.id}`, `event:${parent.id}`,
+        ]);
+        expect(result.limitations).not.toContain("lookups");
+    });
+
+    it.each([board, a])("discovers parent-only grandchildren before duplicate sources consume the lifetime budget (%s)", async source => {
+        const author = key(); list(author);
+        const focus = note([], 100, author);
+        const children = Array.from({ length: 70 }, (_, index) => note([["e", focus.id, "", "reply", focus.pubkey]], 200 + index, author));
+        const grandchildren = children.map((child, index) => note([["e", child.id, "", "reply", child.pubkey]], 300 + index, author));
+        network(new Map([[source, [...children, ...grandchildren]]]));
+        const coordinator = new DiscussionCoordinator();
+        const result = await drain(open(coordinator, focus));
+        const found = new Set(projectThread(result.graph, focus.id).replies.map(row => row.key));
+        expect(children.every(child => found.has(`event:${child.id}`))).toBe(true);
+        expect(grandchildren.filter(child => found.has(`event:${child.id}`)).length).toBeGreaterThanOrEqual(60);
+        expect(result.limitations).not.toContain("branches");
+        expect(result.requests).toBeLessThanOrEqual(coordinator.limits.maxRequests);
+        expect(result.coverage.length).toBeLessThanOrEqual(result.requests);
+        expect(result.observedEvents).toBeLessThanOrEqual(coordinator.limits.maxEvents);
+    }, 60_000);
+
+    it("resolves the promoted focus context before discovering authors on a cached reply frontier", async () => {
+        const author = key(); list(author);
+        const root = note([], 90, author), focus = note([["e", root.id, "", "root", root.pubkey]], 100, author);
+        const children = Array.from({ length: 8 }, (_, i) => reply(focus, root, 200 + i));
+        for (const child of children) nostrCache.put(child);
+        network(new Map([[board, [root]]]));
+        const result = await open(new DiscussionCoordinator({ requestsPerRun: 2 }), focus).loadMore();
+        const calls = vi.mocked(queryNostr).mock.calls;
+        expect(calls[0][0].ids).toEqual([root.id]);
+        expect(calls[1][0]["#e"]).toEqual([focus.id]);
+        expect(result.routing.map(route => route.author)).toEqual([focus.pubkey]);
+        expect(projectThread(result.graph, focus.id).ancestors.map(row => row.key)).toEqual([`event:${root.id}`]);
+        expect(result.hasMore).toBe(true);
+    });
+
+    it("stops offering continuation when actual source-record capacity is exhausted", async () => {
+        const author = key(); list(author);
+        const focus = note([], 100, author), handle = open(new DiscussionCoordinator({ maxBranches: 1 }), focus);
+        const result = await drain(handle);
+        expect(result.coverage).toHaveLength(1);
+        expect(result.requests).toBe(1);
+        expect(result.limitations).toContain("branches");
+        expect(result.queuedWork).toEqual({ ancestor: 0, descendants: 0 });
+        expect(result.hasMore).toBe(false);
+        await handle.loadMore();
+        expect(vi.mocked(queryNostr)).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not keep retrying discovery after all remaining source records are blocked", async () => {
+        const focus = note();
+        network(new Map(), filter => filter.kinds?.includes(10002) ? "timeout" : "eose");
+        const result = await drain(open(new DiscussionCoordinator({ maxBranches: 1 }), focus));
+        expect(result.requests).toBe(2);
+        expect(result.coverage).toHaveLength(1);
+        expect(Object.values(result.routing[0].relays)).toContain("timeout");
+        expect(result.limitations).toContain("branches");
+        expect(result.hasMore).toBe(false);
+    });
+
     it("stops at the lifetime request budget and reports unfinished work", async () => {
         const author = key(); list(author);
         const focus = note([], 100, author);
         const handle = open(new DiscussionCoordinator({ maxRequests: 2 }), focus);
         const result = await drain(handle);
         expect(result.requests).toBe(2); expect(result.limitations).toContain("requests"); expect(result.hasMore).toBe(false);
-        expect(result.coverage.some((item) => item.outcome === undefined)).toBe(true);
+        expect(result.queuedWork.ancestor + result.queuedWork.descendants).toBeGreaterThan(0);
         await handle.loadMore(); expect(vi.mocked(queryNostr)).toHaveBeenCalledTimes(2);
+    });
+
+    it("reports lifetime exhaustion when only failed relay discovery remains", async () => {
+        network(new Map(), filter => filter.kinds?.includes(10002) ? "timeout" : "eose");
+        const result = await drain(open(new DiscussionCoordinator({ maxRequests: 7 }), note()));
+        expect(result.coverage).toHaveLength(6);
+        expect(result.coverage.every(work => work.exhausted)).toBe(true);
+        expect(result.requests).toBe(7);
+        expect(result.limitations).toContain("requests");
+        expect(result.stopReason).toBe("requests");
+        expect(result.hasMore).toBe(false);
     });
 
     it("yields between immediate queries so the batch deadline can stop work", async () => {

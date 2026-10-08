@@ -66,6 +66,8 @@ export interface DiscussionSnapshot {
     state: "idle" | "loading" | "paused" | "settled" | "closed";
     coverage: DiscussionCoverage[];
     routing: DiscussionRouting[];
+    /** Eligible checks derived from the graph, without reserved network records. */
+    queuedWork: { ancestor: number; descendants: number };
     limitations: Limitation[];
     stopReason?: StopReason;
     /** Local retention loss is independent of per-relay network coverage. */
@@ -82,6 +84,13 @@ export interface DiscussionHandle {
     close(): void;
 }
 interface Lookup { target: RelationTarget; filter: Filter }
+type WorkClass = "critical" | "focus" | "ancestors" | "replies";
+interface PlannedWork { work: DiscussionCoverage; group: WorkClass; rank: number[] }
+const WORK_TURNS: readonly WorkClass[] = ["focus", "ancestors", "focus", "replies"];
+function compareRank(a: number[], b: number[]) {
+    for (let index = 0; index < a.length; index++) if (a[index] !== b[index]) return a[index] - b[index];
+    return 0;
+}
 interface Route extends DiscussionRouting { attempted: boolean; hints: string[] }
 interface Session {
     focusId: string;
@@ -95,7 +104,9 @@ interface Session {
     lookups: Map<string, Lookup>;
     work: Map<string, DiscussionCoverage>;
     routes: Map<string, Route>;
-    cachedFilters: Set<string>;
+    cachedTargets: Set<string>;
+    queuedWork: DiscussionSnapshot["queuedWork"];
+    turn: number;
     limitations: Set<Limitation>;
     retentionLimited: boolean;
     requests: number;
@@ -172,7 +183,7 @@ export class DiscussionCoordinator {
             if (!this.sessions.size) this.graph = createThreadGraph();
             session = { focusId: options.focusId, hints: [], until: Math.floor(Date.now() / 1000), handles: new Map(),
                 observed: new Set(), sources: new Map(), targets: new Set(), lookups: new Map(), work: new Map(),
-                routes: new Map(), cachedFilters: new Set(), limitations: new Set(), retentionLimited: false,
+                routes: new Map(), cachedTargets: new Set(), queuedWork: { ancestor: 0, descendants: 0 }, turn: 0, limitations: new Set(), retentionLimited: false,
                 requests: 0, receivedBytes: 0, state: "idle" };
             this.sessions.set(options.focusId, session);
         }
@@ -217,18 +228,22 @@ export class DiscussionCoordinator {
     private retryableRoute(route: Route) {
         return !route.fromCache && !route.read.length && !route.write.length && Object.values(route.relays).some((outcome) => outcome !== "eose");
     }
+    private routingPending(session: Session) {
+        return session.work.size < this.limits.maxBranches && [...session.routes.values()].some(route => !route.attempted || this.retryableRoute(route));
+    }
     private snapshot(session: Session): DiscussionSnapshot {
         return { focusId: session.focusId, until: session.until, graph: this.graph, state: session.state,
             coverage: [...session.work.values()].map((work) => ({ ...work, target: copyTarget(work.target), filter: copyFilter(work.filter),
                 cursor: work.cursor && { ...work.cursor, boundaryIds: [...work.cursor.boundaryIds] }, satisfied: this.satisfied(session, work) })),
             routing: [...session.routes.values()].map((route) => ({ author: route.author, read: [...route.read], write: [...route.write],
                 relays: { ...route.relays }, fromCache: route.fromCache })),
+            queuedWork: { ...session.queuedWork },
             limitations: [...session.limitations].sort(), stopReason: session.stopReason,
             retentionLimited: session.retentionLimited || this.graph.limited,
             observedEvents: session.observed.size, requests: session.requests, receivedBytes: session.receivedBytes,
             hasMore: session.state !== "closed" && this.canContinue(session) &&
-                (session.state === "idle" || [...session.work.values()].some((work) => this.pending(session, work)) ||
-                    [...session.routes.values()].some((route) => !route.attempted || this.retryableRoute(route))) };
+                (session.state === "idle" || session.queuedWork.ancestor + session.queuedWork.descendants > 0 || [...session.work.values()].some((work) => this.pending(session, work)) ||
+                    this.routingPending(session)) };
     }
 
     private flushGraph() {
@@ -271,7 +286,7 @@ export class DiscussionCoordinator {
             const combined = relayCandidates([...existing.hints, ...hints], this.limits.maxRelays);
             if (!existing.fromCache && !existing.read.length && !existing.write.length && combined.length > existing.hints.length) existing.attempted = false;
             existing.hints = combined;
-            return;
+            return existing;
         }
         if (session.routes.size >= this.limits.maxAuthors) { session.limitations.add("authors"); return; }
         const cached = nostrCache.query({ kinds: [10002], authors: [author], limit: 1 })[0];
@@ -279,6 +294,7 @@ export class DiscussionCoordinator {
             hints: relayCandidates(hints, this.limits.maxRelays) };
         if (cached) this.applyRoute(route, cached);
         session.routes.set(author, route);
+        return route;
     }
     private applyRoute(route: Route, event: Event) {
         const relays = (direction: string) => relayCandidates(event.tags.filter((tag) => tag[0] === "r" && (!tag[2] || tag[2] === direction))
@@ -287,96 +303,162 @@ export class DiscussionCoordinator {
     }
     private sources(session: Session, target: RelationTarget, purpose: DiscussionCoverage["purpose"]) {
         const route = target.author && session.routes.get(target.author);
-        // Interleave source groups so hints cannot consume every fallback slot.
-        const groups = [relayCandidates([RELAY_URL, ...PUBLIC_RELAYS], 3),
-            route ? purpose === "ancestor" ? route.write : route.read : [],
-            relayCandidates([...target.relays, ...session.hints], 4),
-            session.sources.get(exactId(target) ?? "") ?? []];
+        const fallback = relayCandidates([RELAY_URL, ...PUBLIC_RELAYS], 3);
+        const hints = relayCandidates([...target.relays, ...session.hints], 4);
+        const observed = session.sources.get(exactId(target) ?? "") ?? [];
+        // Public reply destinations and productive sources matter especially
+        // when the board relay omits unpaid notes. Interleave bounded groups.
+        const groups = purpose === "ancestor" ? [fallback, route ? route.write : [], hints, observed] :
+            [route ? route.read : [], observed, fallback, hints];
         const candidates = relayCandidates(Array.from({ length: 4 }, (_, index) => groups.map((group) => group[index])).flat().filter(Boolean));
         if (candidates.length > this.limits.maxRelays) session.limitations.add("relays");
         return candidates.slice(0, this.limits.maxRelays);
     }
-    private addWork(session: Session, target: RelationTarget, purpose: DiscussionCoverage["purpose"], filter: Filter) {
-        for (const relay of this.sources(session, target, purpose)) {
-            const key = JSON.stringify([purpose, lookupKey(target), filter, relay]);
-            if (session.work.has(key)) continue;
-            const sourceCount = [...session.work.values()].filter((work) => work.purpose === purpose && lookupKey(work.target) === lookupKey(target) &&
-                JSON.stringify(work.filter) === JSON.stringify(filter)).length;
-            if (sourceCount >= this.limits.maxRelays) { session.limitations.add("relays"); continue; }
-            if (session.work.size >= this.limits.maxBranches) { session.limitations.add("branches"); return; }
-            session.work.set(key, { key, purpose, target: copyTarget(target), relay, filter: copyFilter(filter),
-                pages: 0, exhausted: false, truncated: false, satisfied: false });
+    /** Claims are candidates only; graph normalization still decides every edge. */
+    private lookupCandidates(session: Session) {
+        const candidates = new Map<string, Lookup & { critical: boolean }>();
+        const add = (target: RelationTarget, critical: boolean) => {
+            if (exactId(target) && session.observed.has(exactId(target)!)) return;
+            const filter = lookupFilter(target);
+            if (!filter) return; // External scopes never become URL fetches.
+            const key = lookupKey(target), old = candidates.get(key);
+            if (old) {
+                old.target.relays = relayCandidates([...old.target.relays, ...target.relays], this.limits.maxRelays);
+                old.target.author ??= target.author;
+                old.critical ||= critical;
+            } else candidates.set(key, { target: copyTarget(target), filter, critical });
+        };
+        if (!session.observed.has(session.focusId)) add({ ...exactTarget(session.focusId), author: session.focusAuthor }, true);
+        // Resolve the promoted item's own context before unrelated missing parents.
+        const path = new Set<string>();
+        let node = this.graph.nodes.get(`event:${session.focusId}`);
+        while (node && path.size < this.graph.limits.maxDepth && !path.has(node.key)) {
+            path.add(node.key);
+            for (const claim of [node.relations?.parent, node.relations?.root]) if (claim?.state === "valid") add(claim.target!, true);
+            node = node.parent ? this.graph.nodes.get(node.parent) : undefined;
         }
-    }
-    private addLookup(session: Session, target: RelationTarget) {
-        const filter = lookupFilter(target);
-        if (!filter) return; // External scopes never become URL fetches.
-        const key = lookupKey(target);
-        const old = session.lookups.get(key);
-        if (old) {
-            old.target.relays = relayCandidates([...old.target.relays, ...target.relays], this.limits.maxRelays);
-            old.target.author ??= target.author;
-            return;
+        for (const id of session.observed) {
+            const current = this.graph.nodes.get(`event:${id}`);
+            for (const claim of [current?.relations?.parent, current?.relations?.root]) if (claim?.state === "valid") add(claim.target!, false);
         }
-        if (session.lookups.size >= this.limits.maxLookups) { session.limitations.add("lookups"); return; }
-        session.lookups.set(key, { target: copyTarget(target), filter });
+        // Preserve retries and hints for admitted work even if a graph eviction
+        // removes the claim that originally discovered it.
+        for (const lookup of session.lookups.values()) add(lookup.target, false);
+        return candidates;
     }
-
-    private plan(session: Session) {
-        if (!session.observed.has(session.focusId)) this.addLookup(session, { ...exactTarget(session.focusId), author: session.focusAuthor });
-        // Cache hits can reveal another ancestor. Iterate within a fixed lookup bound.
+    private descendantCandidates(session: Session) {
+        const queue = [{ id: session.focusId, depth: 0 }], visited = new Set<string>();
+        const candidates: { id: string; depth: number; scopes: { target: RelationTarget; filter: Filter }[] }[] = [];
+        for (let index = 0; index < queue.length && index < this.graph.limits.maxNodes; index++) {
+            const { id, depth } = queue[index];
+            if (visited.has(id)) continue;
+            visited.add(id);
+            const event = this.graph.events.get(id);
+            if (!event) continue;
+            for (const key of this.graph.children.get(`event:${id}`) ?? []) {
+                const child = this.graph.nodes.get(key)?.event;
+                if (child && queue.length < this.graph.limits.maxNodes) queue.push({ id: child.id, depth: depth + 1 });
+            }
+            const target: RelationTarget = { ...exactTarget(id), author: event.pubkey, kind: event.kind };
+            const scopes: { target: RelationTarget; filter: Filter }[] = [
+                { target, filter: { kinds: event.kind === 1 ? [1, 1111] : [1111], "#e": [id] } },
+                { target, filter: { kinds: [1111], "#E": [id] } },
+            ];
+            const address = replaceableKey({ ...event, content: "", sig: "" });
+            if (address) {
+                const scope = { ...target, type: "address" as const, value: address, exactId: id };
+                scopes.push({ target: scope, filter: { kinds: [1111], "#a": [address] } },
+                    { target: scope, filter: { kinds: [1111], "#A": [address] } });
+            }
+            candidates.push({ id, depth, scopes });
+        }
+        return candidates;
+    }
+    private hydrate(session: Session) {
+        // Cache hydration has its own finite scan allowance. A cache hit never
+        // reserves a missing-parent lookup or a network descendant target.
         for (let pass = 0; pass <= this.limits.maxLookups; pass++) {
-            let changed = false;
-            for (const id of session.observed) {
-                const node = this.graph.nodes.get(`event:${id}`);
-                for (const claim of [node?.relations?.parent, node?.relations?.root]) {
-                    if (claim?.state !== "valid" || claim.target!.type === "external") continue;
-                    const target = claim.target!;
-                    if (exactId(target) && session.observed.has(exactId(target)!)) continue;
-                    this.addLookup(session, target);
-                }
-            }
-            for (const lookup of session.lookups.values()) {
-                const id = exactId(lookup.target);
-                if (id && session.observed.has(id)) continue;
+            let changed = false, lookups = 0;
+            for (const lookup of this.lookupCandidates(session).values()) {
+                if (lookups++ >= this.limits.maxLookups) break;
                 for (const event of nostrCache.query(lookup.filter)) changed = this.admit(session, event, undefined, undefined, true) || changed;
-                this.route(session, lookup.target.author, lookup.target.relays);
-                if (!id || !session.observed.has(id)) this.addWork(session, lookup.target, "ancestor", lookup.filter);
             }
-            const queue = [session.focusId], visited = new Set<string>();
-            for (let index = 0; index < queue.length && index < this.graph.limits.maxNodes; index++) {
-                const id = queue[index];
-                if (visited.has(id)) continue;
-                visited.add(id);
-                const event = this.graph.events.get(id);
-                if (!event) continue;
-                for (const key of this.graph.children.get(`event:${id}`) ?? []) {
-                    const child = this.graph.nodes.get(key)?.event;
-                    if (child) queue.push(child.id);
-                }
-                if (!session.targets.has(id)) {
-                    if (session.targets.size >= this.limits.maxTargets) { session.limitations.add("targets"); continue; }
-                    session.targets.add(id);
-                }
-                this.route(session, event.pubkey, session.sources.get(id));
-                const target: RelationTarget = { ...exactTarget(id), author: event.pubkey, kind: event.kind };
-                const filters: Filter[] = [{ kinds: event.kind === 1 ? [1, 1111] : [1111], "#e": [id] }, { kinds: [1111], "#E": [id] }];
-                const address = replaceableKey({ ...event, content: "", sig: "" });
-                if (address) filters.push({ kinds: [1111], "#a": [address] }, { kinds: [1111], "#A": [address] });
-                for (const filter of filters) {
-                    const scope = filter["#a"] || filter["#A"] ? { ...target, type: "address" as const, value: address! } : target;
-                    const cacheKey = JSON.stringify(filter);
-                    if (!session.cachedFilters.has(cacheKey)) {
-                        session.cachedFilters.add(cacheKey);
-                        const cacheWork = { target: scope, purpose: "descendants", filter } as DiscussionCoverage;
-                        for (const cached of nostrCache.query({ ...filter, limit: this.limits.maxEvents + 1 })) changed = this.admit(session, cached, cacheWork, undefined, true) || changed;
-                    }
-                    this.addWork(session, scope, "descendants", filter);
+            this.flushGraph();
+            for (const candidate of this.descendantCandidates(session)) {
+                if (session.cachedTargets.has(candidate.id) || session.cachedTargets.size >= this.limits.maxTargets) continue;
+                session.cachedTargets.add(candidate.id);
+                for (const scope of candidate.scopes) {
+                    const work = { ...scope, purpose: "descendants" } as DiscussionCoverage;
+                    for (const event of nostrCache.query({ ...scope.filter, limit: this.limits.maxEvents + 1 })) changed = this.admit(session, event, work, undefined, true) || changed;
                 }
             }
             this.flushGraph();
-            if (!changed) break;
+            if (!changed || session.limitations.has("events")) break;
         }
+    }
+    private plan(session: Session, blocked: ReadonlySet<string>): PlannedWork | undefined {
+        this.hydrate(session);
+        session.queuedWork = { ancestor: 0, descendants: 0 };
+        const best = new Map<WorkClass, PlannedWork>();
+        const seen = new Set<string>();
+        const sourceCounts = new Map<string, number>();
+        for (const work of session.work.values()) {
+            const prefix = JSON.stringify([work.purpose, lookupKey(work.target), work.filter]);
+            sourceCounts.set(prefix, (sourceCounts.get(prefix) ?? 0) + 1);
+        }
+        const consider = (work: DiscussionCoverage, group: WorkClass, rank: number[]) => {
+            if (seen.has(work.key)) return;
+            seen.add(work.key);
+            if (!this.pending(session, work)) return;
+            if (!session.work.has(work.key)) session.queuedWork[work.purpose]++;
+            if (blocked.has(work.key)) return;
+            const previous = best.get(group);
+            if (!previous || compareRank(rank, previous.rank) < 0) best.set(group, { work, group, rank });
+        };
+        const candidate = (target: RelationTarget, purpose: DiscussionCoverage["purpose"], filter: Filter, group: WorkClass, depth: number, order: number, predicate: number) => {
+            const admitted = purpose === "ancestor" ? session.lookups.has(lookupKey(target)) : session.targets.has(exactId(target)!);
+            if (!admitted && (purpose === "ancestor" ? session.lookups.size >= this.limits.maxLookups : session.targets.size >= this.limits.maxTargets)) {
+                session.limitations.add(purpose === "ancestor" ? "lookups" : "targets"); return;
+            }
+            const prefix = JSON.stringify([purpose, lookupKey(target), filter]);
+            const sourceCount = sourceCounts.get(prefix) ?? 0;
+            const sources = this.sources(session, target, purpose);
+            for (const [source, relay] of sources.entries()) {
+                const key = JSON.stringify([purpose, lookupKey(target), filter, relay]);
+                const old = session.work.get(key);
+                if (!old && sourceCount >= this.limits.maxRelays) { session.limitations.add("relays"); continue; }
+                if (!old && session.work.size >= this.limits.maxBranches) { session.limitations.add("branches"); continue; }
+                const work = old ?? { key, purpose, target, relay, filter, pages: 0, exhausted: false, truncated: false, satisfied: false };
+                // Spread primary checks across each breadth level before trying
+                // its alternative predicates and fallback relays.
+                consider(work, group, [work.pages, depth, predicate, source, order]);
+            }
+        };
+        let order = 0;
+        for (const lookup of this.lookupCandidates(session).values()) candidate(lookup.target, "ancestor", lookup.filter, lookup.critical ? "critical" : "ancestors", 0, order++, 0);
+        order = 0;
+        for (const target of this.descendantCandidates(session)) {
+            target.scopes.forEach((scope, index) => candidate(scope.target, "descendants", scope.filter, target.id === session.focusId ? "focus" : "replies", target.depth, order, index));
+            order++;
+        }
+        // Admitted retries survive changing routing/graph metadata. They retain
+        // their own cursor; a failed source is blocked only in the current batch.
+        for (const work of session.work.values()) consider(work, work.purpose === "ancestor" ? "ancestors" : exactId(work.target) === session.focusId ? "focus" : "replies", [work.pages, this.graph.limits.maxDepth, 0, 0, order++]);
+        if (best.has("critical")) return best.get("critical");
+        for (let offset = 0; offset < WORK_TURNS.length; offset++) {
+            const group = WORK_TURNS[(session.turn + offset) % WORK_TURNS.length];
+            if (best.has(group)) return best.get(group);
+        }
+    }
+    private admitWork(session: Session, work: DiscussionCoverage) {
+        const existing = session.work.get(work.key);
+        if (existing) return existing;
+        if (work.purpose === "ancestor") session.lookups.set(lookupKey(work.target), { target: copyTarget(work.target), filter: copyFilter(work.filter) });
+        else session.targets.add(exactId(work.target)!);
+        const admitted = { ...work, target: copyTarget(work.target), filter: copyFilter(work.filter) };
+        session.work.set(work.key, admitted);
+        session.queuedWork[work.purpose] = Math.max(0, session.queuedWork[work.purpose] - 1);
+        return admitted;
     }
 
     private load(session: Session): Promise<DiscussionSnapshot> {
@@ -404,18 +486,29 @@ export class DiscussionCoordinator {
             });
             for (const route of session.routes.values()) if (this.retryableRoute(route)) route.attempted = false;
             while (!controller.signal.aborted) {
-                this.plan(session);
-                const route = [...session.routes.values()].find((route) => !route.attempted);
-                const pending = [...session.work.values()].filter((work) => this.pending(session, work) && !blocked.has(work.key))
-                    .sort((a, b) => Number(a.purpose !== "ancestor") - Number(b.purpose !== "ancestor") || a.pages - b.pages);
-                const work = pending[0];
-                if (!route && !work) break;
+                const planned = this.plan(session, blocked);
+                if (controller.signal.aborted) break;
+                // Metadata discovery belongs to selected work, rather than every
+                // author on the unsent frontier. Failed discovery still retries.
+                let route = planned?.work.target.author ? session.routes.get(planned.work.target.author) : undefined;
+                if (!planned && session.work.size < this.limits.maxBranches) route = [...session.routes.values()].find(route => !route.attempted);
+                if (!planned && !route) break;
                 if (!this.canContinue(session)) {
                     session.stopReason = session.limitations.has("events") ? "events" : session.limitations.has("bytes") ? "bytes" : "requests";
                     if (session.stopReason === "requests") session.limitations.add("requests");
                     break;
                 }
                 if (requests >= this.limits.requestsPerRun) { session.stopReason = "batch"; break; }
+                const hadRoute = !!route;
+                if (session.work.size >= this.limits.maxBranches) route = undefined;
+                else if (planned) route = this.route(session, planned.work.target.author,
+                    planned.work.purpose === "ancestor" ? planned.work.target.relays : session.sources.get(exactId(planned.work.target) ?? ""));
+                if (route && route.attempted) route = undefined;
+                // A newly admitted cached route can change the source order.
+                // Replan before creating the coverage record.
+                const cachedRouteAdded = !hadRoute && planned?.work.target.author && session.routes.get(planned.work.target.author)?.fromCache;
+                const selected = route ? undefined : cachedRouteAdded ? this.plan(session, blocked) : planned;
+                if (controller.signal.aborted || !route && !selected) break;
                 requests++; session.requests++;
                 if (route) {
                     route.attempted = true;
@@ -426,6 +519,11 @@ export class DiscussionCoordinator {
                     const latest = result.events.reduce<Event | undefined>((old, event) => newerEvent(event, old) ? event : old, undefined);
                     if (latest) this.applyRoute(route, latest);
                 } else {
+                    const work = this.admitWork(session, selected!.work);
+                    if (selected!.group !== "critical") {
+                        while (WORK_TURNS[session.turn % WORK_TURNS.length] !== selected!.group) session.turn++;
+                        session.turn = (session.turn + 1) % WORK_TURNS.length;
+                    }
                     const filter = { ...work.filter, until: work.purpose === "descendants" ? work.cursor?.until ?? session.until : undefined,
                         limit: work.purpose === "descendants" ? work.cursor?.limit ?? this.limits.pageSize : 1 };
                     const result = await this.query(session, filter, [work.relay], controller, work);
@@ -449,8 +547,12 @@ export class DiscussionCoordinator {
             if (!controller.signal.aborted) session.stopReason = "error";
         } finally {
             if (controller.signal.aborted) session.stopReason = controller.signal.reason as StopReason;
-            if (session.state !== "closed") session.state = session.stopReason || [...session.work.values()].some((work) => this.pending(session, work)) ||
-                [...session.routes.values()].some((route) => this.retryableRoute(route)) ? "paused" : "settled";
+            const unfinished = session.queuedWork.ancestor + session.queuedWork.descendants > 0 ||
+                [...session.work.values()].some(work => this.pending(session, work)) || this.routingPending(session);
+            if (session.state !== "closed" && unfinished && session.requests >= this.limits.maxRequests) {
+                session.limitations.add("requests"); session.stopReason ??= "requests";
+            }
+            if (session.state !== "closed") session.state = session.stopReason || unfinished ? "paused" : "settled";
         }
     }
 

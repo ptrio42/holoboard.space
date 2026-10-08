@@ -25,9 +25,14 @@ record deployment, not announcement publication.
   action, and show payment progress inside the wallet payment button.
 - Keep note menus and hints in sync after selection, dismissal and browser
   navigation, including Safari trigger clicks.
+- Honor discussion, profile and reply feature flags in Docker builds, preserving
+  their disabled defaults.
+- Find more branches in large discussions by admitting reads when needed and
+  spreading primary checks before repeated sources, with unchanged reading limits.
 - Keep keyboard focus on editor tabs when returning to a custom promotion amount.
 - Keep promoted notes at the same position and width when opening discussions,
-  and restore their place on return even after the board refreshes.
+  including read-only mobile Billboard views, and restore their place on return
+  even after the board refreshes.
 - Recheck signer signatures and requested payloads, reject stale account responses,
   validate remote relay changes and close timed-out signer sessions.
 - Verify Nostr event IDs, restrict external relay destinations and bound shared

@@ -11,11 +11,13 @@ function summary(work: DiscussionSnapshot["coverage"]) {
 }
 export function DiscussionSources({ snapshot }: { snapshot: DiscussionSnapshot }) {
     const sources = discussionSources(snapshot);
+    const queued = snapshot.queuedWork.ancestor + snapshot.queuedWork.descendants;
     const cached = snapshot.routing.filter(route => route.fromCache).length;
     return <details className="mt-3 text-xs text-cyan-100/75">
         <summary className="focus-pixel inline-flex min-h-11 cursor-pointer items-center">Source details</summary>
         <p>{snapshot.requests} read operations. {sources.length} selected relays, each listed once below.</p>
-        <p className="mt-2">Content coverage: {summary(snapshot.coverage) || "no queries planned yet"}.</p>
+        <p className="mt-2">Content coverage: {summary(snapshot.coverage) || "no content queries sent yet"}.</p>
+        {queued > 0 && <p className="mt-2">{queued} additional source checks remain. {snapshot.hasMore ? "Load more continues available reads." : "Reading limits prevent further checks in this session."}</p>}
         {cached > 0 && <p className="mt-2">{cached} author relay {cached === 1 ? "list reused" : "lists reused"} from cache.</p>}
         <p className="mt-2">Coverage includes queued work and retries. These counters do not count open subscriptions. Load more continues available work, including retries.</p>
         <p className="mt-2">Public mentions / replies relays receive responses to an author. Author notes relays carry their own posts. DM relay lists are not used for this discussion.</p>

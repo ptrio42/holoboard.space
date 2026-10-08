@@ -65,7 +65,10 @@ parents use hints, observed sources, configured fallbacks and known authors'
 NIP-65 write relays. Candidate replies use those fallback/hint/source groups and
 the focused authors' read relays. Relay-list discovery also uses reference and
 observed-source hints. An author's outbox is not treated as an index of unknown
-respondents. Sources are bounded and each selected relay has its own branch,
+respondents. Reply-source priority favors verified public read destinations and
+sources that delivered the target, interleaved with configured fallbacks and
+hints. The board relay remains a fallback for promoted items; unpaid replies
+may live only on public relays. Sources are bounded and each selected relay has its own branch,
 outcome and inclusive pagination cursor.
 
 Public mention/reply destinations come from `read` entries in verified
@@ -82,6 +85,31 @@ resolved, but only connected descendants become new discovery targets.
 Promotional quotes, ranking and payment state never supply graph edges.
 An exact old address version is fetched by ID even when the replaceable cache
 already holds a newer version. External scopes never become HTTP fetches.
+
+The planner reserves descendant targets, missing-parent lookups and
+predicate/relay coverage records only when selecting a content query to send.
+Cached ancestors do not use the network lookup allowance. Author relay lists
+are discovered for selected work, so an unsent frontier cannot reserve every
+author slot. By default, cache hydration separately scans up to 64 descendant
+targets per session and 64 ancestor candidates per pass; all normal event and
+graph limits still apply.
+
+The promoted item's own unresolved ancestry has first priority. Other work
+rotates through focus replies, other missing ancestors, focus replies and
+connected reply descendants, skipping empty classes. Within a class, fewer page
+attempts and shallower depth come first, then predicate and source order across
+the breadth level. This spreads primary checks over nearby branches before
+repeating their alternative predicates and fallback sources. NIP-10 and NIP-22
+filters, independent source cursors and exact version pinning are preserved.
+The policy is an application scheduling choice, not a Nostr completeness rule.
+
+Snapshots separately expose counts of eligible checks awaiting admission. They
+are derived from the bounded graph and do not reserve coverage records or
+subscriptions. Counts can change after relay discovery or graph updates; they
+are not a total reply count. Hard target, lookup, source-record and lifetime
+budgets can still leave work unchecked. `Load more` only continues eligible
+work, including retries; discovery retries stop when no new source record can
+be admitted. Coverage remains partial at a hard ceiling.
 
 Snapshots expose per-source coverage, routing outcomes, local retention loss,
 resource limitations and the fixed descendant `until` timestamp selected when
@@ -152,6 +180,15 @@ rows. If the event disappears, the saved scroll value is the fallback. Browser
 Back/Forward and explicit return links use the same restoration. During
 restoration, native scroll anchoring is disabled on the active surface to avoid
 competing adjustments; normal board scrolling keeps browser anchoring.
+Keep the focus list's `flow-root` formatting context (or an equivalent layout
+that prevents parent/child margin collapse). The anchor spacer must contribute
+its full height; collapsed margins invalidate the restoration calculation.
+Surface padding and note-anchor margins must not transition. The global reduced
+motion rule shortens transition duration on every element; without an explicit
+`transition-property: none`, even these previously static spacers can interpolate
+for a frame and invalidate the measured offset.
+Exercise reading with reply publication disabled as well as enabled: the extra
+reply action can conceal a short mobile Billboard's alignment regression.
 Known author metadata, cached quote/link previews and overflow measurements
 are available before the first paint of a remounted card. Newly arriving metadata
 or media can still change its height during a read.
@@ -295,7 +332,7 @@ alone cannot establish this behavior.
 | Query retention | 512 events and 5 MiB | 512 events and 4 MiB |
 | Read cache | 2048 events and 8 MiB, including signatures | 256 immutable notes of at most 8 KiB each; 256 metadata entries of at most 8 KiB each |
 | Discussion sessions | 4 active/closing sessions and 16 view handles; one shared graph with 2048 events, 6144 nodes and 8 MiB | Not applicable |
-| Discussion session work | 64 descendant targets, 64 ancestor lookups, 256 branch/source records, 8 relays per predicate, 8 author discoveries; 128 queries over its lifetime, 16 per batch, 16 page attempts per descendant branch | Not applicable |
+| Discussion session work | 64 network descendant targets, 64 network ancestor lookups, 256 admitted branch/source records, 8 relays per predicate, 8 author discoveries; 128 queries over its lifetime, 16 per batch, 16 page attempts per descendant branch | Not applicable |
 | Discussion admission | 1024 observed events, 4 MiB of received serialized events, 256 KiB per event; 30-second batches and 4-second queries | Not applicable |
 | Profile metadata | 64 active/closing author reads, 256 view handles; 64 KiB per signed profile, six fields of at most 2048 characters each; 12-second reads, 4-second discovery and 6-second metadata queries | Not applicable |
 | Profile campaign scan | 8 pages of at most 21 entries, 128 retained note references, 64 KiB per admitted event; one 8-second HTTP request at a time per view | Existing campaign API, no new route |
@@ -615,6 +652,16 @@ declared version explicitly. Include the nested vendored module: its compression
 fixture caught a toolchain compatibility issue not covered by application-only
 tests.
 
+Run signature-heavy unit suites separately from browser and heap checks. If a
+pagination fixture exceeds its wall-clock deadline, measure signing,
+verification and planning separately before changing a resource limit or test
+allowance. Passing mocks do not replace the transport and browser checks.
+
+When running UI fixtures against a production preview, build with the same
+API/relay origins and feature flags as their test configuration. Runtime preview
+variables do not change a previously built bundle; a fixture that blocks the
+bundle's API origin fails before it exercises discussion behavior.
+
 Browser checks should include Chrome and WebKit, slow or absent EOSE, cache
 reloads and anonymous invoice access. Use Playwright's default port 4173, or a
 known browser-allowed alternate port. WebKit blocks port 4190 before the
@@ -663,12 +710,37 @@ work. The main checkout and its uncommitted work remain independent.
 
 ### Current verification and next action
 
-The isolated discussion branch includes the foundation, pinned library migration
-and production fixes through `e651ac6`. The main checkout stays independent;
+The isolated discussion branch includes the foundation, pinned library migration,
+compact note integration and release checks through `7edfe32`, with the reader
+alignment fix described above. The main checkout stays independent;
 implementation does not enable signer support or deploy any feature.
 
-Frontend acceptance covers 365 unit cases across 43 files, including public
-read versus DM relay-list separation and grouped coverage states. Changed-module lint
+The final local review rechecked all 375 unit cases, full frontend lint, the
+application and retained dependency packages with Go's race detector, and the
+vendored source reconstruction (92 retained files). Read-only acceptance must
+also run with both signer and reply publication disabled. A collapsed mobile
+Billboard exposed a 34-pixel initial alignment error in that configuration;
+preventing spacer transitions and focus-list margin collapse removed it in
+repeated strict geometry checks. Final read-only browser acceptance passed 75
+project/scenario pairs, with six configuration-specific cases intentionally
+skipped and no failures. All 12 ordinary/Billboard geometry combinations stayed
+below one pixel of measured deviation across the three browser projects.
+The final default configuration separately passed 15 browser checks for hidden
+discussion/profile/reply/signer entry points and anonymous split invoices.
+Six enabled checks reverified NIP-07 and NIP-46 signing with explicit destination
+consent on the three browser projects, using intercepted publication fixtures.
+Clean native production builds passed for default, read-only and fully enabled
+configurations. Default and read-only outputs contain neither a reply-editor
+chunk nor its service-worker precache reference; the enabled output contains both.
+The broad-tree browser scenario allows up to
+180 seconds for several explicit continuation batches; per-batch waits and the
+128-operation and 48-rendered-reply assertions remain unchanged. This extends
+only the test's total deadline, not application resource limits.
+
+Frontend acceptance covers 375 unit cases across 43 files, including lazy
+network admission, breadth-level scheduling, exact/address target accounting,
+hard-ceiling continuation, public read versus DM relay-list separation and
+grouped coverage states. Changed-module lint
 and production builds with all four features enabled and disabled pass. The
 disabled build excludes the reply editor chunk and controls. The combined
 enabled browser regression passed 87 scenarios across desktop
@@ -682,12 +754,20 @@ concurrency. These suites overlap and their counts must not be added as unique
 coverage. All publication/payment fixtures intercept remote traffic and use
 isolated keys; they do not spend funds or publish public notes. The final default
 configuration passed 21 invoice, hidden-signer, disabled-reply and native-outbox
-checks. A further nine browser checks verify that removing each required reply
+checks. The scheduling stage separately rechecked 15 default-release browser
+cases covering hidden discussion/profile/reply entry points and anonymous
+single/split invoices on all three projects. A further nine browser checks
+verify that removing each required reply
 flag keeps the editor absent. The defaults preserve anonymous payments.
 
-The discussion usability and navigation regression covers 93 distinct browser
+The discussion usability and navigation regression covers 105 distinct browser
 project/scenario pairs across discussion, profile and reply-editor suites,
-verified across the combined and focused runs. It verifies
+verified by a complete production-preview run. Nine default-only cases are
+intentionally skipped in that enabled run. After final source-priority and
+coverage changes, 15 focused production-preview checks reverified broad
+parent-only trees and ordinary/Billboard source geometry in all three browser
+projects. These repeat existing scenarios rather than adding unique coverage.
+It verifies
 automatic expansion, persistent explicit collapse, late parents, parent jumps
 across local pages, distinct participant bylines and one source row per relay.
 Compact-layout checks also cover short-row height, continuous rails, retained
@@ -716,9 +796,21 @@ Regressions include global subscription limits, malformed frames, escaped
 subscription IDs, forged authentication IDs, incoming frame order, listener
 races, stored-query cancellation and historical ledger decoding. Both backend
 binaries build for Linux amd64 with CGO disabled. The backend is unchanged by
-the reading and reply UI stages, so that evidence carries forward. The Docker
-image has not been built because the local daemon is unavailable. A container
-build and the documented release smoke checks remain release requirements.
+the reading and reply UI stages, so that evidence carries forward. Both Docker
+backend targets and the disabled-feature frontend image build successfully.
+The isolated container acceptance passed actual Compose startup, nginx syntax
+and health, proxied board/campaign/waiting APIs, private-preview rejection,
+verified stored-event WebSocket reads with EOSE and CLOSE, anonymous mock-invoice
+creation and browser access to visibility-only boosts. SIGTERM completed and
+restart preserved the identity, original note and pending invoice. Signer,
+discussion and reply controls stayed hidden, with no reply-editor chunk.
+Compose forwards all opt-in feature arguments; the additional enabled container
+build is available with `--with-features` and was not run in this acceptance.
+Native enabled builds retain their separate evidence above. The smoke uses an
+isolated backend network and guards browser requests; four external browser
+attempts were blocked. Image/dependency downloads during building are separate
+from runtime isolation. No public Nostr write or live-wallet payment is part of
+this check. Disposable containers, networks, volume and image tags were removed.
 
 Controlled public-relay checks loaded kind-1 notes, a middle kind-1111 comment
 with its parent/root, a kind-30023 article and an author's profile plus current
@@ -728,7 +820,7 @@ commands and measured limits are below. They do not prove complete discovery,
 public propagation or universal absence of memory leaks.
 
 Remaining release gates are physical signer compatibility, deliberate public
-propagation/interoperability checks and the container/release smoke procedure.
+propagation/interoperability checks and deployment-origin/installed-PWA checks.
 Reported Amber failures still need device reproduction; protocol fixtures do not
 establish their cause. Live-wallet behavior remains separate from mocked payment
 regressions. Direct NIP-55 support, deletion/moderation discovery and verified
@@ -736,9 +828,9 @@ NIP-05 domains are separate features, not implied by the implemented editor.
 
 Continue routine authorized checks and fixes autonomously. Preserve the isolated
 branch and false-default flags while another release is prepared from main.
-The compact reading layout is implemented and visually reviewed. Before treating
-discussion retrieval as finished, review bounded work scheduling against the
-large-thread findings below.
+The compact reading layout is implemented and visually reviewed. Bounded
+discussion scheduling now admits network work lazily; its controlled regression
+acceptance is recorded below. Hard limits still prevent a completeness claim.
 The board-note visual redesign is integrated from a stable local checkpoint,
 without modifying the independent main checkout or its index. Integration
 acceptance rechecked all 365 unit cases and 180 distinct enabled browser
@@ -758,10 +850,12 @@ focus cards share the new design; compact reply rows, local author profiles,
 unverified address presentation and false-default flags remain intact. Content
 expansion has its own state marker, so a Billboard original opened through note
 options also survives reader navigation. Popovers escape clipped frames and
-remain owned by an enclosing promotion dialog. The next implementation step is
-the bounded discussion scheduling review described below, preserving partial
-coverage and user-triggered batches. Main pushes and deployment remain separate
-gates.
+remain owned by an enclosing promotion dialog. The retrieval stage preserves
+this presentation, partial coverage and user-triggered batches. The next stage
+is the read-only frontend candidate after the pending visual checkpoint, as
+specified below. Physical signer compatibility and deliberate public delivery,
+DM and wallet interoperability remain gates for their own releases. Main pushes
+and deployment remain separate gates.
 
 The isolated footer/comment refinement is based on feature checkpoint `0103550`.
 It preserves the board-to-thread geometry while removing the focus card's own
@@ -845,13 +939,29 @@ describe this sample, not a universal height reduction or complete discovery.
 The same read reached author, target and branch/source-record ceilings before
 the lifetime query allowance was exhausted. Branch/source records describe
 predicate/relay work, not only visible conversation branches. `Load more` can
-continue admitted work but cannot remove hard admission ceilings. Review work
-priorities and lazy admission before increasing limits; the current evidence
-does not establish a replacement scheduling policy. After correcting native
+continue eligible work but cannot remove hard admission ceilings. This led to
+lazy admission and breadth-level primary checks without increasing the limits.
+Controlled regressions establish the scheduling behavior; they do not prove
+complete public-thread retrieval. After correcting native
 socket shutdown, a fresh-context, cold-cache read found 77 connected replies and
 18 unresolved branches after four batches, with no uncaught page errors. It
 still reported partial coverage and hard limits. Network variability and cache
 seeding prevent treating the two counts as a before/after completeness measure.
+
+Controlled scheduling regressions use 70 direct replies with 70 parent-only
+grandchildren, so a root query alone cannot discover the grandchildren. The
+previous planner found 21 grandchildren in this fixture; the new acceptance
+requires at least 60 within the unchanged 128-query lifetime allowance. A
+separate cached-frontier regression reproduced 256 reserved source records after
+one network operation in the previous planner. It now requires one admitted record,
+only the focus author's routing state and no premature target/author/source
+limit. Cached ancestry fits within two actual missing-parent lookups. The broad fixture also runs with all replies
+on a public relay rather than the board. A one-query fixture requires selecting
+the known public read destination first. Additional
+checks preserve the promoted focus's context priority, shared accounting for an
+addressable item's predicates, retry cursors and terminal hard-ceiling behavior.
+These fixtures establish the reported bugs and scheduling behavior, not a
+public-thread completeness rate.
 
 Run the offline resource suite against a freshly built production bundle:
 
@@ -871,6 +981,17 @@ view and compares retained JavaScript heap medians after warmup. Its explicit
 allowance is the larger of 2 MiB and 20 percent of the reference median. This
 checks cache-backed graph and view lifetimes, not bulk network ingestion or
 total browser/process memory.
+
+Final scheduling acceptance repeated the production resource suite on
+2026-10-08: all four applicable cases passed, with mobile heap measurements
+intentionally excluded. Across 24 desktop cycles, the retained-heap medians were
+7,621,996 and 7,802,820 bytes, a 180,824-byte increase within the 2 MiB allowance.
+Wire peaks were seven sockets and nine REQs. Eight cancellation cycles per
+browser project left zero active REQs and at most one idle socket, with no page
+errors or write frames. An earlier WebKit run exceeded its 20-second cached-reply
+startup assertion; its unchanged isolated repeat and the complete final suite
+passed. That initial timing failure does not establish a planner defect or
+physical-device performance.
 
 Eight additional navigation cycles per browser project cancel relay reads that
 never send EOSE. Relay-side counters independently observe REQ/CLOSE, connection
@@ -921,6 +1042,95 @@ disappear can otherwise misidentify shared work or handshake delay as a leak.
 
 ### Verification ownership and release gates
 
+Release readiness is scoped to an artifact and its enabled features. Browser
+feature flags do not disable the backend's migrated Nostr transport, Khatru,
+DM monitor, receiving-wallet connection or account publisher. A disabled-feature
+frontend is therefore not evidence that the migrated backend can skip its own
+interoperability checks.
+
+| Release scope | Required evidence before enabling or deploying |
+| --- | --- |
+| Frontend with all new features disabled | Combined-base board, promotion and anonymous-payment regressions; production build without the reply editor chunk; target API route checks and PWA update/rollback checks. No signer/device acceptance is implied. |
+| Read-only discussions and profiles | Reading flags enabled with signer and reply flags disabled; combined-base relation, cancellation, navigation and profile acceptance; target-origin checks. Physical signer acceptance is not a dependency of reading. |
+| Signer support | The actual device/environment matrix below, including Amber reproduction and a second independent remote signer. Connection approval alone does not authorize publication or payment. |
+| User-authored replies | Signer acceptance plus explicit destination/account consent, durable exact-ID recovery and independently observed public reply relationships. |
+| Migrated backend | Combined-base Go race and historical-ledger compatibility checks, container startup/restart/shutdown evidence, controlled DM/payment/account-publication interoperability, and preservation of the production identity, volume and current ledger. Frontend flags cannot waive this gate. |
+
+Frontend and backend releases may be staged separately when the target backend
+already serves the API routes the selected frontend needs. Check those routes
+on the intended origin rather than inferring compatibility from a local build.
+An enabled container release also needs the enabled-image smoke; the previous
+disabled-image smoke and native enabled build do not establish that result.
+After importing another visual checkpoint or changing the release base, rerun
+the affected combined acceptance before treating these results as current.
+
+### Read-only frontend release
+
+Prepare this release independently of the Go/Khatru migration. Keep the existing
+production backend, identity and ledger when its contract passes. Reader screens
+consume the existing board/campaign APIs and public Nostr reads; they add no
+required discussion or profile HTTP endpoint. Enable only these build flags:
+
+| Setting | Reader artifact |
+| --- | --- |
+| `VITE_ENABLE_DISCUSSIONS` | `true` |
+| `VITE_ENABLE_PROFILES` | `true` |
+| `VITE_ENABLE_NOSTR_CONNECT` | `false` |
+| `VITE_ENABLE_REPLY_PUBLICATION` | `false` |
+| `VITE_RELAY_URL` | `wss://relay.holoboard.space` |
+| `VITE_API_URL` | `https://relay.holoboard.space` |
+| `VITE_SATS_ENDPOINT` | `https://relay.holoboard.space/api/board` |
+
+Use the existing public board identity and configured public read relays, never
+preview identity or loopback overrides. Keep repository defaults disabled;
+these are explicit candidate build settings. The production output must exclude
+the reply-editor chunk and its worker precache reference. Signer restoration and
+public-zap creation stay disabled; ordinary anonymous invoice actions remain.
+
+Run `HOLOBOARD_LIVE_READS=1 npm run test:reader-release` from `web/` before
+selecting the artifact. It bounds HTTP bytes and deadlines, rejects missing
+routes/non-JSON responses, checks browser CORS and verifies fresh campaign and
+expired-note signatures. A documented link-preview upstream failure can be
+valid; a missing handler cannot. With a loopback `HOLOBOARD_PREVIEW_ORIGIN`, it
+also exercises the compiled frontend against real public sources, blocking
+HTTP writes and Nostr write/authentication frames. This checks compatibility
+at the observation time, not network-wide reply completeness or live payment
+settlement. Reports omit response bodies and wallet data.
+
+The preparation based on `d681c07` passed eight production API route checks
+(board, four campaign views, waiting updates, expired notes and link preview),
+including CORS and fresh note signatures. A native reader build exercised board,
+discussion and profile reading against the unchanged production backend and
+public relays, without page errors or write attempts. The local worker
+update/rollback check passed on all three browser projects using a committed
+`7cfd9ea` stable source build. It preserves the exact
+saved invoice, wallet link, clipboard/decoded QR and status checks without
+issuing another invoice. An old tab retains its original document after worker
+activation and can still open the saved invoice and QR. Both HTTP servers stop
+during the cached-shell check; an uncached API request must fail. This measures
+server unavailability, not a
+physical device going offline. A separate minimal worker reproduced
+[Playwright 1.63 WebKit's offline-emulation failure](https://github.com/microsoft/playwright/issues/42775);
+Chromium and WebKit both served the worker response with the origin stopped,
+and both no-worker negative controls failed. The retained legacy-client worker
+compatibility scenario also passed on all three projects.
+
+The independent visual checkpoint is still pending. Import it as a committed
+stage, preserve functional callbacks/flags/payment storage, then repeat the
+combined reader, source-position, anonymous-payment, PWA and build acceptance.
+Generate the final artifact and its source/configuration record only after that
+integration. Current preparation artifacts are not the final release candidate.
+
+Public frontend-origin verification also remains open: the preparation
+environment received Cloudflare HTTP 403 for the site and worker. The backend
+API remained available. This does not establish a general site outage or its
+cause. Confirm the actual Pages deployment/flag configuration, served worker
+and deep-link routing before approval, and check the installed PWA after release.
+Local source rollback tests do not identify the currently hosted Pages artifact.
+Pages configuration changes, production-branch push and deployment still require
+explicit authorization. A Cloudflare Pages frontend release does not require
+starting Docker; enabled container acceptance applies to a container release.
+
 Continue implementation and automated verification without waiting for the
 maintainer to provide a device, wallet or manual test session. Pending external
 checks do not block discussion retrieval development in the isolated worktree.
@@ -929,11 +1139,29 @@ build checks, including automation for additional reproducible failures.
 
 Keep release evidence scoped to what was exercised. Local DM and NWC tests do
 not establish interoperability with an independent client or a live wallet.
-Before releasing the migrated backend, complete the container build and
-controlled interoperability checks for existing DM, payment and publication
-flows. Amber device checks gate the signer release; signer entry points remain
+Before releasing the migrated backend, retain the passing container acceptance
+and complete controlled interoperability checks for existing DM, payment and
+publication flows. Amber device checks gate the signer release; signer entry points remain
 disabled in the meantime. Record unavailable checks as open release gates,
 without marking them passed or assigning routine verification to the maintainer.
+
+Keep the remaining gates separate so a frontend release with disabled features
+can proceed once its own gates pass, without claiming signer, publication or
+migrated-backend acceptance:
+
+| Gate | Agent-owned preparation and local evidence | Evidence still requiring the actual environment |
+| --- | --- | --- |
+| Container release | `npm run test:release-containers` from `web/` builds both backend targets, exercises real Compose/nginx/API/WebSocket paths and mock-invoice restart retention, and checks the disabled frontend plus opt-in Compose arguments. Add `-- --with-features` for an enabled container release. | Deployment-origin health, unchanged production identity and ledger, installed-PWA update and rollback readiness. |
+| Signers | Existing extension/NIP-46 fixtures cover pairing methods, signatures, cancellation, account changes, permissions and restoration. Keep every feature flag false by default. | Record OS, browser and signer versions for same-phone Amber handoff/return, desktop-to-phone QR, pasted bunker pairing, rejection and reconnect; include a second independent remote signer and supported desktop extension. |
+| Public delivery | Durable outbox, exact-ID retries and per-relay outcomes are locally exercised without public writes. | Explicitly authorized publication, retrieval through an independent client and verification of reply relationships and partial-delivery recovery. |
+| Payments and DMs | Isolated protocol and recovery fixtures, plus anonymous mock-invoice container checks. | Independent-client DM exchange and live-wallet settlement within an explicitly approved recipient and spending budget. |
+
+Record connection approval and event-publication approval separately. Device
+connection checks can verify identity and cancellation without publishing. A
+signed reply still requires its own explicit publication consent. Do not run
+live DM or wallet tests merely because a container smoke passed. Track versioned
+results and unresolved failures in this reference; a phone-sized browser test
+does not close a physical-device gate.
 
 `TestProductionDMFlow` is opt-in and is skipped by the default Go test suite.
 It publishes public discovery metadata and sends a production DM that creates

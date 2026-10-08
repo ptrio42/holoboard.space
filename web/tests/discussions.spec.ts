@@ -162,14 +162,19 @@ test.describe("read-only discussion", () => {
         await link.scrollIntoViewIfNeeded();
         const original = (await source.locator("article").boundingBox())!;
         const boardScroll = await page.evaluate(() => scrollY);
-        // Observe every rendered frame, rather than only the final settled layout.
+        // Sample animation-frame geometry as well as the final settled layout.
         await page.evaluate(id => {
-            const samples: { x: number; y: number; width: number; height: number }[] = [];
+            const samples: { x: number; y: number; width: number; height: number; scroll: number; gap: string; tail: string }[] = [];
             Object.assign(window, { readingFrames: samples });
             let remaining = 180;
             const sample = () => {
                 const card = document.querySelector(`[data-reading-focus="${id}"] article`);
-                if (card) { const { x, y, width, height } = card.getBoundingClientRect(); samples.push({ x, y, width, height }); }
+                if (card) {
+                    const { x, y, width, height } = card.getBoundingClientRect();
+                    const row = card.closest<HTMLElement>("[data-reading-focus]")!;
+                    samples.push({ x, y, width, height, scroll: scrollY, gap: row.style.getPropertyValue("--reading-gap"),
+                        tail: row.closest<HTMLElement>("[data-reading-surface]")?.style.getPropertyValue("--reading-tail") ?? "" });
+                }
                 if (--remaining) requestAnimationFrame(sample);
             };
             requestAnimationFrame(sample);
@@ -187,6 +192,7 @@ test.describe("read-only discussion", () => {
         await expect(page.getByRole("region", { name: "Ancestor context" })).toContainText(root.content);
         await sameGeometry();
         const frames = await page.evaluate(() => (window as unknown as { readingFrames: typeof original[] }).readingFrames);
+        await test.info().attach("reading-position", { contentType: "application/json", body: JSON.stringify({ original, frames }) });
         expect(frames.length).toBeGreaterThan(0);
         for (const frame of frames) for (const axis of ["x", "y", "width", "height"] as const) expect(Math.abs(frame[axis] - original[axis]), `frame ${axis}`).toBeLessThan(2);
         await page.goBack();
@@ -321,6 +327,30 @@ test.describe("read-only discussion", () => {
         await expect(row(page, article)).toContainText(article.content);
         await expect(row(page, comment)).toContainText(comment.content);
         await expect(row(page, nested)).toContainText(nested.content);
+    });
+    test("continues a broad parent-only tree without reserving every source upfront", async ({ context, page }) => {
+        // Completing several bounded Load more batches can exceed the suite deadline.
+        test.setTimeout(180000);
+        const selected = make("Broad discussion root");
+        const children = Array.from({ length: 70 }, (_, i) => make(`Broad child ${i}`, [["e", selected.id, "", "reply", selected.pubkey]], 1700000500 + i));
+        const grandchildren = children.map((parent, i) => make(`Broad grandchild ${i}`, [["e", parent.id, "", "reply", parent.pubkey]], 1700000600 + i));
+        const fixture = await setup(context, page, { focus: selected, events: [...children, ...grandchildren], board: [selected] });
+        await page.goto(`/discussion/${selected.id}`);
+        const coverage = page.getByRole("region", { name: "Discussion coverage" });
+        await expect(coverage).toHaveAttribute("data-read-state", "paused", { timeout: 35000 });
+        await coverage.getByText("Source details", { exact: true }).click();
+        await expect(coverage).toContainText("additional source checks remain");
+        await expect(coverage.getByRole("button", { name: "Load more", exact: true })).toBeEnabled();
+        await drain(page);
+        const heading = page.getByRole("region", { name: "Replies", exact: true }).getByRole("heading");
+        expect(Number.parseInt((await heading.innerText()), 10)).toBeGreaterThanOrEqual(130);
+        await expect(page.getByRole("region", { name: "Replies", exact: true }).locator("article")).toHaveCount(48);
+        await expect(coverage).toContainText("Reading limits were reached");
+        await expect(coverage.getByRole("button", { name: "Load more", exact: true })).toHaveCount(0);
+        const operations = Number.parseInt((await coverage.locator("details > p").first().innerText()), 10);
+        expect(operations).toBeLessThanOrEqual(128);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        expect(fixture.publications).toEqual([]);
     });
     test("bounds rendered replies and exposes the rest through local pages", async ({ context, page }) => {
         const selected = make("Many replies focus");

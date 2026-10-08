@@ -51,8 +51,9 @@ describe("discussion presentation contracts", () => {
         expect(discussionProjection(graph(article, comment), id(1)).unresolved).toEqual([]);
     });
     it("reports query failures, unfinished discovery and local retention separately", () => {
-        const snapshot = { coverage: [], routing: [], retentionLimited: false, limitations: [], state: "settled" } as unknown as DiscussionSnapshot;
+        const snapshot = { coverage: [], routing: [], queuedWork: { ancestor: 0, descendants: 0 }, retentionLimited: false, limitations: [], state: "settled" } as unknown as DiscussionSnapshot;
         expect(discussionCoverage(snapshot).partial).toBe(false);
+        expect(discussionCoverage({ ...snapshot, queuedWork: { ancestor: 2, descendants: 6 } })).toMatchObject({ partial: true, pending: 8, failed: 0 });
         expect(discussionCoverage({ ...snapshot, retentionLimited: true })).toMatchObject({ partial: true, limited: true, failed: 0 });
         expect(discussionCoverage({ ...snapshot, coverage: [{ outcome: "timeout", satisfied: false, exhausted: false }] as DiscussionSnapshot["coverage"] })).toMatchObject({ partial: true, failed: 1, pending: 1 });
         expect(discussionCoverage({ ...snapshot, routing: [{ author: id(999), read: [], write: [], fromCache: false, relays: { source: "timeout" } }] as DiscussionSnapshot["routing"] }).partial).toBe(true);
