@@ -625,6 +625,21 @@ so another session can resume. Routine authorized implementation and checks do
 not need repeated approval; deployment, public publication and existing-data
 migration retain their explicit approval requirements.
 
+Feature development and visual refinement run in separate branches. The
+discussion branch owns feature behavior, Nostr relationships and delivery,
+state, resource budgets, security and functional acceptance. The visual branch
+integrates committed feature checkpoints and owns presentation refinements.
+Feature work may add the UI needed for a working feature, using the existing
+shared components and visual conventions.
+
+Return visual changes in committed, reviewable stages with their base commit,
+scope and verification. Shared components can change in both branches; preserve
+their callbacks, feature gates, accessibility and navigation contracts when
+integrating. Run checks appropriate to the combined diff, including source-card
+position restoration and payment choices when those components are affected.
+Keep visual refinements already accepted by the user through subsequent feature
+work. The main checkout and its uncommitted work remain independent.
+
 ### Current verification and next action
 
 The isolated discussion branch includes the foundation, pinned library migration
