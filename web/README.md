@@ -66,6 +66,18 @@ Payment tests block service workers so requests stay inside Playwright's API
 mocks, as described in the [network testing documentation](https://playwright.dev/docs/network#missing-network-events-and-service-workers).
 The PWA test enables workers and uses a real local mock API for those requests.
 
+For the actual container build, nginx proxy, backend and restart check, run
+`npm run test:release-containers` with a local Docker engine and Chrome available.
+It builds both backend targets and the disabled-feature frontend, uses an
+internal Docker network, a fresh identity and disposable volume, then removes
+its containers, volume and image tags. It ignores checkout environment files.
+Invoices use the mock backend and cannot be paid. Existing boards and wallets
+are not used. See the [release checks](../relay/DEPLOYMENT.md#release-verification-and-rollback)
+for the remaining device, interoperability and deployment gates.
+For a feature release, add `-- --with-features` to build an additional enabled
+frontend image. Container builds run sequentially. Use native tests and builds
+for routine development; this smoke is for changes that need container evidence.
+
 The PWA compatibility test is opt-in. Build the legacy invoice interface from
 commit `56439d7` in a temporary checkout and build the current frontend. Use
 these settings for both builds, without copying local wallet or relay secrets:
@@ -108,6 +120,9 @@ VITE_ENABLE_NOSTR_CONNECT=true HOLOBOARD_TEST_PORT=4200 npm run test:e2e -- test
 | `VITE_RELAY_PUBKEY` | Board identity, used for promotion mentions and zaps. |
 | `VITE_PUBLIC_RELAYS` | Comma-separated relays for profiles, quoted notes, mentions and zaps. |
 | `VITE_ENABLE_NOSTR_CONNECT` | Enable held-back signer UI and remote-session restoration; defaults to `false`. |
+| `VITE_ENABLE_DISCUSSIONS` | Enable discussion reading; defaults to `false`. |
+| `VITE_ENABLE_PROFILES` | Enable author profile screens; defaults to `false`. |
+| `VITE_ENABLE_REPLY_PUBLICATION` | Enable replies when discussions and signer support are also enabled; defaults to `false`. |
 | `VITE_SATS_ENDPOINT` | Optional board API base URL, with a `/campaigns` subresource. Defaults to the HTTP API origin followed by `/api/board`. |
 
 These settings are included at build time. Rebuild to change a deployed website.

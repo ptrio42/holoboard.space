@@ -19,6 +19,8 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Honor discussion, profile and reply feature flags in Docker builds, preserving
+  their disabled defaults.
 - Find more branches in large discussions by admitting reads when needed and
   spreading primary checks before repeated sources, with unchanged reading limits.
 

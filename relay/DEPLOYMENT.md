@@ -101,6 +101,34 @@ this configuration. Keep one running instance for this ledger. See Fly's
 
 ## Release verification and rollback
 
+Before requesting deployment, run the isolated container check from `web/`:
+
+```bash
+npm ci
+npm run test:release-containers
+```
+
+It requires a running local Docker engine and Chrome for Playwright. It builds
+the non-root standalone and Fly backend targets, then exercises the actual
+Compose services behind nginx with all feature flags disabled. The check covers
+HTTP routes, verified stored-event WebSocket reads, anonymous mock-invoice
+creation, graceful shutdown and pending-invoice retention after restart. A
+second frontend image can check explicit opt-in feature build arguments with
+`npm run test:release-containers -- --with-features`. Use that additional build
+when preparing a feature-enabled container release. Ordinary development uses
+native tests and builds; container checks run sequentially when required.
+
+The check uses a temporary environment file, fresh identity and project-scoped
+volume. The backend joins only an internal network. Nginx also joins a preview
+bridge with its published port bound to loopback; browser guards block external
+requests. This follows Docker's [separate frontend/backend network pattern](https://docs.docker.com/engine/network/).
+The check never reads production secrets
+or a checkout's `.env`. Cleanup removes only that invocation's resources,
+including its disposable volume. Do not apply its volume deletion command to
+an existing board. Service workers are blocked for this smoke, so the separate
+PWA update checks still apply. Mock invoices do not verify wallet settlement,
+Amber handoff or public interoperability.
+
 Record the currently deployed backend image and the successful Pages deployment
 before updating. Keep the ledger backup outside the checkout and public build
 artifacts. Confirm the backup is valid JSON and contains `pending_invoices` and

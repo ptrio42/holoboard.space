@@ -743,9 +743,21 @@ Regressions include global subscription limits, malformed frames, escaped
 subscription IDs, forged authentication IDs, incoming frame order, listener
 races, stored-query cancellation and historical ledger decoding. Both backend
 binaries build for Linux amd64 with CGO disabled. The backend is unchanged by
-the reading and reply UI stages, so that evidence carries forward. The Docker
-image has not been built because the local daemon is unavailable. A container
-build and the documented release smoke checks remain release requirements.
+the reading and reply UI stages, so that evidence carries forward. Both Docker
+backend targets and the disabled-feature frontend image build successfully.
+The isolated container acceptance passed actual Compose startup, nginx syntax
+and health, proxied board/campaign/waiting APIs, private-preview rejection,
+verified stored-event WebSocket reads with EOSE and CLOSE, anonymous mock-invoice
+creation and browser access to visibility-only boosts. SIGTERM completed and
+restart preserved the identity, original note and pending invoice. Signer,
+discussion and reply controls stayed hidden, with no reply-editor chunk.
+Compose forwards all opt-in feature arguments; the additional enabled container
+build is available with `--with-features` and was not run in this acceptance.
+Native enabled builds retain their separate evidence above. The smoke uses an
+isolated backend network and guards browser requests; four external browser
+attempts were blocked. Image/dependency downloads during building are separate
+from runtime isolation. No public Nostr write or live-wallet payment is part of
+this check. Disposable containers, networks, volume and image tags were removed.
 
 Controlled public-relay checks loaded kind-1 notes, a middle kind-1111 comment
 with its parent/root, a kind-30023 article and an author's profile plus current
@@ -755,7 +767,7 @@ commands and measured limits are below. They do not prove complete discovery,
 public propagation or universal absence of memory leaks.
 
 Remaining release gates are physical signer compatibility, deliberate public
-propagation/interoperability checks and the container/release smoke procedure.
+propagation/interoperability checks and deployment-origin/installed-PWA checks.
 Reported Amber failures still need device reproduction; protocol fixtures do not
 establish their cause. Live-wallet behavior remains separate from mocked payment
 regressions. Direct NIP-55 support, deletion/moderation discovery and verified
@@ -787,7 +799,7 @@ expansion has its own state marker, so a Billboard original opened through note
 options also survives reader navigation. Popovers escape clipped frames and
 remain owned by an enclosing promotion dialog. The retrieval stage preserves
 this presentation, partial coverage and user-triggered batches. Physical signer compatibility, deliberate public
-propagation/interoperability checks and the container/release smoke procedure
+propagation/interoperability checks and deployment-origin/installed-PWA checks
 remain the next release actions. Main pushes and deployment remain separate
 gates.
 Integration must rerun acceptance against its actual base, without clearing saved
@@ -955,11 +967,28 @@ build checks, including automation for additional reproducible failures.
 
 Keep release evidence scoped to what was exercised. Local DM and NWC tests do
 not establish interoperability with an independent client or a live wallet.
-Before releasing the migrated backend, complete the container build and
-controlled interoperability checks for existing DM, payment and publication
-flows. Amber device checks gate the signer release; signer entry points remain
+Before releasing the migrated backend, retain the passing container acceptance
+and complete controlled interoperability checks for existing DM, payment and
+publication flows. Amber device checks gate the signer release; signer entry points remain
 disabled in the meantime. Record unavailable checks as open release gates,
 without marking them passed or assigning routine verification to the maintainer.
+
+Keep the remaining gates separate so the disabled-feature release can proceed
+without claiming signer or publication acceptance:
+
+| Gate | Agent-owned preparation and local evidence | Evidence still requiring the actual environment |
+| --- | --- | --- |
+| Container release | `npm run test:release-containers` from `web/` builds both backend targets, exercises real Compose/nginx/API/WebSocket paths and mock-invoice restart retention, and checks the disabled frontend plus opt-in Compose arguments. Add `-- --with-features` for an enabled container release. | Deployment-origin health, unchanged production identity and ledger, installed-PWA update and rollback readiness. |
+| Signers | Existing extension/NIP-46 fixtures cover pairing methods, signatures, cancellation, account changes, permissions and restoration. Keep every feature flag false by default. | Record OS, browser and signer versions for same-phone Amber handoff/return, desktop-to-phone QR, pasted bunker pairing, rejection and reconnect; include a second independent remote signer and supported desktop extension. |
+| Public delivery | Durable outbox, exact-ID retries and per-relay outcomes are locally exercised without public writes. | Explicitly authorized publication, retrieval through an independent client and verification of reply relationships and partial-delivery recovery. |
+| Payments and DMs | Isolated protocol and recovery fixtures, plus anonymous mock-invoice container checks. | Independent-client DM exchange and live-wallet settlement within an explicitly approved recipient and spending budget. |
+
+Record connection approval and event-publication approval separately. Device
+connection checks can verify identity and cancellation without publishing. A
+signed reply still requires its own explicit publication consent. Do not run
+live DM or wallet tests merely because a container smoke passed. Track versioned
+results and unresolved failures in this reference; a phone-sized browser test
+does not close a physical-device gate.
 
 `TestProductionDMFlow` is opt-in and is skipped by the default Go test suite.
 It publishes public discovery metadata and sends a production DM that creates
