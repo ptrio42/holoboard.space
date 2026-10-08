@@ -83,7 +83,7 @@ test("billboard options reveal complete quotes and original text from the compac
     const original = menu.getByRole("menuitem", { name: "Read original", exact: true });
     await expect(original).toBeFocused();
     const external = menu.getByRole("menuitem", { name: "Open in njump", exact: true });
-    await expect(external).toHaveAttribute("href", /^https:\/\/njump.me\/note1/);
+    await expect(external).toHaveAttribute("href", /^https:\/\/njump.me\/nevent1/);
     for (const control of [original, external]) expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await page.keyboard.press("ArrowDown");
     await expect(external).toBeFocused();
@@ -218,7 +218,7 @@ test("previously loaded quotes remain readable when relays no longer return them
 test("short replies keep conversation context near the author", async ({ context, page }) => {
     const row = await setup(context, page, { billboard: false, content: "A short reply.", tags: [["e", quotes[0].id, "", "reply"]] });
     const contextLink = row.getByRole("link", { name: /In reply to/ });
-    await expect(contextLink).toHaveAttribute("href", `https://njump.me/${noteEncode(quotes[0].id)}`);
+    await expect(contextLink).toHaveAttribute("href", `https://njump.me/${neventEncode({ id: quotes[0].id })}`);
     await expect(row.locator(".board-identity").getByRole("link", { name: /In reply to/ })).toBeVisible();
     await expect(row.getByRole("button", { name: /Show more|Show original/ })).toHaveCount(0);
     expect((await contextLink.boundingBox())!.y).toBeGreaterThan((await row.locator(".board-author").boundingBox())!.y);

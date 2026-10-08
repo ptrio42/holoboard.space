@@ -1,4 +1,5 @@
 import { nip19, type Event } from "nostr-tools";
+import { eventPointer, pointerRelays } from "./nostrPointers";
 
 export interface ThreadReference { type: "event" | "address" | "external"; value: string; relays: string[]; author?: string }
 export interface ThreadContext { root?: ThreadReference; parent?: ThreadReference }
@@ -24,7 +25,7 @@ export function threadContext(event: Pick<Event, "kind" | "tags">): ThreadContex
 }
 export function threadHref(reference: ThreadReference): string {
     if (reference.type === "external") return reference.value;
-    if (reference.type === "event") return `https://njump.me/${nip19.neventEncode({ id: reference.value, relays: reference.relays, author: reference.author })}`;
+    if (reference.type === "event") return `https://njump.me/${eventPointer(reference.value, reference.author, reference.relays)}`;
     const [kind, pubkey, ...identifier] = reference.value.split(":");
-    return `https://njump.me/${nip19.naddrEncode({ kind: Number(kind), pubkey, identifier: identifier.join(":"), relays: reference.relays })}`;
+    return `https://njump.me/${nip19.naddrEncode({ kind: Number(kind), pubkey, identifier: identifier.join(":"), relays: pointerRelays(reference.relays) })}`;
 }

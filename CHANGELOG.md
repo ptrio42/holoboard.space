@@ -14,6 +14,8 @@ record deployment, not announcement publication.
   explicit partial context.
 - Add opt-in author profiles with shared relay reads, explicit source coverage
   and active promoted notes, preserving navigation back to discussions.
+- Share discussions and profiles as `nevent` and `nprofile` links with safe
+  relay hints, while keeping existing hexadecimal links readable.
 - Add an opt-in reply editor with original-note context, separate signing and
   public consent, saved drafts and durable retries of the same signed reply.
 

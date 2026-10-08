@@ -6,6 +6,12 @@ const id = "a".repeat(64);
 const author = "b".repeat(64);
 
 describe("advertising destinations", () => {
+    it("keeps a quote readable when its relay hint cannot fit a NIP-19 TLV", () => {
+        const result = noteAttachments("Quoted note", [["q", id, `wss://hint.example.com/${"x".repeat(256)}`, author]]);
+        expect(result.quotes).toHaveLength(1);
+        expect(result.quotes[0]).toMatchObject({ key: id, author, relays: [] });
+        expect(nip19.decode(result.quotes[0].bech32)).toMatchObject({ type: "nevent", data: { id, author } });
+    });
     it("keeps distinct links visible without duplicating media URLs", () => {
         const result = noteAttachments("Buy here https://example.com/shop. https://example.com/shop https://example.com/a.png");
         expect(result.links).toEqual(["https://example.com/shop"]);

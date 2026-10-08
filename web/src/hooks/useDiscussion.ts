@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { discussionCoordinator, type DiscussionHandle, type DiscussionSnapshot } from "../lib/discussionReads";
 
-export function useDiscussion(focusId: string, author?: string) {
+export function useDiscussion(focusId: string, author?: string, hints: string[] = []) {
     const [snapshot, setSnapshot] = useState<DiscussionSnapshot | null>(null);
     const [error, setError] = useState(false);
     const [attempt, setAttempt] = useState(0);
     const handle = useRef<DiscussionHandle | null>(null);
     const anchor = useRef<{ key: string; top: number; scroll: number } | null>(null);
+    const hintKey = JSON.stringify(hints);
     useEffect(() => {
         let active = true;
         let current: DiscussionHandle | undefined;
@@ -23,7 +24,7 @@ export function useDiscussion(focusId: string, author?: string) {
                 setSnapshot(current.snapshot());
             };
             try {
-                current = discussionCoordinator.open({ focusId, author, onUpdate: update });
+                current = discussionCoordinator.open({ focusId, author, hints: JSON.parse(hintKey), onUpdate: update });
                 handle.current = current;
                 setError(false);
                 update();
@@ -33,7 +34,7 @@ export function useDiscussion(focusId: string, author?: string) {
         return () => {
             active = false; current?.close(); handle.current = null; anchor.current = null;
         };
-    }, [focusId, author, attempt]);
+    }, [focusId, author, hintKey, attempt]);
     useLayoutEffect(() => {
         const previous = anchor.current;
         anchor.current = null;

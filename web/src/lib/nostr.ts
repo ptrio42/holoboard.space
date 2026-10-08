@@ -1,4 +1,5 @@
 import { nip19 } from "@nostr-dev-kit/ndk";
+import { eventPointer, profilePointer } from "./nostrPointers";
 
 /** A note the user wants to promote, resolved down to a plain hex event id. */
 export interface NoteReference {
@@ -48,11 +49,7 @@ export function parseNoteReference(input: string): NoteReference | null {
 
 /** The canonical `nostr:nevent1...` form the relay looks for in a mention. */
 export function toNeventUri(ref: NoteReference): string {
-    const nevent = nip19.neventEncode({
-        id: ref.id,
-        relays: ref.relays.slice(0, 3),
-        author: ref.author,
-    });
+    const nevent = eventPointer(ref.id, ref.author, ref.relays.slice(0, 3));
     return `nostr:${nevent}`;
 }
 
@@ -64,13 +61,13 @@ export function toNpub(pubkey: string): string {
     }
 }
 
-/** Accept an npub or a bare hex public key and normalize it to hex. */
+/** Accept an npub, nprofile or bare hex public key and normalize it to hex. */
 export function parsePubkey(input: string): string | null {
     const value = input.trim();
     if (HEX64.test(value)) return value.toLowerCase();
     try {
         const decoded = nip19.decode(value.replace(/^nostr:/i, ""));
-        return decoded.type === "npub" ? decoded.data : null;
+        return decoded.type === "npub" ? decoded.data : decoded.type === "nprofile" ? decoded.data.pubkey : null;
     } catch {
         return null;
     }
@@ -82,16 +79,11 @@ export function shortNpub(pubkey: string): string {
     return `${npub.slice(0, 10)}...${npub.slice(-4)}`;
 }
 
-export function njumpUrl(pubkeyOrId: string, kind: "npub" | "note" = "npub"): string {
-    const encoded = kind === "npub" ? toNpub(pubkeyOrId) : safeNoteEncode(pubkeyOrId);
-    return `https://njump.me/${encoded}`;
-}
-
-function safeNoteEncode(id: string): string {
+export function njumpUrl(pubkeyOrId: string, kind: "npub" | "note" = "npub", hints: string[] = [], author?: string): string {
     try {
-        return nip19.noteEncode(id);
+        return `https://njump.me/${kind === "npub" ? profilePointer(pubkeyOrId, hints) : eventPointer(pubkeyOrId, author, hints)}`;
     } catch {
-        return id;
+        return `https://njump.me/${pubkeyOrId}`;
     }
 }
 

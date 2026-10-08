@@ -1,6 +1,7 @@
 import { nip19, type NDKFilter } from "@nostr-dev-kit/ndk";
 import { parseContent, type ContentToken } from "../utils/textProcessing/parseContent";
 import { parseNoteReference } from "./nostr";
+import { eventPointer } from "./nostrPointers";
 
 export interface NoteQuoteReference {
     key: string;
@@ -13,7 +14,7 @@ export interface NoteQuoteReference {
 export function quoteReference(value: string): NoteQuoteReference | null {
     try {
         const reference = parseNoteReference(value);
-        const bech32 = reference ? nip19.neventEncode(reference) : value.replace(/^nostr:/i, "").toLowerCase();
+        const bech32 = reference ? eventPointer(reference.id, reference.author, reference.relays) : value.replace(/^nostr:/i, "").toLowerCase();
         const decoded = nip19.decode(bech32);
         if (decoded.type === "note") return { key: decoded.data, bech32, filter: { ids: [decoded.data] }, relays: [] };
         if (decoded.type === "nevent") return { key: decoded.data.id, bech32,
@@ -50,7 +51,7 @@ export function noteAttachments(content: string, tags: string[][] = [], ownId?: 
     for (const tag of tags) {
         if (tag[0] !== "q" || !tag[1]) continue;
         if (/^[0-9a-f]{64}$/i.test(tag[1])) {
-            addQuote(quoteReference(nip19.neventEncode({ id: tag[1].toLowerCase(), relays: tag[2] ? [tag[2]] : [], author: /^[0-9a-f]{64}$/i.test(tag[3] ?? "") ? tag[3].toLowerCase() : undefined })));
+            addQuote(quoteReference(eventPointer(tag[1].toLowerCase(), /^[0-9a-f]{64}$/i.test(tag[3] ?? "") ? tag[3].toLowerCase() : undefined, tag[2] ? [tag[2]] : [])));
         } else addQuote(quoteReference(tag[1]));
     }
     return { links: [...links], quotes: [...quotes.values()] };

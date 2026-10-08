@@ -125,6 +125,11 @@ export class ProfileReader {
 }
 
 export const profileReader = new ProfileReader();
+/** Public metadata hints from verified NIP-65 write entries, never DM lists. */
+export function profileRelayHints(pubkey: string): string[] {
+    const list = nostrCache.query({ kinds: [10002], authors: [pubkey], limit: 1 })[0];
+    return relayCandidates(list?.tags.filter(tag => tag[0] === "r" && (!tag[2] || tag[2] === "write")).map(tag => tag[1]) ?? [], 4);
+}
 const pending = new Map<string, Promise<SafeProfile | undefined>>();
 /** Reuse verified metadata before the first paint of a newly mounted note. */
 function cachedProfileEvent(pubkey: string): Event | undefined {

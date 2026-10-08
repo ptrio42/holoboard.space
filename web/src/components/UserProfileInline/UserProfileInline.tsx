@@ -5,6 +5,7 @@ import { shortNpub } from "../../lib/nostr";
 
 interface Props {
     pubkey: string;
+    hints?: string[];
     size?: "compact" | "sm" | "md";
 }
 
@@ -13,14 +14,14 @@ interface Props {
  * colour, so there is no loading state to flash: the npub shows first and the
  * profile fills in over it when it arrives.
  */
-export const UserProfileInline = ({ pubkey, size = "sm" }: Props) => {
-    const profile = useProfileValue(pubkey);
+export const UserProfileInline = ({ pubkey, hints = [], size = "sm" }: Props) => {
+    const profile = useProfileValue(pubkey, hints);
     const name = profile?.displayName?.trim() || profile?.name?.trim() || shortNpub(pubkey);
     const px = size === "compact" ? 24 : size === "sm" ? 28 : 36;
 
     return (
         <ProfileLink
-            pubkey={pubkey}
+            pubkey={pubkey} hints={hints}
             className={`focus-pixel group inline-flex max-w-full items-center gap-2 no-underline ${size === "compact" ? "board-author" : ""}`}
         >
             <Avatar pubkey={pubkey} src={profile?.picture} name={name} size={px} />

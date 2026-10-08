@@ -5,10 +5,10 @@ import { navigateReading } from "../../lib/discussionNavigation";
 import { profileRoute } from "../../lib/readingRoutes";
 import type { BoardNotePresentation } from "../../lib/readingPosition";
 
-export function DiscussionLink({ id, author, label = "Discussion", accessibleLabel, seed, presentation }: { id: string; author?: string; label?: string; accessibleLabel?: string; seed?: unknown; presentation?: BoardNotePresentation }) {
+export function DiscussionLink({ id, author, hints = [], label = "Discussion", accessibleLabel, seed, presentation }: { id: string; author?: string; hints?: string[]; label?: string; accessibleLabel?: string; seed?: unknown; presentation?: BoardNotePresentation }) {
     const current = window.location.pathname + window.location.search;
     const from = profileRoute(current) ? current : discussionRoute(current)?.from ?? current;
-    return <a className="note-action inline-flex min-h-11 items-center gap-2" aria-label={accessibleLabel} title={accessibleLabel} href={discussionHref(id, author, from)} onClick={event => {
+    return <a className="note-action inline-flex min-h-11 items-center gap-2" aria-label={accessibleLabel} title={accessibleLabel} href={discussionHref(id, author, from, hints)} onClick={event => {
         if (discussionRoute(current)?.focusId === id && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
             const replies = document.getElementById("discussion-replies");
             if (replies) { event.preventDefault(); replies.scrollIntoView({ block: "start" }); replies.focus({ preventScroll: true }); return; }

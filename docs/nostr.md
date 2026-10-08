@@ -136,11 +136,28 @@ and cannot evict a replacement socket after an earlier handshake failed.
 
 Set `VITE_ENABLE_DISCUSSIONS=true` to enable read-only discussions; it is false
 by default. This flag does not enable signer entry points or publication.
-Board and expired-note footers link to `/discussion/<exact-event-id>`, with an
-optional author hint. URLs accept canonical hexadecimal IDs. The `from`
+Board and expired-note footers link to `/discussion/<nevent>`, embedding the
+exact event ID, author and the board relay. Reply links use sources that
+actually delivered the admitted event. Both use
+[NIP-19](https://github.com/nostr-protocol/nips/blob/master/19.md) pointers;
+protocol filters, graph keys, API requests and stored IDs remain hexadecimal.
+Legacy hex and `note` routes remain readable. The `from`
 parameter preserves a board section and waiting-room sort without allowing an
 external redirect. Board navigation seeds the cache only after fresh signature
 and ID verification.
+
+`readingRoutes.ts` decodes pointers before opening the existing shared readers.
+Embedded author fields are discovery hints, never proof of authorship; exact-ID
+lookup and fresh signature verification determine the event and its author.
+`nostrPointers.ts` retains at most four safe relay hints, preserving full relay
+paths. Its 255-byte ASCII limit per relay matches NIP-19's one-byte TLV length.
+The installed `nostr-tools` 2.25.2 encoder writes lengths into a `Uint8Array`
+without rejecting larger values; the wrapper omits oversized hints before
+encoding. Incoming hints also pass the existing relay policy and resource
+admission. Reader URLs remain capped at 4096 characters, with at most two
+reader return levels. An overlong generated return is omitted, preserving the
+pointer and its hints. Existing incoming pointers are retained for browser
+history and position restoration; their hints are filtered before use.
 
 The original event remains the focus, with ancestors in parent-edge order and
 descendants expanded by default. Siblings use ascending timestamps with an ID tie-break;
@@ -244,12 +261,28 @@ configuration against a matching fresh Vite server; flags are build/server
 configuration, not runtime URL switches. Preserve separate checks for the
 production default and the enabled screen.
 
+`web/tests/readingPointers.spec.ts` exercises cold `nevent` and `nprofile` reads
+available only on an embedded hint, an incorrect event-author hint, unsafe
+destinations, observed-source sharing and exact return navigation. Run it with
+both reading flags enabled. Route unit tests also retain legacy URLs and check
+pointer types, checksums, TLV sizes and nested URL budgets. The read-only PWA
+acceptance uses these pointers across update and code rollback while preserving
+the original prepared invoice. On machines with limited resources, run native
+builds, full unit suites and browser suites sequentially; use `--workers=1` for
+browser checks before treating a delayed fixture as a product regression.
+
 ## Profile screen
 
-Set `VITE_ENABLE_PROFILES=true` to enable `/profile/<hex-public-key>` and local
+Set `VITE_ENABLE_PROFILES=true` to enable `/profile/<nprofile>` and local
 author/mention links. The flag is false by default and independent of
 `VITE_ENABLE_DISCUSSIONS` and signer support. Disabled profiles retain the
 existing external profile links. Both screens can run without an account.
+Legacy hex and `npub` routes still work. Profile pointers carry supplied safe
+hints, observed public note sources and cached, verified NIP-65 write relays.
+Cached relay lists contribute write entries only; NIP-65 read entries and
+NIP-17 DM lists are not imported as profile hints. External reading links also use
+`nevent` and `nprofile`, both [supported by njump](https://github.com/fiatjaf/njump).
+Copying a public key continues to use `npub`.
 
 `profileReads.ts` shares metadata work between bylines and profile views.
 Cached kind-0 data renders immediately; opening the screen checks configured

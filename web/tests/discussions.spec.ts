@@ -1,6 +1,7 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { finalizeEvent, generateSecretKey, type Event } from "nostr-tools/pure";
 import { matchFilter } from "nostr-tools/filter";
+import { neventEncode } from "nostr-tools/nip19";
 
 test.use({ serviceWorkers: "block", reducedMotion: "reduce" });
 const enabled = process.env.VITE_ENABLE_DISCUSSIONS === "true";
@@ -71,6 +72,8 @@ test("discussion entry points stay disabled in the default release", async ({ co
     await expect(page.locator("article").first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Discussion", exact: true })).toHaveCount(0);
     await page.goto(`/discussion/${focus.id}`);
+    await expect(page.getByRole("region", { name: "Discussion coverage" })).toHaveCount(0);
+    await page.goto(`/discussion/${neventEncode({ id: focus.id })}`);
     await expect(page.getByRole("region", { name: "Discussion coverage" })).toHaveCount(0);
 });
 

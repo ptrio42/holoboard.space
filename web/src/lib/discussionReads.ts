@@ -66,6 +66,8 @@ export interface DiscussionSnapshot {
     state: "idle" | "loading" | "paused" | "settled" | "closed";
     coverage: DiscussionCoverage[];
     routing: DiscussionRouting[];
+    /** Sources that actually delivered each admitted event in this session. */
+    sources: Record<string, string[]>;
     /** Eligible checks derived from the graph, without reserved network records. */
     queuedWork: { ancestor: number; descendants: number };
     limitations: Limitation[];
@@ -233,6 +235,7 @@ export class DiscussionCoordinator {
     }
     private snapshot(session: Session): DiscussionSnapshot {
         return { focusId: session.focusId, until: session.until, graph: this.graph, state: session.state,
+            sources: Object.fromEntries([...session.sources].map(([id, relays]) => [id, [...relays]])),
             coverage: [...session.work.values()].map((work) => ({ ...work, target: copyTarget(work.target), filter: copyFilter(work.filter),
                 cursor: work.cursor && { ...work.cursor, boundaryIds: [...work.cursor.boundaryIds] }, satisfied: this.satisfied(session, work) })),
             routing: [...session.routes.values()].map((route) => ({ author: route.author, read: [...route.read], write: [...route.write],

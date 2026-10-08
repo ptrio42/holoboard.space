@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
 import { verifyEvent } from "nostr-tools/pure";
+import { nprofileEncode } from "nostr-tools/nip19";
 
 if (process.env.HOLOBOARD_LIVE_READS !== "1") throw new Error("Set HOLOBOARD_LIVE_READS=1 to allow bounded public reads.");
 const apiOrigin = new URL(process.env.HOLOBOARD_API_ORIGIN ?? "https://relay.holoboard.space").href.replace(/\/$/, "");
@@ -122,12 +123,13 @@ try {
         assert.ok(entry, "Visible note must belong to the observed board page");
         const link = source.getByRole("link", { name: "Discussion", exact: true });
         await expect(link).toBeVisible();
+        await expect(link).toHaveAttribute("href", /^\/discussion\/nevent1/);
         await link.click();
         await expect(page.getByRole("article", { name: "Discussion focus", exact: true })).toBeVisible();
         await expect(page.getByRole("region", { name: "Discussion coverage", exact: true })).toHaveAttribute("data-read-state", /^(paused|settled)$/, { timeout: 35000 });
         await expect(page.getByRole("button", { name: "Reply", exact: true })).toHaveCount(0);
         evidence.views.push("board and seeded discussion");
-        await page.goto(`${previewOrigin}/profile/${entry.event.pubkey}`);
+        await page.goto(`${previewOrigin}/profile/${nprofileEncode({ pubkey: entry.event.pubkey, relays: ["wss://relay.holoboard.space"] })}`);
         await expect(page.getByRole("region", { name: "Author profile", exact: true })).toBeVisible();
         await expect(page.getByRole("region", { name: "Profile coverage", exact: true })).toHaveAttribute("data-read-state", /^(settled|partial)$/, { timeout: 20000 });
         await expect(page.locator(`[data-profile-note="${id}"]`)).toBeVisible({ timeout: 20000 });

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ENABLE_DISCUSSIONS } from "../config";
+import { ENABLE_DISCUSSIONS, RELAY_URL } from "../config";
 import { useProfileRead } from "../hooks/useProfileRead";
 import { useProfilePromotions } from "../hooks/useProfilePromotions";
 import { nostrCache } from "../lib/nostrCache";
@@ -16,6 +16,7 @@ import { Expandable } from "../components/ui/Expandable";
 import { NoteExternalLink } from "../components/ui/NoteControls";
 import { DiscussionLink } from "../components/ui/DiscussionLink";
 import TextRenderer from "../components/TextRenderer/TextRenderer";
+import { profileRelayHints } from "../lib/profileReads";
 
 export default function Profile({ pubkey, hints, from }: { pubkey: string; hints: string[]; from: string }) {
     const { snapshot, error, refresh } = useProfileRead(pubkey, hints);
@@ -52,7 +53,7 @@ export default function Profile({ pubkey, hints, from }: { pubkey: string; hints
                     {profile?.nip05 && <p className="break-words text-xs text-cyan-100/75">Claimed address (unverified): {profile.nip05}</p>}
                     <div className="note-footer flex-wrap gap-x-5">
                         <button type="button" className="note-action min-h-11" onClick={() => void copyKey()}>Copy npub</button>
-                        <a href={njumpUrl(pubkey)} target="_blank" rel="noopener noreferrer" className="note-action inline-flex min-h-11 items-center">Open elsewhere</a>
+                        <a href={njumpUrl(pubkey, "npub", [...hints, ...profileRelayHints(pubkey)])} target="_blank" rel="noopener noreferrer" className="note-action inline-flex min-h-11 items-center">Open elsewhere</a>
                     </div>
                     {copyState !== "idle" && <p role="status" className="text-xs text-neon-cyan">{copyState === "copied" ? "Public key copied." : "Clipboard is unavailable. Select the public key above to copy it."}</p>}
                 </section>
@@ -78,7 +79,7 @@ export default function Profile({ pubkey, hints, from }: { pubkey: string; hints
                     const event = bodies.get(entry.id);
                     return <li key={entry.id}><PixelPanel accent="#fbbf24"><article className="space-y-3 p-4" data-profile-note={entry.id}>
                         <header className="flex flex-wrap justify-between gap-3 text-xs text-cyan-100/75"><span className="font-pixel text-[10px] text-neon-gold">Rank {entry.rank}</span><span>{formatSats(entry.weight)} sats counting</span></header>
-                        {event ? <Expandable label="promoted note" footer={control => <div className="note-footer flex-wrap">{control}<div className="ml-auto flex flex-wrap items-center gap-x-4">{ENABLE_DISCUSSIONS && <DiscussionLink id={event.id} author={event.pubkey} seed={event} />}<NoteExternalLink href={njumpUrl(event.id, "note")} /></div></div>}>
+                        {event ? <Expandable label="promoted note" footer={control => <div className="note-footer flex-wrap">{control}<div className="ml-auto flex flex-wrap items-center gap-x-4">{ENABLE_DISCUSSIONS && <DiscussionLink id={event.id} author={event.pubkey} hints={[RELAY_URL]} seed={event} />}<NoteExternalLink href={njumpUrl(event.id, "note", [RELAY_URL], event.pubkey)} /></div></div>}>
                             <TextRenderer text={event.content} tags={event.tags} ownId={event.id} embedQuotes={false} previewLinks={false} />
                         </Expandable> : <><p className="text-sm text-cyan-100/75">Content is unavailable in the read cache.</p><NoteExternalLink href={njumpUrl(entry.id, "note")} /></>}
                     </article></PixelPanel></li>;

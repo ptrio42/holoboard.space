@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { finalizeEvent, generateSecretKey, type Event } from "nostr-tools";
 import { queryNostr, type QueryResult } from "./nostrTransport";
-import { cachedProfileValue, readProfileValue, ProfileReader } from "./profileReads";
+import { cachedProfileValue, profileRelayHints, readProfileValue, ProfileReader } from "./profileReads";
 import { nostrCache } from "./nostrCache";
 import { profileMetadata } from "./profileMetadata";
 vi.mock("./nostrTransport", () => ({ queryNostr: vi.fn() }));
@@ -15,6 +15,14 @@ function fixtures() {
 beforeEach(() => { vi.mocked(queryNostr).mockReset(); vi.mocked(queryNostr).mockResolvedValue(answer()); });
 afterEach(() => vi.useRealTimers());
 describe("shared bounded profile reads", () => {
+    it("exports only verified public write destinations as profile pointer hints", () => {
+        const { make, pubkey } = fixtures();
+        nostrCache.put(make("", 100, 10050, [["relay", "wss://dm.example.com"]]));
+        expect(profileRelayHints(pubkey)).toEqual([]);
+        nostrCache.put(make("", 100, 10002, [["r", "wss://write.example.com", "write"], ["r", "wss://both.example.com"], ["r", "wss://read.example.com", "read"], ["r", "ws://unsafe.example.com", "write"]]));
+        expect(profileRelayHints(pubkey)).toEqual(["wss://write.example.com", "wss://both.example.com"]);
+        expect(queryNostr).not.toHaveBeenCalled();
+    });
     it("makes verified cached author names available synchronously without extra queries", async () => {
         const { old, make, pubkey } = fixtures();
         expect(cachedProfileValue(pubkey)).toBeUndefined();

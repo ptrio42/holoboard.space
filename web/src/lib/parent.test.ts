@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { NDKEvent } from "@nostr-dev-kit/ndk";
 import { parentOf } from "./parent";
+import { decode } from "nostr-tools/nip19";
 
 const event = (kind: number, tags: string[][]) => ({ kind, tags }) as unknown as NDKEvent;
 
@@ -19,6 +20,10 @@ describe("parentOf", () => {
         expect(found?.label).toBe("In reply to");
         expect(found?.href).toContain("njump.me");
     });
+    it("retains the selected parent's relay and author hints in its reading link", () => {
+        const found = parentOf(event(1, [["e", ROOT, "wss://hint.example.com/public", "reply", PARENT]]));
+        expect(decode(new URL(found!.href).pathname.slice(1))).toMatchObject({ type: "nevent", data: { id: ROOT, author: PARENT, relays: ["wss://hint.example.com/public"] } });
+    });
 
     // NIP-10 marks the root when it marks anything, and the marker wins over
     // position.
@@ -27,7 +32,7 @@ describe("parentOf", () => {
             ["e", PARENT],
             ["e", ROOT, "", "root"],
         ]));
-        expect(found?.href).toContain("note1");
+        expect(found?.href).toContain("nevent1");
         expect(parentOf(event(1, [["e", ROOT, "", "root"]]))?.href).toBe(found?.href);
     });
 
