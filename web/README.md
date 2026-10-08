@@ -383,11 +383,20 @@ monospace font. Promotion amounts use a compact picker, while original-note text
 and editor panel explanations use a readable body size. The modal scrolls its
 body independently of the action footer, including on small phone screens.
 Promotion actions and short labels share a 10px pixel style; panel headings use
-12px. Note content, status messages and payment totals use 14px monospace text,
-helper text uses 12px, and editable values use 16px. Connection controls use the
-same action style in the app header and promotion panels.
+12px. Board notes and discussion bodies use 16px monospace text. Promotion
+previews and payment totals use 14px, helper text uses 12px, and editable values
+use 16px. Connection controls use the same action style in the app header and
+promotion panels.
 Card frames show rank: gold, cyan and pink for the top three, then dim cyan.
 Paid billboard text has its own selected color inside that frame.
+
+Compare content layouts on the same frozen public notes at phone and desktop
+widths, keeping typography and footer controls consistent. Include text-only
+notes, portrait screenshots, photographs, galleries, destination links, video
+and quoted context. Assess what is visible before expansion, image legibility,
+available reading and playback actions, and card height across a whole board.
+Extra Read clicks can reflect hidden content, so they do not establish a more
+effective promotion by themselves. Preserve the original signed content.
 
 Keep meaningful pixel labels at least 10px and check their contrast against the
 actual panel background, including each rank tier. Unselected amount and position
