@@ -129,14 +129,19 @@ test.describe("read-only discussion", () => {
         await link.scrollIntoViewIfNeeded();
         const original = (await source.locator("article").boundingBox())!;
         const boardScroll = await page.evaluate(() => scrollY);
-        // Observe every rendered frame, rather than only the final settled layout.
+        // Sample animation-frame geometry as well as the final settled layout.
         await page.evaluate(id => {
-            const samples: { x: number; y: number; width: number; height: number }[] = [];
+            const samples: { x: number; y: number; width: number; height: number; scroll: number; gap: string; tail: string }[] = [];
             Object.assign(window, { readingFrames: samples });
             let remaining = 180;
             const sample = () => {
                 const card = document.querySelector(`[data-reading-focus="${id}"] article`);
-                if (card) { const { x, y, width, height } = card.getBoundingClientRect(); samples.push({ x, y, width, height }); }
+                if (card) {
+                    const { x, y, width, height } = card.getBoundingClientRect();
+                    const row = card.closest<HTMLElement>("[data-reading-focus]")!;
+                    samples.push({ x, y, width, height, scroll: scrollY, gap: row.style.getPropertyValue("--reading-gap"),
+                        tail: row.closest<HTMLElement>("[data-reading-surface]")?.style.getPropertyValue("--reading-tail") ?? "" });
+                }
                 if (--remaining) requestAnimationFrame(sample);
             };
             requestAnimationFrame(sample);
@@ -154,6 +159,7 @@ test.describe("read-only discussion", () => {
         await expect(page.getByRole("region", { name: "Ancestor context" })).toContainText(root.content);
         await sameGeometry();
         const frames = await page.evaluate(() => (window as unknown as { readingFrames: typeof original[] }).readingFrames);
+        await test.info().attach("reading-position", { contentType: "application/json", body: JSON.stringify({ original, frames }) });
         expect(frames.length).toBeGreaterThan(0);
         for (const frame of frames) for (const axis of ["x", "y", "width", "height"] as const) expect(Math.abs(frame[axis] - original[axis]), `frame ${axis}`).toBeLessThan(2);
         await page.goBack();
@@ -290,6 +296,8 @@ test.describe("read-only discussion", () => {
         await expect(row(page, nested)).toContainText(nested.content);
     });
     test("continues a broad parent-only tree without reserving every source upfront", async ({ context, page }) => {
+        // Completing several bounded Load more batches can exceed the suite deadline.
+        test.setTimeout(180000);
         const selected = make("Broad discussion root");
         const children = Array.from({ length: 70 }, (_, i) => make(`Broad child ${i}`, [["e", selected.id, "", "reply", selected.pubkey]], 1700000500 + i));
         const grandchildren = children.map((parent, i) => make(`Broad grandchild ${i}`, [["e", parent.id, "", "reply", parent.pubkey]], 1700000600 + i));

@@ -27,7 +27,8 @@ record deployment, not announcement publication.
 - Close note menus when browser history moves to another screen.
 - Keep keyboard focus on editor tabs when returning to a custom promotion amount.
 - Keep promoted notes at the same position and width when opening discussions,
-  and restore their place on return even after the board refreshes.
+  including read-only mobile Billboard views, and restore their place on return
+  even after the board refreshes.
 - Recheck signer signatures and requested payloads, reject stale account responses,
   validate remote relay changes and close timed-out signer sessions.
 - Verify Nostr event IDs, restrict external relay destinations and bound shared

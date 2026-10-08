@@ -180,6 +180,15 @@ rows. If the event disappears, the saved scroll value is the fallback. Browser
 Back/Forward and explicit return links use the same restoration. During
 restoration, native scroll anchoring is disabled on the active surface to avoid
 competing adjustments; normal board scrolling keeps browser anchoring.
+Keep the focus list's `flow-root` formatting context (or an equivalent layout
+that prevents parent/child margin collapse). The anchor spacer must contribute
+its full height; collapsed margins invalidate the restoration calculation.
+Surface padding and note-anchor margins must not transition. The global reduced
+motion rule shortens transition duration on every element; without an explicit
+`transition-property: none`, even these previously static spacers can interpolate
+for a frame and invalidate the measured offset.
+Exercise reading with reply publication disabled as well as enabled: the extra
+reply action can conceal a short mobile Billboard's alignment regression.
 Known author metadata, cached quote/link previews and overflow measurements
 are available before the first paint of a remounted card. Newly arriving metadata
 or media can still change its height during a read.
@@ -680,9 +689,32 @@ work. The main checkout and its uncommitted work remain independent.
 
 ### Current verification and next action
 
-The isolated discussion branch includes the foundation, pinned library migration
-and production fixes through `e651ac6`. The main checkout stays independent;
+The isolated discussion branch includes the foundation, pinned library migration,
+compact note integration and release checks through `7edfe32`, with the reader
+alignment fix described above. The main checkout stays independent;
 implementation does not enable signer support or deploy any feature.
+
+The final local review rechecked all 375 unit cases, full frontend lint, the
+application and retained dependency packages with Go's race detector, and the
+vendored source reconstruction (92 retained files). Read-only acceptance must
+also run with both signer and reply publication disabled. A collapsed mobile
+Billboard exposed a 34-pixel initial alignment error in that configuration;
+preventing spacer transitions and focus-list margin collapse removed it in
+repeated strict geometry checks. Final read-only browser acceptance passed 75
+project/scenario pairs, with six configuration-specific cases intentionally
+skipped and no failures. All 12 ordinary/Billboard geometry combinations stayed
+below one pixel of measured deviation across the three browser projects.
+The final default configuration separately passed 15 browser checks for hidden
+discussion/profile/reply/signer entry points and anonymous split invoices.
+Six enabled checks reverified NIP-07 and NIP-46 signing with explicit destination
+consent on the three browser projects, using intercepted publication fixtures.
+Clean native production builds passed for default, read-only and fully enabled
+configurations. Default and read-only outputs contain neither a reply-editor
+chunk nor its service-worker precache reference; the enabled output contains both.
+The broad-tree browser scenario allows up to
+180 seconds for several explicit continuation batches; per-batch waits and the
+128-operation and 48-rendered-reply assertions remain unchanged. This extends
+only the test's total deadline, not application resource limits.
 
 Frontend acceptance covers 375 unit cases across 43 files, including lazy
 network admission, breadth-level scheduling, exact/address target accounting,
@@ -959,6 +991,28 @@ disappear can otherwise misidentify shared work or handshake delay as a leak.
 
 ### Verification ownership and release gates
 
+Release readiness is scoped to an artifact and its enabled features. Browser
+feature flags do not disable the backend's migrated Nostr transport, Khatru,
+DM monitor, receiving-wallet connection or account publisher. A disabled-feature
+frontend is therefore not evidence that the migrated backend can skip its own
+interoperability checks.
+
+| Release scope | Required evidence before enabling or deploying |
+| --- | --- |
+| Frontend with all new features disabled | Combined-base board, promotion and anonymous-payment regressions; production build without the reply editor chunk; target API route checks and PWA update/rollback checks. No signer/device acceptance is implied. |
+| Read-only discussions and profiles | Reading flags enabled with signer and reply flags disabled; combined-base relation, cancellation, navigation and profile acceptance; target-origin checks. Physical signer acceptance is not a dependency of reading. |
+| Signer support | The actual device/environment matrix below, including Amber reproduction and a second independent remote signer. Connection approval alone does not authorize publication or payment. |
+| User-authored replies | Signer acceptance plus explicit destination/account consent, durable exact-ID recovery and independently observed public reply relationships. |
+| Migrated backend | Combined-base Go race and historical-ledger compatibility checks, container startup/restart/shutdown evidence, controlled DM/payment/account-publication interoperability, and preservation of the production identity, volume and current ledger. Frontend flags cannot waive this gate. |
+
+Frontend and backend releases may be staged separately when the target backend
+already serves the API routes the selected frontend needs. Check those routes
+on the intended origin rather than inferring compatibility from a local build.
+An enabled container release also needs the enabled-image smoke; the previous
+disabled-image smoke and native enabled build do not establish that result.
+After importing another visual checkpoint or changing the release base, rerun
+the affected combined acceptance before treating these results as current.
+
 Continue implementation and automated verification without waiting for the
 maintainer to provide a device, wallet or manual test session. Pending external
 checks do not block discussion retrieval development in the isolated worktree.
@@ -973,8 +1027,9 @@ publication flows. Amber device checks gate the signer release; signer entry poi
 disabled in the meantime. Record unavailable checks as open release gates,
 without marking them passed or assigning routine verification to the maintainer.
 
-Keep the remaining gates separate so the disabled-feature release can proceed
-without claiming signer or publication acceptance:
+Keep the remaining gates separate so a frontend release with disabled features
+can proceed once its own gates pass, without claiming signer, publication or
+migrated-backend acceptance:
 
 | Gate | Agent-owned preparation and local evidence | Evidence still requiring the actual environment |
 | --- | --- | --- |

@@ -37,6 +37,14 @@ must remain in the graph. Promotion metadata decorates a node; it does not
 change parent edges or automatically promote any related event. Observed replies
 do not change the paid board's membership or ranking.
 
+Personal author muting is scoped to discussion replies. It must not hide or
+collapse notes, mask their content or author, or change membership, order, counts
+or ranking in TOP 21 and the Waiting room. This is a product requirement for
+future mute support, not an implemented feature. Author deletion requests and
+operator moderation are separate policies; this exception does not decide how
+they affect the board. Muted reply placeholders must preserve graph relationships
+and access to loaded descendants.
+
 Default sibling sorting, expansion and moderation presentation remain product
 decisions. Do not import account-following relevance into paid board ranking.
 Technical examples below are comparison material; the Holoboard-specific rules
@@ -445,6 +453,9 @@ separate from local structural and protocol tests.
 - Missing, late, deleted and muted parents preserve loaded descendants. Resolving
   a placeholder does not duplicate nodes, reset expanded branches or jump the
   reader's scroll position. Root claims alone cannot merge unrelated threads.
+- Future personal author-mute support leaves that author's notes unchanged in
+  TOP 21 and the Waiting room. Discussion mute presentation preserves reply
+  relationships and access to loaded descendants.
 - Deep graphs and address-alias cycles terminate within explicit node, depth,
   lookup and subscription bounds. UI collapse alone is not a resource budget.
 - Descendant pagination covers unequal relay date ranges and saturated timestamp
