@@ -356,16 +356,20 @@ A board-origin focus reuses the shared board card at the same width and viewport
 offset, including its source expansion and campaign appearance. Board cards use
 the compact note design with inline ranks, gold ranking amounts, separate Boost
 controls and anchored note options. Only the first rank repeats a TOP label;
-other positions use their number. The discussion shortcut is a stepped speech
-bubble beside the amount and Boost in the same footer, with the accessible name
-Discussion. On phones, identity and note options share the first row, while
-reading and engagement actions share the second. The current discussion focus
+other positions use their number. Ordinary note and reply bodies use 16px text.
+The discussion shortcut is a stepped speech bubble beside note options in the
+same footer, with the accessible name Discussion. On phones, identity,
+Discussion and note options share the first row, while reading, ranking weight
+and Boost share the second. The current discussion focus
 omits its own Discussion shortcut without changing the source card's height.
 Reply rows retain their Thread action for choosing a different focus and keep
 their compact branch layout. Expansion is captured from
 the content state, including Billboard originals opened through note options,
 without depending on a visible disclosure button. Anchored popovers close on
 history navigation, including when their board remains mounted behind a reader.
+The note-options hint stays dismissed after opening, choosing or closing its menu.
+Pointer activation keeps focus on an open popover's trigger, preventing Safari's
+ancestor focus from closing and reopening the menu during the same click.
 Local profile links and unverified address presentation remain feature-gated.
 Return navigation
 restores the source by exact event ID and viewport offset, allowing board polling

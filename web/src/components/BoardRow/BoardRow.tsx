@@ -64,12 +64,15 @@ export function BoardRow({ event, readingFocus = false, initiallyExpanded = fals
     const quotedIds = useMemo(() => new Set(noteAttachments(event.content, event.tags, event.id).quotes.map(quote => quote.key)), [event.content, event.tags, event.id]);
     const parentIsQuoted = parent && quotedIds.has(parseNoteReference(parent.href)?.id ?? "");
     const [popup, setPopup] = useState<{ kind: "weight" | "options"; anchor: HTMLButtonElement } | null>(null);
+    const [optionsHintDismissed, setOptionsHintDismissed] = useState(false);
     const popupId = useId();
     const openPopup = (kind: "weight" | "options", event: MouseEvent<HTMLButtonElement>) => {
         const anchor = event.currentTarget;
+        if (kind === "options") setOptionsHintDismissed(true);
         setPopup(current => current?.kind === kind ? null : { kind, anchor });
     };
     const closePopup = (restoreFocus = true) => {
+        if (popup?.kind === "options") setOptionsHintDismissed(true);
         if (restoreFocus) popup?.anchor.focus({ preventScroll: true });
         setPopup(null);
     };
@@ -117,8 +120,6 @@ export function BoardRow({ event, readingFocus = false, initiallyExpanded = fals
                                 </div>}
                             </div>
                             <div className="board-weight-actions">
-                                {ENABLE_DISCUSSIONS && !readingFocus && <DiscussionLink compact id={event.id} author={event.pubkey} seed={event.rawEvent()}
-                                    presentation={{ rank, sats, weight, expired, isNew, lastPaidAt, firstPaidAt, hotSats, billboard, billboardPreviewSlide }} />}
                                 {typeof sats === "number" && <button type="button" className="board-weight focus-pixel"
                                     aria-label={weightLabel(sats, weight, expired)} aria-haspopup="dialog" aria-controls={`${popupId}-weight`}
                                     aria-expanded={popup?.kind === "weight"} onClick={event => openPopup("weight", event)}>
@@ -134,13 +135,19 @@ export function BoardRow({ event, readingFocus = false, initiallyExpanded = fals
                                     <BoostIcon />
                                 </PixelButton><span className="board-hint" aria-hidden="true">{expired ? "Promote again" : "Boost"}</span></span>}
                             </div>
-                            <span className="board-hint-wrap"><button type="button" className="note-icon-control board-options"
-                                aria-label="Note options" aria-haspopup="menu" aria-controls={`${popupId}-options`} aria-expanded={popup?.kind === "options"}
-                                onClick={event => openPopup("options", event)}>
-                                <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" shapeRendering="crispEdges">
-                                    <path d="M9 2h3v3H9zM9 9h3v3H9zM9 16h3v3H9z" />
-                                </svg>
-                            </button><span className="board-hint" aria-hidden="true">Note options</span></span>
+                            <div className="board-note-actions">
+                                {ENABLE_DISCUSSIONS && !readingFocus && <DiscussionLink compact id={event.id} author={event.pubkey} seed={event.rawEvent()}
+                                    presentation={{ rank, sats, weight, expired, isNew, lastPaidAt, firstPaidAt, hotSats, billboard, billboardPreviewSlide }} />}
+                                <span className="board-hint-wrap" data-hint-dismissed={optionsHintDismissed || popup?.kind === "options" || undefined}
+                                    onPointerLeave={event => { if (!event.currentTarget.querySelector(":focus-visible")) setOptionsHintDismissed(false); }}
+                                    onBlur={() => setOptionsHintDismissed(false)}><button type="button" className="note-icon-control board-options"
+                                    aria-label="Note options" aria-haspopup="menu" aria-controls={`${popupId}-options`} aria-expanded={popup?.kind === "options"}
+                                    onClick={event => openPopup("options", event)}>
+                                    <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" shapeRendering="crispEdges">
+                                        <path d="M9 2h3v3H9zM9 9h3v3H9zM9 16h3v3H9z" />
+                                    </svg>
+                                </button><span className="board-hint" aria-hidden="true">Note options</span></span>
+                            </div>
                         </footer>
                         {popup?.kind === "options" && <NotePopover id={`${popupId}-options`} anchor={popup.anchor} title="Note options" menu onClose={closePopup}>
                             <div role="menu" aria-label="Note options" className="note-menu">

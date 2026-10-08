@@ -41,6 +41,12 @@ export function NotePopover({ id, anchor, title, menu = false, children, onClose
             const target = event.target as Node;
             if (!panel.contains(target) && !anchor.contains(target)) closeRef.current(false);
         };
+        const focusAnchor = (event: MouseEvent) => {
+            if (event.button !== 0 || !anchor.contains(event.target as Node)) return;
+            // Safari otherwise focuses the ancestor and closes before the trigger click.
+            event.preventDefault();
+            anchor.focus({ preventScroll: true });
+        };
         const keyboard = (event: KeyboardEvent) => {
             if (event.key === "Escape") {
                 event.preventDefault();
@@ -64,6 +70,7 @@ export function NotePopover({ id, anchor, title, menu = false, children, onClose
         const navigate = () => closeRef.current(false);
         window.addEventListener("popstate", navigate);
         document.addEventListener("pointerdown", outside, true);
+        document.addEventListener("mousedown", focusAnchor, true);
         document.addEventListener("focusin", outside);
         // Handle Escape before an enclosing modal's document listener.
         window.addEventListener("keydown", keyboard, true);
@@ -74,6 +81,7 @@ export function NotePopover({ id, anchor, title, menu = false, children, onClose
         return () => {
             window.removeEventListener("popstate", navigate);
             document.removeEventListener("pointerdown", outside, true);
+            document.removeEventListener("mousedown", focusAnchor, true);
             document.removeEventListener("focusin", outside);
             window.removeEventListener("keydown", keyboard, true);
             window.removeEventListener("resize", place);

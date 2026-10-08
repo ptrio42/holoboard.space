@@ -170,6 +170,7 @@ body::after {
     cursor: not-allowed;
     box-shadow: none;
 }
+.pixel-btn:disabled[aria-busy="true"] { opacity: 1; }
 
 .pixel-btn__face {
     display: flex;
@@ -375,7 +376,7 @@ body::after {
 .discussion-note__header > a { flex: 1; min-width: 0; }
 .discussion-note__header > button { flex-shrink: 0; }
 .discussion-note__content { padding-left: 30px; }
-.discussion-note .note-body { font-size: 14px; line-height: 1.7; }
+.discussion-note .note-body { font-size: 16px; line-height: 1.7; }
 .discussion-note-compact {
     position: relative;
     border-bottom: 1px solid rgb(34 211 238 / 0.1);
@@ -419,7 +420,7 @@ body::after {
     padding: 0;
     background: transparent;
 }
-.note-boost svg { width: 24px; height: 24px; }
+.note-boost svg { width: 20px; height: 20px; }
 .note-boost:hover:not(:disabled) {
     --ink: var(--color-neon-gold);
     transform: none;
@@ -436,7 +437,7 @@ body::after {
 .note-context:hover { color: var(--color-neon-cyan); }
 
 /* Quiet note chrome: the amount explains weight; its neighbour adds a boost. */
-.board-note { padding: 12px; font-size: 14px; }
+.board-note { padding: 12px; font-size: 16px; }
 .board-note-content, .board-billboard { display: flow-root; }
 .board-rank {
     float: right;
@@ -458,7 +459,7 @@ body::after {
 .board-original { margin-top: 12px; border-top: 1px solid rgb(34 211 238 / 0.15); padding-top: 12px; }
 .board-original > p { margin-bottom: 12px; }
 .board-reading { grid-area: reading; display: flex; justify-content: flex-end; }
-.board-meta { display: grid; grid-template-columns: minmax(0, 1fr) auto 44px; grid-template-areas: "identity weight options" "reading reading reading"; margin-top: 8px; padding-top: 6px; gap: 0 4px; }
+.board-meta { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "identity weight options" "reading reading reading"; margin-top: 8px; padding-top: 6px; gap: 0 4px; }
 .board-meta--discussion { grid-template-areas: "identity identity options" "reading weight weight"; }
 .board-meta--discussion .board-reading { justify-content: flex-start; }
 .board-identity {
@@ -477,7 +478,7 @@ body::after {
 .board-new { font-family: var(--font-pixel); font-size: 10px; color: var(--color-neon-gold); }
 .board-context { flex-basis: 100%; color: rgb(165 243 252 / 0.6); font-size: 12px; }
 .board-weight-actions { grid-area: weight; display: flex; justify-content: flex-end; flex-shrink: 0; align-items: center; gap: 4px; min-height: 44px; }
-.board-meta > .board-hint-wrap { grid-area: options; }
+.board-note-actions { grid-area: options; display: flex; align-items: center; gap: 4px; }
 .board-discussion svg { width: 18px; height: 18px; }
 .board-weight {
     position: relative;
@@ -549,7 +550,11 @@ body::after {
     opacity: 0;
     pointer-events: none;
 }
-.board-hint-wrap:hover > .board-hint, .board-hint-wrap:focus-within > .board-hint { opacity: 1; }
+.board-hint-wrap:has(:focus-visible) > .board-hint { opacity: 1; }
+@media (hover: hover) {
+    .board-hint-wrap:hover > .board-hint { opacity: 1; }
+}
+.board-hint-wrap[data-hint-dismissed="true"] > .board-hint { opacity: 0; }
 .note-popover {
     position: fixed;
     z-index: 60;
@@ -594,9 +599,10 @@ body::after {
     .board-note { padding: 16px; }
     .board-meta--discussion { grid-template-areas: "identity weight options" "reading reading reading"; }
     .board-meta--discussion .board-reading { justify-content: flex-end; }
+    .board-meta--discussion .board-note-actions { margin-left: 12px; }
 }
 @container row (max-width: 330px) {
-    .board-meta--wide { grid-template-columns: minmax(0, 1fr) 44px; grid-template-areas: "identity options" "reading reading" "weight weight"; }
+    .board-meta--wide { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "identity options" "reading reading" "weight weight"; }
 }
 .note-quote {
     margin: 0.75rem 0;
@@ -918,6 +924,15 @@ body::after {
     line-height: 1.65;
 }
 .pixel-status__copy > * + * { margin-top: 8px; }
+.pixel-status--loading:not(.pixel-status--compact) .pixel-status__copy {
+    font-family: var(--font-pixel);
+    font-size: 12px;
+    line-height: 1.8;
+}
+.payment-action-progress { display: inline-flex; align-items: center; gap: 10px; }
+.payment-action-progress .pixel-status { min-height: 0; padding: 0; }
+.payment-action-progress .pixel-status__symbol > span { gap: 2px; }
+.payment-action-progress .animate-pixel-pulse { width: 4px; height: 4px; }
 .pixel-status--compact {
     flex-direction: row;
     justify-content: flex-start;

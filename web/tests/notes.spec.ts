@@ -9,7 +9,7 @@ const makeNote = (content: string, tags: string[][] = [], key = authorKey, kind 
 const quotes = Array.from({ length: 6 }, (_, i) => makeNote(`Quoted source ${i + 1}. ` + "Context for the original note. ".repeat(12), [], quoteKey));
 const profiles = [makeNote(JSON.stringify({ name: "Row author" }), [], authorKey, 0), makeNote(JSON.stringify({ name: "Quote author" }), [], quoteKey, 0)];
 
-async function setup(context: BrowserContext, page: Page, options: { content?: string; billboard?: boolean; tags?: string[][]; availableQuotes?: Event[]; expired?: boolean; ledger?: { rank?: number; sats_paid?: number; weight?: number }; slowQuote?: { deliver?: () => void; fastReplies: number } } = {}) {
+async function setup(context: BrowserContext, page: Page, options: { content?: string; billboard?: boolean; tags?: string[][]; availableQuotes?: Event[]; expired?: boolean; ledger?: { rank?: number; sats_paid?: number; weight?: number }; slowQuote?: { deliver?: () => void; fastReplies: number }; profileEose?: { releases: (() => void)[] } } = {}) {
     const origin = new URL(test.info().project.use.baseURL!).origin;
     const note = makeNote(options.content ?? "A billboard headline.\n" + quotes.map(quote => `nostr:${noteEncode(quote.id)}`).join("\n"), options.tags);
     const entry = { event: note, id: note.id, rank: 1, weight: 200, sats_paid: 210, first_paid_at: 1700000000, last_paid_at: 1700000000,
@@ -44,7 +44,9 @@ async function setup(context: BrowserContext, page: Page, options: { content?: s
                     (!filter.ids || filter.ids.includes(event.id)) && (!filter.kinds || filter.kinds.includes(event.kind)) &&
                     (!filter.authors || filter.authors.includes(event.pubkey)))) socket.send(JSON.stringify(["EVENT", msg[1], event]));
             }
-            socket.send(JSON.stringify(["EOSE", msg[1]]));
+            const end = () => socket.send(JSON.stringify(["EOSE", msg[1]]));
+            if (options.profileEose && msg.slice(2).some((filter: { kinds?: number[] }) => filter.kinds?.includes(0))) options.profileEose.releases.push(end);
+            else end();
         });
     });
     await page.goto(options.expired ? "/expired" : "/");
@@ -119,6 +121,41 @@ test("long plain notes restore hidden quote actions when expanded", async ({ con
     await expect(row.getByRole("link", { name: "Open quoted note" })).toBeFocused();
     await row.getByRole("button", { name: /Show less/ }).click();
     await expect(row.locator(".note-quote")).toHaveAttribute("inert", "");
+});
+
+test("note option hints stay dismissed after closing or choosing a menu item", async ({ context, page }) => {
+    const row = await setup(context, page, { content: "The original note behind a billboard." });
+    const options = row.getByRole("button", { name: "Note options", exact: true });
+    const hint = options.locator("..").locator(".board-hint");
+    await options.focus();
+    await expect(hint).toHaveCSS("opacity", "1");
+    await page.keyboard.press("Enter");
+    await expect(hint).toHaveCSS("opacity", "0");
+    await page.keyboard.press("Escape");
+    await expect(options).toBeFocused();
+    await expect(hint).toHaveCSS("opacity", "0");
+    await options.click();
+    await page.getByRole("menuitem", { name: "Read original", exact: true }).click();
+    await expect(row.getByText("Original text", { exact: true })).toBeVisible();
+    await expect(hint).toHaveCSS("opacity", "0");
+    await options.click();
+    await expect(page.getByRole("menu", { name: "Note options" })).toBeVisible();
+    await expect(options).toHaveAttribute("aria-expanded", "true");
+    await options.click();
+    await expect(page.getByRole("menu", { name: "Note options" })).toHaveCount(0);
+    await expect(options).toBeFocused();
+    await expect(hint).toHaveCSS("opacity", "0");
+});
+
+test("author names appear before slow profile relays finish and release their read handles", async ({ context, page }) => {
+    const profileEose = { releases: [] as (() => void)[] };
+    const row = await setup(context, page, { billboard: false, content: "A readable note with streamed author metadata.", profileEose });
+    await expect(row.locator(".board-author")).toContainText("Row author", { timeout: 2000 });
+    expect(profileEose.releases.length).toBeGreaterThan(0);
+    expect(await page.evaluate(async () => (await import("/src/lib/profileReads.ts")).profileReader.stats().handles)).toBeGreaterThan(0);
+    profileEose.releases.forEach(end => end());
+    await expect.poll(() => page.evaluate(async () => (await import("/src/lib/profileReads.ts")).profileReader.stats().handles)).toBe(0);
+    await expect(row.locator(".board-author")).toContainText("Row author");
 });
 
 test("timed-out quotes retain an accessible external link and can be retried", async ({ context, page }) => {
@@ -267,7 +304,7 @@ test("gold sats open ranking details without crowding the author or Boost", asyn
     }
     expect((await amount.boundingBox())!.x + (await amount.boundingBox())!.width).toBeLessThanOrEqual((await boost.boundingBox())!.x);
     await expect(amount).toHaveCSS("color", "rgb(251, 191, 36)");
-    await expect(row.locator(".board-note-content .note-body")).toHaveCSS("font-size", "14px");
+    await expect(row.locator(".board-note-content .note-body")).toHaveCSS("font-size", "16px");
     await expect(row.locator(".board-note-content h1, .board-note-content h2")).toHaveCount(0);
     await expect(row.locator(".board-rank__label")).toHaveText("TOP");
     await page.screenshot({ path: testInfo.outputPath("compact-note.png"), fullPage: true });

@@ -58,7 +58,6 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                     </span>
                 </button>)}
             </div>
-            {progress && <StatusMessage loading compact iconOnly>{progress}</StatusMessage>}
             {mockPayment && <p role="alert" className="text-xs text-neon-gold">{MOCK_INVOICE_MESSAGE} The saved author invoice is separate; check its payment status before starting again.</p>}
             {!canResume && <p className="text-xs text-neon-gold">This browser cannot save the payment for a refresh. Keep the invoices and check your wallet before refreshing or closing this tab.</p>}
             {payment.promotionPaid && <div className="space-y-1 text-xs text-cyan-100/70" aria-live="polite">
@@ -113,8 +112,9 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
             {blocked && !busy && <p className="text-xs text-cyan-100/60">{blocked}</p>}
         </div>
         {footer(<div className="space-y-2">
-            {method === "wallet" ? wallet && <PixelButton className="w-full min-h-11" variant="accent" disabled={busy || connecting || !actionable.length} onClick={onPay}>
-                {walletLabel}
+            {progress && (method !== "wallet" || !wallet) && <StatusMessage loading compact iconOnly>{progress}</StatusMessage>}
+            {method === "wallet" ? wallet && <PixelButton className="w-full min-h-11" variant="accent" aria-label={walletLabel} aria-busy={!!progress} disabled={busy || connecting || !actionable.length} onClick={onPay}>
+                <span className="payment-action-progress">{progress && <StatusMessage loading compact iconOnly inline>{progress}</StatusMessage>}{walletLabel}</span>
             </PixelButton> : invoiceAvailable && <div className="flex flex-wrap items-stretch gap-2">
                 <PixelLink className="min-h-11 flex-1" size="sm" variant="accent" href={`lightning:${selected.invoice}`}>Open in wallet</PixelLink>
                 <CopyButton key={selected.hash} value={selected.invoice} label="Copy invoice" />

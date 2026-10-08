@@ -224,6 +224,11 @@ read. React StrictMode startup uses the same cancellable microtask pattern as
 discussions. Empty checked sources, failed sources, malformed latest metadata
 and cached data remain distinct. A cached read alone never extends its TTL.
 
+Bylines consume verified metadata updates as they arrive, without waiting for
+the remaining sources to finish. Their handles close after the bounded read or
+on unmount; cached metadata avoids a new read. This improves display latency
+without changing shared admission or treating incomplete relay reads as absence.
+
 Profile ordering follows [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md):
 newest timestamp, then lowest ID. Fields follow kind-0 metadata and
 [NIP-24](https://github.com/nostr-protocol/nips/blob/master/24.md).
@@ -258,8 +263,9 @@ entry use quiet 44-pixel controls. `VITE_ENABLE_NOSTR_CONNECT` gates Sign in and
 the connected avatar; its false default also preserves disabled restoration.
 Connected account metadata comes from the same verified profile reader used by
 bylines, with Account and a generated avatar as fallbacks. Desktop names truncate;
-phones retain only the avatar or sign-in icon. Account connection details and
-disconnect are available through an anchored keyboard-accessible menu. Its
+phones retain only the avatar or a stepped arrow entering a doorway for Sign in.
+Account connection details and disconnect are available through an anchored
+keyboard-accessible menu. Its
 Your profile action additionally requires `VITE_ENABLE_PROFILES` and preserves
 local reader return paths. Disconnecting the account leaves the payment wallet
 connected. Closing connection settings restores focus to the current account
@@ -772,16 +778,18 @@ both scenarios pass in the focused single-worker run. This stage does not claim
 a completed full browser regression. Integration must preserve the accepted
 presentation contract in [the discussion design](nostr-discussions.md).
 
-The header refinement is based on visual checkpoint `e335135`. Targeted
-connection, profile-read and route units, changed-module lint and
-enabled/disabled production builds pass. Browser checks cover header geometry
-at desktop, phone, 768px and 320px widths, metadata fallbacks, account-menu
-keyboard and focus behavior, profile returns and wallet independence across
-Chrome, Android-sized Chrome and iPhone-sized WebKit. Default-flag checks
-preserve hidden signer entry points, anonymous split invoices and nested
-promotion-popover focus. A signer-enabled, profiles-disabled run keeps the
-account menu usable without offering a profile route. Coverage is limited to
-the changed UI and its connection, navigation and payment dependencies.
+The current note, header and payment refinement is based on visual checkpoint
+`64f90f0`. Changed-module lint, 73 targeted profile, connection, navigation and
+payment units, and enabled/disabled production builds pass. Focused Chrome,
+Android-sized Chrome and iPhone-sized WebKit checks cover source-card geometry,
+account and note-menu focus, profile returns, streamed author metadata and read
+handle cleanup. Payment checks cover author-wallet issues visible at 320x640
+through editor tabs, explicit visibility-only recovery, progress inside Pay,
+compact boosts, invoice QR decoding and disabled signer entry points.
+A controlled public read confirms that verified byline names can appear while
+other sources remain pending; incomplete relay reads still cannot guarantee a
+profile for every author. These checks use intercepted payment fixtures and do
+not establish real wallet settlement or a full browser regression.
 
 Integration must rerun acceptance against its actual base, without clearing saved
 invoices, identities, public outbox entries or the production ledger. Deployment,

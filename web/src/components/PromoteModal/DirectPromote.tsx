@@ -463,10 +463,21 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         } finally { if (!controller.signal.aborted) setBusy(false); }
     };
     const cannotPrepare = busy || loading || !preview || !validAmount || invalidTip || (billboardEnabled && !validBillboard(config, preview.event.content, preview.images));
+    const submissionLabel = busy ? "Preparing payments" : !validAmount ? "Enter amount" : `${boost ? "Boost" : "Promote"} ${amount+fee} sats`;
+    const splitWarning = split.author > 0 && (authorInvoiceError || (endpoint && invalidTip)) && <div className="space-y-2 border-l-2 border-neon-gold pl-3 text-xs text-neon-gold" aria-label="Author payment issue">
+        <p role="alert">{authorInvoiceError ? `Could not prepare author support: ${authorInvoiceError}` : !endpoint?.available ? endpoint?.reason : `The author's wallet accepts ${endpoint.min_sats} to ${endpoint.max_sats} sats. Increase the amount or change the allocation.`}</p>
+        <p>Visibility only: {amount} sats to Holoboard, 0 to the author{fee > 0 ? `, plus ${fee} sats for appearance` : ""}.</p>
+        <div className="flex flex-wrap gap-2">
+            {!endpoint?.available && endpoint?.reason_code !== "no_address" && <button type="button" className={`${actionClass} min-w-11`} aria-label="Retry author wallet" disabled={busy || loading} onClick={() => void retryAuthorEndpoint()}>Retry</button>}
+            <button type="button" className={actionClass} aria-label="Choose visibility only" disabled={busy || loading} onClick={() => { changeAuthorShare(0); setError(""); }}>Visibility only</button>
+        </div>
+    </div>;
     const submission = <div className="space-y-2">
+        {splitWarning}
         {error && <p role="alert" className="text-sm text-neon-pink">{error}</p>}
-        <PixelButton className="w-full min-h-11" variant="accent" disabled={cannotPrepare} onClick={() => void start()}>
-            {busy ? "Preparing payments" : !validAmount ? "Enter amount" : `${boost ? "Boost" : "Promote"} ${amount+fee} sats`}
+        <PixelButton className="w-full min-h-11" variant="accent" aria-label={submissionLabel} aria-busy={busy} disabled={cannotPrepare} onClick={() => void start()}>
+            <span className="payment-action-progress">{busy && <StatusMessage loading compact iconOnly inline>Preparing payments</StatusMessage>}
+                {submissionLabel}</span>
         </PixelButton>
         <div className="flex flex-wrap items-center justify-between gap-x-3">
             {hasTabs ? panel !== "compose" && <button type="button" className={actionClass} disabled={busy} onClick={() => selectTab("compose")}> &lt; Back to promotion</button> : paymentOptions}
@@ -561,14 +572,6 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                 </details>}
             </div>
         </PromotionSplit>
-        {split.author > 0 && (authorInvoiceError || (endpoint && invalidTip)) && <div className="space-y-2 border-l-2 border-neon-gold pl-3 text-sm text-neon-gold">
-            <p role="alert">{authorInvoiceError ? `Could not prepare author support: ${authorInvoiceError}` : !endpoint?.available ? endpoint?.reason : `The author's wallet accepts ${endpoint.min_sats} to ${endpoint.max_sats} sats. Increase the amount or change the allocation.`}</p>
-            <p>Visibility only would allocate {amount} sats to Holoboard visibility and 0 sats to the author{fee > 0 ? `, plus ${fee} sats for appearance` : ""}. Total: {amount+fee} sats. Review the allocation before preparing an invoice.</p>
-            <div className="flex flex-wrap gap-2">
-                {!endpoint?.available && endpoint?.reason_code !== "no_address" && <PixelButton size="sm" variant="ghost" disabled={busy || loading} onClick={() => void retryAuthorEndpoint()}>Retry author wallet</PixelButton>}
-                <PixelButton size="sm" variant="ghost" disabled={busy || loading} onClick={() => { changeAuthorShare(0); setError(""); }}>Choose visibility only</PixelButton>
-            </div>
-        </div>}
         {footer(submission)}
     </div></>;
 }

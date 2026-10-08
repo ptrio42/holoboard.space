@@ -19,7 +19,12 @@ record deployment, not announcement publication.
 
 ### Fixed
 
-- Close note menus when browser history moves to another screen.
+- Show verified author profiles as soon as their metadata arrives, even while
+  slower relays are pending.
+- Keep author-wallet issues and visibility-only recovery beside the promotion
+  action, and show payment progress inside the wallet payment button.
+- Keep note menus and hints in sync after selection, dismissal and browser
+  navigation, including Safari trigger clicks.
 - Keep keyboard focus on editor tabs when returning to a custom promotion amount.
 - Keep promoted notes at the same position and width when opening discussions,
   and restore their place on return even after the board refreshes.
@@ -42,9 +47,10 @@ record deployment, not announcement publication.
   pseudonym, with profile access and connection controls in a compact menu.
 - Update Nostr relay transport while preserving saved invoices and queued
   account posts.
-- Give note content more space with one compact footer, smaller author avatars
-  beside pseudonyms and ranks in the upper corner, with TOP on the first position.
-- Join the Discussion shortcut and Boost in the note footer. Keep the current
+- Give note content more space with larger text, one compact footer and smaller
+  author avatars beside pseudonyms. Keep ranks in the upper corner, with TOP
+  on the first position.
+- Place Discussion beside note options in the compact footer. Keep the current
   thread free of a duplicate shortcut, with quieter comment rows, compact
   avatars, parent previews and secondary timestamps.
 - Show sats in gold with a thin ranking-weight underline and a separate lightning

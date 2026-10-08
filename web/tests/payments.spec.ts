@@ -403,6 +403,37 @@ for (const scenario of ["new missing address", "new wallet outage", "existing mi
     expect(state.authorRequests).toHaveLength(0); expect(state.boardCharges).toBe(0); expect(state.errors).toEqual([]);
 });
 
+for (const newCampaign of [false, true]) test(`author wallet issues remain visible without scrolling in ${newCampaign ? "promotion" : "boost"}`, async ({ context, page }, testInfo) => {
+    await page.setViewportSize({ width: 320, height: 640 });
+    const state = await setup(context, page, { newCampaign, authorUnavailable: "unavailable", noteContent: "A long note. ".repeat(100) });
+    const warning = page.getByLabel("Author payment issue");
+    const submit = page.getByRole("button", { name: newCampaign ? "Promote 210 sats" : "Boost 210 sats", exact: true });
+    const assertVisible = async () => {
+        await expect(warning.getByRole("alert")).toContainText("Author support is unavailable");
+        await expect(submit).toBeDisabled();
+        expect((await warning.getByRole("button", { name: "Retry author wallet", exact: true }).boundingBox())!.y).toBeCloseTo((await warning.getByRole("button", { name: "Choose visibility only", exact: true }).boundingBox())!.y, 0);
+        for (const control of [warning, submit]) {
+            const bounds = (await control.boundingBox())!;
+            expect(bounds.y).toBeGreaterThanOrEqual(0);
+            expect(bounds.y + bounds.height).toBeLessThanOrEqual(640);
+        }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    };
+    await assertVisible();
+    await page.screenshot({ path: testInfo.outputPath("author-wallet-issue.png") });
+    if (newCampaign) {
+        for (const name of ["Billboard", "Payment options"]) {
+            await page.getByRole("tab", { name, exact: true }).click();
+            await assertVisible();
+        }
+    }
+    await warning.getByRole("button", { name: "Choose visibility only", exact: true }).click();
+    await expect(warning).toHaveCount(0);
+    await expect(submit).toBeEnabled();
+    expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
 for (const supportAuthor of [false, true]) test(`legacy campaign defaults to visibility only and permits author opt-in: ${supportAuthor}`, async ({ context, page }) => {
     const state = await setup(context, page, { authorShare: 0 });
     await openSupport(page);
@@ -1734,12 +1765,17 @@ test("a late wallet response cannot overwrite a replacement visibility invoice a
 });
 
 test("NWC progress stays calm and a complete payment ends with Done", async ({ context, page }, testInfo) => {
+    await page.setViewportSize({ width: 320, height: 640 });
     const state = await setup(context, page, { deferAuthorResponse: true });
     await connectNwc(page); await prepareInvoices(page);
     await page.getByRole("button", { name: "Pay 210 sats", exact: true }).click();
     await expect.poll(() => !!state.completeAuthorPayment).toBe(true);
     const progress = page.getByRole("status").filter({ hasText: "Processing author support" });
     await expect(progress).toBeVisible();
+    const pay = page.getByRole("button").filter({ has: progress });
+    await expect(pay).toHaveAttribute("aria-busy", "true");
+    await expect(pay.getByRole("status")).toHaveCount(1);
+    expect((await pay.boundingBox())!.y + (await pay.boundingBox())!.height).toBeLessThanOrEqual(640);
     await expect(progress.locator(".sr-only")).toHaveText("Processing author support");
     await expect(progress.locator(".sr-only")).toHaveCSS("position", "absolute");
     await expect(progress.locator(".animate-pixel-pulse")).toHaveCount(4);
@@ -1793,6 +1829,7 @@ test("WebLN completion survives contextual help", async ({ context, page }) => {
 });
 
 test("submitted NWC payment uses an indicator until confirmed without another charge", async ({ context, page }) => {
+    await page.setViewportSize({ width: 320, height: 640 });
     await page.emulateMedia({ reducedMotion: "reduce" });
     const state = await setup(context, page);
     let allowVerification = false;
@@ -1808,6 +1845,9 @@ test("submitted NWC payment uses an indicator until confirmed without another ch
     await expect(page.getByRole("heading", { name: "Payment complete", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Back to promotion", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Check payment status", exact: true })).toBeEnabled();
+    const check = page.getByRole("button", { name: "Check payment status", exact: true });
+    await expect(check.getByRole("status")).toHaveCount(1);
+    expect((await check.boundingBox())!.y + (await check.boundingBox())!.height).toBeLessThanOrEqual(640);
     allowVerification = true;
     await page.evaluate(() => window.dispatchEvent(new Event("pageshow")));
     await expect(page.getByRole("heading", { name: "Payment complete", exact: true })).toBeVisible({ timeout: 10000 });
