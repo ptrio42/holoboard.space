@@ -420,7 +420,7 @@ body::after {
     padding: 0;
     background: transparent;
 }
-.note-boost svg { width: 20px; height: 20px; }
+.note-boost svg { width: 24px; height: 24px; }
 .note-boost:hover:not(:disabled) {
     --ink: var(--color-neon-gold);
     transform: none;

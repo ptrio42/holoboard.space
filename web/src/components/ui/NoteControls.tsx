@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 export function BoostIcon() {
     return <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" shapeRendering="crispEdges">
-        <path d="M11 1h2v2h2v2h2v2h2v2h-5v2H12v2h4v2h-2v2H12v2H10v2H8v2H6v-4h2v-4H6v-2h2v-2h2V9H5V7h2V5h2V3h2z" />
+        <path d="M11 3h2v2h2v2h2v2h-3v2H12v2h4v2h-2v2H12v2H10v2H8v2H6v-4h2v-4H6v-2h2v-2h2V9H7V7h2V5h2z" />
     </svg>;
 }
 

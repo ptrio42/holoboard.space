@@ -54,8 +54,8 @@ record deployment, not announcement publication.
   thread free of a duplicate shortcut, with quieter comment rows, compact
   avatars, parent previews and secondary timestamps.
 - Show sats in gold with a thin ranking-weight underline and a separate lightning
-  Boost icon. Open the amount for ranking details, or note options for the
-  original Billboard text, njump and promotion dates.
+  Boost icon with a compact arrowhead. Open the amount for ranking details, or
+  note options for the original Billboard text, njump and promotion dates.
 
 ## 2026-10-07
 

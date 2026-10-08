@@ -357,6 +357,7 @@ offset, including its source expansion and campaign appearance. Board cards use
 the compact note design with inline ranks, gold ranking amounts, separate Boost
 controls and anchored note options. Only the first rank repeats a TOP label;
 other positions use their number. Ordinary note and reply bodies use 16px text.
+Boost keeps its lightning stem and 44px hit area, with a smaller arrowhead.
 The discussion shortcut is a stepped speech bubble beside note options in the
 same footer, with the accessible name Discussion. On phones, identity,
 Discussion and note options share the first row, while reading, ranking weight
