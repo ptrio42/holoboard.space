@@ -9,6 +9,7 @@ import { noteAttachments } from "../../lib/noteAttachments";
 import { BillboardScreen } from "../BillboardScreen/BillboardScreen";
 import { NoteAttachments } from "../TextRenderer/NoteAttachments";
 import TextRenderer from "../TextRenderer/TextRenderer";
+import { NoteContent } from "../TextRenderer/NoteContent";
 import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
 import { Expandable } from "../ui/Expandable";
 import { BoostIcon } from "../ui/NoteControls";
@@ -20,6 +21,7 @@ interface BoardRowProps {
     event: NDKEvent;
     readingFocus?: boolean;
     initiallyExpanded?: boolean;
+    initiallyExpandedTexts?: readonly string[];
     billboard?: BillboardConfig;
     billboardPreviewSlide?: number;
     rank?: number;
@@ -56,7 +58,7 @@ function paymentDate(value: number) {
     return <time dateTime={new Date(value * 1000).toISOString()}>{new Date(value * 1000).toLocaleDateString()}</time>;
 }
 
-export function BoardRow({ event, readingFocus = false, initiallyExpanded = false, rank, sats, weight, expired = false, isNew = false, onPromote, lastPaidAt, firstPaidAt, hotSats, billboard, billboardPreviewSlide }: BoardRowProps) {
+export function BoardRow({ event, readingFocus = false, initiallyExpanded = false, initiallyExpandedTexts, rank, sats, weight, expired = false, isNew = false, onPromote, lastPaidAt, firstPaidAt, hotSats, billboard, billboardPreviewSlide }: BoardRowProps) {
     const tier = !expired && rank ? TIERS[rank - 1] ?? DEFAULT_TIER : DEFAULT_TIER;
     const rankLabel = rank ? TIERS[rank - 1]?.label : undefined;
     const parent = parentOf(event);
@@ -90,12 +92,12 @@ export function BoardRow({ event, readingFocus = false, initiallyExpanded = fals
         data-discussion-key={readingFocus ? `event:${event.id}` : undefined} id={readingFocus ? `discussion-note-${event.id}` : undefined}
         tabIndex={readingFocus ? -1 : undefined} style={{ marginTop: "var(--reading-gap, 0px)" }}><div className="@container/row">
         <PixelPanel accent={tier.accent} glow={tier.glow}>
-            <article aria-label={readingFocus ? "Discussion focus" : undefined} className="board-note" style={{ "--rank-accent": tier.accent } as CSSProperties}>
+            <article aria-label={readingFocus ? "Discussion focus" : undefined} className={`board-note${hasBillboard ? "" : " board-note--adaptive"}`} style={{ "--rank-accent": tier.accent } as CSSProperties}>
                 {hasBillboard && <div className="board-billboard">
                     {position}
                     <BillboardScreen config={billboard!} initialSlide={billboardPreviewSlide} sourceContent={event.content} />
                 </div>}
-                <Expandable initiallyExpanded={initiallyExpanded} label={expired ? "expired note" : `note at rank ${rank ?? "unavailable"}`}
+                <Expandable unclamped={!hasBillboard} initiallyExpanded={initiallyExpanded} label={expired ? "expired note" : `note at rank ${rank ?? "unavailable"}`}
                     visibleExpandLabel="Read" collapsedMaxHeight={260}
                     expandLabel={hasBillboard ? "Read original" : "Show more"}
                     collapseLabel={hasBillboard ? "Hide original" : "Show less"}
@@ -165,8 +167,9 @@ export function BoardRow({ event, readingFocus = false, initiallyExpanded = fals
                             </div>}
                         </NotePopover>}
                     </>}>
-                    {hasBillboard ? <NoteAttachments content={event.content} tags={event.tags} ownId={event.id} /> :
-                        <div className="board-note-content">{position}<TextRenderer text={event.content} tags={event.tags} ownId={event.id} /></div>}
+                    {hasBillboard ? <NoteAttachments content={event.content} tags={event.tags} ownId={event.id} initiallyExpandedTexts={initiallyExpandedTexts} /> :
+                        <div className="board-note-content">{position}<NoteContent text={event.content} tags={event.tags} ownId={event.id} adaptive
+                            initiallyExpanded={initiallyExpanded} initiallyExpandedTexts={initiallyExpandedTexts} /></div>}
                 </Expandable>
                 {popup?.kind === "weight" && typeof sats === "number" && <NotePopover id={`${popupId}-weight`} anchor={popup.anchor} title="Ranking weight" onClose={closePopup}>
                     <dl className="board-weight-details">

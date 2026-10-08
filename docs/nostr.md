@@ -891,6 +891,22 @@ public publication, spending, main pushes, external configuration changes and
 existing-data migrations still require explicit authorization. Unavailable device
 or wallet evidence must remain open without blocking unrelated implementation.
 
+The adaptive note-content stage integrates feature checkpoint `5136b23` in the
+isolated visual branch. Ordinary board cards use responsive text/media composition;
+text and quotes unfold independently before media and navigation controls.
+Reading history retains at most 64 validated text keys (`main` or an exact quoted
+event ID) alongside the existing Billboard disclosure state. A separate bounded
+media-presentation cache preserves gallery geometry during reader handoff without
+changing Nostr read admission, identities or payment storage. Shared dialogs give
+keyboard ownership to the top visible modal, so closing an image keeps its editor.
+Verification passes 377 unit cases, lint, disabled and read-only production builds,
+75 note checks, 33 reading/profile checks and nine payment/editor checks across
+desktop Chrome, Android Chrome and WebKit. The same eight frozen production notes
+also render without overflow and play their video in Chrome and WebKit at desktop,
+390px and 320px widths. Focused reruns cover the final gallery spacing and the first
+discussion frames with an independently expanded quote and a failed fourth image.
+Integrate the visual commit before repeating the combined release gates below.
+
 ### Real-relay and runtime resource checks
 
 Run the public-read smoke against an isolated local development server with

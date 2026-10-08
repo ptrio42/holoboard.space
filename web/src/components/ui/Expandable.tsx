@@ -22,6 +22,8 @@ const SLACK_PX = 24;
 
 interface ExpandableProps {
     children: ReactNode;
+    /** Text and media manage their own disclosure instead of clipping the entire note. */
+    unclamped?: boolean;
     initiallyExpanded?: boolean;
     /** Named in the button's accessible label, e.g. "note by alice". */
     label?: string;
@@ -33,7 +35,7 @@ interface ExpandableProps {
     footer?: (control: ReactNode, disclosure: { expanded: boolean; controls: string; toggle: () => void }) => ReactNode;
 }
 
-export function Expandable({ children, initiallyExpanded = false, label, expandedContent, expandLabel = "Show more", collapseLabel = "Show less", visibleExpandLabel = "More", collapsedMaxHeight = COLLAPSED_MAX_PX, footer }: ExpandableProps) {
+export function Expandable({ children, unclamped = false, initiallyExpanded = false, label, expandedContent, expandLabel = "Show more", collapseLabel = "Show less", visibleExpandLabel = "More", collapsedMaxHeight = COLLAPSED_MAX_PX, footer }: ExpandableProps) {
     const [expanded, setExpanded] = useState(initiallyExpanded);
     const [overflows, setOverflows] = useState(false);
     const [collapsedHeight, setCollapsedHeight] = useState(collapsedMaxHeight);
@@ -45,7 +47,7 @@ export function Expandable({ children, initiallyExpanded = false, label, expande
     // its height is the real height whether or not the wrapper is collapsed.
     useLayoutEffect(() => {
         const element = contentRef.current;
-        if (!element) return;
+        if (!element || unclamped) return;
 
         const measure = () => {
             const overflowing = element.scrollHeight > collapsedMaxHeight + SLACK_PX;
@@ -90,9 +92,10 @@ export function Expandable({ children, initiallyExpanded = false, label, expande
         const observer = new ResizeObserver(measure);
         observer.observe(element);
         return () => observer.disconnect();
-    }, [children, expanded, collapsedMaxHeight]);
+    }, [children, expanded, collapsedMaxHeight, unclamped]);
 
     const toggle = useCallback(() => setExpanded((open) => !open), []);
+    if (unclamped) return <>{children}{footer?.(null, { expanded, controls: contentId, toggle })}</>;
     const clamped = overflows && !expanded;
     const control = overflows || expandedContent ? <NoteDisclosure expanded={expanded} controls={contentId} onClick={toggle}
         visibleLabel={expanded ? "Less" : expandedContent ? "Original" : visibleExpandLabel}>

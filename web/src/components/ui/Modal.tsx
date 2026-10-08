@@ -63,6 +63,10 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
         document.body.style.overflow = "hidden";
 
         const onKeyDown = (event: KeyboardEvent) => {
+            // A media viewer can open above an editor; only its top dialog owns keys.
+            const topDialog = [...document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')]
+                .reverse().find(element => element.getClientRects().length > 0);
+            if (topDialog !== panelRef.current) return;
             if (event.key === "Escape") {
                 event.stopPropagation();
                 closeRef.current();

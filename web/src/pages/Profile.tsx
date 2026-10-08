@@ -12,10 +12,9 @@ import { Avatar } from "../components/ui/Avatar";
 import { PixelButton } from "../components/ui/PixelButton";
 import { PixelPanel } from "../components/ui/PixelPanel";
 import { StatusMessage } from "../components/ui/StatusMessage";
-import { Expandable } from "../components/ui/Expandable";
 import { NoteExternalLink } from "../components/ui/NoteControls";
 import { DiscussionLink } from "../components/ui/DiscussionLink";
-import TextRenderer from "../components/TextRenderer/TextRenderer";
+import { NoteContent } from "../components/TextRenderer/NoteContent";
 
 export default function Profile({ pubkey, hints, from }: { pubkey: string; hints: string[]; from: string }) {
     const { snapshot, error, refresh } = useProfileRead(pubkey, hints);
@@ -78,9 +77,9 @@ export default function Profile({ pubkey, hints, from }: { pubkey: string; hints
                     const event = bodies.get(entry.id);
                     return <li key={entry.id}><PixelPanel accent="#fbbf24"><article className="space-y-3 p-4" data-profile-note={entry.id}>
                         <header className="flex flex-wrap justify-between gap-3 text-xs text-cyan-100/75"><span className="font-pixel text-[10px] text-neon-gold">Rank {entry.rank}</span><span>{formatSats(entry.weight)} sats counting</span></header>
-                        {event ? <Expandable label="promoted note" footer={control => <div className="note-footer flex-wrap">{control}<div className="ml-auto flex flex-wrap items-center gap-x-4">{ENABLE_DISCUSSIONS && <DiscussionLink id={event.id} author={event.pubkey} seed={event} />}<NoteExternalLink href={njumpUrl(event.id, "note")} /></div></div>}>
-                            <TextRenderer text={event.content} tags={event.tags} ownId={event.id} embedQuotes={false} previewLinks={false} />
-                        </Expandable> : <><p className="text-sm text-cyan-100/75">Content is unavailable in the read cache.</p><NoteExternalLink href={njumpUrl(entry.id, "note")} /></>}
+                        {event ? <><NoteContent text={event.content} tags={event.tags} ownId={event.id} embedQuotes={false} previewLinks={false} />
+                            <div className="note-footer flex-wrap justify-end">{ENABLE_DISCUSSIONS && <DiscussionLink id={event.id} author={event.pubkey} seed={event} />}<NoteExternalLink href={njumpUrl(event.id, "note")} /></div>
+                        </> : <><p className="text-sm text-cyan-100/75">Content is unavailable in the read cache.</p><NoteExternalLink href={njumpUrl(entry.id, "note")} /></>}
                     </article></PixelPanel></li>;
                 })}</ul>
                 {entries.length > 21 && <div className="mt-4 flex flex-wrap items-center gap-4"><PixelButton variant="ghost" disabled={page === 0} onClick={() => setPage(value => value - 1)}>Previous notes</PixelButton><span className="text-xs text-cyan-100/75">Page {page + 1} of {Math.ceil(entries.length / 21)}</span><PixelButton variant="ghost" disabled={(page + 1) * 21 >= entries.length} onClick={() => setPage(value => value + 1)}>Next notes</PixelButton></div>}

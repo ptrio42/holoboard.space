@@ -6,12 +6,17 @@ export interface BoardNotePresentation {
     billboard?: BillboardConfig; billboardPreviewSlide?: number;
 }
 export interface ReadingAnchor { id: string; top: number }
-export interface BoardReadingOrigin extends ReadingAnchor { path: string; presentation: number; expanded: boolean }
+export interface BoardReadingOrigin extends ReadingAnchor { path: string; presentation: number; expanded: boolean; expandedTexts?: string[] }
 export interface ReadingPosition { readingScroll: number; readingAnchor?: ReadingAnchor; readingOrigin?: BoardReadingOrigin; readingAlign?: boolean }
 // Public presentation metadata only. Signed bodies stay in the shared read cache.
 const presentations = new Map<number, BoardNotePresentation>();
 let serial = 0;
 const HEX = /^[0-9a-f]{64}$/;
+const TEXT_KEY = /^(?:main|quote:[0-9a-f]{64})$/;
+export function expandedNoteTexts(root: Element | null) {
+    return [...root?.querySelectorAll<HTMLElement>('[data-note-text][data-note-expanded="true"]') ?? []]
+        .map(node => node.dataset.noteText!).filter(key => TEXT_KEY.test(key)).slice(0, 64);
+}
 export function boardPresentation(origin?: BoardReadingOrigin) { return origin && presentations.get(origin.presentation); }
 export function rememberBoardPresentation(value: BoardNotePresentation) {
     const key = ++serial;
@@ -34,7 +39,8 @@ export function readingPosition(value: unknown): ReadingPosition {
         readingScroll: typeof state.readingScroll === "number" && Number.isFinite(state.readingScroll) ? Math.max(0, Math.min(state.readingScroll, 10_000_000)) : 0,
         readingAnchor: anchor(state.readingAnchor),
         readingOrigin: original && origin && typeof origin.path === "string" && /^\/(?:waiting(?:\?view=(?:top|new|hot))?|expired)?$/.test(origin.path) && Number.isSafeInteger(origin.presentation)
-            ? { ...original, path: origin.path, presentation: origin.presentation!, expanded: origin.expanded === true } : undefined,
+            ? { ...original, path: origin.path, presentation: origin.presentation!, expanded: origin.expanded === true,
+                ...(Array.isArray(origin.expandedTexts) ? { expandedTexts: [...new Set(origin.expandedTexts.filter((key): key is string => typeof key === "string" && TEXT_KEY.test(key)))].slice(0, 64) } : {}) } : undefined,
         readingAlign: state.readingAlign === true,
     };
 }

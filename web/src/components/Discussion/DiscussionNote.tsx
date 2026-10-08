@@ -1,9 +1,8 @@
 import type { Event } from "nostr-tools";
 import type { ThreadNode } from "../../lib/threadGraph";
 import { njumpUrl, shortNpub } from "../../lib/nostr";
-import TextRenderer from "../TextRenderer/TextRenderer";
+import { NoteContent } from "../TextRenderer/NoteContent";
 import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
-import { Expandable } from "../ui/Expandable";
 import { NoteExternalLink } from "../ui/NoteControls";
 import { DiscussionLink } from "../ui/DiscussionLink";
 import { PixelPanel } from "../ui/PixelPanel";
@@ -59,7 +58,7 @@ export function DiscussionNote({ node, event, parent, parentEvent, onParent, foc
                 {node.parentState === "missing" ? "Parent not found yet. This branch keeps its original reference." : node.parentState === "external" ? "Replies refer to an external context." : "The parent relationship could not be resolved safely."}
             </p>}
             {node && ["invalid", "conflict", "unresolved", "budget", "depth-limit"].includes(node.rootState) && <p className="my-2 text-xs text-cyan-100/75">Root context remains unresolved.</p>}
-            {event ? <Expandable label={focus ? "focused note" : "reply"} visibleExpandLabel="Read" footer={footer}><TextRenderer text={event.content} tags={event.tags} ownId={event.id} embedQuotes={false} previewLinks={false} /></Expandable> : <>
+            {event ? <><NoteContent text={event.content} tags={event.tags} ownId={event.id} embedQuotes={false} previewLinks={false} />{footer()}</> : <>
                 <p className="my-2 break-words text-sm text-cyan-100/75">{node?.event ? "Content is unavailable in the read cache." : "This referenced note has not been found. Other replies remain available."}</p>
                 {footer()}
             </>}

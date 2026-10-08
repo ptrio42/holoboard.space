@@ -276,6 +276,49 @@ test.describe("read-only discussion", () => {
         const after = (await card.boundingBox())!;
         for (const axis of ["x", "y", "width", "height"] as const) expect(Math.abs(after[axis] - before[axis]), axis).toBeLessThan(2);
     });
+    test("preserves an independently expanded quote when entering and returning from discussion", async ({ context, page }) => {
+        await page.route("https://images.example/*.png", route => route.request().url().endsWith("4.png") ? route.abort() : route.fulfill({
+            contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1920"><rect width="1440" height="1920" fill="#22d3ee"/></svg>',
+        }));
+        const quoted = make("Independent quote context. ".repeat(30) + "\n" + [1, 2, 3, 4].map(index => `https://images.example/${index}.png`).join("\n"));
+        const selected = make("The main opening stays collapsed. ".repeat(30), [["q", quoted.id]]);
+        await setup(context, page, { focus: selected, events: [quoted], board: [selected] });
+        await page.goto("/");
+        const source = page.locator(`[data-board-note="${selected.id}"]`);
+        const main = source.locator('[data-note-text="main"]');
+        const quote = source.locator(`[data-note-text="quote:${quoted.id}"]`);
+        await expect(source.locator(".note-gallery")).toHaveClass(/gallery-portraits/);
+        await expect(source.locator(".note-gallery button")).toHaveCount(3);
+        await quote.getByRole("button", { name: "Show more quoted note text", exact: true }).click();
+        await expect(main).toHaveAttribute("data-note-expanded", "false");
+        const link = source.getByRole("link", { name: "Discussion", exact: true });
+        await link.scrollIntoViewIfNeeded();
+        const original = (await source.locator("article").boundingBox())!;
+        await page.evaluate(() => {
+            const frames: { x: number; y: number; width: number; height: number }[] = [];
+            Object.assign(window, { galleryReadingFrames: frames });
+            let remaining = 90;
+            const sample = () => {
+                const card = document.querySelector("[data-reading-focus] article");
+                if (card) { const { x, y, width, height } = card.getBoundingClientRect(); frames.push({ x, y, width, height }); }
+                if (--remaining) requestAnimationFrame(sample);
+            };
+            requestAnimationFrame(sample);
+        });
+        await link.click();
+        const focus = page.getByRole("article", { name: "Discussion focus" });
+        await expect(focus.locator(`[data-note-text="quote:${quoted.id}"]`)).toHaveAttribute("data-note-expanded", "true");
+        await expect(focus.locator('[data-note-text="main"]')).toHaveAttribute("data-note-expanded", "false");
+        const current = (await focus.boundingBox())!;
+        for (const axis of ["x", "y", "width", "height"] as const) expect(Math.abs(current[axis] - original[axis]), axis).toBeLessThan(2);
+        await page.waitForTimeout(200);
+        const frames = await page.evaluate(() => (window as unknown as { galleryReadingFrames: typeof original[] }).galleryReadingFrames);
+        expect(frames.length).toBeGreaterThan(0);
+        for (const frame of frames) for (const axis of ["x", "y", "width", "height"] as const) expect(Math.abs(frame[axis] - original[axis]), `first-frame ${axis}`).toBeLessThan(2);
+        await page.getByRole("link", { name: "Back to board", exact: true }).click();
+        await expect(quote).toHaveAttribute("data-note-expanded", "true");
+        expect(Math.abs((await source.locator("article").boundingBox())!.y - original.y)).toBeLessThan(2);
+    });
     test("keeps a reading anchor stable when a missing ancestor arrives", async ({ context, page }) => {
         const focus = make("Reading a long promoted reply.\n".repeat(45), [["e", root.id, "", "root"], ["e", root.id, "", "reply"]]);
         const fixture = await setup(context, page, { focus, slowParent: root });

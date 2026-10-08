@@ -448,6 +448,14 @@ after the expanded text, before media and footer controls. Expand quoted text
 independently. Keep existing media in place and omit expansion controls when
 the complete text is already visible.
 
+Ordinary board cards place text beside media on wide screens and stack them on
+phones. Short openings use larger type; short text-only notes use the full width.
+Galleries adapt to portrait proportions and open full images in the shared modal.
+Video uses matching signed [NIP-92 metadata](https://github.com/nostr-protocol/nips/blob/master/92.md)
+for preview images when available. Billboard animations keep their separate
+original-text disclosure. Discussion replies and profile notes use inline
+reading with 16px text.
+
 Keep meaningful pixel labels at least 10px and check their contrast against the
 actual panel background, including each rank tier. Unselected amount and position
 choices retain a visible cyan edge and light fill; selected choices use a pink

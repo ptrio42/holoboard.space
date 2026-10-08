@@ -8,6 +8,8 @@ record deployment, not announcement publication.
 
 ### Added
 
+- Give promoted notes adaptive text and media layouts, larger short openings,
+  full-frame portrait galleries and inline more/less controls for text and quotes.
 - Add an opt-in read-only discussion screen for original promoted notes, with
   replies expanded by default, compact reply rows, continuous branch lines,
   direct parent navigation, promotion highlights and grouped relay details with

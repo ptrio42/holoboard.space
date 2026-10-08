@@ -26,3 +26,9 @@ it("bounds presentation retention by count and bytes without retaining oversized
     billboard.text = "Changed";
     expect(boardPresentation(origin(copy))?.billboard?.text).toBe("Original");
 });
+it("restores independent text disclosures without accepting arbitrary history keys", () => {
+    const expandedTexts = ["main", `quote:${id}`];
+    expect(readingPosition({ readingOrigin: { ...origin(1), expandedTexts } }).readingOrigin?.expandedTexts).toEqual(expandedTexts);
+    expect(readingPosition({ readingOrigin: { ...origin(1), expandedTexts: ["main", "main", null, 1, "quote:<script>", `quote:${id.toUpperCase()}`, `quote:${id}`] } }).readingOrigin?.expandedTexts).toEqual(expandedTexts);
+    expect(readingPosition({ readingOrigin: { ...origin(1), expandedTexts: Array.from({ length: 100 }, (_, index) => `quote:${index.toString(16).padStart(64, "0")}`) } }).readingOrigin?.expandedTexts).toHaveLength(64);
+});

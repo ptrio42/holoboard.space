@@ -1300,6 +1300,27 @@ test("note popovers in the Billboard preview preserve the editor and its keyboar
     expect(state.errors).toEqual([]);
 });
 
+test("closing a preview image returns to the promotion editor without preparing payments", async ({ context, page }) => {
+    await page.route("https://images.example/preview.png", route => route.fulfill({ contentType: "image/svg+xml",
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800"><rect width="600" height="800" fill="#22d3ee"/></svg>' }));
+    const state = await setup(context, page, { newCampaign: true, noteContent: "Original picture. https://images.example/preview.png" });
+    const editor = page.getByRole("dialog", { name: "Promote a note", exact: true });
+    await editor.getByRole("tab", { name: "Billboard", exact: true }).click();
+    const opener = editor.getByRole("button", { name: "Open image 1 of 1", exact: true });
+    await opener.click();
+    const viewer = page.getByRole("dialog", { name: "Image 1 of 1", exact: true });
+    await expect(viewer).toBeVisible();
+    await page.keyboard.press("Tab");
+    expect(await viewer.evaluate(element => element.contains(document.activeElement))).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(viewer).toHaveCount(0);
+    await expect(editor).toBeVisible();
+    await expect(opener).toBeFocused();
+    expect(state.boardRequests).toHaveLength(0);
+    expect(state.authorRequests).toHaveLength(0);
+    expect(state.errors).toEqual([]);
+});
+
 test("author invoice limits are explained before a visibility-only choice", async ({ context, page }) => {
     const state = await setup(context, page, { authorMinSats: 100 });
     await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeDisabled();

@@ -144,7 +144,8 @@ export default function Discussion({ focusId, author, from }: { focusId: string;
                 </section>}
             </>}
             {(boardNote || (snapshot && projection)) && <ul className="mb-6 flow-root">{boardNote && handoff
-                ? <BoardRow event={boardNote} {...handoff.presentation} initiallyExpanded={handoff.origin.expanded} readingFocus
+                ? <BoardRow event={boardNote} {...handoff.presentation} initiallyExpanded={handoff.origin.expanded}
+                    initiallyExpandedTexts={handoff.origin.expandedTexts} readingFocus
                     onPromote={() => { setPromotion({ id: focusId, weight: handoff.presentation.weight }); setPromote(true); }} />
                 : note(projection!.focus)}</ul>}
             {boardNote && handoff && ENABLE_REPLY_PUBLICATION && <button type="button" className="note-action mb-3 inline-flex min-h-11 items-center" disabled={!snapshot}

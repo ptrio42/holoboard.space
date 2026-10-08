@@ -3,7 +3,7 @@ import { linkLabel, noteAttachments } from "../../lib/noteAttachments";
 import { NoteLinkPreview } from "./NoteLinkPreview";
 import { NoteQuote } from "./NoteQuote";
 
-export function NoteAttachments({ content, tags, ownId }: { content: string; tags: string[][]; ownId: string }) {
+export function NoteAttachments({ content, tags, ownId, initiallyExpandedTexts }: { content: string; tags: string[][]; ownId: string; initiallyExpandedTexts?: readonly string[] }) {
     const attachments = useMemo(() => noteAttachments(content, tags, ownId), [content, tags, ownId]);
     if (!attachments.links.length && !attachments.quotes.length) return null;
     return <div className="space-y-3" aria-label="Links and quoted notes">
@@ -18,6 +18,6 @@ export function NoteAttachments({ content, tags, ownId }: { content: string; tag
             </li>)}
         </ul>}
         <NoteLinkPreview text={content} />
-        {attachments.quotes.map((reference) => <NoteQuote key={reference.key} reference={reference} />)}
+        {attachments.quotes.map((reference) => <NoteQuote key={reference.key} reference={reference} initiallyExpandedTexts={initiallyExpandedTexts} />)}
     </div>;
 }

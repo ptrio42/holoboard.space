@@ -111,16 +111,29 @@ test("billboard options reveal complete quotes and original text from the compac
     await expect(page.getByRole("link", { name: "Waiting room (10)", exact: true })).toHaveCount(0);
 });
 
-test("long plain notes restore hidden quote actions when expanded", async ({ context, page }) => {
+test("plain text and quoted text expand independently before the footer", async ({ context, page }) => {
     const row = await setup(context, page, { billboard: false, content: "A long paragraph.\n".repeat(24) + `nostr:${noteEncode(quotes[0].id)}` });
-    await expect(row.locator(".note-quote")).toHaveAttribute("inert", "");
-    await row.getByRole("button", { name: /Show more/ }).click();
-    await expect(row.locator(".note-quote__excerpt")).toContainText("Quoted source 1");
-    await expect(row.locator(".note-quote")).not.toHaveAttribute("inert");
-    await row.getByRole("link", { name: "Open quoted note" }).focus();
-    await expect(row.getByRole("link", { name: "Open quoted note" })).toBeFocused();
-    await row.getByRole("button", { name: /Show less/ }).click();
-    await expect(row.locator(".note-quote")).toHaveAttribute("inert", "");
+    const main = row.locator('[data-note-text="main"]');
+    const quote = row.locator(".note-quote");
+    await expect(quote.locator(".note-quote__excerpt")).toContainText("Quoted source 1");
+    await expect(quote).not.toHaveAttribute("inert");
+    await expect(row.locator(".note-footer button[aria-controls]").filter({ hasText: "Read" })).toHaveCount(0);
+    const before = await main.locator(".note-text-content").innerText();
+    await quote.getByRole("button", { name: "Show more quoted note text", exact: true }).click();
+    await expect(quote.getByRole("button", { name: "Show less quoted note text", exact: true })).toBeVisible();
+    expect(await main.locator(".note-text-content").innerText()).toBe(before);
+    await main.getByRole("button", { name: "Show more note text", exact: true }).click();
+    expect((await main.locator(".note-text-content").innerText()).length).toBeGreaterThan(before.length);
+    await expect(quote.getByRole("button", { name: "Show less quoted note text", exact: true })).toBeVisible();
+    const less = main.getByRole("button", { name: "Show less note text", exact: true });
+    expect(await less.evaluate(button => {
+        const block = button.closest(".note-text")!;
+        return block.querySelector(".note-text-content")!.nextElementSibling === button.parentElement &&
+            block.getBoundingClientRect().bottom <= block.closest("article")!.querySelector("footer")!.getBoundingClientRect().top;
+    })).toBe(true);
+    await less.focus(); await page.keyboard.press("Enter");
+    await expect(main.getByRole("button", { name: "Show more note text", exact: true })).toBeFocused();
+    await expect(quote.getByRole("button", { name: "Show less quoted note text", exact: true })).toBeVisible();
 });
 
 test("note option hints stay dismissed after closing or choosing a menu item", async ({ context, page }) => {
@@ -304,7 +317,7 @@ test("gold sats open ranking details without crowding the author or Boost", asyn
     }
     expect((await amount.boundingBox())!.x + (await amount.boundingBox())!.width).toBeLessThanOrEqual((await boost.boundingBox())!.x);
     await expect(amount).toHaveCSS("color", "rgb(251, 191, 36)");
-    await expect(row.locator(".board-note-content .note-body")).toHaveCSS("font-size", "16px");
+    await expect(row.locator(".board-note-content .note-body")).toHaveCSS("font-size", "18px");
     await expect(row.locator(".board-note-content h1, .board-note-content h2")).toHaveCount(0);
     await expect(row.locator(".board-rank__label")).toHaveText("TOP");
     await page.screenshot({ path: testInfo.outputPath("compact-note.png"), fullPage: true });
@@ -336,9 +349,9 @@ for (const rank of [2, 3, 21]) {
         await expect(row.locator(".board-rank__number")).toHaveText(String(rank));
         await expect(row.locator(".board-rank__label")).toHaveCount(0);
         expect(await row.locator(".board-note-content .note-body").evaluate(body => {
-            const text = [...body.childNodes].find(node => node.nodeType === Node.TEXT_NODE)!;
+            const text = document.createTreeWalker(body.querySelector(".note-text-content")!, NodeFilter.SHOW_TEXT).nextNode()!;
             const range = document.createRange(); range.setStart(text, 0); range.setEnd(text, 1);
-            const letter = range.getBoundingClientRect(), rank = body.parentElement!.querySelector(".board-rank")!.getBoundingClientRect();
+            const letter = range.getBoundingClientRect(), rank = body.closest(".board-note-content")!.querySelector(".board-rank")!.getBoundingClientRect();
             return letter.right <= rank.left && letter.top < rank.bottom;
         })).toBe(true);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -378,7 +391,7 @@ test("note images retain the full content width below the inline rank", async ({
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route("https://example.com/banner.png", route => route.fulfill({ contentType: "image/webp", path: new URL("../src/assets/bg.webp", import.meta.url).pathname }));
     const row = await setup(context, page, { billboard: false, content: "An image note with a short introduction.\nhttps://example.com/banner.png" });
-    const picture = row.locator(".board-note-content .note-body > img");
+    const picture = row.locator(".board-note-content .note-gallery-image img");
     await expect(picture).toBeVisible();
     await expect.poll(() => picture.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
     const imageBounds = (await picture.boundingBox())!, rankBounds = (await row.locator(".board-rank").boundingBox())!;
@@ -386,4 +399,93 @@ test("note images retain the full content width below the inline rank", async ({
     expect(imageBounds.width).toBeCloseTo((await row.locator(".board-note-content").boundingBox())!.width, 0);
     await page.screenshot({ path: testInfo.outputPath("image-note.png"), fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+for (const width of [320, 390, 1440]) test(`inline reading preserves media and fits the final text line at ${width}px`, async ({ context, page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const content = "A clear opening with enough text to require expansion. ".repeat(30) + "\nhttps://example.com/play.webm";
+    const row = await setup(context, page, { billboard: false, content });
+    const main = row.locator('[data-note-text="main"]');
+    const more = main.getByRole("button", { name: "Show more note text", exact: true });
+    await expect(more).toBeVisible();
+    expect(await more.evaluate(button => {
+        const block = button.closest(".note-text")!;
+        const last = block.querySelector(".note-text-content > span:not([hidden]):last-of-type") ?? [...block.querySelectorAll(".note-text-content > span:not([hidden])")].at(-1)!;
+        const range = document.createRange(); range.selectNodeContents(last);
+        const line = [...range.getClientRects()].filter(rect => rect.width > 0).at(-1)!;
+        const box = button.getBoundingClientRect();
+        return Math.abs((line.top + line.bottom - box.top - box.bottom) / 2) < parseFloat(getComputedStyle(block).lineHeight) / 2;
+    })).toBe(true);
+    const video = await row.locator("video").elementHandle();
+    await more.evaluate(element => element.scrollIntoView({ block: "center", behavior: "instant" }));
+    const scroll = await page.evaluate(() => scrollY);
+    await more.click();
+    expect(await video!.evaluate(element => element.isConnected)).toBe(true);
+    expect(await main.locator(".note-text-content").innerText()).toBe(content.replace(/\nhttps:\/\/example.com\/play.webm$/, "").trimEnd());
+    expect(Math.abs(await page.evaluate(() => scrollY) - scroll)).toBeLessThanOrEqual(1);
+    const less = main.getByRole("button", { name: "Show less note text", exact: true });
+    expect(await less.evaluate(button => {
+        const block = button.closest(".note-text")!;
+        const range = document.createRange(); range.selectNodeContents(block.querySelector(".note-text-content")!);
+        const last = [...range.getClientRects()].filter(rect => rect.width > 0).at(-1)!;
+        return button.getBoundingClientRect().top - last.bottom <= parseFloat(getComputedStyle(block).lineHeight);
+    })).toBe(true);
+    await less.focus(); await page.keyboard.press("Space");
+    await expect(more).toBeFocused();
+    expect((await more.boundingBox())!.y).toBeGreaterThanOrEqual(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("short notes use larger full-width text without disclosure or invented headings", async ({ context, page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const content = "CoMaps is better for everybody. ".repeat(8).trim();
+    const row = await setup(context, page, { billboard: false, content });
+    const text = row.locator('[data-note-text="main"]');
+    await expect(text).toHaveCSS("font-size", "20px");
+    expect(await text.locator(".note-text-content").innerText()).toBe(content);
+    await expect(text.getByRole("button")).toHaveCount(0);
+    expect((await text.boundingBox())!.width).toBeCloseTo((await row.locator(".board-note-content").boundingBox())!.width, 0);
+    await expect(row.locator(".board-note-content h1, .board-note-content h2")).toHaveCount(0);
+    await page.setViewportSize({ width: 320, height: 900 });
+    await expect(text).toHaveCSS("font-size", "16px");
+    expect(await text.locator(".note-text-content").innerText()).toBe(content);
+});
+
+test("portrait galleries preserve complete frames and provide every available image", async ({ context, page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route("https://example.com/photo-*.png", route => route.request().url().endsWith("photo-4.png") ? route.abort() : route.fulfill({
+        contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1920"><rect width="1440" height="1920" fill="#22d3ee"/></svg>',
+    }));
+    const row = await setup(context, page, { billboard: false, content: "A gallery of portrait images.\n" + [1, 2, 3, 4].map(index => `https://example.com/photo-${index}.png`).join("\n") });
+    const gallery = row.locator(".note-gallery");
+    expect(await row.locator('[data-note-text="main"] .note-text-content').innerText()).toBe("A gallery of portrait images.");
+    await expect(gallery).toHaveClass(/gallery-portraits/);
+    await expect(gallery.getByRole("button")).toHaveCount(3);
+    for (const image of await gallery.locator("img").all()) {
+        await expect(image).toHaveCSS("object-fit", "contain");
+        const bounds = (await image.boundingBox())!;
+        expect(bounds.width / bounds.height).toBeCloseTo(0.75, 2);
+    }
+    const first = gallery.getByRole("button", { name: "Open image 1 of 3", exact: true });
+    await first.click();
+    const viewer = page.getByRole("dialog", { name: "Image 1 of 3", exact: true });
+    await expect(viewer).toBeVisible();
+    await expect(viewer.locator(".note-image-viewer__image")).toHaveCSS("object-fit", "contain");
+    await viewer.getByRole("button", { name: "Next image", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Image 2 of 3", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(first).toBeFocused();
+    await page.screenshot({ path: testInfo.outputPath("adaptive-gallery.png"), fullPage: true });
+});
+
+test("unsafe markup stays text and hidden links cannot receive focus", async ({ context, page }) => {
+    const row = await setup(context, page, { billboard: false, content: "<script>window.injected=true</script> " + "Ordinary words. ".repeat(60) + "https://example.com/final-destination" });
+    const main = row.locator('[data-note-text="main"]');
+    await expect(main.locator("script")).toHaveCount(0);
+    const link = main.getByRole("link", { includeHidden: true });
+    await expect(link).toBeHidden();
+    await main.getByRole("button", { name: "Show more note text", exact: true }).click();
+    await expect(link).toHaveAttribute("href", "https://example.com/final-destination");
+    await link.focus(); await expect(link).toBeFocused();
+    expect(await page.evaluate(() => "injected" in window)).toBe(false);
 });
