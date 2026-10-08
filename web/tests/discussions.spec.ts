@@ -103,7 +103,7 @@ test.describe("read-only discussion", () => {
         await drain(page);
         await expect(row(page, reply).getByRole("link", { name: "nova", exact: true })).toBeVisible();
         await expect(row(page, nested).getByRole("link", { name: /Go to parent note by nova/ })).toContainText(reply.content);
-        await expect(row(page, nested).getByText("Promoted", { exact: true })).toBeVisible();
+        await expect(row(page, nested).locator(".discussion-promotion")).toHaveText("Promoted");
         await expect(row(page, nested).getByRole("link", { name: "Open thread", exact: true })).toBeVisible();
         await page.locator("#discussion").screenshot({ path: testInfo.outputPath("discussion-comments.png") });
         await page.setViewportSize({ width: 320, height: 800 });
@@ -126,14 +126,15 @@ test.describe("read-only discussion", () => {
         await drain(page);
         await expect(page.getByRole("region", { name: "Ancestor context" })).toContainText(root.content);
         await expect(row(page, child)).toContainText(child.content);
-        await expect(row(page, child).getByText("Promoted", { exact: true })).toHaveCount(0);
+        await expect(row(page, child).locator(".discussion-promotion")).toHaveCount(0);
         await expect(row(page, paid)).toContainText(paid.content);
         await expect(row(page, paid).getByRole("link", { name: /Go to parent note by/ })).toContainText(child.content);
         await row(page, paid).getByRole("link", { name: /Go to parent note by/ }).click();
         await expect(row(page, child)).toBeFocused();
         await expect(row(page, paid).getByRole("link", { name: "Open thread", exact: true })).toBeVisible();
         await expect(page.getByText(/Reply level|Focus here/)).toHaveCount(0);
-        await expect(row(page, paid).getByText("Promoted", { exact: true })).toBeVisible();
+        await expect(row(page, paid).locator(".discussion-promotion")).toHaveText("Promoted");
+        await expect(row(page, paid).locator(".discussion-promotion")).toBeVisible();
         await expect(page.getByText(wrong.content, { exact: true })).toHaveCount(0);
         await expect(page.getByText(mention.content, { exact: true })).toHaveCount(0);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -409,7 +410,9 @@ test.describe("read-only discussion", () => {
         await expect(replies.locator("article")).toHaveCount(48);
         await page.evaluate(() => document.fonts.ready);
         const first = replies.locator("article").first();
-        expect((await first.boundingBox())!.height).toBeLessThan(185);
+        // A 16px text line plus the author, parent and footer's 44px targets.
+        await expect(first.locator(".note-text")).toHaveCSS("font-size", "16px");
+        expect((await first.boundingBox())!.height).toBeLessThan(190);
         await expect(first.locator("[data-parent-preview]")).toHaveCount(0);
         const hitAreas = await first.locator(".discussion-actions a, .discussion-actions button, .discussion-parent").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
         expect(hitAreas.every(height => height >= 44)).toBe(true);
