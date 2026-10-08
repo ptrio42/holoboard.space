@@ -1,6 +1,7 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import { matchFilter } from "nostr-tools/filter";
+import { decode } from "nostr-tools/nip19";
 
 test.use({ serviceWorkers: "block", reducedMotion: "reduce" });
 const signerEnabled = process.env.VITE_ENABLE_NOSTR_CONNECT === "true";
@@ -101,7 +102,11 @@ for (const longName of [false, true]) test(`account menu preserves focus and opt
     await page.keyboard.press("Escape"); await expect(account).toBeFocused();
     if (profilesEnabled) {
         await account.click(); await menu.getByRole("menuitem", { name: "Your profile", exact: true }).click();
-        await expect(page).toHaveURL(new RegExp(`/profile/${accountPubkey}`));
+        await expect(page).toHaveURL(/\/profile\/nprofile1/);
+        const pointer = decode(new URL(page.url()).pathname.split("/").at(-1)!);
+        expect(pointer.type).toBe("nprofile");
+        if (pointer.type !== "nprofile") throw new Error("Expected an nprofile route");
+        expect(pointer.data.pubkey).toBe(accountPubkey);
         await expect(menu).toHaveCount(0);
         await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
         await page.goBack(); await expect(page).toHaveURL(/\/$/);

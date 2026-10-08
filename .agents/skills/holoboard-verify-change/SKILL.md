@@ -34,10 +34,10 @@ Use the runner in `scripts/verify_change.py`. Profiles are additive:
 
 | Profile | Local checks |
 | --- | --- |
-| `frontend` | Changed TypeScript lint, unit tests, default build, default feature gates and anonymous split invoices. |
+| `frontend` | Changed TypeScript lint, unit tests, default build, default feature gates, anonymous split invoices and signed-out header. |
 | `readers` | Frontend checks, read-only build, discussion/profile/pointer/notes navigation suites and socket budgets. |
-| `payments` | Frontend checks, enabled-feature build, payment, wallet and board-update fixtures. |
-| `publication` | Frontend checks, enabled-feature build, reply/signing and durable public-outbox fixtures. |
+| `payments` | Frontend checks, enabled-feature build, account header, payment, wallet and board-update fixtures. |
+| `publication` | Frontend checks, enabled-feature build, account header, reply/signing and durable public-outbox fixtures. |
 | `backend` | Go race checks including the nested retained Nostr module; optional explicit upstream provenance input. |
 
 Choose profiles from the diff and affected contracts. Shared note presentation
@@ -57,9 +57,12 @@ Execute the selected plan with `--run`, without requesting another confirmation
 for already authorized local verification. Use `--protect-worktree <path>` when
 another checkout must remain unchanged. The runner does not stash, reset, commit,
 install packages, start Docker, contact production smoke endpoints or deploy.
+Protect stable checkouts, not a visual checkout under active development. Verify
+the imported commit in the target branch while preserving concurrent work.
 
 Outputs and build artifacts stay outside the source checkouts. Browser stages
 use fresh Vite servers, explicit flags, loopback mock endpoints and one worker.
+Browser stages stop at their first failure so diagnosis precedes another full run.
 The runner admits one stage at a time and limits unit workers. It does not reuse
 an existing preview or inherit application credentials from the parent process.
 Vite may load existing checkout environment files; mock URLs and feature flags
@@ -80,7 +83,9 @@ Consult the maintained release gates when those checks are required by the chang
 ## Interpret results and finish
 
 Inspect each stage's log and machine-readable report. A browser process exiting
-successfully with no passing tests is a failure. Skips remain visible. A nonzero
+successfully with no passing tests is a failure. Skips remain visible. Read the
+browser report's counts, including failed and unperformed cases, rather than
+inferring coverage from progress output. A nonzero
 command or changed source snapshot stops execution and preserves the report;
 remaining stages are unperformed. A protected checkout changing during a run
 may reflect concurrent work. Inspect it and preserve it rather than reverting it.

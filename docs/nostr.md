@@ -887,81 +887,47 @@ branch and false-default flags while another release is prepared from main.
 The compact reading layout is implemented and visually reviewed. Bounded
 discussion scheduling now admits network work lazily; its controlled regression
 acceptance is recorded below. Hard limits still prevent a completeness claim.
-The board-note visual redesign is integrated from a stable local checkpoint,
-without modifying the independent main checkout or its index. Integration
-acceptance rechecked all 365 unit cases and 180 distinct enabled browser
-project/scenario pairs across the combined and focused runs. These include the
-new board presentation, Billboard originals, rendered-frame geometry, browser
-history menu cleanup, profile returns and reply publication fixtures. The
-focused 21-check run verifies ordinary and Billboard source geometry, menu
-cleanup and waiting-room updates. Another 75 default-release browser checks
-cover board notes, hidden reading/signer entry points, anonymous split invoices,
-scannable QR codes and promotion-editor focus. Enabled and disabled production
-builds pass; the disabled build excludes the reply editor chunk. A controlled
-public-read review at desktop and phone widths matched the source card's
-position, width and height before entry, immediately after entry, after the
-read settled and on return, with no page errors, horizontal overflow or public
-write frames. Board-origin
-focus cards share the new design; compact reply rows, local author profiles,
-unverified address presentation and false-default flags remain intact. Content
-expansion has its own state marker, so a Billboard original opened through note
-options also survives reader navigation. Popovers escape clipped frames and
-remain owned by an enclosing promotion dialog. The retrieval stage preserves
-this presentation, partial coverage and user-triggered batches. The next stage
-is the read-only frontend candidate after the pending visual checkpoint, as
-specified below. Physical signer compatibility and deliberate public delivery,
-DM and wallet interoperability remain gates for their own releases. Main pushes
-and deployment remain separate gates.
+The note, header, profile, payment and adaptive-content stages through visual
+checkpoint `838ed85` are integrated in the isolated discussion branch, compared
+with feature base `1cbb8ac`. The independent main checkout and its index remain
+unchanged. Board-origin focus cards share the accepted note presentation and
+preserve their geometry and exact return position, including Billboard originals,
+local text expansion and independently expanded quotes.
 
-The isolated footer/comment refinement is based on feature checkpoint `0103550`.
-It preserves the board-to-thread geometry while removing the focus card's own
-Discussion action and redundant second/third rank labels. All 365 unit cases,
-full frontend lint and enabled/disabled production builds pass. Eighteen focused
-read-only browser checks cover footer geometry, Billboard expansion and bounded
-comment rows; twelve fully enabled checks cover profile returns, reply entry
-points and the refined footer across Chrome, Android and iPhone WebKit.
-Thirty-six default-release checks cover hidden feature entry points, plain rank
-numbers, large amounts, anonymous invoices and promotion-preview popovers.
-These configurations overlap and are not a count of unique scenarios.
-A broader enabled run was stopped after two hidden-board rank-refresh timeouts;
-both scenarios pass in the focused single-worker run. This stage does not claim
-a completed full browser regression. Integration must preserve the accepted
-presentation contract in [the discussion design](nostr-discussions.md).
-
-The current note, header and payment refinement is based on visual checkpoint
-`64f90f0`. Changed-module lint, 73 targeted profile, connection, navigation and
-payment units, and enabled/disabled production builds pass. Focused Chrome,
-Android-sized Chrome and iPhone-sized WebKit checks cover source-card geometry,
-account and note-menu focus, profile returns, streamed author metadata and read
-handle cleanup. Payment checks cover author-wallet issues visible at 320x640
-through editor tabs, explicit visibility-only recovery, progress inside Pay,
-compact boosts, invoice QR decoding and disabled signer entry points.
-A controlled public read confirms that verified byline names can appear while
-other sources remain pending; incomplete relay reads still cannot guarantee a
-profile for every author. These checks use intercepted payment fixtures and do
-not establish real wallet settlement or a full browser regression.
-
-Integration must rerun acceptance against its actual base, without clearing saved
-invoices, identities, public outbox entries or the production ledger. Deployment,
-public publication, spending, main pushes, external configuration changes and
-existing-data migrations still require explicit authorization. Unavailable device
-or wallet evidence must remain open without blocking unrelated implementation.
-
-The adaptive note-content stage integrates feature checkpoint `5136b23` in the
-isolated visual branch. Ordinary board cards use responsive text/media composition;
-text and quotes unfold independently before media and navigation controls.
 Reading history retains at most 64 validated text keys (`main` or an exact quoted
-event ID) alongside the existing Billboard disclosure state. A separate bounded
-media-presentation cache preserves gallery geometry during reader handoff without
-changing Nostr read admission, identities or payment storage. Shared dialogs give
-keyboard ownership to the top visible modal, so closing an image keeps its editor.
-Verification passes 377 unit cases, lint, disabled and read-only production builds,
-75 note checks, 33 reading/profile checks and nine payment/editor checks across
-desktop Chrome, Android Chrome and WebKit. The same eight frozen production notes
-also render without overflow and play their video in Chrome and WebKit at desktop,
-390px and 320px widths. Focused reruns cover the final gallery spacing and the first
-discussion frames with an independently expanded quote and a failed fourth image.
-Integrate the visual commit before repeating the combined release gates below.
+event ID) alongside Billboard disclosure state. A separate bounded presentation
+cache preserves gallery geometry without changing Nostr admission, identity or
+payment storage. Shared dialogs give keyboard ownership to the top visible modal,
+so closing an image keeps its editor. Verified byline metadata can appear while
+other sources remain pending; incomplete reads cannot guarantee every profile.
+
+Combined acceptance passes 426 unit cases, changed-module lint and default,
+read-only and fully enabled production-mode builds. Reader, note, profile,
+pointer, header, payment, wallet, board-update, reply and public-outbox fixtures
+pass across desktop Chrome, Android Chrome and iPhone-sized WebKit. PWA checks
+preserve anonymous invoices, wallet links, clipboard and decoded QR payloads
+through a legacy-client update, a read-only update and code rollback. Production
+bundle fixtures check retained memory, socket/request limits and cancellation.
+Expected feature-gate and browser-capability skips remain explicit in reports.
+Local signers, payments and publication use fixtures; this is not live settlement
+or independent-client delivery evidence.
+Selected invoice QR codes are revealed within the modal's scroll area, preserving
+their 220px size above the fixed controls on normal phone viewports. Narrow-phone
+fixtures check the entire QR bounds and decode its image payload.
+
+Incremental read snapshots clone event tags. Derive text and attachment tokens
+from tag values so unchanged comments retain their layout measurements during
+graph updates. The large-tree regression bounds measurements per visible text
+block and fails against the uncorrected visual import. New UI tests must decode
+canonical `nevent`/`nprofile` links and verify the exact event or author, rather
+than requiring the older hexadecimal or `note` presentation.
+
+Integration preserves saved invoices, identities, public outbox records and
+default-disabled signer/reply flags. Deployment, public publication, spending,
+main pushes, external configuration changes and existing-data migrations retain
+their explicit authorization requirements. Physical signers, deliberate public
+delivery and real DM/wallet interoperability remain gates for their own releases.
+Unavailable device or wallet evidence does not block unrelated implementation.
 
 ### Real-relay and runtime resource checks
 
@@ -1187,11 +1153,12 @@ Chromium and WebKit both served the worker response with the origin stopped,
 and both no-worker negative controls failed. The retained legacy-client worker
 compatibility scenario also passed on all three projects.
 
-The independent visual checkpoint is still pending. Import it as a committed
-stage, preserve functional callbacks/flags/payment storage, then repeat the
-combined reader, source-position, anonymous-payment, PWA and build acceptance.
-Generate the final artifact and its source/configuration record only after that
-integration. Current preparation artifacts are not the final release candidate.
+The visual checkpoint through `838ed85` is integrated and combined local
+reader, source-position, anonymous-payment, PWA and build acceptance is complete.
+The next release-preparation step is a read-only artifact with an explicit source
+and production configuration record, followed by its bounded public-read smoke
+and the frontend-origin checks below. Mock-endpoint acceptance builds are not
+the final release candidate. Production deployment still requires authorization.
 
 Public frontend-origin verification also remains open: the preparation
 environment received Cloudflare HTTP 403 for the site and worker. The backend

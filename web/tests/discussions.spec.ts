@@ -428,6 +428,15 @@ test.describe("read-only discussion", () => {
     test("continues a broad parent-only tree without reserving every source upfront", async ({ context, page }) => {
         // Completing several bounded Load more batches can exceed the suite deadline.
         test.setTimeout(180000);
+        await page.addInitScript(() => {
+            const measurements = new WeakMap<Node, number>();
+            Object.assign(window, { noteTextMeasurements: measurements });
+            const clone = Node.prototype.cloneNode;
+            Node.prototype.cloneNode = function (deep?: boolean) {
+                if (this instanceof Element && this.matches(".note-text-content")) measurements.set(this, (measurements.get(this) ?? 0) + 1);
+                return clone.call(this, deep);
+            };
+        });
         const selected = make("Broad discussion root");
         const children = Array.from({ length: 70 }, (_, i) => make(`Broad child ${i}`, [["e", selected.id, "", "reply", selected.pubkey]], 1700000500 + i));
         const grandchildren = children.map((parent, i) => make(`Broad grandchild ${i}`, [["e", parent.id, "", "reply", parent.pubkey]], 1700000600 + i));
@@ -442,6 +451,13 @@ test.describe("read-only discussion", () => {
         const heading = page.getByRole("region", { name: "Replies", exact: true }).getByRole("heading");
         expect(Number.parseInt((await heading.innerText()), 10)).toBeGreaterThanOrEqual(130);
         await expect(page.getByRole("region", { name: "Replies", exact: true }).locator("article")).toHaveCount(48);
+        // New relay results must not remeasure every unchanged visible comment.
+        const measurements = await page.getByRole("region", { name: "Replies", exact: true }).locator(".note-text-content").evaluateAll(nodes => {
+            const counts = (window as unknown as { noteTextMeasurements: WeakMap<Node, number> }).noteTextMeasurements;
+            return nodes.map(node => counts.get(node) ?? 0);
+        });
+        expect(measurements.every(count => count > 0)).toBe(true);
+        expect(Math.max(...measurements)).toBeLessThanOrEqual(8);
         await expect(coverage).toContainText("Reading limits were reached");
         await expect(coverage.getByRole("button", { name: "Load more", exact: true })).toHaveCount(0);
         const operations = Number.parseInt((await coverage.locator("details > p").first().innerText()), 10);

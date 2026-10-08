@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent, type Event } from "nostr-tools/pure";
 import * as nip44 from "nostr-tools/nip44";
 import * as nip04 from "nostr-tools/nip04";
-import { neventEncode, npubEncode } from "nostr-tools/nip19";
+import { decode, neventEncode, npubEncode } from "nostr-tools/nip19";
 import { bytesToHex } from "nostr-tools/utils";
 import jsQR from "jsqr";
 import { PNG } from "pngjs";
@@ -32,7 +32,7 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
     if (options.blockStorage) await context.addInitScript(() => {
         Object.defineProperty(window, "sessionStorage", { get: () => { throw new DOMException("Storage blocked by this test", "SecurityError"); } });
     });
-    const state = { authorUnavailable: options.authorUnavailable, authorEndpointRequests: 0, boardPaid: false, authorPaid: false, boardCharges: 0, authorCharges: 0, authorAttempts: 0, boardProofs: new Map<string, string>([["lnbc-visibility", boardPreimage]]), authorProofs: new Map<string, string>(), expectedSignerPubkey: getPublicKey(userKey), boardRequests: [] as Record<string, unknown>[], authorRequests: [] as Record<string, unknown>[], methods: [] as string[], signerMethods: [] as string[], linkPreviews: [] as string[], errors: [] as string[], completeAuthorPayment: undefined as (() => void) | undefined, approveSigner: undefined as ((secret?: string) => Promise<void>) | undefined };
+    const state = { promotedNote, authorUnavailable: options.authorUnavailable, authorEndpointRequests: 0, boardPaid: false, authorPaid: false, boardCharges: 0, authorCharges: 0, authorAttempts: 0, boardProofs: new Map<string, string>([["lnbc-visibility", boardPreimage]]), authorProofs: new Map<string, string>(), expectedSignerPubkey: getPublicKey(userKey), boardRequests: [] as Record<string, unknown>[], authorRequests: [] as Record<string, unknown>[], methods: [] as string[], signerMethods: [] as string[], linkPreviews: [] as string[], errors: [] as string[], completeAuthorPayment: undefined as (() => void) | undefined, approveSigner: undefined as ((secret?: string) => Promise<void>) | undefined };
     const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Allow-Methods": "GET,POST,OPTIONS" };
     await context.route("**/*", async (route) => {
         const url = new URL(route.request().url());
@@ -566,6 +566,7 @@ test("an invalid promotion proof stays unconfirmed in wallet Send and lookup rec
 });
 
 test("an author invoice paid in wallet Send is reused by promotion without another charge", async ({ context, page }) => {
+    await page.clock.install();
     const state = await setup(context, page, { validAuthorInvoice: true });
     await connectNwc(page); await prepareInvoices(page);
     await expect.poll(() => page.evaluate(() => sessionStorage.getItem("holoboard-last-payment"))).not.toBeNull();
@@ -579,6 +580,8 @@ test("an author invoice paid in wallet Send is reused by promotion without anoth
     await backToForm(page);
     await expect(authorConfirmed(page)).toBeVisible();
     await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
+    await expect.poll(() => state.boardCharges).toBe(1);
+    await page.clock.fastForward(3001);
     await expect(page.getByText("Added 168 sats to visibility.", { exact: true })).toBeVisible();
     expect(state.authorAttempts).toBe(1); expect(state.authorCharges).toBe(1); expect(state.boardCharges).toBe(1);
     expect(state.errors).toEqual([]);
@@ -927,10 +930,15 @@ for (const viewport of [{ width: 320, height: 640 }, { width: 360, height: 640 }
         const state = await setup(context, page, { rank: 25, targets: [{ rank: 21, weight: 400 }], noteContent: content });
         const article = page.getByRole("article", { name: "Original note" });
         await expect(article).toBeVisible();
-        await expect(article.getByRole("link", { name: "Open note", exact: true })).toHaveAttribute("href", /^https:\/\/njump\.me\/note1/);
+        const original = article.getByRole("link", { name: "Open note", exact: true });
+        await expect(original).toHaveAttribute("href", /^https:\/\/njump\.me\/nevent1/);
+        const pointer = decode(new URL((await original.getAttribute("href"))!).pathname.slice(1));
+        expect(pointer.type).toBe("nevent");
+        if (pointer.type !== "nevent") throw new Error("Expected an nevent link");
+        expect(pointer.data.id).toBe(state.promotedNote.id);
         await expect(article.getByRole("img", { name: "Image from the original note", exact: true })).toBeVisible();
         await expect.poll(() => article.getByRole("img", { name: "Image from the original note", exact: true }).evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBe(32);
-        await expect(article.locator('a[href^="https://njump.me/nevent1"]')).toHaveCount(1);
+        await expect(article.locator(`a[href="https://njump.me/${neventEncode({ id: note.id })}"]`)).toHaveCount(1);
         const preview = await article.locator(".line-clamp-2").boundingBox();
         expect(preview!.height).toBeLessThanOrEqual(47);
         const body = page.getByRole("dialog").locator("[data-modal-body]");
@@ -983,7 +991,7 @@ test("promotion preview bounds images and keeps Nostr references clickable", asy
     const thumbnail = article.getByRole("img", { name: "Image from the original note", exact: true });
     await expect(thumbnail).toBeVisible();
     expect((await thumbnail.boundingBox())!.height).toBeLessThanOrEqual(80);
-    await expect(article.locator('a[href^="https://njump.me/nevent1"]')).toHaveCount(1);
+    await expect(article.locator(`a[href="https://njump.me/${neventEncode({ id: note.id })}"]`)).toHaveCount(1);
     await page.getByRole("button", { name: "Custom", exact: true }).click();
     await page.getByRole("textbox", { name: "Custom total in sats" }).fill("500");
     await page.getByRole("button", { name: "Show full text", exact: true }).click();
@@ -1451,6 +1459,12 @@ for (const wallet of ["none", "NWC", "WebLN"] as const) test(`payment methods de
     const qrBounds = await page.getByRole("img", { name: "Support the original author invoice QR code", exact: true }).boundingBox();
     const footerTop = (await page.getByRole("link", { name: "Open in wallet", exact: true }).boundingBox())!.y;
     expect(qrBounds!.y + qrBounds!.height).toBeLessThanOrEqual(footerTop);
+    const bodyBounds = await page.getByRole("dialog").locator("[data-modal-body]").boundingBox();
+    expect(qrBounds!.y).toBeGreaterThanOrEqual(bodyBounds!.y);
+    expect(qrBounds!.height).toBe(220);
+    const qr = page.getByRole("img", { name: "Support the original author invoice QR code", exact: true });
+    const png = PNG.sync.read(await qr.screenshot());
+    expect(jsQR(new Uint8ClampedArray(png.data), png.width, png.height)?.data).toBe("lnbc-author");
     const linkBounds = await page.getByRole("link", { name: "Open in wallet", exact: true }).boundingBox();
     expect(linkBounds!.y + linkBounds!.height).toBeLessThanOrEqual(740);
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);

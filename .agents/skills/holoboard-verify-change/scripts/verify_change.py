@@ -82,7 +82,7 @@ def make_plan(repo, output, profiles, changed, legacy=None, rollback=None, upstr
                              str(output / "builds" / name), "--emptyOutDir"], env=MOCK | flags)
 
     def browser(name, files, flags, extra=None, env=None):
-        add(name, ["npm", "run", "test:e2e", "--", *files, "--workers=1",
+        add(name, ["npm", "run", "test:e2e", "--", *files, "--workers=1", "--max-failures=1",
                    "--reporter=line,json", f"--output={output / name / 'artifacts'}", *(extra or [])],
             env=MOCK | flags | (env or {}), browser=True)
 
@@ -95,8 +95,8 @@ def make_plan(repo, output, profiles, changed, legacy=None, rollback=None, upstr
         add("unit", ["npm", "test", "--", "--maxWorkers=2"], env=MOCK | OFF)
         build("default", OFF)
         browser("default-browser", ["tests/discussions.spec.ts", "tests/profiles.spec.ts",
-                "tests/replyPublication.spec.ts", "tests/payments.spec.ts"], OFF,
-                ["--grep", "entry points|dedicated routes|anonymous split invoices"])
+                "tests/replyPublication.spec.ts", "tests/payments.spec.ts", "tests/header.spec.ts"], OFF,
+                ["--grep", "entry points|dedicated routes|anonymous split invoices|header keeps promotion|release UI hides all signer actions"])
     if "readers" in profiles or rollback:
         build("readers", READERS)
     if "readers" in profiles:
@@ -104,6 +104,7 @@ def make_plan(repo, output, profiles, changed, legacy=None, rollback=None, upstr
                 "tests/readingPointers.spec.ts", "tests/notes.spec.ts", "tests/socketBudget.spec.ts"], READERS)
     if {"payments", "publication"} & set(profiles):
         build("enabled", ENABLED)
+        browser("enabled-header", ["tests/header.spec.ts"], ENABLED)
     if "payments" in profiles:
         browser("payments-browser", ["tests/payments.spec.ts", "tests/wallet.spec.ts",
                 "tests/updates.spec.ts"], ENABLED)

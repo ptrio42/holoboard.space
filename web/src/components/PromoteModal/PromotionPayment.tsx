@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { ENABLE_NOSTR_CONNECT } from "../../config";
 import { CopyButton } from "../ui/CopyButton";
 import { PixelButton, PixelLink } from "../ui/PixelButton";
@@ -39,6 +39,27 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
         : verifying.length ? `Verifying ${verifying.map((part) => part.id === "board" ? "visibility" : "author support").join(" and ")}` : "";
     const blocked = restartBlocked(payment);
     const invoiceAvailable = !selected.paid && now < selected.expires * 1000 && !isMockInvoice(selected.invoice);
+    const invoiceQr = useRef<HTMLDivElement>(null);
+    useLayoutEffect(() => {
+        if (method !== "invoice" || !invoiceAvailable) return;
+        const qr = invoiceQr.current;
+        const body = qr?.closest<HTMLElement>("[data-modal-body]");
+        if (!qr || !body) return;
+        const reveal = () => {
+            const bounds = body.getBoundingClientRect();
+            const padding = getComputedStyle(body);
+            const top = bounds.top + parseFloat(padding.paddingTop);
+            const bottom = bounds.bottom - parseFloat(padding.paddingBottom);
+            const code = qr.getBoundingClientRect();
+            if (code.bottom > bottom) body.scrollTop += code.bottom - bottom;
+            else if (code.top < top) body.scrollTop -= top - code.top;
+        };
+        reveal();
+        // Footer portals and viewport changes can resize the scroll area after mount.
+        const observer = new ResizeObserver(reveal);
+        observer.observe(body);
+        return () => observer.disconnect();
+    }, [method, invoiceAvailable, selected.hash]);
     const actionClass = "promotion-action focus-pixel inline-flex min-h-11 items-center text-cyan-200/75 hover:text-neon-cyan disabled:opacity-40";
     return <>
         <div className="space-y-4 text-sm" role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${method}`} tabIndex={0}>
@@ -72,7 +93,7 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                     {parts.length > 1 && <p className="promotion-label text-center text-cyan-100/70">Invoice {selected.id === "board" ? 1 : 2} of {parts.length}: {selected.id === "board" ? "Holoboard" : "Author"}</p>}
                     <p className="text-xs text-center text-cyan-100/60">Scan with any Lightning wallet. No account required.</p>
                     {selected.id === "author" && <p className="text-xs text-cyan-100/60">{payment.publicZap ? "Waiting for the author's wallet to publish a zap receipt. Confirmation may be delayed." : "This author invoice has no automatic confirmation here. Check the payment in your wallet, then mark it paid below. Your report remains unverified."}</p>}
-                    <div className="flex justify-center"><QrCode key={selected.hash} value={selected.invoice} label={`${selected.label} invoice QR code`} /></div>
+                    <div ref={invoiceQr} className="flex justify-center"><QrCode key={selected.hash} value={selected.invoice} label={`${selected.label} invoice QR code`} /></div>
                     <details className="disclosure"><summary className={`${actionClass} cursor-pointer`}>Invoice text</summary>
                         <p className="break-all select-all text-xs text-cyan-100/70">{selected.invoice}</p>
                     </details>

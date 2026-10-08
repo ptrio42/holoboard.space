@@ -260,7 +260,9 @@ available in Wallet. Method and recipient selection survive help and connection
 panels. Wallet payment needs an explicit action showing the amount that could
 be charged; submitted attempts can only be checked. The invoice method shows
 one recipient's QR immediately, with wallet link, copy and expandable invoice
-text. Confirmation keeps the selected recipient until the payer chooses the next.
+text. Selecting an invoice reveals its full-size QR within the scrolling body
+above the fixed payment controls. Confirmation keeps the selected recipient
+until the payer chooses the next.
 When all parts are complete, a result screen shows the credited visibility,
 recipient amounts and current position, with Done and another-payment actions.
 Manually reported author support stays explicitly unverified in that summary.
@@ -476,6 +478,8 @@ For inline expansion, place `more` at the text cutoff and `less` immediately
 after the expanded text, before media and footer controls. Expand quoted text
 independently. Keep existing media in place and omit expansion controls when
 the complete text is already visible.
+Read-cache snapshots copy tag arrays. Derive text and attachments from their
+values so incremental relay results do not remeasure unchanged visible notes.
 
 Ordinary board cards place text beside media on wide screens and stack them on
 phones. Keep the rank on a compact line above the content, with text and media

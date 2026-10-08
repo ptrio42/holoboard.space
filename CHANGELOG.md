@@ -27,6 +27,8 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Keep large discussions responsive as new replies arrive.
+- Bring selected invoice QR codes into view above payment controls on narrow screens.
 - Keep billboards in the adaptive note layout with readable quote galleries,
   and use their embedded relay hints to load mentioned profiles.
 - Show verified author profiles as soon as their metadata arrives, even while

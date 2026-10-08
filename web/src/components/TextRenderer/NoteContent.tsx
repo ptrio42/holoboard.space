@@ -17,9 +17,12 @@ export function NoteContent({ text, tags, ownId, adaptive = false, embedQuotes =
     /** Paid text presentation; media and references still come from the signed note. */
     textPresentation?: ReactNode;
 }) {
+    // Read-cache snapshots copy tags. Preserve text measurement across updates
+    // when the signed content and attachment references have not changed.
+    const tagsKey = JSON.stringify(tags ?? []);
     const content = useMemo(() => {
         const tokens = parseContent(text);
-        const attachments = noteAttachments(text, tags, ownId);
+        const attachments = noteAttachments(text, JSON.parse(tagsKey) as string[][], ownId);
         const quotes = embedQuotes ? attachments.quotes : [];
         const quoteKeys = new Set(quotes.map(reference => reference.key));
         const words = noteTextTokens(tokens.filter(token => {
@@ -33,7 +36,7 @@ export function NoteContent({ text, tags, ownId, adaptive = false, embedQuotes =
         const hasVisualMedia = !!(images.length || videos.length || quotes.length);
         const hasLink = previewLinks && !!firstPreviewLink(text);
         return { words: words as ContentToken[], length, images, videos, quotes, hasVisualMedia, hasLink, hasMedia: hasVisualMedia || hasLink };
-    }, [text, tags, ownId, embedQuotes, previewLinks]);
+    }, [text, tagsKey, ownId, embedQuotes, previewLinks]);
     const emphasis = adaptive && content.length <= 100 ? "brief" : adaptive && (content.length <= 160 || !content.hasMedia && content.length <= 280) ? "short" : undefined;
     const complete = adaptive && (content.length <= 220 || !content.hasMedia && content.length <= 280);
     const root = useRef<HTMLDivElement>(null);
