@@ -81,8 +81,11 @@ Keep text expansion local to its text block, media instances stable during
 expansion and independent quoted content independent. Preserve expanded state,
 focus and source-card alignment across navigation where those contracts exist.
 Inspect the first visible frame as well as the settled view; delayed realignment
-can hide a visible jump. When measuring content, use inert measurements rather
-than mounting another live renderer that starts reads or media work.
+can hide a visible jump. For content-dependent placement, check loading, loaded
+and unavailable states, width changes and local expansion. Check that fallback
+layouts reclaim unused space while preserving a single live preview and media
+playback. Use inert measurements without media sources so measurement does not
+start reads or image/video requests.
 
 Use the shared modal and popover behavior. Verify keyboard ownership, Escape
 and focus return when a viewer or contextual panel opens above another dialog.
@@ -106,7 +109,11 @@ multi-browser workloads; investigate local contention before extending timeouts.
 Follow documented port and output-directory isolation for concurrent previews.
 
 Return reviewable local changes with their feature base, verification and any
-material limits. Update existing documentation when a durable rule changes and
-record user-facing behavior under CHANGELOG.md Unreleased. Keep release and
-external-action authorization separate from local implementation. Carry the
-accepted decisions into the next iteration without creating a session chronicle.
+material limits. For integration handoffs, identify the revision where checks
+ran and distinguish visual branch evidence from verification of the integrated
+result. Link the maintained visual conventions and relevant browser cases for
+the receiving branch.
+Update existing documentation when a durable rule changes and record user-facing
+behavior under CHANGELOG.md Unreleased. Keep release and external-action
+authorization separate from local implementation. Carry the accepted decisions
+into the next iteration without creating a session chronicle.

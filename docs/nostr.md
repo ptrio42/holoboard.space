@@ -752,7 +752,8 @@ discussion branch owns feature behavior, Nostr relationships and delivery,
 state, resource budgets, security and functional acceptance. The visual branch
 integrates committed feature checkpoints and owns presentation refinements.
 Feature work may add the UI needed for a working feature, using the existing
-shared components and visual conventions.
+shared components and the maintained
+[frontend visual conventions](../web/README.md#visual-conventions).
 
 Return visual changes in committed, reviewable stages with their base commit,
 scope and verification. Shared components can change in both branches; preserve
