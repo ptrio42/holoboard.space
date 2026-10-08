@@ -337,16 +337,30 @@ body::after {
 .reading-surface[data-reading-restoring] { overflow-anchor: none; }
 .discussion-replies { background: rgb(10 5 24 / 0.88); }
 .discussion-note { min-width: 0; }
-.discussion-note > header { margin-bottom: 4px; }
+.discussion-note__header { display: flex; min-height: 44px; align-items: center; gap: 8px; }
+.discussion-note__header > a { flex: 1; min-width: 0; }
+.discussion-note__header > button { flex-shrink: 0; }
+.discussion-note__content { padding-left: 30px; }
 .discussion-note .note-body { font-size: 14px; line-height: 1.7; }
 .discussion-note-compact {
-    border-bottom: 1px solid rgb(34 211 238 / 0.14);
-    padding: 12px 8px 0 10px;
+    position: relative;
+    border-bottom: 1px solid rgb(34 211 238 / 0.1);
+    padding: 12px 8px 8px 10px;
 }
-.discussion-note-promoted.discussion-note-compact {
-    border-left: 2px solid rgb(251 191 36 / 0.7);
-    background: rgb(251 191 36 / 0.035);
+.discussion-promotion { flex-shrink: 0; font-family: var(--font-pixel); font-size: 10px; color: var(--color-neon-gold); }
+.discussion-note-promoted.discussion-note-compact::before {
+    content: "";
+    position: absolute;
+    top: 12px;
+    bottom: 8px;
+    left: 0;
+    width: 2px;
+    background: rgb(251 191 36 / 0.5);
 }
+.discussion-parent { display: flex; min-width: 0; min-height: 44px; flex-direction: column; justify-content: center; margin-bottom: 4px; font-size: 12px; line-height: 1.5; color: rgb(165 243 252 / 0.6); text-decoration: none; }
+.discussion-parent:hover { color: var(--color-neon-cyan); }
+.discussion-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; margin-top: 4px; }
+.discussion-time { margin-left: auto; font-size: 11px; line-height: 1.5; white-space: nowrap; color: rgb(165 243 252 / 0.5); }
 .discussion-actions .note-action { color: rgb(165 243 252 / 0.65); }
 .discussion-actions .note-action:hover { color: var(--color-neon-cyan); }
 .discussion-actions .note-open > span { display: none; }
@@ -409,9 +423,12 @@ body::after {
 .board-billboard > .billboard-screen { clear: both; }
 .board-original { margin-top: 12px; border-top: 1px solid rgb(34 211 238 / 0.15); padding-top: 12px; }
 .board-original > p { margin-bottom: 12px; }
-.board-reading { display: flex; justify-content: flex-end; }
-.board-meta { margin-top: 8px; padding-top: 6px; flex-wrap: nowrap; gap: 4px; }
+.board-reading { grid-area: reading; display: flex; justify-content: flex-end; }
+.board-meta { display: grid; grid-template-columns: minmax(0, 1fr) auto 44px; grid-template-areas: "identity weight options" "reading reading reading"; margin-top: 8px; padding-top: 6px; gap: 0 4px; }
+.board-meta--discussion { grid-template-areas: "identity identity options" "reading weight weight"; }
+.board-meta--discussion .board-reading { justify-content: flex-start; }
 .board-identity {
+    grid-area: identity;
     display: flex;
     flex-wrap: wrap;
     gap: 0 6px;
@@ -425,7 +442,9 @@ body::after {
 .board-author:hover > span { color: var(--color-neon-pink); }
 .board-new { font-family: var(--font-pixel); font-size: 10px; color: var(--color-neon-gold); }
 .board-context { flex-basis: 100%; color: rgb(165 243 252 / 0.6); font-size: 12px; }
-.board-weight-actions { display: flex; flex-shrink: 0; align-items: center; gap: 4px; }
+.board-weight-actions { grid-area: weight; display: flex; justify-content: flex-end; flex-shrink: 0; align-items: center; gap: 4px; min-height: 44px; }
+.board-meta > .board-hint-wrap { grid-area: options; }
+.board-discussion svg { width: 18px; height: 18px; }
 .board-weight {
     position: relative;
     display: flex;
@@ -539,12 +558,11 @@ body::after {
 .note-menu__details > p + p { margin-top: 4px; }
 @container row (min-width: 640px) {
     .board-note { padding: 16px; }
+    .board-meta--discussion { grid-template-areas: "identity weight options" "reading reading reading"; }
+    .board-meta--discussion .board-reading { justify-content: flex-end; }
 }
 @container row (max-width: 330px) {
-    .board-meta--wide { display: grid; grid-template-columns: minmax(0, 1fr) 44px; }
-    .board-meta--wide .board-identity { grid-column: 1; grid-row: 1; }
-    .board-meta--wide > .board-hint-wrap { grid-column: 2; grid-row: 1; }
-    .board-meta--wide .board-weight-actions { grid-column: 1 / -1; grid-row: 2; justify-content: flex-end; }
+    .board-meta--wide { grid-template-columns: minmax(0, 1fr) 44px; grid-template-areas: "identity options" "reading reading" "weight weight"; }
 }
 .note-quote {
     margin: 0.75rem 0;

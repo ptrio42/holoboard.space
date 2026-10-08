@@ -76,6 +76,39 @@ test("discussion entry points stay disabled in the default release", async ({ co
 
 test.describe("read-only discussion", () => {
     test.skip(!enabled);
+    test("joins discussion and boost in one footer and keeps comment context readable", async ({ context, page }, testInfo) => {
+        const selected = make("Small projects need a place to be discovered.\n\nWe are building an open source map of places where you can pay with bitcoin. Add your favourite spot, or tell us what would make the map useful to you.");
+        const novaKey = generateSecretKey(), riverKey = generateSecretKey();
+        const reply = finalizeEvent({ kind: 1, created_at: 1700000100, tags: [["e", selected.id, "", "reply"]], content: "A filter for small local businesses would help. I would love to find a coffee shop on the way to work." }, novaKey);
+        const nested = finalizeEvent({ kind: 1, created_at: 1700000200, tags: [["e", selected.id, "", "root"], ["e", reply.id, "", "reply"]], content: "Yes! And a simple way to confirm that a place still accepts bitcoin. Happy to test the first version." }, riverKey);
+        const sibling = make("Thanks, both of those are on our list. The first version will work without an account.", [["e", selected.id, "", "reply"]], 1700000300);
+        const profiles = [finalizeEvent({ kind: 0, created_at: 1700000000, tags: [], content: JSON.stringify({ name: "nova" }) }, novaKey), finalizeEvent({ kind: 0, created_at: 1700000000, tags: [], content: JSON.stringify({ name: "river" }) }, riverKey)];
+        const fixture = await setup(context, page, { focus: selected, events: [reply, nested, sibling, ...profiles], board: [selected, nested] });
+        await page.goto("/");
+        const source = page.locator(`[data-board-note="${selected.id}"]`);
+        const footer = source.locator("footer");
+        await expect(footer.getByRole("link", { name: "Discussion", exact: true })).toBeVisible();
+        await expect(footer.getByRole("button", { name: "Boost", exact: true })).toBeVisible();
+        await expect(source.locator(".note-footer")).toHaveCount(1);
+        await expect(page.locator(".board-rank__label")).toHaveText(["TOP"]);
+        await page.evaluate(() => document.fonts.ready);
+        await source.screenshot({ path: testInfo.outputPath("note-footer.png") });
+        await footer.getByRole("link", { name: "Discussion", exact: true }).click();
+        const focusCard = page.getByRole("article", { name: "Discussion focus" });
+        await expect(focusCard.getByRole("link", { name: "Discussion", exact: true })).toHaveCount(0);
+        await expect(focusCard.getByRole("button", { name: "Boost", exact: true })).toBeVisible();
+        await drain(page);
+        await expect(row(page, reply).getByRole("link", { name: "nova", exact: true })).toBeVisible();
+        await expect(row(page, nested).getByRole("link", { name: /Go to parent note by nova/ })).toContainText(reply.content);
+        await expect(row(page, nested).getByText("Promoted", { exact: true })).toBeVisible();
+        await expect(row(page, nested).getByRole("link", { name: "Open thread", exact: true })).toBeVisible();
+        await page.locator("#discussion").screenshot({ path: testInfo.outputPath("discussion-comments.png") });
+        await page.setViewportSize({ width: 320, height: 800 });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        const controls = await row(page, nested).locator(".discussion-actions a, .discussion-parent, header a").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect()));
+        expect(controls.every(bounds => bounds.height >= 44 && bounds.right <= 320)).toBe(true);
+        expect(fixture.publications).toEqual([]);
+    });
     test("keeps the original middle focus, unpaid parents and promotion badges separate", async ({ context, page }) => {
         const fixture = await setup(context, page);
         await page.goto("/waiting?view=hot");

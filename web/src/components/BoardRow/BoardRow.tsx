@@ -37,8 +37,8 @@ interface BoardRowProps {
 
 const TIERS = [
     { accent: "#fbbf24", glow: "rgba(251,191,36,0.35)", text: "text-neon-gold", label: "TOP" },
-    { accent: "#22d3ee", glow: "rgba(34,211,238,0.28)", text: "text-neon-cyan", label: "2nd" },
-    { accent: "#ec4899", glow: "rgba(236,72,153,0.28)", text: "text-neon-pink", label: "3rd" },
+    { accent: "#22d3ee", glow: "rgba(34,211,238,0.28)", text: "text-neon-cyan" },
+    { accent: "#ec4899", glow: "rgba(236,72,153,0.28)", text: "text-neon-pink" },
 ];
 const DEFAULT_TIER = { accent: "rgba(34,211,238,0.32)", glow: undefined, text: "text-cyan-300/60" };
 
@@ -101,50 +101,46 @@ export function BoardRow({ event, readingFocus = false, initiallyExpanded = fals
                         <TextRenderer text={event.content} embedQuotes={false} previewLinks={false} />
                     </div> : undefined}
                     footer={(control, disclosure) => <>
-                        <footer className="board-footer">
-                            {(!hasBillboard && control || ENABLE_DISCUSSIONS) && <div className="board-reading gap-5">
-                                {!hasBillboard && control}
-                                {ENABLE_DISCUSSIONS && <DiscussionLink id={event.id} author={event.pubkey} seed={event.rawEvent()}
-                                    presentation={{ rank, sats, weight, expired, isNew, lastPaidAt, firstPaidAt, hotSats, billboard, billboardPreviewSlide }} />}
-                            </div>}
-                            <div className={`note-footer board-meta${wideAmount ? " board-meta--wide" : ""}`}>
-                                <div className="board-identity">
-                                    <h2 className="min-w-0 font-normal">
-                                        <span className="sr-only">{expired ? "Expired note" : `Note at rank ${rank ?? "unavailable"}`}, posted by </span>
-                                        <UserProfileInline pubkey={event.pubkey} size="compact" />
-                                    </h2>
-                                    {isNew && <span className="board-new" aria-label="New since your last visit">New</span>}
-                                    {parent && <div className="board-context">
-                                        {parentIsQuoted ? <span>{parent.label} quoted note</span> : <a href={parent.href}
-                                            target="_blank" rel="noopener noreferrer" className="note-context" title="Open conversation context">
-                                            {parent.label} <span aria-hidden="true">↗</span>
-                                        </a>}
-                                    </div>}
-                                </div>
-                                <div className="board-weight-actions">
-                                    {typeof sats === "number" && <button type="button" className="board-weight focus-pixel"
-                                        aria-label={weightLabel(sats, weight, expired)} aria-haspopup="dialog" aria-controls={`${popupId}-weight`}
-                                        aria-expanded={popup?.kind === "weight"} onClick={event => openPopup("weight", event)}>
-                                        <span aria-hidden="true">{satsLabel(displayedSats ?? sats)}</span>
-                                        {!expired && fraction !== null && <span className="board-weight__track" aria-hidden="true">
-                                            <span className={fraction === 1 ? "is-full" : undefined} style={{ width: `${fraction * 100}%` }} />
-                                        </span>}
-                                        {(expired || typeof weight !== "number") && <span className="board-weight__state" aria-hidden="true">{expired ? "Expired" : "paid"}</span>}
-                                    </button>}
-                                    {expired && typeof sats !== "number" && <span className="board-weight__state">Expired</span>}
-                                    {onPromote && <span className="board-hint-wrap"><PixelButton size="sm" variant="ghost" onClick={onPromote}
-                                        className="note-boost" aria-label={expired ? "Promote again" : "Boost"}>
-                                        <BoostIcon />
-                                    </PixelButton><span className="board-hint" aria-hidden="true">{expired ? "Promote again" : "Boost"}</span></span>}
-                                </div>
-                                <span className="board-hint-wrap"><button type="button" className="note-icon-control board-options"
-                                    aria-label="Note options" aria-haspopup="menu" aria-controls={`${popupId}-options`} aria-expanded={popup?.kind === "options"}
-                                    onClick={event => openPopup("options", event)}>
-                                    <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" shapeRendering="crispEdges">
-                                        <path d="M9 2h3v3H9zM9 9h3v3H9zM9 16h3v3H9z" />
-                                    </svg>
-                                </button><span className="board-hint" aria-hidden="true">Note options</span></span>
+                        <footer className={`note-footer board-meta${wideAmount ? " board-meta--wide" : ""}${ENABLE_DISCUSSIONS ? " board-meta--discussion" : ""}`}>
+                            {!hasBillboard && control && <div className="board-reading">{control}</div>}
+                            <div className="board-identity">
+                                <h2 className="min-w-0 font-normal">
+                                    <span className="sr-only">{expired ? "Expired note" : `Note at rank ${rank ?? "unavailable"}`}, posted by </span>
+                                    <UserProfileInline pubkey={event.pubkey} size="compact" />
+                                </h2>
+                                {isNew && <span className="board-new" aria-label="New since your last visit">New</span>}
+                                {parent && <div className="board-context">
+                                    {parentIsQuoted ? <span>{parent.label} quoted note</span> : <a href={parent.href}
+                                        target="_blank" rel="noopener noreferrer" className="note-context" title="Open conversation context">
+                                        {parent.label} <span aria-hidden="true">↗</span>
+                                    </a>}
+                                </div>}
                             </div>
+                            <div className="board-weight-actions">
+                                {ENABLE_DISCUSSIONS && !readingFocus && <DiscussionLink compact id={event.id} author={event.pubkey} seed={event.rawEvent()}
+                                    presentation={{ rank, sats, weight, expired, isNew, lastPaidAt, firstPaidAt, hotSats, billboard, billboardPreviewSlide }} />}
+                                {typeof sats === "number" && <button type="button" className="board-weight focus-pixel"
+                                    aria-label={weightLabel(sats, weight, expired)} aria-haspopup="dialog" aria-controls={`${popupId}-weight`}
+                                    aria-expanded={popup?.kind === "weight"} onClick={event => openPopup("weight", event)}>
+                                    <span aria-hidden="true">{satsLabel(displayedSats ?? sats)}</span>
+                                    {!expired && fraction !== null && <span className="board-weight__track" aria-hidden="true">
+                                        <span className={fraction === 1 ? "is-full" : undefined} style={{ width: `${fraction * 100}%` }} />
+                                    </span>}
+                                    {(expired || typeof weight !== "number") && <span className="board-weight__state" aria-hidden="true">{expired ? "Expired" : "paid"}</span>}
+                                </button>}
+                                {expired && typeof sats !== "number" && <span className="board-weight__state">Expired</span>}
+                                {onPromote && <span className="board-hint-wrap"><PixelButton size="sm" variant="ghost" onClick={onPromote}
+                                    className="note-boost" aria-label={expired ? "Promote again" : "Boost"}>
+                                    <BoostIcon />
+                                </PixelButton><span className="board-hint" aria-hidden="true">{expired ? "Promote again" : "Boost"}</span></span>}
+                            </div>
+                            <span className="board-hint-wrap"><button type="button" className="note-icon-control board-options"
+                                aria-label="Note options" aria-haspopup="menu" aria-controls={`${popupId}-options`} aria-expanded={popup?.kind === "options"}
+                                onClick={event => openPopup("options", event)}>
+                                <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" shapeRendering="crispEdges">
+                                    <path d="M9 2h3v3H9zM9 9h3v3H9zM9 16h3v3H9z" />
+                                </svg>
+                            </button><span className="board-hint" aria-hidden="true">Note options</span></span>
                         </footer>
                         {popup?.kind === "options" && <NotePopover id={`${popupId}-options`} anchor={popup.anchor} title="Note options" menu onClose={closePopup}>
                             <div role="menu" aria-label="Note options" className="note-menu">

@@ -92,7 +92,7 @@ export default function Discussion({ focusId, author, from }: { focusId: string;
         const parent = node?.parentState === "resolved" && node.parent ? snapshot!.graph.nodes.get(node.parent) : undefined;
         const children = snapshot!.graph.children.get(row.key)?.length ?? 0;
         const depth = Math.min(row.depth, 4);
-        const join = children > 0 ? 34 : 26;
+        const join = 34;
         return <li key={row.key} id={node?.event ? `discussion-note-${node.event.id}` : undefined} tabIndex={-1} data-discussion-key={row.key}
             className={tree ? "discussion-row relative focus:outline-neon-cyan" : "focus:outline-neon-cyan"}
             style={{ marginTop: "var(--reading-gap, 0px)", ...(tree ? { paddingLeft: `${depth * 12}px` } : {}) }}>

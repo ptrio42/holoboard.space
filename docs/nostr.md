@@ -174,10 +174,11 @@ clamping are not covered by a universal no-jump guarantee.
 Replies use compact rows with continuous branch rails and a maximum four visual
 indentation levels. Exact parent links retain the full relationship when depth
 exceeds that display cap. The reading focus keeps its notched frame; promoted
-replies use a gold marker, label and subtle background without changing ordering.
+replies use a thin gold marker and inline label without changing ordering.
 The reply column and direct-URL focus are at most 768 CSS pixels wide; a
 board-origin focus retains the board width. Branch collapse sits beside
-the author; body expansion and navigation share a subdued footer. Controls keep
+the author beside a compact avatar; body text aligns with the pseudonym. Body
+expansion, navigation and secondary timestamps share a subdued footer. Controls keep
 44-pixel hit heights. Local page changes focus and scroll to the reply section,
 and a page starting inside a branch names that continuation and keeps its parent
 link available.
@@ -741,6 +742,22 @@ remain owned by an enclosing promotion dialog. The next implementation step is
 the bounded discussion scheduling review described below, preserving partial
 coverage and user-triggered batches. Main pushes and deployment remain separate
 gates.
+
+The isolated footer/comment refinement is based on feature checkpoint `0103550`.
+It preserves the board-to-thread geometry while removing the focus card's own
+Discussion action and redundant second/third rank labels. All 365 unit cases,
+full frontend lint and enabled/disabled production builds pass. Eighteen focused
+read-only browser checks cover footer geometry, Billboard expansion and bounded
+comment rows; twelve fully enabled checks cover profile returns, reply entry
+points and the refined footer across Chrome, Android and iPhone WebKit.
+Thirty-six default-release checks cover hidden feature entry points, plain rank
+numbers, large amounts, anonymous invoices and promotion-preview popovers.
+These configurations overlap and are not a count of unique scenarios.
+A broader enabled run was stopped after two hidden-board rank-refresh timeouts;
+both scenarios pass in the focused single-worker run. This stage does not claim
+a completed full browser regression. Integration must preserve the accepted
+presentation contract in [the discussion design](nostr-discussions.md).
+
 Integration must rerun acceptance against its actual base, without clearing saved
 invoices, identities, public outbox entries or the production ledger. Deployment,
 public publication, spending, main pushes, external configuration changes and

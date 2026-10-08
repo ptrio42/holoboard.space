@@ -292,13 +292,12 @@ test("gold sats open ranking details without crowding the author or Boost", asyn
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-for (const [rank, label] of [[2, "2nd"], [3, "3rd"], [21, null]] as const) {
+for (const rank of [2, 3, 21]) {
     test(`rank ${rank} stays compact beside ordinary note text`, async ({ context, page }) => {
         await page.setViewportSize({ width: 320, height: 800 });
         const row = await setup(context, page, { billboard: false, content: "A readable opening sentence.\nA second line.", ledger: { rank } });
         await expect(row.locator(".board-rank__number")).toHaveText(String(rank));
-        if (label) await expect(row.locator(".board-rank__label")).toHaveText(label);
-        else await expect(row.locator(".board-rank__label")).toHaveCount(0);
+        await expect(row.locator(".board-rank__label")).toHaveCount(0);
         expect(await row.locator(".board-note-content .note-body").evaluate(body => {
             const text = [...body.childNodes].find(node => node.nodeType === Node.TEXT_NODE)!;
             const range = document.createRange(); range.setStart(text, 0); range.setEnd(text, 1);

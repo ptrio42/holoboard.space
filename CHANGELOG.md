@@ -40,7 +40,10 @@ record deployment, not announcement publication.
 - Update Nostr relay transport while preserving saved invoices and queued
   account posts.
 - Give note content more space with one compact footer, smaller author avatars
-  beside pseudonyms and ranks in the upper corner, using TOP, 2nd and 3rd.
+  beside pseudonyms and ranks in the upper corner, with TOP on the first position.
+- Join the Discussion shortcut and Boost in the note footer. Keep the current
+  thread free of a duplicate shortcut, with quieter comment rows, compact
+  avatars, parent previews and secondary timestamps.
 - Show sats in gold with a thin ranking-weight underline and a separate lightning
   Boost icon. Open the amount for ranking details, or note options for the
   original Billboard text, njump and promotion dates.
