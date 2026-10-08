@@ -1312,6 +1312,32 @@ test("global connections and legacy ranking help work without promotion", async 
     expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0); expect(state.errors).toEqual([]);
 });
 
+test("header account disconnect preserves its independent payment wallet", async ({ context, page }) => {
+    test.skip(process.env.VITE_ENABLE_NOSTR_CONNECT !== "true");
+    const state = await setup(context, page, { extension: true });
+    await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+    const connections = page.getByRole("navigation", { name: "Connections", exact: true });
+    const wallet = connections.getByRole("button", { name: "Wallet", exact: true });
+    await wallet.click();
+    await page.getByLabel("NWC connection string").fill(walletUri);
+    await page.getByRole("button", { name: "Connect NWC wallet", exact: true }).click();
+    await expect(page.getByText("Connected: Test NWC wallet.", { exact: false })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await connections.getByRole("button", { name: "Sign in", exact: true }).click();
+    await page.getByRole("button", { name: "Connect browser extension", exact: true }).click();
+    await expect(page.getByText("Connected extension:", { exact: false })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await connections.getByRole("button", { name: "Account: Account", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Disconnect", exact: true }).click();
+    await expect(connections.getByRole("button", { name: "Sign in", exact: true })).toBeFocused();
+    await expect(wallet).toHaveAccessibleDescription("Wallet connected");
+    await wallet.click();
+    await expect(page.getByText("Connected: Test NWC wallet.", { exact: false })).toBeVisible();
+    expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0);
+    expect(state.signerMethods).toEqual([]); expect(state.errors).toEqual([]);
+});
+
 test("allocation bounds and panel focus remain usable with a smaller viewport", async ({ context, page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const state = await setup(context, page);

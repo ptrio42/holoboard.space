@@ -251,6 +251,20 @@ notes per local page; note previews reuse safe rendering without automatic
 quotes or link cards. Signature-verified bodies live in the shared expendable
 cache, and evicted bodies remain explicit placeholders.
 
+### Header account entry
+
+Promote is the header's primary framed action. Wallet and the optional account
+entry use quiet 44-pixel controls. `VITE_ENABLE_NOSTR_CONNECT` gates Sign in and
+the connected avatar; its false default also preserves disabled restoration.
+Connected account metadata comes from the same verified profile reader used by
+bylines, with Account and a generated avatar as fallbacks. Desktop names truncate;
+phones retain only the avatar or sign-in icon. Account connection details and
+disconnect are available through an anchored keyboard-accessible menu. Its
+Your profile action additionally requires `VITE_ENABLE_PROFILES` and preserves
+local reader return paths. Disconnecting the account leaves the payment wallet
+connected. Closing connection settings restores focus to the current account
+trigger, including after Sign in becomes an avatar.
+
 ## Resource limits
 
 These are application defaults, not protocol requirements. Byte estimates in
@@ -757,6 +771,17 @@ A broader enabled run was stopped after two hidden-board rank-refresh timeouts;
 both scenarios pass in the focused single-worker run. This stage does not claim
 a completed full browser regression. Integration must preserve the accepted
 presentation contract in [the discussion design](nostr-discussions.md).
+
+The header refinement is based on visual checkpoint `e335135`. Targeted
+connection, profile-read and route units, changed-module lint and
+enabled/disabled production builds pass. Browser checks cover header geometry
+at desktop, phone, 768px and 320px widths, metadata fallbacks, account-menu
+keyboard and focus behavior, profile returns and wallet independence across
+Chrome, Android-sized Chrome and iPhone-sized WebKit. Default-flag checks
+preserve hidden signer entry points, anonymous split invoices and nested
+promotion-popover focus. A signer-enabled, profiles-disabled run keeps the
+account menu usable without offering a profile route. Coverage is limited to
+the changed UI and its connection, navigation and payment dependencies.
 
 Integration must rerun acceptance against its actual base, without clearing saved
 invoices, identities, public outbox entries or the production ledger. Deployment,

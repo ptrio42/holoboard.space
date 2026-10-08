@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode, type Ref } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type Ref, type RefObject } from "react";
 import { ModalPopoverHost } from "./ModalPopoverHost";
 
 interface ModalProps {
@@ -15,6 +15,8 @@ interface ModalProps {
     aboveScanlines?: boolean;
     footerRef?: Ref<HTMLDivElement>;
     navigationRef?: Ref<HTMLDivElement>;
+    /** Restore to the current trigger when its contents or identity change. */
+    returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
 const FOCUSABLE =
@@ -28,7 +30,7 @@ const FOCUSABLE =
  * The focusable list is re-read on every Tab rather than captured once, because
  * the promotion flow swaps its whole body out as it advances.
  */
-export function Modal({ isOpen, onClose, title, children, panelClassName = "", scrollBody = false, mobileFullScreen = false, compact = false, aboveScanlines = true, footerRef, navigationRef }: ModalProps) {
+export function Modal({ isOpen, onClose, title, children, panelClassName = "", scrollBody = false, mobileFullScreen = false, compact = false, aboveScanlines = true, footerRef, navigationRef, returnFocusRef }: ModalProps) {
     const panelRef = useRef<HTMLDivElement>(null);
     const overlayRef = useRef<HTMLDivElement>(null);
     const backdropMouseDown = useRef(false);
@@ -38,7 +40,7 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
 
     /*
      * Parents hand a fresh `onClose` down on every render. Reading it through a
-     * ref keeps the effect below keyed on `isOpen` alone, so the trap arms once
+     * ref keeps the effect below independent of callback changes, so the trap arms once
      * per opening instead of re-arming, snapping focus back to the trigger and
      * restoring an already-hidden body overflow.
      */
@@ -51,6 +53,12 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
         if (!isOpen) return;
 
         const opener = document.activeElement as HTMLElement | null;
+        // Read the current trigger on close, since connecting can replace it.
+        const restoreFocus = () => {
+            const target = returnFocusRef?.current;
+            if (target?.isConnected) target.focus({ preventScroll: true });
+            else opener?.focus?.();
+        };
         const { overflow } = document.body.style;
         document.body.style.overflow = "hidden";
 
@@ -90,9 +98,9 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
             document.removeEventListener("keydown", onKeyDown, true);
             window.clearTimeout(focusTimer);
             document.body.style.overflow = overflow;
-            opener?.focus?.();
+            restoreFocus();
         };
-    }, [isOpen]);
+    }, [isOpen, returnFocusRef]);
 
     useEffect(() => {
         const viewport = window.visualViewport;

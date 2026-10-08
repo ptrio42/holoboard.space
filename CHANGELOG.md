@@ -37,6 +37,9 @@ record deployment, not announcement publication.
 
 ### Changed
 
+- Simplify the header around one Promote button, a quiet wallet icon and an
+  optional Sign in action. Connected accounts show an avatar and desktop
+  pseudonym, with profile access and connection controls in a compact menu.
 - Update Nostr relay transport while preserving saved invoices and queued
   account posts.
 - Give note content more space with one compact footer, smaller author avatars

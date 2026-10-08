@@ -73,10 +73,10 @@ selected first when a connection exists; otherwise invoices come first.
 Wallet payment requires a separate explicit action. Invoice payments show one
 recipient's QR at a time, with Open in wallet and Copy invoice always available
 for that invoice. Select Holoboard or Author to change the displayed invoice.
-No login or Nostr signer is needed for payments. **Wallet** connects an optional
-NWC wallet; **Payment options** also offers that connection. Nostr connection
-is reserved for a later website release. Confirmation DMs still accept a manually
-entered npub.
+No login or Nostr signer is needed for payments. The header's wallet icon connects
+an optional NWC wallet; **Payment options** also offers that connection. Nostr
+connection is reserved for a later website release. Confirmation DMs still accept
+a manually entered npub.
 
 **Restart payment** returns an unpaid session to the same promotion choices
 without creating new invoices. Check your wallet before confirming: issued
@@ -87,7 +87,7 @@ switch to another note. Resume pays only the remaining parts; a new payment
 has its own full total. Older invoices remain available if a new payment is
 prepared for the same note. Connections and shared wallet protections remain.
 
-The general **Promote a note** action opens a blank editor, with unfinished
+The header's **Promote** action opens a blank editor, with unfinished
 payments available to resume explicitly. Opening a specific note restores only
 that note's payment. Expired invoices with no recorded send attempt reopen in
 the editor. Changing notes clears the previous draft. Billboard is available

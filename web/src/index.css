@@ -284,6 +284,40 @@ body::after {
     }
 }
 
+/* Header utilities remain secondary to the promotion action. */
+.header-tools { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; }
+.header-tool {
+    position: relative;
+    display: inline-flex;
+    min-width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 0 10px;
+    border: 0;
+    background: transparent;
+    font-family: var(--font-pixel);
+    font-size: 10px;
+    line-height: 1.5;
+    color: rgb(165 243 252 / 0.7);
+    cursor: pointer;
+}
+.header-tool:hover, .header-tool[aria-expanded="true"] { background: rgb(34 211 238 / 0.07); color: var(--color-neon-cyan); }
+.header-tool:focus-visible { outline: 2px solid var(--color-neon-cyan); outline-offset: -2px; }
+.header-tool__label { display: none; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.header-tool__status { position: absolute; top: 6px; right: 6px; width: 4px; height: 4px; background: var(--color-neon-gold); }
+.header-tool__status.is-connecting { background: var(--color-neon-cyan); }
+.header-account-summary { display: flex; align-items: center; gap: 10px; margin: 8px 8px 12px; }
+.header-account-summary > div { min-width: 0; }
+.header-account-summary p { overflow-wrap: anywhere; font-family: var(--font-pixel); font-size: 10px; line-height: 1.7; color: rgb(207 250 254); }
+.header-account-summary span { font-size: 12px; color: rgb(165 243 252 / 0.6); }
+@media (min-width: 768px) {
+    .header-tools { gap: 8px; }
+    .header-tool__label { display: block; }
+}
+
 /* Billboard content has a bounded footprint; paid style never buys taller rows. */
 .note-action {
     font-family: var(--font-pixel);
