@@ -330,6 +330,26 @@ body::after {
 .note-open svg, .note-disclosure svg { flex-shrink: 0; }
 .note-body a.note-open { color: rgb(165 243 252 / 0.6); }
 .note-open:hover, .note-body a.note-open:hover { color: var(--color-neon-cyan); }
+
+/* Discussion replies share branch rails instead of individual notched frames. */
+.discussion-replies { background: rgb(10 5 24 / 0.88); }
+.discussion-note { min-width: 0; }
+.discussion-note > header { margin-bottom: 4px; }
+.discussion-note .note-body { font-size: 14px; line-height: 1.7; }
+.discussion-note-compact {
+    border-bottom: 1px solid rgb(34 211 238 / 0.14);
+    padding: 12px 8px 0 10px;
+}
+.discussion-note-promoted.discussion-note-compact {
+    border-left: 2px solid rgb(251 191 36 / 0.7);
+    background: rgb(251 191 36 / 0.035);
+}
+.discussion-actions .note-action { color: rgb(165 243 252 / 0.65); }
+.discussion-actions .note-action:hover { color: var(--color-neon-cyan); }
+.discussion-actions .note-open > span { display: none; }
+.discussion-row:focus > .discussion-note,
+.discussion-row:target > .discussion-note { background: rgb(34 211 238 / 0.07); }
+
 .note-boost {
     --edge: rgb(251 191 36 / 0.5);
     --ink: var(--color-neon-gold);

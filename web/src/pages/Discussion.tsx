@@ -40,7 +40,7 @@ export default function Discussion({ focusId, author, from }: { focusId: string;
         if (!jumpTo.current) return;
         const target = document.getElementById(jumpTo.current);
         jumpTo.current = undefined;
-        if (target) { target.scrollIntoView({ block: "center" }); target.focus({ preventScroll: true }); }
+        if (target) { target.scrollIntoView({ block: target.tagName === "SECTION" ? "start" : "center" }); target.focus({ preventScroll: true }); }
     }, [reading]);
     useEffect(() => {
         try {
@@ -75,29 +75,40 @@ export default function Discussion({ focusId, author, from }: { focusId: string;
             page: pageFor(projection.replies, value.page), pendingPage: pageFor(projection.unresolved, value.pendingPage) }));
         jumpTo.current = `discussion-note-${key.slice("event:".length)}`;
     };
-    const note = (row: ThreadRow, tree = false) => {
+    const note = (row: ThreadRow, tree = false, nextDepth = 0) => {
         const node = snapshot!.graph.nodes.get(row.key);
         const parent = node?.parentState === "resolved" && node.parent ? snapshot!.graph.nodes.get(node.parent) : undefined;
         const children = snapshot!.graph.children.get(row.key)?.length ?? 0;
+        const depth = Math.min(row.depth, 4);
+        const join = children > 0 ? 34 : 26;
         return <li key={row.key} id={node?.event ? `discussion-note-${node.event.id}` : undefined} tabIndex={-1} data-discussion-key={row.key}
-            className={tree ? "relative border-l-2 border-cyan-400/25 pl-3 focus:outline-neon-cyan" : "focus:outline-neon-cyan"}
-            style={tree ? { marginLeft: `${Math.min(row.depth - 1, 3) * 10}px` } : undefined}>
-            {tree && <span aria-hidden="true" className="absolute left-0 top-6 h-0.5 w-3 bg-cyan-400/40" />}
+            className={tree ? "discussion-row relative focus:outline-neon-cyan" : "focus:outline-neon-cyan"}
+            style={tree ? { paddingLeft: `${depth * 12}px` } : undefined}>
+            {tree && <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+                {Array.from({ length: depth }, (_, level) => <span key={level} data-branch-rail
+                    className="absolute top-0 w-px bg-cyan-400/25"
+                    style={{ left: level * 12, bottom: nextDepth > level ? 0 : `calc(100% - ${join}px)` }} />)}
+                <span className="absolute h-px w-3 bg-cyan-400/40" style={{ left: (depth - 1) * 12, top: join - 1 }} />
+            </div>}
             <DiscussionNote node={node} event={node?.event ? bodies.get(node.event.id) : undefined} focus={row.key === `event:${focusId}`}
                 parent={parent} parentEvent={parent?.event ? bodies.get(parent.event.id) : undefined} onParent={parent && projectedKeys.has(parent.key) ? () => showParent(parent.key) : undefined}
-                promoted={!!node?.event && ledger.sats.has(node.event.id)}>
-                {ENABLE_REPLY_PUBLICATION && node?.event && bodies.has(node.event.id) && <button type="button" className="note-action inline-flex min-h-11 items-center" onClick={() => setReplyTo(bodies.get(node.event!.id))}>Reply</button>}
-                {tree && children > 0 && <button type="button" className="note-action inline-flex min-h-11 items-center" aria-expanded={expanded.has(row.key)}
-                    onClick={() => toggle(row.key)}>{expanded.has(row.key) ? "Hide replies" : `Show replies (${children})`}</button>}
-            </DiscussionNote>
+                compact={tree} parentIsFocus={parent?.key === projection?.focus.key}
+                promoted={!!node?.event && ledger.sats.has(node.event.id)}
+                onReply={ENABLE_REPLY_PUBLICATION && node?.event && bodies.has(node.event.id) ? () => setReplyTo(bodies.get(node.event!.id)) : undefined}
+                branch={tree && children > 0 ? { count: children, expanded: expanded.has(row.key), toggle: () => toggle(row.key) } : undefined} />
         </li>;
     };
     const replies = (rows: ThreadRow[], pending = false) => {
         const visible = expandedReplies(rows, expanded);
         const page = Math.min(pending ? reading.pendingPage : reading.page, Math.max(0, Math.ceil(visible.length / DISCUSSION_PAGE_SIZE) - 1));
-        const choose = (next: number) => setReading(value => ({ ...value, [pending ? "pendingPage" : "page"]: next }));
+        const start = page * DISCUSSION_PAGE_SIZE;
+        const choose = (next: number) => {
+            jumpTo.current = pending ? "discussion-unresolved" : "discussion-replies";
+            setReading(value => ({ ...value, [pending ? "pendingPage" : "page"]: next }));
+        };
         return <>
-            <ul className="space-y-3">{visible.slice(page * DISCUSSION_PAGE_SIZE, (page + 1) * DISCUSSION_PAGE_SIZE).map(row => note(row, true))}</ul>
+            {page > 0 && visible[start]?.depth > 1 && <p className="mb-3 text-xs text-cyan-100/70">Branch continued from the previous page. Use the parent link to return to its context.</p>}
+            <ul className="discussion-replies">{visible.slice(start, start + DISCUSSION_PAGE_SIZE).map((row, index) => note(row, true, visible[start + index + 1]?.depth ?? 0))}</ul>
             {visible.length > DISCUSSION_PAGE_SIZE && <div className="mt-4 flex flex-wrap items-center gap-4" aria-label={pending ? "Unresolved branch pages" : "Reply pages"}>
                 <PixelButton variant="ghost" disabled={page === 0} onClick={() => choose(page - 1)}>Previous replies</PixelButton>
                 <span className="text-xs text-cyan-100/75">Page {page + 1} of {Math.ceil(visible.length / DISCUSSION_PAGE_SIZE)}</span>
@@ -106,7 +117,7 @@ export default function Discussion({ focusId, author, from }: { focusId: string;
         </>;
     };
     return <BoardLayout section="discussion" onPromote={() => setPromote(true)}>
-        <main id="discussion" tabIndex={-1}>
+        <main id="discussion" tabIndex={-1} className="mx-auto max-w-3xl">
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
                 <a href={from} onClick={navigateReading} className="note-action inline-flex min-h-11 items-center">{readingBackLabel(from)}</a>
                 <h2 className="font-pixel text-xs text-neon-cyan">Discussion</h2>
@@ -120,13 +131,13 @@ export default function Discussion({ focusId, author, from }: { focusId: string;
                     <ul className="space-y-3">{(reading.context ? projection.ancestors : projection.ancestors.slice(-8)).map(row => note(row))}</ul>
                 </section>}
                 <ul className="mb-6">{note(projection.focus)}</ul>
-                <section aria-label="Replies">
+                <section id="discussion-replies" tabIndex={-1} aria-label="Replies" className="scroll-mt-4 focus:outline-none">
                     <h3 className="mb-2 font-pixel text-xs text-neon-cyan">{projection.loadedReplyCount} found {projection.loadedReplyCount === 1 ? "reply" : "replies"}</h3>
                     <p className="mb-4 text-xs text-cyan-100/75">Oldest first within each branch.</p>
                     {projection.loadedReplyCount === 0 && <StatusMessage compact>No replies found yet. Other relays may have more.</StatusMessage>}
                     {replies(projection.replies)}
                 </section>
-                {projection.unresolved.length > 0 && <section aria-label="Unresolved branches" className="mt-6">
+                {projection.unresolved.length > 0 && <section id="discussion-unresolved" tabIndex={-1} aria-label="Unresolved branches" className="mt-6 scroll-mt-4 focus:outline-none">
                     <h3 className="mb-3 font-pixel text-[10px] text-neon-gold">Unresolved branches</h3>
                     <p className="mb-4 text-xs text-cyan-100/75">These notes reference this discussion, but their parent path is unresolved. They are kept separate.</p>
                     {replies(projection.unresolved, true)}

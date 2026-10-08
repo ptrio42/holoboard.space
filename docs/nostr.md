@@ -137,13 +137,26 @@ collapse, local pages and context expansion survive reloads through
 session storage for at most eight discussions, separately from payment and
 identity storage. New and late-parent branches open automatically unless an
 ancestor was explicitly collapsed. Each resolved reply names its actual parent
-author and previews the cached parent text. Selecting that context reveals and
+author. Direct replies to the reading focus omit its repeated text preview;
+nested replies retain a one-line cached preview with shortened references and
+media labels. Selecting that context reveals and
 focuses the parent, including on an earlier local page or in hidden ancestor
 context. Parents beyond the projection use an exact discussion link instead.
-`Open thread` makes the selected note the reading focus without changing its
-protocol ancestry or promotion status. Graph updates preserve a visible reading
+The `Thread` action (accessible name `Open thread`) makes the selected note the
+reading focus without changing its protocol ancestry or promotion status.
+Graph updates preserve a visible reading
 anchor when that row remains rendered. Media resizing and browser scroll
 clamping are not covered by a universal no-jump guarantee.
+
+Replies use compact rows with continuous branch rails and a maximum four visual
+indentation levels. Exact parent links retain the full relationship when depth
+exceeds that display cap. The reading focus keeps its notched frame; promoted
+replies use a gold marker, label and subtle background without changing ordering.
+The reading column is at most 768 CSS pixels wide. Branch collapse sits beside
+the author; body expansion and navigation share a subdued footer. Controls keep
+44-pixel hit heights. Local page changes focus and scroll to the reply section,
+and a page starting inside a branch names that continuation and keeps its parent
+link available.
 
 The counter names found connected replies, not a network-wide total. Source
 completion, partial results and local retention limits remain distinct.
@@ -613,12 +626,16 @@ checks. A further nine browser checks verify that removing each required reply
 flag keeps the editor absent. The defaults preserve anonymous payments.
 
 The discussion usability regression covers 81 distinct browser project/scenario
-pairs across discussion, profile and reply-editor suites, including the focused
-profile-return rerun after changing the default branch state. It verifies
+pairs across discussion, profile and reply-editor suites. It verifies
 automatic expansion, persistent explicit collapse, late parents, parent jumps
 across local pages, distinct participant bylines and one source row per relay.
+Compact-layout checks also cover short-row height, continuous rails, retained
+44-pixel targets, page focus and cross-page branch context.
 Nine default-flag checks keep discussion, profile and reply entry points hidden.
 These checks overlap the signer-release evidence above.
+The compact-layout unit run passed with `npm test -- --maxWorkers=2`. Keep heavy
+signature/graph fixtures separate from simultaneous multi-browser workloads
+when diagnosing timing failures before changing deadlines.
 Six additional native-WebSocket checks cover receive-limit shutdown across all
 three browser projects without replacing the browser socket API.
 
@@ -647,8 +664,9 @@ NIP-05 domains are separate features, not implied by the implemented editor.
 
 Continue routine authorized checks and fixes autonomously. Preserve the isolated
 branch and false-default flags while another release is prepared from main.
-Before treating discussion reading as finished, revise dense-thread presentation
-and review bounded work scheduling against the large-thread findings below.
+The compact reading layout is implemented and visually reviewed. Before treating
+discussion retrieval as finished, review bounded work scheduling against the
+large-thread findings below.
 Integration must rerun acceptance against its actual base, without clearing saved
 invoices, identities, public outbox entries or the production ledger. Deployment,
 public publication, spending, main pushes, external configuration changes and
@@ -690,10 +708,15 @@ The large-thread review used the public kind-1 root
 on 2026-10-08. A warmed-cache read found 123 connected replies and 26 unresolved
 branches after four batches; these are observations, not the thread's total.
 The first 48 rendered replies occupied about 17411 vertical CSS pixels at a
-390-pixel viewport width. Repeated focus-parent previews, large card spacing and
-competing footer actions make short replies expensive to scan. Branch-line
-continuity and desktop text width also need attention. A compact reply layout
-should preserve explicit parent navigation and promotion highlights.
+390-pixel viewport width. This identified repeated focus-parent previews, large
+card spacing, competing footer actions and disconnected branch lines as reading
+problems. The compact layout addresses those findings and bounds desktop width.
+For a controlled visual comparison, a later public read supplied 200 verified
+events to identical isolated read caches. Both versions rendered the same 48
+reply IDs. Their combined row height fell by about 26% at 390 pixels, 19% at
+1280 pixels and 29% at 320 pixels. Neither version overflowed horizontally in
+those checks; screenshots were inspected at all three widths. These figures
+describe this sample, not a universal height reduction or complete discovery.
 
 The same read reached author, target and branch/source-record ceilings before
 the lifetime query allowance was exhausted. Branch/source records describe

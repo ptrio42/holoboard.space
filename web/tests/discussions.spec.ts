@@ -167,7 +167,21 @@ test.describe("read-only discussion", () => {
         await expect(page.getByRole("heading", { name: "55 found replies" })).toBeVisible();
         const replies = page.getByRole("region", { name: "Replies", exact: true });
         await expect(replies.locator("article")).toHaveCount(48);
+        await page.evaluate(() => document.fonts.ready);
+        const first = replies.locator("article").first();
+        expect((await first.boundingBox())!.height).toBeLessThan(185);
+        await expect(first.locator("[data-parent-preview]")).toHaveCount(0);
+        const hitAreas = await first.locator(".discussion-actions a, .discussion-actions button, .discussion-parent").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
+        expect(hitAreas.every(height => height >= 44)).toBe(true);
+        const rails = await replies.locator("[data-discussion-key]").evaluateAll(nodes => nodes.slice(0, 2).map(node => {
+            const line = node.querySelector("[data-branch-rail]")!.getBoundingClientRect();
+            return { left: line.left, top: line.top, bottom: line.bottom };
+        }));
+        expect(Math.abs(rails[0].bottom - rails[1].top)).toBeLessThan(1);
+        expect(rails[0].left).toBe(rails[1].left);
         await replies.getByRole("button", { name: "Next replies" }).click();
+        await expect(replies).toBeFocused();
+        expect((await replies.boundingBox())!.y).toBeGreaterThanOrEqual(0);
         await expect(replies.locator("article")).toHaveCount(7);
         await expect(replies).toContainText("Sibling 55");
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -182,6 +196,7 @@ test.describe("read-only discussion", () => {
         await expect(replies.locator("article")).toHaveCount(48);
         await expect(row(page, chain[47])).toBeVisible();
         await replies.getByRole("button", { name: "Next replies" }).click();
+        await expect(replies).toContainText("Branch continued from the previous page.");
         await expect(row(page, chain[48])).toBeVisible();
         await expect(row(page, chain[48]).getByRole("link", { name: /Go to parent note by/ })).toContainText(chain[47].content);
         await row(page, chain[48]).getByRole("link", { name: /Go to parent note by/ }).click();
@@ -200,7 +215,8 @@ test.describe("read-only discussion", () => {
         await page.goto(`/discussion/${focus.id}`);
         await drain(page);
         await expect(row(page, response).getByRole("link", { name: "Another participant", exact: true })).toBeVisible();
-        await expect(row(page, response).getByRole("link", { name: "Go to parent note by Discussion author" })).toContainText(focus.content);
+        await expect(row(page, response).getByRole("link", { name: "Go to parent note by Discussion author" })).toContainText("Replying to Discussion author");
+        await expect(row(page, response).locator("[data-parent-preview]")).toHaveCount(0);
         await row(page, response).getByRole("link", { name: "Open thread", exact: true }).click();
         await expect(page.getByRole("article", { name: "Discussion focus" })).toContainText(response.content);
         await expect(page.getByRole("region", { name: "Ancestor context" })).toContainText(focus.content);

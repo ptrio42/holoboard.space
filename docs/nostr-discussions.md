@@ -330,9 +330,15 @@ order even with clock skew. Same-author series use the same sibling policy;
 account-dependent client ranking is not inherited. Root-only evidence with an
 unresolved parent path stays in a separate unresolved-branches section. Late
 parents preserve open branches, while an explicit collapse remains effective.
-Resolved replies show their direct parent's author and a cached text preview;
-that context link reveals and focuses the exact parent across local pages.
-Indentation remains shallow on phones and is not the only indication of ancestry.
+Resolved replies show their direct parent's author. Replies to the focus omit
+its repeated preview; nested replies retain one line of cached parent text.
+That context link reveals and focuses the exact parent across local pages.
+Compact rows share continuous branch rails, with indentation capped at four
+visual levels. Parent links preserve relationships beyond that display cap.
+Promoted replies have a gold marker and label; the focused note retains its
+notched frame. Collapse controls stay beside the author, with reading and reply
+actions in a compact footer. Local page changes return to the reply heading;
+pages starting inside a branch explicitly identify the continuation.
 Pages render at most 48 replies per section and initially eight ancestors;
 retained records outside that display window remain reachable. Counts describe
 found connected replies. Coverage details and retention limits stay visible,
@@ -360,11 +366,11 @@ Controlled real-relay reading and finite runtime
 heap/navigation checks now supplement local signed-event fixtures. Their scope,
 results and repeatable commands are in
 [the Nostr reference](nostr.md#real-relay-and-runtime-resource-checks).
-Large-thread review leaves two reading-stage tasks open: compact reply
-presentation with clearer branch continuity, and bounded work scheduling that
-does not consume author/target/source-record allowances prematurely. Current
-partial-coverage reporting is required while these limits remain. Default
-expansion and correct parent navigation do not establish final readability.
+Large-thread review confirmed the need for bounded work scheduling that does
+not consume author/target/source-record allowances prematurely. This remains
+open after the compact-layout change. Current partial-coverage reporting is
+required while these limits remain; visual improvements do not establish
+complete retrieval.
 
 ## Acceptance before a discussion screen ships
 
