@@ -470,6 +470,14 @@ original-text disclosure in note options. Mentions retain nprofile relay hints
 inside animations as well as ordinary text. Discussion replies and profile notes
 use inline reading with 16px text.
 
+Profile visual reviews use an author column beside notes on desktop and a compact
+identity section above notes on phones. Keep an optional, bounded banner within
+that identity section, NIP-05 near the name, and a separately labelled Lightning
+address with a copy action. Preserve profiles without these fields. Distinguish
+NIP-05 loading, unavailable and key-mismatch states from a confirmed domain-to-key
+mapping; mark simulated verification explicitly in prototypes. This design target
+does not imply that domain verification or the additional fields already ship.
+
 Keep meaningful pixel labels at least 10px and check their contrast against the
 actual panel background, including each rank tier. Unselected amount and position
 choices retain a visible cyan edge and light fill; selected choices use a pink
