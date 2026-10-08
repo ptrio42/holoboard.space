@@ -478,7 +478,9 @@ independently. Keep existing media in place and omit expansion controls when
 the complete text is already visible.
 
 Ordinary board cards place text beside media on wide screens and stack them on
-phones. Short openings use larger type; short text-only notes use the full width.
+phones. Keep the rank on a compact line above the content, with text and media
+starting below it. Short openings use larger type; all text-only notes use the
+full available width, including their expanded text.
 Complete short text can sit centrally beside taller media while staying aligned
 to the left. Billboards use the same vertical placement. Long text remains at the
 top. Quote text uses 14px type, secondary to the 16px ordinary note body, with

@@ -392,19 +392,22 @@ test("gold sats open ranking details without crowding the author or Boost", asyn
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-for (const rank of [2, 3, 21]) {
-    test(`rank ${rank} stays compact beside ordinary note text`, async ({ context, page }) => {
-        await page.setViewportSize({ width: 320, height: 800 });
+for (const rank of [1, 2, 3, 21]) {
+    test(`rank ${rank} stays compact above full-width note text`, async ({ context, page }) => {
         const row = await setup(context, page, { billboard: false, content: "A readable opening sentence.\nA second line.", ledger: { rank } });
         await expect(row.locator(".board-rank__number")).toHaveText(String(rank));
-        await expect(row.locator(".board-rank__label")).toHaveCount(0);
-        expect(await row.locator(".board-note-content .note-body").evaluate(body => {
-            const text = document.createTreeWalker(body.querySelector(".note-text-content")!, NodeFilter.SHOW_TEXT).nextNode()!;
-            const range = document.createRange(); range.setStart(text, 0); range.setEnd(text, 1);
-            const letter = range.getBoundingClientRect(), rank = body.closest(".board-note-content")!.querySelector(".board-rank")!.getBoundingClientRect();
-            return letter.right <= rank.left && letter.top < rank.bottom;
-        })).toBe(true);
-        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await expect(row.locator(".board-rank__label")).toHaveCount(rank === 1 ? 1 : 0);
+        for (const width of [320, 390, 1440]) {
+            await page.setViewportSize({ width, height: 900 });
+            await expect(async () => {
+                const text = (await row.locator('[data-note-text="main"]').boundingBox())!, position = (await row.locator(".board-rank").boundingBox())!, content = (await row.locator(".board-note-content").boundingBox())!;
+                expect(text.y).toBeGreaterThanOrEqual(position.y + position.height + 8);
+                expect(text.x).toBe(content.x);
+                expect(text.width).toBeCloseTo(content.width, 0);
+                expect(position.x + position.width).toBeCloseTo(content.x + content.width, 0);
+                expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+            }).toPass();
+        }
     });
 }
 
@@ -437,7 +440,7 @@ test("large amounts wrap without losing the avatar or note options", async ({ co
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test("note images retain the full content width below the inline rank", async ({ context, page }, testInfo) => {
+test("note images retain the full content width below the rank", async ({ context, page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route("https://example.com/banner.png", route => route.fulfill({ contentType: "image/webp", path: new URL("../src/assets/bg.webp", import.meta.url).pathname }));
     const row = await setup(context, page, { billboard: false, content: "An image note with a short introduction.\nhttps://example.com/banner.png" });
@@ -499,6 +502,29 @@ test("short notes use larger full-width text without disclosure or invented head
     await page.setViewportSize({ width: 320, height: 900 });
     await expect(text).toHaveCSS("font-size", "16px");
     expect(await text.locator(".note-text-content").innerText()).toBe(content);
+});
+
+test("long text-only notes use the full reading width before and after expansion", async ({ context, page }) => {
+    const content = "Every paragraph of this promoted note has room for the complete message. ".repeat(45).trim();
+    const row = await setup(context, page, { billboard: false, content, ledger: { rank: 10 } });
+    const text = row.locator('[data-note-text="main"]');
+    for (const width of [1440, 390, 320]) {
+        await page.setViewportSize({ width, height: 900 });
+        const checkWidth = async () => {
+            const reading = await text.evaluate(element => {
+                const style = getComputedStyle(element);
+                return element.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+            });
+            expect(reading).toBeCloseTo((await row.locator(".board-note-content").boundingBox())!.width, 0);
+        };
+        await expect(checkWidth).toPass();
+        await text.getByRole("button", { name: "Show more note text", exact: true }).click();
+        expect(await text.locator(".note-text-content").innerText()).toBe(content);
+        await checkWidth();
+        await text.getByRole("button", { name: "Show less note text", exact: true }).click();
+        await expect(checkWidth).toPass();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    }
 });
 
 test("link cards fit below text beside media and keep one instance across phone layouts", async ({ context, page }, testInfo) => {

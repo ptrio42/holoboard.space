@@ -11,7 +11,8 @@ record deployment, not announcement publication.
 - Give promoted notes adaptive text and media layouts, larger short openings,
   full-frame portrait galleries and inline more/less controls for text and quotes.
   Fit destination previews beneath text beside media when space allows, and
-  distinguish quoted text with smaller type.
+  distinguish quoted text with smaller type. Let text-only notes use the full
+  card width and start content below its rank.
 - Add an opt-in read-only discussion screen for original promoted notes, with
   replies expanded by default, compact reply rows, continuous branch lines,
   direct parent navigation, promotion highlights and grouped relay details with
