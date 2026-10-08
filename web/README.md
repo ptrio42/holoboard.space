@@ -442,8 +442,9 @@ Paid billboard text has its own selected color inside that frame.
 
 Compare content layouts on the same frozen public notes at phone and desktop
 widths, keeping typography and footer controls consistent. Include text-only
-notes, portrait screenshots, photographs, galleries, destination links, video
-and quoted context. Assess what is visible before expansion, image legibility,
+notes, portrait screenshots, photographs, galleries, destination links, video,
+quoted context and active billboards with their attachments. Assess what is visible
+before expansion, image legibility,
 available reading and playback actions, and card height across a whole board.
 Extra expansion clicks can reflect hidden content, so they do not establish a more
 effective promotion by themselves. Preserve the original signed content.
@@ -463,9 +464,11 @@ Ordinary board cards place text beside media on wide screens and stack them on
 phones. Short openings use larger type; short text-only notes use the full width.
 Galleries adapt to portrait proportions and open full images in the shared modal.
 Video uses matching signed [NIP-92 metadata](https://github.com/nostr-protocol/nips/blob/master/92.md)
-for preview images when available. Billboard animations keep their separate
-original-text disclosure. Discussion replies and profile notes use inline
-reading with 16px text.
+for preview images when available. Billboard animations occupy the text area in
+the same adaptive composition and share its media galleries. They keep a separate
+original-text disclosure in note options. Mentions retain nprofile relay hints
+inside animations as well as ordinary text. Discussion replies and profile notes
+use inline reading with 16px text.
 
 Keep meaningful pixel labels at least 10px and check their contrast against the
 actual panel background, including each rank tier. Unselected amount and position

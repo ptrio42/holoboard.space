@@ -440,7 +440,7 @@ body::after {
 
 /* Quiet note chrome: the amount explains weight; its neighbour adds a boost. */
 .board-note { padding: 12px; font-size: 16px; }
-.board-note-content, .board-billboard { display: flow-root; }
+.board-note-content { display: flow-root; }
 .board-rank {
     float: right;
     display: flex;
@@ -456,8 +456,7 @@ body::after {
 .board-rank__label { font-size: 10px; }
 .board-note-content .note-body > [data-note-block],
 .board-note-content .note-body > img,
-.board-note-content .note-body > video,
-.board-billboard > .billboard-screen { clear: both; }
+.board-note-content .note-body > video { clear: both; }
 .board-original { margin-top: 12px; border-top: 1px solid rgb(34 211 238 / 0.15); padding-top: 12px; }
 .board-original > p { margin-bottom: 12px; }
 .board-reading { grid-area: reading; display: flex; justify-content: flex-end; }
@@ -646,8 +645,9 @@ body::after {
 .board-note--adaptive { container: content-card / inline-size; }
 .board-note--adaptive .board-note-content { position: relative; min-height: 32px; }
 .board-note--adaptive .board-rank { position: absolute; top: 0; right: 0; float: none; margin: 0; z-index: 1; }
-.board-note--adaptive .note-composition > .note-text { padding-right: 40px; }
-.board-note--adaptive .note-composition:not(:has(> .note-text)) { padding-top: 40px; }
+.board-note--adaptive .note-composition > :is(.note-text, .note-composition-presentation) { padding-right: 40px; }
+.note-composition-presentation { min-width: 0; }
+.board-note--adaptive .note-composition:not(:has(> .note-text, > .note-composition-presentation)) { padding-top: 40px; }
 .note-composition--adaptive[data-text-emphasis="brief"] > .note-text { font-size: 20px; line-height: 1.5; }
 .note-composition--adaptive[data-text-emphasis="short"] > .note-text { font-size: 18px; line-height: 1.6; }
 .note-composition--text > .note-text { max-width: 72ch; }
@@ -679,6 +679,7 @@ body::after {
 @container row (min-width: 640px) {
     .note-composition--adaptive:not(.note-composition--text) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 45%); align-items: start; gap: 24px; }
     .board-note--adaptive .note-composition:not(.note-composition--text) > .note-text { --note-lines: 10; padding-right: 0; }
+    .board-note--adaptive .note-composition:not(.note-composition--text) > .note-composition-presentation { padding-right: 0; }
     .note-composition--adaptive .note-composition-media { padding-top: 32px; }
     .note-composition--adaptive[data-text-emphasis="brief"] > .note-text { font-size: 22px; }
     .note-composition--adaptive[data-text-emphasis="short"] > .note-text { font-size: 20px; }

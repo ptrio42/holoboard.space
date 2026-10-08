@@ -47,6 +47,8 @@ Record public event IDs and enough fixture data to reproduce each case. Include
 the relevant combinations of short and long text, screenshots, portrait and
 landscape photos, galleries, links, video and quoted context. Preserve original
 signed content; avoid invented headings or rewrites that make a layout look better.
+Include active billboard appearances with their underlying attachments when
+reviewing board content; ordinary-note comparisons do not exercise that path.
 
 Include a narrow phone, a normal phone and desktop. Exercise long identifiers,
 missing media, empty results, loading and partial data where they affect the

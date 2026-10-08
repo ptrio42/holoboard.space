@@ -7,7 +7,6 @@ import { formatSats, njumpUrl, parseNoteReference } from "../../lib/nostr";
 import { parentOf } from "../../lib/parent";
 import { noteAttachments } from "../../lib/noteAttachments";
 import { BillboardScreen } from "../BillboardScreen/BillboardScreen";
-import { NoteAttachments } from "../TextRenderer/NoteAttachments";
 import TextRenderer from "../TextRenderer/TextRenderer";
 import { NoteContent } from "../TextRenderer/NoteContent";
 import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
@@ -92,12 +91,8 @@ export function BoardRow({ event, readingFocus = false, initiallyExpanded = fals
         data-discussion-key={readingFocus ? `event:${event.id}` : undefined} id={readingFocus ? `discussion-note-${event.id}` : undefined}
         tabIndex={readingFocus ? -1 : undefined} style={{ marginTop: "var(--reading-gap, 0px)" }}><div className="@container/row">
         <PixelPanel accent={tier.accent} glow={tier.glow}>
-            <article aria-label={readingFocus ? "Discussion focus" : undefined} className={`board-note${hasBillboard ? "" : " board-note--adaptive"}`} style={{ "--rank-accent": tier.accent } as CSSProperties}>
-                {hasBillboard && <div className="board-billboard">
-                    {position}
-                    <BillboardScreen config={billboard!} initialSlide={billboardPreviewSlide} sourceContent={event.content} />
-                </div>}
-                <Expandable unclamped={!hasBillboard} initiallyExpanded={initiallyExpanded} label={expired ? "expired note" : `note at rank ${rank ?? "unavailable"}`}
+            <article aria-label={readingFocus ? "Discussion focus" : undefined} className="board-note board-note--adaptive" style={{ "--rank-accent": tier.accent } as CSSProperties}>
+                <Expandable unclamped initiallyExpanded={initiallyExpanded} label={expired ? "expired note" : `note at rank ${rank ?? "unavailable"}`}
                     visibleExpandLabel="Read" collapsedMaxHeight={260}
                     expandLabel={hasBillboard ? "Read original" : "Show more"}
                     collapseLabel={hasBillboard ? "Hide original" : "Show less"}
@@ -167,9 +162,9 @@ export function BoardRow({ event, readingFocus = false, initiallyExpanded = fals
                             </div>}
                         </NotePopover>}
                     </>}>
-                    {hasBillboard ? <NoteAttachments content={event.content} tags={event.tags} ownId={event.id} initiallyExpandedTexts={initiallyExpandedTexts} /> :
-                        <div className="board-note-content">{position}<NoteContent text={event.content} tags={event.tags} ownId={event.id} adaptive
-                            initiallyExpanded={initiallyExpanded} initiallyExpandedTexts={initiallyExpandedTexts} /></div>}
+                    <div className="board-note-content">{position}<NoteContent text={event.content} tags={event.tags} ownId={event.id} adaptive
+                        textPresentation={hasBillboard ? <BillboardScreen config={billboard!} initialSlide={billboardPreviewSlide} sourceContent={event.content} /> : undefined}
+                        initiallyExpanded={initiallyExpanded} initiallyExpandedTexts={initiallyExpandedTexts} /></div>
                 </Expandable>
                 {popup?.kind === "weight" && typeof sats === "number" && <NotePopover id={`${popupId}-weight`} anchor={popup.anchor} title="Ranking weight" onClose={closePopup}>
                     <dl className="board-weight-details">

@@ -1,6 +1,6 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { finalizeEvent, generateSecretKey, type Event } from "nostr-tools/pure";
-import { neventEncode, noteEncode } from "nostr-tools/nip19";
+import { neventEncode, noteEncode, nprofileEncode } from "nostr-tools/nip19";
 
 test.use({ serviceWorkers: "block", reducedMotion: "reduce" });
 const authorKey = generateSecretKey(), quoteKey = generateSecretKey();
@@ -9,11 +9,11 @@ const makeNote = (content: string, tags: string[][] = [], key = authorKey, kind 
 const quotes = Array.from({ length: 6 }, (_, i) => makeNote(`Quoted source ${i + 1}. ` + "Context for the original note. ".repeat(12), [], quoteKey));
 const profiles = [makeNote(JSON.stringify({ name: "Row author" }), [], authorKey, 0), makeNote(JSON.stringify({ name: "Quote author" }), [], quoteKey, 0)];
 
-async function setup(context: BrowserContext, page: Page, options: { content?: string; billboard?: boolean; tags?: string[][]; availableQuotes?: Event[]; expired?: boolean; ledger?: { rank?: number; sats_paid?: number; weight?: number }; slowQuote?: { deliver?: () => void; fastReplies: number }; profileEose?: { releases: (() => void)[] } } = {}) {
+async function setup(context: BrowserContext, page: Page, options: { content?: string; billboard?: boolean; billboardText?: string; tags?: string[][]; availableQuotes?: Event[]; expired?: boolean; ledger?: { rank?: number; sats_paid?: number; weight?: number }; slowQuote?: { deliver?: () => void; fastReplies: number }; profileEose?: { releases: (() => void)[] }; hintProfile?: { relay: string; requests: number } } = {}) {
     const origin = new URL(test.info().project.use.baseURL!).origin;
     const note = makeNote(options.content ?? "A billboard headline.\n" + quotes.map(quote => `nostr:${noteEncode(quote.id)}`).join("\n"), options.tags);
     const entry = { event: note, id: note.id, rank: 1, weight: 200, sats_paid: 210, first_paid_at: 1700000000, last_paid_at: 1700000000,
-        hot_sats: 21, author_share: 20, ...options.ledger, ...(options.billboard !== false ? { billboard: { template: "poster", color: "cyan", size: "medium", speed: "normal", text: "A billboard headline." } } : {}) };
+        hot_sats: 21, author_share: 20, ...options.ledger, ...(options.billboard !== false ? { billboard: { template: "poster", color: "cyan", size: "medium", speed: "normal", text: options.billboardText ?? "A billboard headline." } } : {}) };
     await context.route("**/*", route => {
         const url = new URL(route.request().url());
         if (url.origin === origin) return route.continue();
@@ -27,6 +27,8 @@ async function setup(context: BrowserContext, page: Page, options: { content?: s
         socket.onMessage(message => {
             const msg = JSON.parse(String(message));
             if (msg[0] !== "REQ") return;
+            if (options.hintProfile && socket.url().startsWith(options.hintProfile.relay) &&
+                msg.slice(2).some((filter: { kinds?: number[]; authors?: string[] }) => filter.kinds?.includes(0) && filter.authors?.includes(profiles[1].pubkey))) options.hintProfile.requests++;
             if (options.slowQuote && msg.slice(2).some((filter: { ids?: string[] }) => filter.ids?.includes(quotes[0].id))) {
                 if (socket.url().startsWith("wss://slow.example")) {
                     options.slowQuote.deliver = () => {
@@ -40,6 +42,7 @@ async function setup(context: BrowserContext, page: Page, options: { content?: s
                 return;
             }
             for (const event of [...profiles, ...(options.availableQuotes ?? quotes)]) {
+                if (options.hintProfile && event.id === profiles[1].id && !socket.url().startsWith(options.hintProfile.relay)) continue;
                 if (msg.slice(2).some((filter: { ids?: string[]; kinds?: number[]; authors?: string[] }) =>
                     (!filter.ids || filter.ids.includes(event.id)) && (!filter.kinds || filter.kinds.includes(event.kind)) &&
                     (!filter.authors || filter.authors.includes(event.pubkey)))) socket.send(JSON.stringify(["EVENT", msg[1], event]));
@@ -70,12 +73,9 @@ test("billboard options reveal complete quotes and original text from the compac
     await page.screenshot({ path: testInfo.outputPath("billboard-note.png"), fullPage: true });
     await expect(row.locator(".note-footer").getByRole("button", { name: "Note options", exact: true })).toBeVisible();
     await expect(row.locator(".note-footer").getByRole("button", { name: "Boost", exact: true })).toBeVisible();
-    await expect.poll(() => row.locator(".note-quote[inert]").count()).toBeGreaterThan(0);
+    await expect(row.locator(".note-quote")).toHaveCount(6);
+    await expect(row.locator(".note-quote[inert]")).toHaveCount(0);
     const firstQuote = row.locator(".note-quote").first();
-    expect(await firstQuote.evaluate(element => {
-        const viewport = element.closest("[id]")!;
-        return element.getBoundingClientRect().bottom <= viewport.getBoundingClientRect().bottom + 1;
-    })).toBe(true);
     for (const control of [options, row.getByRole("button", { name: "Boost", exact: true }), firstQuote.getByRole("link", { name: "Open quoted note" })]) {
         expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     }
@@ -102,13 +102,56 @@ test("billboard options reveal complete quotes and original text from the compac
     await options.click();
     await menu.getByRole("menuitem", { name: "Hide original", exact: true }).click();
     await expect(row.getByText("Original text", { exact: true })).toHaveCount(0);
-    await expect.poll(() => row.locator(".note-quote[inert]").count()).toBeGreaterThan(0);
+    await expect(row.locator(".note-quote[inert]")).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await waitingLink.click();
     await page.waitForURL("**/waiting", { waitUntil: "domcontentloaded" });
     await expect(sections.getByRole("link", { name: "Waiting room", exact: true })).toHaveAttribute("aria-current", "page", { timeout: 15000 });
     await expect(page.getByRole("group", { name: "Waiting room sort" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Waiting room (10)", exact: true })).toHaveCount(0);
+});
+
+test("billboard mentions resolve profiles from their nprofile relay hints", async ({ context, page }) => {
+    const hintProfile = { relay: "wss://mention-only.example", requests: 0 };
+    const text = `Respect to nostr:${nprofileEncode({ pubkey: profiles[1].pubkey, relays: [hintProfile.relay] })}`;
+    const row = await setup(context, page, { content: text, billboardText: text, hintProfile });
+    await expect(row.locator(".billboard-screen").getByRole("link", { name: "@Quote author", exact: true })).toBeVisible();
+    expect(hintProfile.requests).toBeGreaterThan(0);
+    await expect(row.locator(".board-original")).toHaveCount(0);
+});
+
+for (const width of [320, 390, 1440]) test(`billboards share the adaptive quote gallery at ${width}px without resetting media`, async ({ context, page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.route("https://example.com/billboard-photo-*.png", route => route.fulfill({ contentType: "image/svg+xml",
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1920"><rect width="1440" height="1920" fill="#22d3ee"/></svg>' }));
+    const quote = makeNote("Quoted context. ".repeat(40) + "\n" + [1, 2, 3].map(index => `https://example.com/billboard-photo-${index}.png`).join("\n"), [], quoteKey);
+    const row = await setup(context, page, { content: `Signed opening.\nnostr:${noteEncode(quote.id)}`, availableQuotes: [quote] });
+    const presentation = row.locator(".note-composition-presentation");
+    const media = row.locator(".note-composition-media");
+    const gallery = media.locator(".note-gallery");
+    await expect(gallery).toHaveClass(/gallery-portraits/);
+    await expect(gallery.getByRole("button")).toHaveCount(3);
+    const leadBounds = (await presentation.boundingBox())!, mediaBounds = (await media.boundingBox())!;
+    if (width === 1440) expect(mediaBounds.x).toBeGreaterThanOrEqual(leadBounds.x + leadBounds.width);
+    else expect(mediaBounds.y).toBeGreaterThanOrEqual(leadBounds.y + leadBounds.height);
+    const image = await gallery.locator("img").first().elementHandle();
+    const billboard = await presentation.locator(".billboard-screen").elementHandle();
+    await media.getByRole("button", { name: "Show more quoted note text", exact: true }).click();
+    await row.getByRole("button", { name: "Note options", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Read original", exact: true }).click();
+    await expect(row.locator(".board-original")).toContainText("Signed opening.");
+    expect(await image!.evaluate(element => element.isConnected)).toBe(true);
+    expect(await billboard!.evaluate(element => element.isConnected)).toBe(true);
+    await expect(media.getByRole("button", { name: "Show less quoted note text", exact: true })).toBeVisible();
+    await row.getByRole("button", { name: "Note options", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Hide original", exact: true }).click();
+    await expect(row.locator(".board-original")).toHaveCount(0);
+    expect(await image!.evaluate(element => element.isConnected)).toBe(true);
+    await gallery.getByRole("button", { name: "Open image 1 of 3", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Image 1 of 3", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(gallery.getByRole("button", { name: "Open image 1 of 3", exact: true })).toBeFocused();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
 test("plain text and quoted text expand independently before the footer", async ({ context, page }) => {

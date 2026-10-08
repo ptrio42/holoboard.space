@@ -21,6 +21,8 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Keep billboards in the adaptive note layout with readable quote galleries,
+  and use their embedded relay hints to load mentioned profiles.
 - Show verified author profiles as soon as their metadata arrives, even while
   slower relays are pending.
 - Keep author-wallet issues and visibility-only recovery beside the promotion

@@ -95,7 +95,11 @@ export function Expandable({ children, unclamped = false, initiallyExpanded = fa
     }, [children, expanded, collapsedMaxHeight, unclamped]);
 
     const toggle = useCallback(() => setExpanded((open) => !open), []);
-    if (unclamped) return <>{children}{footer?.(null, { expanded, controls: contentId, toggle })}</>;
+    if (unclamped) {
+        const content = <>{children}{expandedContent && <div id={contentId}>{expanded && expandedContent}</div>}
+            {footer?.(null, { expanded, controls: contentId, toggle })}</>;
+        return expandedContent ? <div data-note-expanded={expanded}>{content}</div> : content;
+    }
     const clamped = overflows && !expanded;
     const control = overflows || expandedContent ? <NoteDisclosure expanded={expanded} controls={contentId} onClick={toggle}
         visibleLabel={expanded ? "Less" : expandedContent ? "Original" : visibleExpandLabel}>

@@ -69,7 +69,7 @@ function BillboardDisplay({ config, initialSlide, sourceContent }: { config: Bil
                         style={{
                             ...(terminal ? { visibility: start < revealed ? "visible" : "hidden" } : {}),
                             ...(config.template === "split-flap" ? { "--flap-delay": `${start * 0.004}s` } : {}),
-                        } as CSSProperties}><NostrMention pubkey={pubkey} /></span>;
+                        } as CSSProperties}><NostrMention pubkey={pubkey} relays={decoded.type === "nprofile" ? decoded.data.relays : undefined} /></span>;
                 }
             } catch {
                 // Invalid references remain readable links, matching the normal note renderer.
