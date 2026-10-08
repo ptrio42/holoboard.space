@@ -10,20 +10,21 @@ export function NoteLinkPreview({ text }: { text: string }) {
 function PreviewCard({ url }: { url: string }) {
     const container = useRef<HTMLDivElement>(null);
     const [preview, setPreview] = useState<LinkPreview | null>(() => cachedLinkPreview(url));
+    const [settled, setSettled] = useState(!!preview);
     const [brokenImage, setBrokenImage] = useState(false);
     useEffect(() => {
         let active = true;
         const observer = new IntersectionObserver(([entry]) => {
             if (!entry.isIntersecting || container.current?.closest("[inert]")) return;
             observer.disconnect();
-            void fetchLinkPreview(url).then((result) => { if (active) setPreview(result); });
+            void fetchLinkPreview(url).then((result) => { if (active) { setPreview(result); setSettled(true); } });
         }, { rootMargin: "200px" });
         if (container.current) observer.observe(container.current);
         return () => { active = false; observer.disconnect(); };
     }, [url]);
 
     // WebKit needs a nonzero target area to observe an empty, clipped placeholder.
-    return <div ref={container} style={{ minHeight: 1 }} data-note-block={preview ? "" : undefined}>
+    return <div ref={container} className="note-link-container" style={{ minHeight: 1 }} data-preview-state={preview ? "ready" : settled ? "unavailable" : "loading"} data-note-block={preview ? "" : undefined}>
         {preview && <a href={url} target="_blank" rel="noopener noreferrer nofollow" aria-label={`Open link: ${preview.title}`}
             className="note-link-preview focus-pixel">
             {preview.imageUrl && !brokenImage && <img src={preview.imageUrl} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setBrokenImage(true)} />}

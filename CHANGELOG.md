@@ -10,6 +10,8 @@ record deployment, not announcement publication.
 
 - Give promoted notes adaptive text and media layouts, larger short openings,
   full-frame portrait galleries and inline more/less controls for text and quotes.
+  Fit destination previews beneath text beside media when space allows, and
+  distinguish quoted text with smaller type.
 - Add an opt-in read-only discussion screen for original promoted notes, with
   replies expanded by default, compact reply rows, continuous branch lines,
   direct parent navigation, promotion highlights and grouped relay details with
@@ -54,6 +56,8 @@ record deployment, not announcement publication.
 
 ### Changed
 
+- Move Expired notes into the footer, keeping TOP 21 and Waiting room in the
+  main section navigation.
 - Simplify the header around one Promote button, a quiet wallet icon and an
   optional Sign in action. Connected accounts show an avatar and desktop
   pseudonym, with profile access and connection controls in a compact menu.

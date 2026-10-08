@@ -280,6 +280,54 @@ test.describe("read-only discussion", () => {
         const after = (await card.boundingBox())!;
         for (const axis of ["x", "y", "width", "height"] as const) expect(Math.abs(after[axis] - before[axis]), axis).toBeLessThan(2);
     });
+    for (const expanded of [false, true]) test(`keeps fitted link placement in the first discussion frame (${expanded ? "expanded" : "collapsed"})`, async ({ context, page }) => {
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.route("https://images.example/square.png", route => route.fulfill({
+            contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800"><rect width="800" height="800" fill="#164e63"/></svg>',
+        }));
+        const quoted = make("Known quotation beside the destination card.");
+        const selected = make("Long source body.\n".repeat(20) + "https://images.example/square.png\nhttps://preview.example/page", [["q", quoted.id]]);
+        await setup(context, page, { focus: selected, events: [quoted], preview: true });
+        await page.goto("/");
+        const source = page.locator(`[data-board-note="${selected.id}"]`);
+        await expect(source.getByText(quoted.content, { exact: true })).toBeVisible();
+        await expect(source.getByText("Cached page preview", { exact: true })).toBeVisible();
+        await expect.poll(() => source.locator(".note-gallery img").evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(800);
+        if (expanded) await source.getByRole("button", { name: "Show more note text", exact: true }).click();
+        const placement = expanded ? "media" : "text";
+        await expect(source.locator(".note-composition")).toHaveAttribute("data-link-placement", placement);
+        await page.evaluate(() => document.fonts.ready);
+        const link = source.getByRole("link", { name: "Discussion", exact: true });
+        await link.scrollIntoViewIfNeeded();
+        const original = (await source.locator("article").boundingBox())!;
+        await page.evaluate(() => {
+            const frames: { x: number; y: number; width: number; height: number; placement?: string }[] = [];
+            Object.assign(window, { fittedLinkFrames: frames });
+            let remaining = 90;
+            const sample = () => {
+                const card = document.querySelector("[data-reading-focus] article");
+                if (card) {
+                    const { x, y, width, height } = card.getBoundingClientRect();
+                    frames.push({ x, y, width, height, placement: card.querySelector<HTMLElement>(".note-composition")?.dataset.linkPlacement });
+                }
+                if (--remaining) requestAnimationFrame(sample);
+            };
+            requestAnimationFrame(sample);
+        });
+        await link.click();
+        const focus = page.getByRole("article", { name: "Discussion focus" });
+        await expect(focus.locator(".note-composition")).toHaveAttribute("data-link-placement", placement);
+        await page.waitForTimeout(200);
+        const frames = await page.evaluate(() => (window as unknown as { fittedLinkFrames: (typeof original & { placement?: string })[] }).fittedLinkFrames);
+        expect(frames.length).toBeGreaterThan(0);
+        for (const frame of frames) {
+            expect(frame.placement).toBe(placement);
+            for (const axis of ["x", "y", "width", "height"] as const) expect(Math.abs(frame[axis] - original[axis]), `first-frame ${axis}`).toBeLessThan(2);
+        }
+        await page.getByRole("link", { name: "Back to board", exact: true }).click();
+        await expect(source.locator(".note-composition")).toHaveAttribute("data-link-placement", placement);
+        expect(Math.abs((await source.locator("article").boundingBox())!.y - original.y)).toBeLessThan(2);
+    });
     for (const billboard of [false, true]) test(`preserves an independently expanded quote when entering and returning from discussion (${billboard ? "billboard" : "ordinary"})`, async ({ context, page }) => {
         await page.route("https://images.example/*.png", route => route.request().url().endsWith("4.png") ? route.abort() : route.fulfill({
             contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1920"><rect width="1440" height="1920" fill="#22d3ee"/></svg>',

@@ -1,4 +1,4 @@
-import { test, expect, type BrowserContext, type Page } from "@playwright/test";
+import { test, expect, type BrowserContext, type Page, type Route } from "@playwright/test";
 import { finalizeEvent, generateSecretKey, type Event } from "nostr-tools/pure";
 import { neventEncode, noteEncode, nprofileEncode } from "nostr-tools/nip19";
 
@@ -9,7 +9,8 @@ const makeNote = (content: string, tags: string[][] = [], key = authorKey, kind 
 const quotes = Array.from({ length: 6 }, (_, i) => makeNote(`Quoted source ${i + 1}. ` + "Context for the original note. ".repeat(12), [], quoteKey));
 const profiles = [makeNote(JSON.stringify({ name: "Row author" }), [], authorKey, 0), makeNote(JSON.stringify({ name: "Quote author" }), [], quoteKey, 0)];
 
-async function setup(context: BrowserContext, page: Page, options: { content?: string; billboard?: boolean; billboardText?: string; tags?: string[][]; availableQuotes?: Event[]; expired?: boolean; ledger?: { rank?: number; sats_paid?: number; weight?: number }; slowQuote?: { deliver?: () => void; fastReplies: number }; profileEose?: { releases: (() => void)[] }; hintProfile?: { relay: string; requests: number } } = {}) {
+interface PreviewFixture { requests: number; title: string; description?: string; image_url?: string; pending?: Route[]; unavailable?: boolean }
+async function setup(context: BrowserContext, page: Page, options: { content?: string; billboard?: boolean; billboardText?: string; tags?: string[][]; availableQuotes?: Event[]; expired?: boolean; ledger?: { rank?: number; sats_paid?: number; weight?: number }; slowQuote?: { deliver?: () => void; fastReplies: number }; profileEose?: { releases: (() => void)[] }; hintProfile?: { relay: string; requests: number }; preview?: PreviewFixture } = {}) {
     const origin = new URL(test.info().project.use.baseURL!).origin;
     const note = makeNote(options.content ?? "A billboard headline.\n" + quotes.map(quote => `nostr:${noteEncode(quote.id)}`).join("\n"), options.tags);
     const entry = { event: note, id: note.id, rank: 1, weight: 200, sats_paid: 210, first_paid_at: 1700000000, last_paid_at: 1700000000,
@@ -18,6 +19,11 @@ async function setup(context: BrowserContext, page: Page, options: { content?: s
         const url = new URL(route.request().url());
         if (url.origin === origin) return route.continue();
         if (url.origin !== "http://127.0.0.1:3334") return route.abort();
+        if (url.pathname === "/api/link-preview" && options.preview) {
+            options.preview.requests++;
+            if (options.preview.pending) { options.preview.pending.push(route); return; }
+            return route.fulfill({ status: options.preview.unavailable ? 404 : 200, json: { ...options.preview, url: url.searchParams.get("url") } });
+        }
         const data = url.pathname === "/api/board/waiting-updates" ? { count: 0, note_ids: [], checked_at: Date.now() } : url.pathname === "/api/board/expired" ? { entries: [entry] } :
             { entries: [entry], targets: [entry], total: 1, active_posts: 31, has_more: false, total_sats: 210 };
         return route.fulfill({ contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify(data) });
@@ -322,7 +328,8 @@ test("expired notes retain their historical payment and promotion action", async
     const row = await setup(context, page, { expired: true, billboard: false, content: "An expired paragraph.\n".repeat(24) });
     await expect(page.getByRole("heading", { name: "HOLOBOARD", exact: true })).toBeVisible();
     const sections = page.getByRole("navigation", { name: "Board sections" });
-    await expect(sections.getByRole("link", { name: "Expired", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(sections.getByRole("link", { name: /Expired/ })).toHaveCount(0);
+    await expect(page.getByRole("contentinfo").getByRole("link", { name: "Expired notes", exact: true })).toHaveAttribute("aria-current", "page");
     await expect(sections.getByRole("link", { name: "TOP 21" })).toHaveAttribute("href", "/");
     await expect(sections.getByRole("link", { name: "Waiting room" })).toHaveAttribute("href", "/waiting");
     await expect(page.getByRole("navigation", { name: "Connections" })).toHaveCount(1);
@@ -492,6 +499,109 @@ test("short notes use larger full-width text without disclosure or invented head
     await page.setViewportSize({ width: 320, height: 900 });
     await expect(text).toHaveCSS("font-size", "16px");
     expect(await text.locator(".note-text-content").innerText()).toBe(content);
+});
+
+test("link cards fit below text beside media and keep one instance across phone layouts", async ({ context, page }, testInfo) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.route("https://example.com/*.png", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450"><rect width="800" height="450" fill="#164e63"/></svg>' }));
+    const preview = { requests: 0, title: "The promoted destination", description: "Find out more about this project.", image_url: "https://example.com/thumbnail.png" };
+    const row = await setup(context, page, { billboard: false, content: "A short campaign introduction.\nhttps://example.com/project\nhttps://example.com/photo.png", preview });
+    const composition = row.locator(".note-composition");
+    const text = row.locator('[data-note-text="main"]'), media = row.locator(".note-composition-media"), link = row.locator(".note-link-preview");
+    await expect(composition).toHaveAttribute("data-link-placement", "text");
+    const card = await link.elementHandle(), image = await media.locator("img").elementHandle();
+    for (const width of [1440, 768, 390, 320, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        await expect(async () => {
+            const t = (await text.boundingBox())!, m = (await media.boundingBox())!, l = (await link.boundingBox())!;
+            if (width >= 768) {
+                expect(l.x).toBeCloseTo(t.x, 0); expect(l.y).toBeGreaterThanOrEqual(t.y + t.height);
+                expect(l.y + l.height).toBeLessThanOrEqual(m.y + m.height + 1);
+                expect(m.x).toBeGreaterThan(l.x + l.width);
+            } else {
+                expect(m.y).toBeGreaterThanOrEqual(t.y + t.height);
+                expect(l.y).toBeGreaterThanOrEqual(m.y + m.height);
+            }
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        }).toPass();
+        expect(await card!.evaluate(element => element.isConnected)).toBe(true);
+        expect(await image!.evaluate(element => element.isConnected)).toBe(true);
+        await page.screenshot({ path: testInfo.outputPath(`link-placement-${width}.png`), fullPage: true });
+    }
+    expect(preview.requests).toBe(1);
+});
+
+test("link placement follows late metadata and local text expansion without restarting media", async ({ context, page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.route("https://example.com/photo.png", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450"><rect width="800" height="450" fill="#164e63"/></svg>' }));
+    const preview: PreviewFixture = { requests: 0, title: "Project details", pending: [] };
+    const row = await setup(context, page, { billboard: false, content: "A long campaign paragraph with useful information. ".repeat(50) + `\nhttps://example.com/project\nhttps://example.com/photo.png\nnostr:${noteEncode(quotes[0].id)}`, preview });
+    await expect(row.locator(".note-quote__excerpt")).toContainText("Quoted source 1");
+    await expect(row.locator(".note-quote__excerpt")).toHaveCSS("font-size", "14px");
+    await expect.poll(() => preview.pending!.length).toBe(1);
+    await preview.pending![0].fulfill({ json: { url: "https://example.com/project", title: preview.title } });
+    const composition = row.locator(".note-composition");
+    await expect(composition).toHaveAttribute("data-link-placement", "text");
+    const card = await row.locator(".note-composition > .note-link-container .note-link-preview").elementHandle();
+    const image = await row.locator(".note-composition-media > .note-gallery img").elementHandle();
+    const before = await image!.boundingBox();
+    const main = row.locator('[data-note-text="main"]');
+    await main.getByRole("button", { name: "Show more note text", exact: true }).click();
+    await expect(composition).toHaveAttribute("data-link-placement", "media");
+    expect(await image!.evaluate(element => element.isConnected)).toBe(true);
+    expect(await image!.boundingBox()).toEqual(before);
+    expect(await card!.evaluate(element => element.isConnected)).toBe(true);
+    await main.getByRole("button", { name: "Show less note text", exact: true }).click();
+    await expect(composition).toHaveAttribute("data-link-placement", "text");
+    expect(await row.locator(".note-composition > .note-link-container .note-link-preview").count()).toBe(1);
+    expect(preview.requests).toBe(1);
+});
+
+test("long text keeps its link below media", async ({ context, page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.route("https://example.com/photo.png", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450"><rect width="800" height="450" fill="#164e63"/></svg>' }));
+    const preview = { requests: 0, title: "Project details", description: "A longer destination description that needs another line in the available column." };
+    const row = await setup(context, page, { billboard: false, content: "A longer campaign paragraph with important details. ".repeat(40) + "\nhttps://example.com/project\nhttps://example.com/photo.png", preview });
+    await expect(row.locator(".note-composition")).toHaveAttribute("data-link-placement", "media");
+    const m = (await row.locator(".note-composition-media").boundingBox())!, l = (await row.locator(".note-link-preview").boundingBox())!;
+    expect(l.x).toBeCloseTo(m.x, 0); expect(l.y).toBeGreaterThanOrEqual(m.y + m.height);
+});
+
+test("unavailable link-only previews do not reserve an empty desktop column", async ({ context, page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const row = await setup(context, page, { billboard: false, content: "Read about this project. https://example.com/unavailable", preview: { requests: 0, title: "Unavailable", unavailable: true } });
+    await expect(row.locator('.note-link-container[data-preview-state="unavailable"]')).toBeAttached();
+    await expect(row.locator(".note-composition")).toHaveCSS("display", "flex");
+    const text = (await row.locator('[data-note-text="main"]').boundingBox())!, content = (await row.locator(".board-note-content").boundingBox())!;
+    expect(text.width).toBeCloseTo(content.width, 0);
+});
+
+test("complete short text sits centrally beside media and stacks above it on phones", async ({ context, page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.route("https://example.com/photo.png", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450"><rect width="800" height="450" fill="#164e63"/></svg>' }));
+    const row = await setup(context, page, { billboard: false, content: "An invitation to explore.\nhttps://example.com/photo.png" });
+    const text = row.locator('[data-note-text="main"]'), media = row.locator(".note-composition-media");
+    const t = (await text.boundingBox())!, m = (await media.boundingBox())!;
+    expect(Math.abs(t.y + t.height / 2 - m.y - m.height / 2)).toBeLessThan(1);
+    await page.setViewportSize({ width: 320, height: 900 });
+    await expect(async () => {
+        const stacked = (await text.boundingBox())!, image = (await media.boundingBox())!;
+        expect(stacked.y + stacked.height).toBeLessThanOrEqual(image.y);
+        expect(stacked.width).toBeCloseTo((await row.locator(".board-note-content").boundingBox())!.width, 0);
+    }).toPass();
+});
+
+test("link-only previews keep their media column when a thumbnail fails", async ({ context, page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.route("https://example.com/broken.png", route => route.abort());
+    const preview = { requests: 0, title: "The campaign destination", image_url: "https://example.com/broken.png" };
+    const row = await setup(context, page, { billboard: false, content: "Read about this project. https://example.com/project", preview });
+    const link = row.locator(".note-link-preview"), text = row.locator('[data-note-text="main"]');
+    await expect(link).toBeVisible(); await expect(link.locator("img")).toHaveCount(0);
+    expect((await link.boundingBox())!.x).toBeGreaterThanOrEqual((await text.boundingBox())!.x + (await text.boundingBox())!.width);
+    await page.setViewportSize({ width: 390, height: 900 });
+    await expect(async () => expect((await link.boundingBox())!.y).toBeGreaterThanOrEqual((await text.boundingBox())!.y + (await text.boundingBox())!.height)).toPass();
+    expect(preview.requests).toBe(1);
 });
 
 test("portrait galleries preserve complete frames and provide every available image", async ({ context, page }, testInfo) => {

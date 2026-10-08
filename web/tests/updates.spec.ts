@@ -164,7 +164,11 @@ test("failed metadata keeps the original link usable", async ({ context, page })
     const state = await mockBoard(context, page, "Read https://example.com/article"); state.previewFails = true;
     await page.goto("/");
     await expect.poll(() => state.previewRequests.length).toBe(1);
-    await expect(page.getByRole("article").first().getByRole("link", { name: "https://example.com/article", exact: true })).toHaveAttribute("href", "https://example.com/article");
+    const row = page.getByRole("article").first();
+    await expect(row.locator(".note-link-container")).toHaveAttribute("data-preview-state", "unavailable");
+    const link = row.getByRole("link", { name: "example.com/article", exact: true });
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute("href", "https://example.com/article");
     await expect(page.locator(".note-link-preview")).toHaveCount(0);
 });
 
@@ -175,7 +179,7 @@ test("expanding a long note exposes its complete link card", async ({ context, p
     const expand = row.getByRole("button", { name: /Show more/ });
     await expect(expand).toBeVisible();
     await expand.click();
-    await row.getByRole("link", { name: "https://example.com/article", exact: true }).scrollIntoViewIfNeeded();
+    await row.getByRole("link", { name: "example.com/article", exact: true }).scrollIntoViewIfNeeded();
     await expect(row.locator(".note-link-preview")).toBeVisible();
     expect(state.previewRequests).toEqual(["https://example.com/article"]);
 });

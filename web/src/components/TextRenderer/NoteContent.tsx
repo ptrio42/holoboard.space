@@ -1,8 +1,10 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useRef, type ReactNode } from "react";
 import { noteAttachments, quoteReference } from "../../lib/noteAttachments";
 import { parseContent, type ContentToken } from "../../utils/textProcessing/parseContent";
 import { videoPoster } from "../../lib/noteMedia";
 import { noteTextTokens } from "../../lib/noteTextTokens";
+import { firstPreviewLink } from "../../lib/linkPreview";
+import { useNoteLinkPlacement } from "../../hooks/useNoteLinkPlacement";
 import { InlineNoteText } from "./InlineNoteText";
 import { NoteMediaGallery } from "./NoteMediaGallery";
 import { NoteLinkPreview } from "./NoteLinkPreview";
@@ -28,20 +30,23 @@ export function NoteContent({ text, tags, ownId, adaptive = false, embedQuotes =
         const length = words.reduce((count, token) => count + (token.kind === "text" ? token.value.length : token.kind === "link" ? Math.min(48, token.href.length) : 16), 0);
         const images = [...new Set(tokens.flatMap(token => token.kind === "image" ? [token.src] : []))];
         const videos = [...new Set(tokens.flatMap(token => token.kind === "video" ? [token.src] : []))];
-        const hasMedia = !!(images.length || videos.length || quotes.length || previewLinks && attachments.links.length);
-        return { words: words as ContentToken[], length, images, videos, quotes, hasMedia };
+        const hasVisualMedia = !!(images.length || videos.length || quotes.length);
+        const hasLink = previewLinks && !!firstPreviewLink(text);
+        return { words: words as ContentToken[], length, images, videos, quotes, hasVisualMedia, hasLink, hasMedia: hasVisualMedia || hasLink };
     }, [text, tags, ownId, embedQuotes, previewLinks]);
     const emphasis = adaptive && content.length <= 100 ? "brief" : adaptive && (content.length <= 160 || !content.hasMedia && content.length <= 280) ? "short" : undefined;
     const complete = adaptive && (content.length <= 220 || !content.hasMedia && content.length <= 280);
-    return <div className={`note-composition${adaptive ? " note-composition--adaptive" : ""}${content.hasMedia ? "" : " note-composition--text"}`} data-text-emphasis={emphasis}>
+    const root = useRef<HTMLDivElement>(null);
+    useNoteLinkPlacement(root, adaptive && content.hasVisualMedia && content.hasLink, JSON.stringify([text, tags, !!textPresentation]));
+    return <div ref={root} className={`note-composition${adaptive ? " note-composition--adaptive" : ""}${content.hasMedia ? "" : " note-composition--text"}${content.hasVisualMedia ? " note-composition--media" : ""}`} data-text-emphasis={emphasis} data-text-complete={complete || !!textPresentation || undefined}>
         {textPresentation ? <div className="note-composition-presentation">{textPresentation}</div> :
             <InlineNoteText tokens={content.words} complete={complete} initiallyExpanded={initiallyExpandedTexts.includes("main") || initiallyExpanded} />}
-        {content.hasMedia && <div className="note-composition-media">
+        {content.hasVisualMedia && <div className="note-composition-media">
             <NoteMediaGallery images={content.images} />
             {content.videos.map(src => <video key={src} className="note-content-video" src={src} poster={videoPoster(tags, src)} controls playsInline preload="metadata" data-note-block />)}
             {content.quotes.map(reference => <NoteQuote key={reference.key} reference={reference} adaptive
                 initiallyExpandedTexts={initiallyExpandedTexts} />)}
-            {previewLinks && <NoteLinkPreview text={text} />}
         </div>}
+        {content.hasLink && <NoteLinkPreview text={text} />}
     </div>;
 }

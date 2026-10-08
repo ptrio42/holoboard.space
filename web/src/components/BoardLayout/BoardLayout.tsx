@@ -6,7 +6,6 @@ type BoardSection = "board" | "waiting" | "expired";
 const sections: { id: BoardSection; href: string; label: string }[] = [
     { id: "board", href: "/", label: "TOP 21" },
     { id: "waiting", href: "/waiting", label: "Waiting room" },
-    { id: "expired", href: "/expired", label: "Expired" },
 ];
 
 export function BoardLayout({ section, onPromote, headerContent, children, newWaitingCount = 0 }: {
@@ -29,13 +28,13 @@ export function BoardLayout({ section, onPromote, headerContent, children, newWa
                     Promote
                 </PixelButton>
                 <ConnectionControls className="justify-self-end justify-end" />
-                <nav aria-label="Board sections" className="col-span-3 flex justify-between gap-x-2 font-pixel text-[10px] text-cyan-200/80 md:justify-start md:gap-x-6">
+                <nav aria-label="Board sections" className="col-span-3 flex justify-start gap-x-6 font-pixel text-[10px] text-cyan-200/80">
                     {sections.map(({ id, href, label }) => <a key={id} href={href} aria-current={section === id ? "page" : undefined} className={`focus-pixel relative inline-flex min-h-11 items-center justify-center gap-2 border-b-2 ${section === id ? "border-neon-gold text-neon-gold" : "border-transparent hover:text-neon-cyan"}`}>{label}{id === "waiting" && newWaitingCount > 0 && <span className="waiting-new-badge" aria-label={`${newWaitingCount} new ${newWaitingCount === 1 ? "note" : "notes"} since your last visit`}>{newWaitingCount > 99 ? "99+" : newWaitingCount}</span>}</a>)}
                 </nav>
             </div>
             {headerContent}
         </header>
         {children}
-        <footer className="mt-12 border-t-2 border-cyan-400/15 pt-6 text-center text-xs text-cyan-100/50"><div className="flex flex-wrap justify-center gap-6"><a href="/help" className="promotion-action focus-pixel inline-flex min-h-11 items-center">Help</a><a href="https://github.com/ptrio42/holoboard.space" target="_blank" rel="noopener noreferrer" className="promotion-action focus-pixel inline-flex min-h-11 items-center">GitHub</a></div><p>Only paid visibility affects rank. Each payment loses half its weight every 30 days.</p></footer>
+        <footer className="mt-12 border-t-2 border-cyan-400/15 pt-6 text-center text-xs text-cyan-100/50"><div className="flex flex-wrap justify-center gap-6"><a href="/expired" aria-current={section === "expired" ? "page" : undefined} className={`promotion-action focus-pixel inline-flex min-h-11 items-center${section === "expired" ? " text-neon-gold" : ""}`}>Expired notes</a><a href="/help" className="promotion-action focus-pixel inline-flex min-h-11 items-center">Help</a><a href="https://github.com/ptrio42/holoboard.space" target="_blank" rel="noopener noreferrer" className="promotion-action focus-pixel inline-flex min-h-11 items-center">GitHub</a></div><p>Only paid visibility affects rank. Each payment loses half its weight every 30 days.</p></footer>
     </div>;
 }

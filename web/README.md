@@ -479,6 +479,17 @@ the complete text is already visible.
 
 Ordinary board cards place text beside media on wide screens and stack them on
 phones. Short openings use larger type; short text-only notes use the full width.
+Complete short text can sit centrally beside taller media while staying aligned
+to the left. Billboards use the same vertical placement. Long text remains at the
+top. Quote text uses 14px type, secondary to the 16px ordinary note body, with
+independent expansion.
+When a note contains both media and a destination link, the link preview fits
+under the text if their combined height fits beside the media. Otherwise it
+stays below the media. Placement responds to column width, loaded content and
+text expansion. An inert thumbnail-free measurement determines the fit without
+duplicating requests or replacing the live card or media. Phones preserve the
+document order: text, media, then the link preview. Failed link-only previews
+release their empty desktop column.
 Galleries adapt to portrait proportions and open full images in the shared modal.
 Video uses matching signed [NIP-92 metadata](https://github.com/nostr-protocol/nips/blob/master/92.md)
 for preview images when available. Billboard animations occupy the text area in
@@ -486,6 +497,10 @@ the same adaptive composition and share its media galleries. They keep a separat
 original-text disclosure in note options. Mentions retain nprofile relay hints
 inside animations as well as ordinary text. Discussion replies and profile notes
 use inline reading with 16px text.
+
+Primary section navigation contains TOP 21 and Waiting room. Expired notes remain
+available in the footer beside Help and GitHub, with a current-page indication
+inside the archive.
 
 Opt-in profiles place an author column beside notes on desktop and a compact
 identity section above notes on phones. Optional banners remain bounded within
