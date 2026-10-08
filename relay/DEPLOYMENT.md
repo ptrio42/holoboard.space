@@ -68,16 +68,14 @@ If the pubkey line does not match what the frontend expects, stop: the wrong
 The relay and HTTP API are one Go application, deployed together on Fly.
 The website is deployed separately on Cloudflare Pages.
 
-Deploy the backend before publishing a frontend that uses new API fields or
-billboard templates. From the repository root:
+Deploy from a clean checkout of the intended release commit. Record its SHA and
+deploy the backend before publishing a frontend that uses new API fields or
+billboard templates. Inspect the current deployment first. From the repository root:
 
 ```bash
 cd relay
 fly status -a holoboard-relay
 fly config validate
-fly deploy
-fly status -a holoboard-relay
-curl --fail https://relay.holoboard.space/api/board
 ```
 
 Back up the ledger before deploying. A Fly volume snapshot keeps the private
@@ -99,11 +97,28 @@ this configuration. Keep one running instance for this ledger. See Fly's
 [scaling rules](https://fly.io/docs/launch/scale-count/) and
 [initial redundancy rules](https://fly.io/docs/apps/app-availability/).
 
+Build and push the image without deploying it, using the release SHA in its
+label. Record the resulting image digest, then deploy that exact image after
+the snapshot is ready. These commands run from `relay/`; replace both placeholders:
+
+```bash
+fly deploy --app holoboard-relay --config fly.toml --remote-only \
+  --build-only --push --image-label git-<release-sha>
+fly deploy --app holoboard-relay --config fly.toml \
+  --image registry.fly.io/holoboard-relay@sha256:<image-digest> --update-only
+fly status -a holoboard-relay
+```
+
+Confirm that the existing machine uses the recorded image and volume and that
+only one ledger instance is running. Continue with the API checks below before
+publishing the frontend.
+
 ## Release verification and rollback
 
 Record the currently deployed backend image and the successful Pages deployment
-before updating. Keep the ledger backup outside the checkout and public build
-artifacts. Confirm the backup is valid JSON and contains `pending_invoices` and
+before updating. For a Fly snapshot, record its volume, ID and `created` status.
+For a downloaded ledger backup, keep it outside the checkout and public build
+artifacts, and confirm it is valid JSON containing `pending_invoices` and
 settlement receipts. Keep the existing relay identity, wallet secrets and volume.
 
 After deploying the backend, check all API routes required by the new frontend:
@@ -122,13 +137,31 @@ Verify WebSocket connectivity and the unchanged public relay key. Publish the
 frontend only after these checks pass. Keep `VITE_ENABLE_NOSTR_CONNECT=false`
 for this release and use production HTTP and WebSocket origins in Pages.
 
-After Pages reports a successful build, verify TOP 21, Waiting room, a link
-preview and a quoted note. Check both a fresh browser and an already installed
-PWA after updating it. Confirm that a prepared invoice still opens, copies and
-scans, and that reopening its promotion does not issue a replacement invoice.
+After pushing the production branch, confirm that the successful Pages deployment
+belongs to the intended release SHA. Check that the production site serves its
+new JavaScript asset, then verify TOP 21, Waiting room, a link preview and a quoted
+note. Quote retrieval is lazy: bring the quote into view before checking it.
+Record any timeout separately; a successful retry does not prove relay reliability.
+Check both a fresh browser and an already installed PWA after updating it,
+including preservation of an unfinished payment session.
+
+For an author-payment change, prepare a small split for a representative note
+without sending funds. Independently decode both BOLT11 invoices and check their
+amounts and payment hashes against the API responses. Decode each displayed QR
+and compare its payload, wallet link and copied invoice with that recipient's
+invoice. Reopen the promotion, explicitly select each recipient and confirm
+that the same invoices remain available without another invoice request.
+Keep full invoice payloads in private temporary storage outside the repository
+and public artifacts. For ordinary author invoices, check that external-wallet
+confirmation limits are explained and manual reports remain unverified.
+
 On a physical Android device, check opening an invoice in a wallet and returning
 to Holoboard. A real settlement check requires a separately authorized payment;
 mock tests do not spend funds or prove wallet settlement.
+
+Mark `CHANGELOG.md` entries as released only after the production deployment is
+confirmed. A documentation-only release-record commit can use `[CF-Pages-Skip]`
+to avoid another frontend build. Record any checks left for the operator.
 
 If the frontend fails, restore the previous successful Pages deployment while
 keeping the new backend available. For a backend regression, deploy the recorded
