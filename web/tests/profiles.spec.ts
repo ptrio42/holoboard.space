@@ -1,6 +1,7 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { finalizeEvent, generateSecretKey, type Event } from "nostr-tools/pure";
 import { matchFilter } from "nostr-tools/filter";
+import { nprofileEncode } from "nostr-tools/nip19";
 test.use({ serviceWorkers: "block", reducedMotion: "reduce" });
 const enabled = process.env.VITE_ENABLE_PROFILES === "true";
 const discussions = process.env.VITE_ENABLE_DISCUSSIONS === "true";
@@ -56,9 +57,10 @@ test("profiles remain external and dedicated routes disabled by default", async 
     test.skip(enabled);
     await setup(context, page); await page.goto("/");
     const author = page.locator("article").first().getByRole("link", { name: "Profile author", exact: true });
-    await expect(author).toHaveAttribute("href", /^https:\/\/njump.me\/npub/);
+    await expect(author).toHaveAttribute("href", /^https:\/\/njump.me\/nprofile/);
     await expect(author).toHaveAttribute("target", "_blank");
     await page.goto(url); await expect(page.getByRole("region", { name: "Author profile" })).toHaveCount(0);
+    await page.goto(`/profile/${nprofileEncode({ pubkey: focus.pubkey })}`); await expect(page.getByRole("region", { name: "Author profile" })).toHaveCount(0);
 });
 test.describe("read-only profiles", () => {
     test.skip(!enabled);

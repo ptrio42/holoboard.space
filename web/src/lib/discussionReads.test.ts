@@ -52,6 +52,10 @@ describe("Holoboard discussion retrieval", () => {
         expect(projection.ancestors.map((row) => row.key)).toEqual([`event:${root.id}`]);
         expect(projection.replies.map((row) => row.key)).toEqual([`event:${unpaid.id}`, `event:${promoted.id}`]);
         expect(result.focusId).toBe(focus.id);
+        expect(result.sources[unpaid.id]).toEqual([a]);
+        expect(result.sources[focus.id]).toBeUndefined();
+        result.sources[unpaid.id].push("wss://injected.example.com");
+        expect(handle.snapshot().sources[unpaid.id]).toEqual([a]);
         for (const event of [sibling, quote, quoteReply, mention]) expect(result.graph.events.has(event.id)).toBe(false);
         expect(result.coverage.some((item) => item.filter["#e"]?.includes(root.id))).toBe(false);
         expect(result.state).toBe("settled");

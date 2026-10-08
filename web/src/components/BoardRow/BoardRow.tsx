@@ -1,4 +1,4 @@
-import { ENABLE_DISCUSSIONS } from "../../config";
+import { ENABLE_DISCUSSIONS, RELAY_URL } from "../../config";
 import { DiscussionLink } from "../ui/DiscussionLink";
 import { useId, useMemo, useState, type CSSProperties, type MouseEvent } from "react";
 import type { NDKEvent } from "@nostr-dev-kit/ndk";
@@ -133,7 +133,7 @@ export function BoardRow({ event, readingFocus = false, initiallyExpanded = fals
                                 </PixelButton><span className="board-hint" aria-hidden="true">{expired ? "Promote again" : "Boost"}</span></span>}
                             </div>
                             <div className="board-note-actions">
-                                {ENABLE_DISCUSSIONS && !readingFocus && <DiscussionLink compact id={event.id} author={event.pubkey} seed={event.rawEvent()}
+                                {ENABLE_DISCUSSIONS && !readingFocus && <DiscussionLink compact id={event.id} author={event.pubkey} hints={[RELAY_URL]} seed={event.rawEvent()}
                                     presentation={{ rank, sats, weight, expired, isNew, lastPaidAt, firstPaidAt, hotSats, billboard, billboardPreviewSlide }} />}
                                 <span className="board-hint-wrap" data-hint-dismissed={optionsHintDismissed || popup?.kind === "options" || undefined}
                                     onPointerLeave={event => { if (!event.currentTarget.querySelector(":focus-visible")) setOptionsHintDismissed(false); }}
@@ -152,7 +152,7 @@ export function BoardRow({ event, readingFocus = false, initiallyExpanded = fals
                                     aria-controls={disclosure.controls} onClick={() => { closePopup(); disclosure.toggle(); }}>
                                     {disclosure.expanded ? "Hide original" : "Read original"}
                                 </button>}
-                                <a role="menuitem" href={njumpUrl(event.id, "note")} target="_blank" rel="noopener noreferrer nofollow"
+                                <a role="menuitem" href={njumpUrl(event.id, "note", [RELAY_URL], event.pubkey)} target="_blank" rel="noopener noreferrer nofollow"
                                     onClick={() => closePopup()}>Open in njump</a>
                             </div>
                             {(expired && !!lastPaidAt || !!firstPaidAt || typeof hotSats === "number") && <div className="note-menu__details">

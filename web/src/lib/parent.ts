@@ -24,9 +24,9 @@ export interface Parent {
  * NIP-10 marks the root of a thread when it bothers to mark anything, and the
  * unmarked form is positional; the final unmarked `e` is the direct parent.
  */
-const replyTarget = (event: NDKEvent): string | undefined => {
+const replyTarget = (event: NDKEvent): string[] | undefined => {
     const tags = event.tags.filter((tag) => tag[0] === "e");
-    return (tags.find((tag) => tag[3] === "reply") ?? tags.find((tag) => tag[3] === "root") ?? tags.filter((tag) => !tag[3]).at(-1))?.[1];
+    return tags.find((tag) => tag[3] === "reply") ?? tags.find((tag) => tag[3] === "root") ?? tags.filter((tag) => !tag[3]).at(-1);
 };
 
 export function parentOf(event: NDKEvent): Parent | null {
@@ -34,9 +34,9 @@ export function parentOf(event: NDKEvent): Parent | null {
         const context = threadContext({ kind: event.kind, tags: event.tags });
         const target = context.root ?? context.parent;
         if (!target) return null;
-        return { href: target.type === "event" ? njumpUrl(target.value, "note") : threadHref(target), label: "Comment on" };
+        return { href: target.type === "event" ? njumpUrl(target.value, "note", target.relays, target.author) : threadHref(target), label: "Comment on" };
     }
 
     const target = replyTarget(event);
-    return target ? { href: njumpUrl(target, "note"), label: "In reply to" } : null;
+    return target?.[1] ? { href: njumpUrl(target[1], "note", target[2] ? [target[2]] : [], target[4]), label: "In reply to" } : null;
 }

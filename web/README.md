@@ -30,6 +30,23 @@ invoice after switching the backend; existing mock placeholders remain invalid.
 
 ## Check changes
 
+For agent-assisted verification, use the repository skill
+[holoboard-verify-change](../.agents/skills/holoboard-verify-change/SKILL.md).
+Its runner selects additive frontend, reader, payment, publication and backend
+profiles, runs checks sequentially and saves logs and a JSON evidence report
+outside the source checkout. It also checks that protected worktrees remain
+unchanged. The default invocation prints a plan; add `--run` to execute it:
+
+```bash
+python3 ../.agents/skills/holoboard-verify-change/scripts/verify_change.py \
+  --repo .. --profile readers --run
+```
+
+Use an explicit `--base <ref>` when verifying committed changes. Profile results
+cover local automated checks; see the linked release gates for device, production
+and interoperability checks. To check the runner itself, run its
+`scripts/test_verify_change.py` with `python3 -B`.
+
 ```bash
 npm run test
 npm run lint

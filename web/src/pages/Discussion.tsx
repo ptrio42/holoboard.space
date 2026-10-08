@@ -33,8 +33,8 @@ function savedState(id: string): ReadingState {
     } catch { return initialState(); }
 }
 
-export default function Discussion({ focusId, author, from }: { focusId: string; author?: string; from: string }) {
-    const { snapshot, error, loadMore, retry } = useDiscussion(focusId, author);
+export default function Discussion({ focusId, author, hints, from }: { focusId: string; author?: string; hints: string[]; from: string }) {
+    const { snapshot, error, loadMore, retry } = useDiscussion(focusId, author, hints);
     const ledger = useSatsMap(SATS_ENDPOINT);
     const [reading, setReading] = useState(() => savedState(focusId));
     const [promote, setPromote] = useState(false);
@@ -103,6 +103,8 @@ export default function Discussion({ focusId, author, from }: { focusId: string;
                 <span className="absolute h-px w-3 bg-cyan-400/40" style={{ left: (depth - 1) * 12, top: join - 1 }} />
             </div>}
             <DiscussionNote node={node} event={node?.event ? bodies.get(node.event.id) : undefined} focus={row.key === `event:${focusId}`}
+                hints={node?.event ? snapshot?.sources[node.event.id] ?? (node.event.id === focusId ? hints : node.reference.relays) : node?.reference.relays}
+                parentHints={parent?.event ? snapshot?.sources[parent.event.id] ?? parent.reference.relays : undefined}
                 parent={parent} parentEvent={parent?.event ? bodies.get(parent.event.id) : undefined} onParent={parent && projectedKeys.has(parent.key) ? () => showParent(parent.key) : undefined}
                 compact={tree} parentIsFocus={parent?.key === projection?.focus.key}
                 promoted={!!node?.event && ledger.sats.has(node.event.id)}

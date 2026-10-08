@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { resolve, extname } from "node:path";
 import { finalizeEvent, generateSecretKey } from "nostr-tools/pure";
 import { matchFilter } from "nostr-tools/filter";
+import { neventEncode, nprofileEncode } from "nostr-tools/nip19";
 import { PNG } from "pngjs";
 import jsQR from "jsqr";
 
@@ -183,10 +184,10 @@ for (const readerRelease of [false, true]) test(readerRelease
             expect(requests).toHaveLength(1);
             await retained!.close();
             await expect(page.getByRole("link", { name: "Discussion", exact: true })).toBeVisible();
-            await page.goto(`${origin}/discussion/${note.id}`);
+            await page.goto(`${origin}/discussion/${neventEncode({ id: note.id, author: note.pubkey, relays: ["ws://127.0.0.1:3334"] })}`);
             await expect(page.getByRole("article", { name: "Discussion focus", exact: true })).toContainText(note.content);
             await expect(page.getByRole("button", { name: "Reply", exact: true })).toHaveCount(0);
-            await page.goto(`${origin}/profile/${note.pubkey}`);
+            await page.goto(`${origin}/profile/${nprofileEncode({ pubkey: note.pubkey, relays: ["ws://127.0.0.1:3334"] })}`);
             await expect(page.getByRole("region", { name: "Author profile", exact: true })).toBeVisible();
             await expect(page.getByRole("button", { name: /Connect Nostr|Nostr signer/ })).toHaveCount(0);
             // Playwright 1.63 WebKit rejects even literal worker responses under
@@ -228,7 +229,7 @@ for (const readerRelease of [false, true]) test(readerRelease
             version = "legacy";
             await updateWorker();
             await expect(page.getByRole("link", { name: "Discussion", exact: true })).toHaveCount(0);
-            await page.goto(`${origin}/discussion/${note.id}`);
+            await page.goto(`${origin}/discussion/${neventEncode({ id: note.id })}`);
             await expect(page.getByRole("region", { name: "Discussion coverage", exact: true })).toHaveCount(0);
             await expect(page.locator("article").first()).toBeVisible();
             await page.getByRole("button", { name: "Boost", exact: true }).first().click();

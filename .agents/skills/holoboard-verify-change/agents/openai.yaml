@@ -1,0 +1,3 @@
+interface:
+  display_name: "Holoboard Verify Change"
+  short_description: "Select and run Holoboard acceptance checks"

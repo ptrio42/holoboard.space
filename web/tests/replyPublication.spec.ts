@@ -1,6 +1,7 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent, type Event, type EventTemplate } from "nostr-tools/pure";
 import { matchFilter } from "nostr-tools/filter";
+import { decode } from "nostr-tools/nip19";
 import * as nip44 from "nostr-tools/nip44";
 
 test.use({ serviceWorkers: "block", reducedMotion: "reduce" });
@@ -127,7 +128,10 @@ test.describe("explicit reply publication", () => {
         await expect(page.getByRole("heading", { name: "0 found replies" })).toBeVisible();
         const receipt = await open(page);
         await receipt.getByRole("link", { name: "View reply", exact: true }).click();
-        await expect(page).toHaveURL(new RegExp(`/discussion/${state.writes[0].event.id}`));
+        await expect(page).toHaveURL(/\/discussion\/nevent1/);
+        const pointer = decode(new URL(page.url()).pathname.split("/")[2]);
+        expect(pointer).toMatchObject({ type: "nevent", data: { id: state.writes[0].event.id, author: user } });
+        if (pointer.type === "nevent") expect(pointer.data.relays?.length).toBeGreaterThan(0);
         await expect(page.getByRole("article", { name: "Discussion focus" })).toContainText("A reply to the original promoted note");
         await expect(page.getByRole("article", { name: "Discussion focus" }).getByText("Promoted", { exact: true })).toHaveCount(0);
         await expect(page.getByRole("region", { name: "Ancestor context" })).toContainText(root.content);

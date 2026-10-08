@@ -172,7 +172,7 @@ export function ReplyComposer({ parent, graph, onClose }: { parent: Event; graph
                 <StatusMessage compact>{deliverySummary}</StatusMessage>
                 <ul className="space-y-2 break-all text-xs">{Object.entries(record.relays).map(([url, value]) => <li key={url}>{url}: {value.state}{"detail" in value && value.detail ? ` (${value.detail})` : ""}</li>)}</ul>
                 <p className="text-xs text-cyan-100/60">Relay acceptance is not a guarantee that every client can find the reply. Retrying sends this exact signed ID only to destinations without confirmed acceptance.</p>
-                {record.attempts > 0 && <DiscussionLink id={record.id} author={record.event.pubkey} seed={record.event} label="View reply" />}
+                {record.attempts > 0 && <DiscussionLink id={record.id} author={record.event.pubkey} hints={Object.entries(record.relays).filter(([, value]) => value.state === "accepted").map(([url]) => url)} seed={record.event} label="View reply" />}
                 {!complete && <label className="flex min-h-11 items-start gap-3 text-xs"><input type="checkbox" className="mt-1" disabled={!!busy || !ownsReply} checked={!!consentFor && consentFor === connections.signerPubkey} onChange={event => setConsentFor(event.target.checked ? connections.signerPubkey : "")} /><span>I agree to publish this reply publicly as {shortNpub(record.event.pubkey)} to the listed relays.</span></label>}
                 {!ownsReply && <p role="status" className="text-xs text-neon-gold">Connect the account that signed this reply to send or retry it.</p>}
                 <details className="disclosure"><summary className="focus-pixel min-h-11 cursor-pointer text-xs">Manage local receipt</summary>

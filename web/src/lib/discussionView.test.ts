@@ -9,7 +9,7 @@ const event = (n: number, parent?: number, root = 1, time = n): ThreadEvent => (
 const graph = (...events: ThreadEvent[]) => reduceThreadGraph(createThreadGraph(), events);
 describe("discussion presentation contracts", () => {
     it("accepts exact shareable IDs and restricts board return paths", () => {
-        expect(discussionRoute(discussionHref(id(2), id(999), "/waiting?view=hot"))).toEqual({ focusId: id(2), author: id(999), from: "/waiting?view=hot" });
+        expect(discussionRoute(discussionHref(id(2), id(999), "/waiting?view=hot"))).toEqual({ focusId: id(2), author: id(999), hints: [], from: "/waiting?view=hot" });
         for (const path of ["https://evil.example", "//evil.example", "/help", "/waiting/../other", "/?redirect=unsafe"]) expect(boardReturnPath(path)).toBe("/");
         expect(discussionRoute(`/discussion/${id(2)}?author=bad&from=https://evil.example`)?.author).toBeUndefined();
         expect(discussionRoute("/discussion/not-an-id")).toBeNull();

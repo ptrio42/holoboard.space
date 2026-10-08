@@ -12,12 +12,13 @@ import { navigateReading } from "../../lib/discussionNavigation";
 import { parseContent } from "../../utils/textProcessing/parseContent";
 import { linkLabel } from "../../lib/noteAttachments";
 
-export function DiscussionNote({ node, event, parent, parentEvent, onParent, focus = false, promoted = false, compact = false, parentIsFocus = false, onReply, branch }: {
+export function DiscussionNote({ node, event, parent, parentEvent, hints = [], parentHints = [], onParent, focus = false, promoted = false, compact = false, parentIsFocus = false, onReply, branch }: {
     node?: ThreadNode; event?: Event; parent?: ThreadNode; parentEvent?: Event; onParent?: () => void;
+    hints?: string[]; parentHints?: string[];
     focus?: boolean; promoted?: boolean; compact?: boolean; parentIsFocus?: boolean; onReply?: () => void;
     branch?: { count: number; expanded: boolean; toggle: () => void };
 }) {
-    const parentProfile = useProfileValue(parent?.event?.pubkey);
+    const parentProfile = useProfileValue(parent?.event?.pubkey, parentHints);
     const parentName = parent?.event && (parentProfile?.displayName?.trim() || parentProfile?.name?.trim() || shortNpub(parent.event.pubkey));
     const parentPreview = (!compact || !parentIsFocus) && parentEvent && parseContent(parentEvent.content).map(token =>
         token.kind === "text" ? token.value : token.kind === "mention" ? `${token.bech32.slice(0, 12)}...` :
@@ -28,13 +29,13 @@ export function DiscussionNote({ node, event, parent, parentEvent, onParent, foc
     const footer = (control?: React.ReactNode) => <footer className="discussion-actions">
         {control}
         {onReply && <button type="button" className="note-action inline-flex min-h-11 items-center" onClick={onReply}>Reply</button>}
-        {event && !focus && <DiscussionLink id={event.id} author={event.pubkey} seed={event} label="Thread" accessibleLabel="Open thread" />}
-        {node?.reference.type === "event" && <NoteExternalLink href={njumpUrl(node.reference.value, "note")} />}
+        {event && !focus && <DiscussionLink id={event.id} author={event.pubkey} hints={hints} seed={event} label="Thread" accessibleLabel="Open thread" />}
+        {node?.reference.type === "event" && <NoteExternalLink href={njumpUrl(node.reference.value, "note", hints, event?.pubkey)} />}
         {validDate && <time className="discussion-time" dateTime={date.toISOString()} title={date.toLocaleString()}>{date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time>}
     </footer>;
     const article = <article className={`discussion-note ${compact ? "discussion-note-compact" : "p-3 sm:p-5"} ${promoted ? "discussion-note-promoted" : ""}`} aria-label={focus ? "Discussion focus" : undefined}>
         <header className="discussion-note__header">
-            {node?.event ? <UserProfileInline pubkey={node.event.pubkey} size="compact" /> : <span className="font-pixel text-[10px] text-cyan-100">Missing context</span>}
+            {node?.event ? <UserProfileInline pubkey={node.event.pubkey} hints={hints} size="compact" /> : <span className="font-pixel text-[10px] text-cyan-100">Missing context</span>}
             {promoted && <span className="discussion-promotion">Promoted</span>}
             {branch && <button type="button" className="note-action inline-flex min-h-11 min-w-11 items-center justify-center gap-1"
                 aria-label={branch.expanded ? "Hide replies" : `Show replies (${branch.count})`} title={branch.expanded ? "Hide replies" : `Show replies (${branch.count})`}
@@ -45,7 +46,7 @@ export function DiscussionNote({ node, event, parent, parentEvent, onParent, foc
             </button>}
         </header>
         <div className="discussion-note__content">
-            {parent?.event && <a href={discussionHref(parent.event.id, parent.event.pubkey, window.location.pathname + window.location.search)}
+            {parent?.event && <a href={discussionHref(parent.event.id, parent.event.pubkey, window.location.pathname + window.location.search, parentHints)}
                 onClick={event => { if (!onParent) return navigateReading(event); if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onParent(); }}
                 className="discussion-parent focus-pixel"
                 aria-label={`Go to parent note by ${parentName}`}>
