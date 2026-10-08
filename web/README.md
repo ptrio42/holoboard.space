@@ -395,8 +395,13 @@ widths, keeping typography and footer controls consistent. Include text-only
 notes, portrait screenshots, photographs, galleries, destination links, video
 and quoted context. Assess what is visible before expansion, image legibility,
 available reading and playback actions, and card height across a whole board.
-Extra Read clicks can reflect hidden content, so they do not establish a more
+Extra expansion clicks can reflect hidden content, so they do not establish a more
 effective promotion by themselves. Preserve the original signed content.
+
+For inline expansion, place `more` at the text cutoff and `less` immediately
+after the expanded text, before media and footer controls. Expand quoted text
+independently. Keep existing media in place and omit expansion controls when
+the complete text is already visible.
 
 Keep meaningful pixel labels at least 10px and check their contrast against the
 actual panel background, including each rank tier. Unselected amount and position
