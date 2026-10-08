@@ -36,7 +36,8 @@ if (NativeWebSocket) {
                 if (Date.now() - receive.start >= 1000) { receive.start = Date.now(); receive.bytes = 0; receive.messages = 0; }
                 receive.bytes += size; receive.messages++;
                 if (size > 1_048_576 || ++messages > 200 || bytes > 5_242_880 || receive.bytes > 16_777_216 || receive.messages > 640) {
-                    event.stopImmediatePropagation(); this.close(1009, "Nostr receive budget exceeded");
+                    // Browser close() accepts 1000 or application codes 3000-4999.
+                    event.stopImmediatePropagation(); this.close(4009, "Nostr receive budget exceeded");
                 }
             });
         }

@@ -24,6 +24,7 @@ record deployment, not announcement publication.
   connections, subscriptions, history reads and caches. Keep partial results
   when relays time out, cancel reads promptly while connections open and
   reconnect receipt monitors after disconnects.
+- Close relay connections reliably when incoming traffic exceeds browser limits.
 - Preserve author and relay hints in quotes and mentions, refresh validated
   profiles and avoid showing unverified Nostr addresses as verified.
 - Persist recipient relay routing before public delivery, retry account replies

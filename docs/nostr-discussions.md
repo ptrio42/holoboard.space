@@ -360,6 +360,11 @@ Controlled real-relay reading and finite runtime
 heap/navigation checks now supplement local signed-event fixtures. Their scope,
 results and repeatable commands are in
 [the Nostr reference](nostr.md#real-relay-and-runtime-resource-checks).
+Large-thread review leaves two reading-stage tasks open: compact reply
+presentation with clearer branch continuity, and bounded work scheduling that
+does not consume author/target/source-record allowances prematurely. Current
+partial-coverage reporting is required while these limits remain. Default
+expansion and correct parent navigation do not establish final readability.
 
 ## Acceptance before a discussion screen ships
 

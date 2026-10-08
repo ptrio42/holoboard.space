@@ -217,6 +217,12 @@ cache, and evicted bodies remain explicit placeholders.
 
 These are application defaults, not protocol requirements. Byte estimates in
 the browser use three bytes per JavaScript string unit as a conservative bound.
+Receive-limit shutdown uses application close code `4009`. The native browser
+[`WebSocket.close()` contract](https://websockets.spec.whatwg.org/#dom-websocket-close)
+allows `1000` or `3000` through `4999`; passing protocol code `1009` throws before
+closing the socket. Native-socket browser fixtures cover oversized frames and
+message bursts, including subscription-counter cleanup. A mocked WebSocket
+alone cannot establish this behavior.
 
 | Resource | Browser | Backend |
 | --- | --- | --- |
@@ -588,7 +594,7 @@ The isolated discussion branch includes the foundation, pinned library migration
 and production fixes through `e651ac6`. The main checkout stays independent;
 implementation does not enable signer support or deploy any feature.
 
-Frontend acceptance covers 359 unit cases across 42 files, including public
+Frontend acceptance covers 362 unit cases across 42 files, including public
 read versus DM relay-list separation and grouped coverage states. Changed-module lint
 and production builds with all four features enabled and disabled pass. The
 disabled build excludes the reply editor chunk and controls. The combined
@@ -613,6 +619,8 @@ automatic expansion, persistent explicit collapse, late parents, parent jumps
 across local pages, distinct participant bylines and one source row per relay.
 Nine default-flag checks keep discussion, profile and reply entry points hidden.
 These checks overlap the signer-release evidence above.
+Six additional native-WebSocket checks cover receive-limit shutdown across all
+three browser projects without replacing the browser socket API.
 
 The application and retained Go dependency packages passed the full race suite.
 Regressions include global subscription limits, malformed frames, escaped
@@ -639,6 +647,8 @@ NIP-05 domains are separate features, not implied by the implemented editor.
 
 Continue routine authorized checks and fixes autonomously. Preserve the isolated
 branch and false-default flags while another release is prepared from main.
+Before treating discussion reading as finished, revise dense-thread presentation
+and review bounded work scheduling against the large-thread findings below.
 Integration must rerun acceptance against its actual base, without clearing saved
 invoices, identities, public outbox entries or the production ledger. Deployment,
 public publication, spending, main pushes, external configuration changes and
@@ -674,6 +684,27 @@ profile biographies and contact fields. Reports and screenshots go to temporary 
 resolved ancestry, read scopes, socket peaks and idle cleanup remain separate
 observations. Development-module inspection supports this smoke and is not a
 production heap measurement.
+
+The large-thread review used the public kind-1 root
+`71548e70da7ec315931758f97acf0006df89cfae4fff8245142b5dcb522dd9a8`
+on 2026-10-08. A warmed-cache read found 123 connected replies and 26 unresolved
+branches after four batches; these are observations, not the thread's total.
+The first 48 rendered replies occupied about 17411 vertical CSS pixels at a
+390-pixel viewport width. Repeated focus-parent previews, large card spacing and
+competing footer actions make short replies expensive to scan. Branch-line
+continuity and desktop text width also need attention. A compact reply layout
+should preserve explicit parent navigation and promotion highlights.
+
+The same read reached author, target and branch/source-record ceilings before
+the lifetime query allowance was exhausted. Branch/source records describe
+predicate/relay work, not only visible conversation branches. `Load more` can
+continue admitted work but cannot remove hard admission ceilings. Review work
+priorities and lazy admission before increasing limits; the current evidence
+does not establish a replacement scheduling policy. After correcting native
+socket shutdown, a fresh-context, cold-cache read found 77 connected replies and
+18 unresolved branches after four batches, with no uncaught page errors. It
+still reported partial coverage and hard limits. Network variability and cache
+seeding prevent treating the two counts as a before/after completeness measure.
 
 Run the offline resource suite against a freshly built production bundle:
 
