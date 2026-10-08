@@ -830,10 +830,11 @@ unverified address presentation and false-default flags remain intact. Content
 expansion has its own state marker, so a Billboard original opened through note
 options also survives reader navigation. Popovers escape clipped frames and
 remain owned by an enclosing promotion dialog. The retrieval stage preserves
-this presentation, partial coverage and user-triggered batches. Physical signer compatibility, deliberate public
-propagation/interoperability checks and deployment-origin/installed-PWA checks
-remain the next release actions. Main pushes and deployment remain separate
-gates.
+this presentation, partial coverage and user-triggered batches. The next stage
+is the read-only frontend candidate after the pending visual checkpoint, as
+specified below. Physical signer compatibility and deliberate public delivery,
+DM and wallet interoperability remain gates for their own releases. Main pushes
+and deployment remain separate gates.
 Integration must rerun acceptance against its actual base, without clearing saved
 invoices, identities, public outbox entries or the production ledger. Deployment,
 public publication, spending, main pushes, external configuration changes and
@@ -1012,6 +1013,73 @@ An enabled container release also needs the enabled-image smoke; the previous
 disabled-image smoke and native enabled build do not establish that result.
 After importing another visual checkpoint or changing the release base, rerun
 the affected combined acceptance before treating these results as current.
+
+### Read-only frontend release
+
+Prepare this release independently of the Go/Khatru migration. Keep the existing
+production backend, identity and ledger when its contract passes. Reader screens
+consume the existing board/campaign APIs and public Nostr reads; they add no
+required discussion or profile HTTP endpoint. Enable only these build flags:
+
+| Setting | Reader artifact |
+| --- | --- |
+| `VITE_ENABLE_DISCUSSIONS` | `true` |
+| `VITE_ENABLE_PROFILES` | `true` |
+| `VITE_ENABLE_NOSTR_CONNECT` | `false` |
+| `VITE_ENABLE_REPLY_PUBLICATION` | `false` |
+| `VITE_RELAY_URL` | `wss://relay.holoboard.space` |
+| `VITE_API_URL` | `https://relay.holoboard.space` |
+| `VITE_SATS_ENDPOINT` | `https://relay.holoboard.space/api/board` |
+
+Use the existing public board identity and configured public read relays, never
+preview identity or loopback overrides. Keep repository defaults disabled;
+these are explicit candidate build settings. The production output must exclude
+the reply-editor chunk and its worker precache reference. Signer restoration and
+public-zap creation stay disabled; ordinary anonymous invoice actions remain.
+
+Run `HOLOBOARD_LIVE_READS=1 npm run test:reader-release` from `web/` before
+selecting the artifact. It bounds HTTP bytes and deadlines, rejects missing
+routes/non-JSON responses, checks browser CORS and verifies fresh campaign and
+expired-note signatures. A documented link-preview upstream failure can be
+valid; a missing handler cannot. With a loopback `HOLOBOARD_PREVIEW_ORIGIN`, it
+also exercises the compiled frontend against real public sources, blocking
+HTTP writes and Nostr write/authentication frames. This checks compatibility
+at the observation time, not network-wide reply completeness or live payment
+settlement. Reports omit response bodies and wallet data.
+
+The preparation based on `d681c07` passed eight production API route checks
+(board, four campaign views, waiting updates, expired notes and link preview),
+including CORS and fresh note signatures. A native reader build exercised board,
+discussion and profile reading against the unchanged production backend and
+public relays, without page errors or write attempts. The local worker
+update/rollback check passed on all three browser projects using a committed
+`7cfd9ea` stable source build. It preserves the exact
+saved invoice, wallet link, clipboard/decoded QR and status checks without
+issuing another invoice. An old tab retains its original document after worker
+activation and can still open the saved invoice and QR. Both HTTP servers stop
+during the cached-shell check; an uncached API request must fail. This measures
+server unavailability, not a
+physical device going offline. A separate minimal worker reproduced
+[Playwright 1.63 WebKit's offline-emulation failure](https://github.com/microsoft/playwright/issues/42775);
+Chromium and WebKit both served the worker response with the origin stopped,
+and both no-worker negative controls failed. The retained legacy-client worker
+compatibility scenario also passed on all three projects.
+
+The independent visual checkpoint is still pending. Import it as a committed
+stage, preserve functional callbacks/flags/payment storage, then repeat the
+combined reader, source-position, anonymous-payment, PWA and build acceptance.
+Generate the final artifact and its source/configuration record only after that
+integration. Current preparation artifacts are not the final release candidate.
+
+Public frontend-origin verification also remains open: the preparation
+environment received Cloudflare HTTP 403 for the site and worker. The backend
+API remained available. This does not establish a general site outage or its
+cause. Confirm the actual Pages deployment/flag configuration, served worker
+and deep-link routing before approval, and check the installed PWA after release.
+Local source rollback tests do not identify the currently hosted Pages artifact.
+Pages configuration changes, production-branch push and deployment still require
+explicit authorization. A Cloudflare Pages frontend release does not require
+starting Docker; enabled container acceptance applies to a container release.
 
 Continue implementation and automated verification without waiting for the
 maintainer to provide a device, wallet or manual test session. Pending external

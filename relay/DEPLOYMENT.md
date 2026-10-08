@@ -101,7 +101,8 @@ this configuration. Keep one running instance for this ledger. See Fly's
 
 ## Release verification and rollback
 
-Before requesting deployment, run the isolated container check from `web/`:
+Before requesting a backend or Compose deployment, run the isolated container
+check from `web/`:
 
 ```bash
 npm ci
@@ -134,7 +135,21 @@ before updating. Keep the ledger backup outside the checkout and public build
 artifacts. Confirm the backup is valid JSON and contains `pending_invoices` and
 settlement receipts. Keep the existing relay identity, wallet secrets and volume.
 
-After deploying the backend, check all API routes required by the new frontend:
+A frontend-only release may reuse the current backend when its required API
+contract and public reads pass. From `web/`, run
+`HOLOBOARD_LIVE_READS=1 npm run test:reader-release`; optionally exercise the
+local production build with `HOLOBOARD_PREVIEW_ORIGIN` as described in the
+[frontend checks](../web/README.md#check-changes). This does not require a Fly
+deployment, volume snapshot or ledger migration. It does not establish the
+readiness of a separately migrated backend.
+
+Record the final visual integration commit and rerun combined acceptance before
+approving the reader artifact. A stable source build used for local rollback
+tests is not proof of the exact deployed Pages artifact; record that successful
+deployment separately. Follow the [reader release contract](../docs/nostr.md#read-only-frontend-release).
+
+Check all API routes required by the new frontend against the intended backend,
+whether reusing it or after deploying a backend update:
 
 ```bash
 curl --fail 'https://relay.holoboard.space/api/board'

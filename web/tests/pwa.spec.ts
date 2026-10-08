@@ -3,18 +3,35 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { resolve, extname } from "node:path";
 import { finalizeEvent, generateSecretKey } from "nostr-tools/pure";
+import { matchFilter } from "nostr-tools/filter";
 import { PNG } from "pngjs";
 import jsQR from "jsqr";
 
 test.use({ serviceWorkers: "allow" });
 
 const legacyDist = process.env.HOLOBOARD_LEGACY_DIST;
-const currentDist = resolve(process.cwd(), "dist");
+const currentDist = resolve(process.env.HOLOBOARD_CURRENT_DIST ?? "dist");
+const rollbackDist = process.env.HOLOBOARD_ROLLBACK_DIST;
+const readerDist = process.env.HOLOBOARD_READER_DIST;
 const types: Record<string, string> = { ".js": "text/javascript", ".html": "text/html", ".css": "text/css", ".json": "application/json", ".webmanifest": "application/manifest+json", ".woff2": "font/woff2", ".png": "image/png", ".webp": "image/webp", ".svg": "image/svg+xml" };
 
-test("previous frontend works with current API and PWA updates preserve prepared invoices", async ({ context, page }) => {
-    test.skip(!legacyDist, "Set HOLOBOARD_LEGACY_DIST to a built previous frontend; build the current frontend with the local mock relay.");
-    test.setTimeout(90000);
+async function stopServer(server: ReturnType<typeof createServer>) {
+    if (!server.listening) return;
+    await new Promise<void>((done, reject) => {
+        server.close(error => error ? reject(error) : done());
+        server.closeAllConnections();
+    });
+}
+
+for (const readerRelease of [false, true]) test(readerRelease
+    ? "read-only PWA update and code rollback preserve the original invoice"
+    : "previous frontend works with current API and PWA updates preserve prepared invoices", async ({ context, page }) => {
+    const previous = readerRelease ? rollbackDist : legacyDist;
+    const candidate = readerRelease ? readerDist : currentDist;
+    test.skip(!previous || !candidate, readerRelease
+        ? "Set HOLOBOARD_ROLLBACK_DIST and HOLOBOARD_READER_DIST to local-mock production builds."
+        : "Set HOLOBOARD_LEGACY_DIST to a built previous frontend; build the current frontend with the local mock relay.");
+    test.setTimeout(readerRelease ? 120000 : 90000);
     let version: "legacy" | "current" = "legacy";
     let workerRevision = 1;
     const server = createServer(async (req, res) => {
@@ -25,7 +42,7 @@ test("previous frontend works with current API and PWA updates preserve prepared
             res.end(JSON.stringify({ error: "API navigation reached the server" }));
             return;
         }
-        const directory = version === "legacy" ? legacyDist! : currentDist;
+        const directory = version === "legacy" ? previous! : candidate!;
         const file = path === "/" || !extname(path) ? "/index.html" : path;
         const target = resolve(directory, `.${file}`);
         if (!target.startsWith(resolve(directory) + "/")) { res.writeHead(403); res.end(); return; }
@@ -46,6 +63,7 @@ test("previous frontend works with current API and PWA updates preserve prepared
     const copiedInvoices: string[] = [];
     const statusRequests: { hash: string | null; note: string | null; method: string | undefined; accept: string | undefined }[] = [];
     const errors: string[] = [];
+    const writeFrames: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     const apiServer = createServer(async (req, res) => {
         const url = new URL(req.url ?? "/", "http://localhost");
@@ -117,54 +135,122 @@ test("previous frontend works with current API and PWA updates preserve prepared
         if (!socket.url().startsWith("ws://127.0.0.1:3334")) { socket.close(); return; }
         socket.onMessage((message) => {
             const request = JSON.parse(String(message));
-            if (request[0] !== "REQ") return;
-            if (request.slice(2).some((filter: { kinds?: number[] }) => filter.kinds?.includes(1))) socket.send(JSON.stringify(["EVENT", request[1], note]));
+            if (request[0] === "CLOSE") return;
+            if (request[0] !== "REQ") { writeFrames.push(String(request[0])); return; }
+            if (request.slice(2).some((filter: Parameters<typeof matchFilter>[0]) => matchFilter(filter, note))) socket.send(JSON.stringify(["EVENT", request[1], note]));
             socket.send(JSON.stringify(["EOSE", request[1]]));
         });
     });
     try {
         await page.goto(origin);
         await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+        if (readerRelease) await expect(page.getByRole("link", { name: "Discussion", exact: true })).toHaveCount(0);
         await page.getByRole("button", { name: "Boost", exact: true }).first().click();
-        await page.getByRole("button", { name: "Get invoice, 210 sats", exact: true }).click();
-        await expect(page.getByRole("link", { name: "Open in a wallet", exact: true })).toHaveAttribute("href", "lightning:lnbc-compatibility-1");
+        await page.getByRole("button", { name: readerRelease ? "Boost 210 sats" : "Get invoice, 210 sats", exact: true }).click();
+        await expect(page.getByRole("link", { name: readerRelease ? "Open in wallet" : "Open in a wallet", exact: true })).toHaveAttribute("href", "lightning:lnbc-compatibility-1");
         expect(requests[0].amount_sats).toBe(210);
-        expect(requests[0]).not.toHaveProperty("author_share");
+        if (!readerRelease) expect(requests[0]).not.toHaveProperty("author_share");
+        const baselineKey = await page.evaluate(() => sessionStorage.getItem("holoboard-last-payment"));
+        const baselinePayment = baselineKey ? await page.evaluate(key => sessionStorage.getItem(key), baselineKey) : null;
+        const retained = readerRelease ? await context.newPage() : undefined;
+        if (retained) {
+            retained.on("pageerror", error => errors.push(error.message));
+            await retained.addInitScript(({ key, payment }) => {
+                sessionStorage.setItem("holoboard-last-payment", key!);
+                sessionStorage.setItem(key!, payment!);
+            }, { key: baselineKey, payment: baselinePayment });
+            await retained.goto(origin);
+            await retained.waitForFunction(() => !!navigator.serviceWorker.controller);
+            await retained.evaluate(() => {
+                Object.assign(window, { retainedDocument: true, workerChanges: 0 });
+                navigator.serviceWorker.addEventListener("controllerchange", () => {
+                    const state = window as unknown as { workerChanges: number };
+                    state.workerChanges++;
+                });
+            });
+        }
         version = "current";
         await updateWorker();
         await expect(page.getByRole("link", { name: "Waiting room", exact: true })).toBeVisible({ timeout: 30000 });
+        if (readerRelease) {
+            // Activation claims other open tabs without reloading their code.
+            await retained!.waitForFunction(() => (window as unknown as { workerChanges: number }).workerChanges > 0);
+            expect(await retained!.evaluate(() => (window as unknown as { retainedDocument: boolean }).retainedDocument)).toBe(true);
+            await expect(retained!.getByRole("link", { name: "Discussion", exact: true })).toHaveCount(0);
+            await retained!.getByRole("button", { name: "Boost", exact: true }).first().click();
+            await expect(retained!.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", "lightning:lnbc-compatibility-1");
+            await expect(retained!.getByRole("img", { name: "Holoboard visibility invoice QR code" })).toBeVisible();
+            expect(requests).toHaveLength(1);
+            await retained!.close();
+            await expect(page.getByRole("link", { name: "Discussion", exact: true })).toBeVisible();
+            await page.goto(`${origin}/discussion/${note.id}`);
+            await expect(page.getByRole("article", { name: "Discussion focus", exact: true })).toContainText(note.content);
+            await expect(page.getByRole("button", { name: "Reply", exact: true })).toHaveCount(0);
+            await page.goto(`${origin}/profile/${note.pubkey}`);
+            await expect(page.getByRole("region", { name: "Author profile", exact: true })).toBeVisible();
+            await expect(page.getByRole("button", { name: /Connect Nostr|Nostr signer/ })).toHaveCount(0);
+            // Playwright 1.63 WebKit rejects even literal worker responses under
+            // setOffline: https://github.com/microsoft/playwright/issues/42775.
+            // Stop both real servers to test unavailability in every browser.
+            await stopServer(server);
+            await stopServer(apiServer);
+            const unavailable = await page.goto(`${origin}/discussion/${note.id}`);
+            expect(unavailable?.status()).toBe(200);
+            expect(unavailable?.fromServiceWorker()).toBe(true);
+            await expect(page.getByRole("region", { name: "Discussion coverage", exact: true })).toBeVisible();
+            expect(await page.evaluate(() => fetch("/api/release-unavailability-probe").then(() => false, () => true))).toBe(true);
+            await new Promise<void>(done => server.listen(address.port, "127.0.0.1", done));
+            await new Promise<void>(done => apiServer.listen(apiAddress.port, "127.0.0.1", done));
+            await page.goto(origin);
+            expect(baselineKey).toBeTruthy();
+            expect(await page.evaluate(key => sessionStorage.getItem(key!), baselineKey)).toBe(baselinePayment);
+        }
         await page.getByRole("button", { name: "Boost", exact: true }).first().click();
-        await page.getByRole("button", { name: "Boost 210 sats", exact: true }).click();
-        await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", "lightning:lnbc-compatibility-2");
-        await expect.poll(() => statusRequests.some((request) => request.hash === "2".repeat(64) && request.note === note.id && request.method === "GET" && request.accept === "application/json")).toBe(true);
+        if (!readerRelease) await page.getByRole("button", { name: "Boost 210 sats", exact: true }).click();
+        const invoiceNumber = readerRelease ? 1 : 2;
+        const invoice = `lnbc-compatibility-${invoiceNumber}`;
+        const hash = String(invoiceNumber).repeat(64);
+        await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", `lightning:${invoice}`);
+        await expect.poll(() => statusRequests.some((request) => request.hash === hash && request.note === note.id && request.method === "GET" && request.accept === "application/json")).toBe(true);
         const saved = await page.evaluate(() => sessionStorage.getItem("holoboard-last-payment"));
         expect(saved).toBeTruthy();
         const before = await page.evaluate((key) => sessionStorage.getItem(key!), saved);
-        const checksBeforeUpdate = statusRequests.filter((request) => request.hash === "2".repeat(64)).length;
+        const checksBeforeUpdate = statusRequests.filter((request) => request.hash === hash).length;
         workerRevision++;
         await updateWorker();
         await expect(page.getByRole("dialog")).toHaveCount(0);
         await page.getByRole("button", { name: "Boost", exact: true }).first().click();
-        await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", "lightning:lnbc-compatibility-2");
+        await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", `lightning:${invoice}`);
         expect(await page.evaluate((key) => sessionStorage.getItem(key!), saved)).toBe(before);
-        expect(requests).toHaveLength(2);
-        await expect.poll(() => statusRequests.filter((request) => request.hash === "2".repeat(64) && request.note === note.id).length).toBeGreaterThan(checksBeforeUpdate);
+        expect(requests).toHaveLength(invoiceNumber);
+        await expect.poll(() => statusRequests.filter((request) => request.hash === hash && request.note === note.id).length).toBeGreaterThan(checksBeforeUpdate);
+        if (readerRelease) {
+            version = "legacy";
+            await updateWorker();
+            await expect(page.getByRole("link", { name: "Discussion", exact: true })).toHaveCount(0);
+            await page.goto(`${origin}/discussion/${note.id}`);
+            await expect(page.getByRole("region", { name: "Discussion coverage", exact: true })).toHaveCount(0);
+            await expect(page.locator("article").first()).toBeVisible();
+            await page.getByRole("button", { name: "Boost", exact: true }).first().click();
+            await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", `lightning:${invoice}`);
+            expect(await page.evaluate(key => sessionStorage.getItem(key!), saved)).toBe(before);
+            expect(requests).toHaveLength(1);
+        }
         await page.getByRole("button", { name: "Copy invoice", exact: true }).click();
         await expect(page.getByRole("button", { name: "Copied", exact: true })).toBeVisible();
-        expect(copiedInvoices).toEqual(["lnbc-compatibility-2"]);
+        expect(copiedInvoices).toEqual([invoice]);
         const qr = page.getByRole("img", { name: "Holoboard visibility invoice QR code" });
         await expect(qr).toBeVisible();
         const png = PNG.sync.read(await qr.screenshot());
-        expect(jsQR(new Uint8ClampedArray(png.data), png.width, png.height)?.data.toLowerCase()).toBe("lnbc-compatibility-2");
+        expect(jsQR(new Uint8ClampedArray(png.data), png.width, png.height)?.data.toLowerCase()).toBe(invoice);
         const api = await page.goto(`${origin}/api/promote/status?payment_hash=example`);
         expect(api?.status()).toBe(418);
         expect(await api?.json()).toEqual({ error: "API navigation reached the server" });
+        expect(writeFrames).toEqual([]);
         expect(errors).toEqual([]);
     } finally {
         await page.goto("about:blank");
-        apiServer.closeAllConnections();
-        await new Promise<void>((done, reject) => apiServer.close((error) => error ? reject(error) : done()));
-        server.closeAllConnections();
-        await new Promise<void>((done, reject) => server.close((error) => error ? reject(error) : done()));
+        await stopServer(apiServer);
+        await stopServer(server);
     }
 });

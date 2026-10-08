@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "test:release-containers": "node scripts/release-container-smoke.mjs"
+    "test:release-containers": "node scripts/release-container-smoke.mjs",
+    "test:reader-release": "node scripts/reader-release-smoke.mjs"
   },
   "dependencies": {
     "@getalby/sdk": "^8.0.3",

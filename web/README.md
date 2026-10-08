@@ -91,6 +91,7 @@ VITE_ENABLE_NOSTR_CONNECT=false npm run build
 
 Set `HOLOBOARD_LEGACY_DIST` to that legacy build's `dist` directory and run
 `npm run test:e2e -- tests/pwa.spec.ts` from the current frontend directory.
+`HOLOBOARD_CURRENT_DIST` optionally selects a current build outside `dist/`.
 The test expects the legacy interface's invoice labels, so selecting an arbitrary
 previous commit does not provide the same compatibility check.
 The test serves both builds and a mock API locally, checks old client requests,
@@ -99,6 +100,35 @@ Status requests must reach the mock API before and after the worker update,
 including requests passed to `fetch` as URL objects, with their query and headers.
 The restored anonymous invoice must remain usable through its wallet link,
 clipboard action and a decoded QR payload.
+
+For a read-only release, build a committed stable frontend with all four flags
+disabled and the candidate with discussions/profiles enabled and signer/reply
+publication disabled. Use the local API and relay settings above for both:
+
+```bash
+HOLOBOARD_TEST_PORT=4292 \
+HOLOBOARD_ROLLBACK_DIST=/tmp/holoboard-rollback-dist \
+HOLOBOARD_READER_DIST=/tmp/holoboard-reader-test-dist \
+npx playwright test pwa.spec.ts --grep 'read-only PWA' --workers=1
+```
+
+This checks worker activation, reader routes, the original invoice across
+updates and code rollback, and cached application startup with both local HTTP
+servers stopped. It does not emulate a physical device's loss of connectivity.
+Playwright 1.63 WebKit's `setOffline` rejects even literal worker responses;
+the server-unavailability check retains coverage on all three browser projects.
+See the [upstream issue](https://github.com/microsoft/playwright/issues/42775).
+
+`HOLOBOARD_LIVE_READS=1 npm run test:reader-release` checks the public production
+API contract, CORS and fresh note signatures with bounded GET requests. To also
+exercise a production build with real public reads, serve it on loopback and
+set `HOLOBOARD_PREVIEW_ORIGIN=http://127.0.0.1:4293`. Its compiled API and relay
+origins must point to production. The smoke blocks HTTP writes, Nostr publication
+and authentication frames, and checks board, discussion and profile reading.
+Set `HOLOBOARD_SMOKE_REPORT` to retain its JSON report outside the checkout.
+No invoice is created and no payment or public publication is performed.
+See the [read-only release contract](../docs/nostr.md#read-only-frontend-release)
+for the visual integration checkpoint and remaining deployment checks.
 
 These tests verify browser behavior and protocol exchanges. Before deployment,
 also check a real NWC wallet on Android. For a signer release, check Amber and
