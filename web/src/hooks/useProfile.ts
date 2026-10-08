@@ -1,8 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { readProfile, type SafeProfile } from "../lib/nostrReads";
+
+import { cachedProfileValue } from "../lib/profileReads";
 
 export function useProfileValue(pubkey?: string, hints: string[] = []): SafeProfile | undefined {
     const [value, setValue] = useState<{ pubkey: string; profile?: SafeProfile }>();
+    const cached = useMemo(() => pubkey ? cachedProfileValue(pubkey) : undefined, [pubkey]);
     const relayKey = JSON.stringify(hints);
     useEffect(() => {
         if (!pubkey) return;
@@ -12,5 +15,5 @@ export function useProfileValue(pubkey?: string, hints: string[] = []): SafeProf
         const timer = setInterval(refresh, 30_000);
         return () => { active = false; clearInterval(timer); };
     }, [pubkey, relayKey]);
-    return value?.pubkey === pubkey ? value?.profile : undefined;
+    return value?.pubkey === pubkey ? value?.profile : cached;
 }

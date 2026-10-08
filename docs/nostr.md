@@ -126,14 +126,37 @@ Each connected/unresolved reply page renders at most 48 notes. Remaining found
 replies are accessible through local pages. Eight nearest ancestors appear
 initially; earlier context can be revealed within the existing graph depth cap.
 Collapse is a display choice and does not reduce network/graph budgets. Existing
-safe text rendering is reused, with automatic quote/link previews held on this
-screen to avoid extra embed trees. Profiles use the shared bounded reader.
+safe text rendering is reused. Replies and direct-URL reading suppress automatic
+quote/link previews to avoid extra embed trees. A board-origin focus reuses the
+board card, including its existing bounded previews. Profiles use the shared
+bounded reader.
 Cache-evicted bodies remain placeholders. Deletion/moderation discovery is not
 added by this screen.
 
 Internal discussion navigation keeps the board mounted. Reading positions use
-browser history and an in-memory map of at most 16 locations. Explicit branch
-collapse, local pages and context expansion survive reloads through
+browser history and an in-memory map of at most 16 locations. Board/discussion
+transitions record an exact event ID and its viewport offset, with the old scroll
+value as fallback. The board-origin focus uses the shared `BoardRow` at board
+width, with the clicked rank, paid appearance and body expansion. Signed bodies
+stay in the verified read cache. Public presentation snapshots are bounded to
+16 records and 16 KiB of serialized UTF-8 per record. These snapshots describe
+appearance, never protocol relationships or campaign admission. Direct URLs and
+missing snapshots use the ordinary discussion focus.
+
+`useReadingPosition` owns history restoration across board, discussion and
+profile views. It applies before paint, then observes delayed content for at most
+35 seconds, stopping on user interaction or navigation. Bounded spacing above
+the anchor and below the surface allows alignment near document edges. The
+retained board restores the same event offset even when polling inserts earlier
+rows. If the event disappears, the saved scroll value is the fallback. Browser
+Back/Forward and explicit return links use the same restoration. During
+restoration, native scroll anchoring is disabled on the active surface to avoid
+competing adjustments; normal board scrolling keeps browser anchoring.
+Known author metadata, cached quote/link previews and overflow measurements
+are available before the first paint of a remounted card. Newly arriving metadata
+or media can still change its height during a read.
+
+Explicit branch collapse, local pages and context expansion survive reloads through
 session storage for at most eight discussions, separately from payment and
 identity storage. New and late-parent branches open automatically unless an
 ancestor was explicitly collapsed. Each resolved reply names its actual parent
@@ -152,7 +175,8 @@ Replies use compact rows with continuous branch rails and a maximum four visual
 indentation levels. Exact parent links retain the full relationship when depth
 exceeds that display cap. The reading focus keeps its notched frame; promoted
 replies use a gold marker, label and subtle background without changing ordering.
-The reading column is at most 768 CSS pixels wide. Branch collapse sits beside
+The reply column and direct-URL focus are at most 768 CSS pixels wide; a
+board-origin focus retains the board width. Branch collapse sits beside
 the author; body expansion and navigation share a subdued footer. Controls keep
 44-pixel hit heights. Local page changes focus and scroll to the reply section,
 and a page starting inside a branch names that continuation and keeps its parent
@@ -607,7 +631,7 @@ The isolated discussion branch includes the foundation, pinned library migration
 and production fixes through `e651ac6`. The main checkout stays independent;
 implementation does not enable signer support or deploy any feature.
 
-Frontend acceptance covers 362 unit cases across 42 files, including public
+Frontend acceptance covers 365 unit cases across 43 files, including public
 read versus DM relay-list separation and grouped coverage states. Changed-module lint
 and production builds with all four features enabled and disabled pass. The
 disabled build excludes the reply editor chunk and controls. The combined
@@ -625,12 +649,24 @@ configuration passed 21 invoice, hidden-signer, disabled-reply and native-outbox
 checks. A further nine browser checks verify that removing each required reply
 flag keeps the editor absent. The defaults preserve anonymous payments.
 
-The discussion usability regression covers 81 distinct browser project/scenario
-pairs across discussion, profile and reply-editor suites. It verifies
+The discussion usability and navigation regression covers 93 distinct browser
+project/scenario pairs across discussion, profile and reply-editor suites,
+verified across the combined and focused runs. It verifies
 automatic expansion, persistent explicit collapse, late parents, parent jumps
 across local pages, distinct participant bylines and one source row per relay.
 Compact-layout checks also cover short-row height, continuous rails, retained
-44-pixel targets, page focus and cross-page branch context.
+44-pixel targets, page focus and cross-page branch context. Navigation checks
+add source-card geometry in rendered frames for collapsed and expanded bodies,
+late ancestors, browser Back/Forward, hidden-board polling updates, short cards
+near the document end and cached quote/link previews in the first reader frame.
+History writes occur once for saving the source and once for consuming initial
+alignment, rather than on every observed content update.
+A controlled public-read preview also checked a promoted note with a billboard
+and quotation at desktop and phone widths. Its source card matched before entry,
+immediately in the reader, after the batch settled and on return. The source
+reply action opened the correct editor. No public write frames or page errors
+were observed. These checks preserve source geometry; new metadata or media
+can still update note content.
 Nine default-flag checks keep discussion, profile and reply entry points hidden.
 These checks overlap the signer-release evidence above.
 The compact-layout unit run passed with `npm test -- --maxWorkers=2`. Keep heavy
@@ -671,8 +707,10 @@ Before further visual work on readers, incorporate the finalized board-note
 redesign from the independent main checkout into this isolated branch. Use a
 committed checkpoint so ongoing uncommitted work stays untouched. Reconcile the
 shared author, expansion, action/popover and CSS changes rather than replacing
-whole files: retain feature-gated discussion entry points, local profile
-navigation and the unverified NIP-05 presentation. Adapt discussion and profile
+whole files. Preserve feature-gated discussion entry points, local profile
+navigation and the unverified NIP-05 presentation. Keep the shared source card
+and event/viewport restoration contract, including expansion capture and
+reading-position markers. Adapt discussion and profile
 presentation to the new note design, then rerun board, reader, reply and
 default-release acceptance with mobile and desktop visual checks. This
 integration is authorized; main pushes and deployment remain separate gates.
@@ -788,10 +826,10 @@ governor both returned to zero REQs and one closing socket. Observed peaks were
 Four resource scenarios passed: one desktop heap workload and one cancelled-read
 workload on each of the three browser projects. The two mobile-project heap cases were
 intentionally skipped. With the profile reader and delivery waiter support
-included and reply branches expanded by default, post-GC heap medians increased
-from 7,451,304 to 7,636,892 bytes (185,588 bytes, about 0.18 MiB),
-within the 2 MiB allowance. This workload measures discussion lifetimes after
-the shared profile-reader change; it does not measure repeated profile-screen heap use.
+included, replies expanded and board-origin navigation active, post-GC heap
+medians increased from 7,508,824 to 7,723,068 bytes (214,244 bytes, about 0.20 MiB),
+within the 2 MiB allowance. This workload measures discussion and navigation
+lifetimes; it does not measure repeated profile-screen heap use.
 Mock-relay peaks were seven sockets and nine subscriptions. Leaving each view
 closed its pending requests; the heap workload reached zero idle sockets and
 requests. Cancellation scenarios stayed at at most one idle socket. These

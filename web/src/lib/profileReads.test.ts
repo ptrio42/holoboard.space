@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { finalizeEvent, generateSecretKey, type Event } from "nostr-tools";
 import { queryNostr, type QueryResult } from "./nostrTransport";
-import { ProfileReader } from "./profileReads";
+import { cachedProfileValue, readProfileValue, ProfileReader } from "./profileReads";
 import { nostrCache } from "./nostrCache";
 import { profileMetadata } from "./profileMetadata";
 vi.mock("./nostrTransport", () => ({ queryNostr: vi.fn() }));
@@ -15,6 +15,17 @@ function fixtures() {
 beforeEach(() => { vi.mocked(queryNostr).mockReset(); vi.mocked(queryNostr).mockResolvedValue(answer()); });
 afterEach(() => vi.useRealTimers());
 describe("shared bounded profile reads", () => {
+    it("makes verified cached author names available synchronously without extra queries", async () => {
+        const { old, make, pubkey } = fixtures();
+        expect(cachedProfileValue(pubkey)).toBeUndefined();
+        nostrCache.put(old);
+        expect(cachedProfileValue(pubkey)).toMatchObject({ name: "Saved author" });
+        expect(await readProfileValue(pubkey)).toEqual(cachedProfileValue(pubkey));
+        const malformed = make("not metadata", 200); nostrCache.put(malformed);
+        expect(cachedProfileValue(pubkey)).toBeUndefined();
+        expect(await readProfileValue(pubkey)).toBeUndefined();
+        expect(queryNostr).not.toHaveBeenCalled();
+    });
     it("shows cache immediately and chooses the latest signed profile independently of arrivals", async () => {
         const { old, make, pubkey } = fixtures(); nostrCache.put(old);
         const reader = new ProfileReader(); const one = reader.open(pubkey), two = reader.open(pubkey);

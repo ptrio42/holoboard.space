@@ -350,6 +350,13 @@ even when an endpoint such as `/inbox` serves both roles.
 
 Branch state survives internal focus navigation and reloads within a bounded
 session-storage record. The board stays mounted during discussion reading.
+A board-origin focus reuses the shared board card at the same width and viewport
+offset, including its source expansion and campaign appearance. Return navigation
+restores the source by exact event ID and viewport offset, allowing board polling
+to insert earlier rows without losing the reading position. Restoration observes
+late content for at most 35 seconds and yields to user interaction. Missing
+source events fall back to saved scroll. Presentation snapshots are bounded and
+cannot alter the relation graph. Direct URLs retain the ordinary reading layout.
 Visible note anchors are preserved during graph updates when the note remains
 rendered; arbitrary media resizing and browser scroll clamping are not a
 universal no-jump guarantee. The read uses a fixed session timestamp, not a live

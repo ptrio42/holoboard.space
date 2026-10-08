@@ -17,6 +17,8 @@ import { PixelButton } from "../ui/PixelButton";
 
 interface BoardRowProps {
     event: NDKEvent;
+    readingFocus?: boolean;
+    initiallyExpanded?: boolean;
     billboard?: BillboardConfig;
     billboardPreviewSlide?: number;
     rank?: number;
@@ -69,7 +71,7 @@ function satsLabel(sats: number): string {
     return `${formatSats(sats)} ${sats === 1 ? "sat" : "sats"}`;
 }
 
-export function BoardRow({ event, rank, sats, weight, expired = false, isNew = false, onPromote, lastPaidAt, firstPaidAt, hotSats, billboard, billboardPreviewSlide }: BoardRowProps) {
+export function BoardRow({ event, readingFocus = false, initiallyExpanded = false, rank, sats, weight, expired = false, isNew = false, onPromote, lastPaidAt, firstPaidAt, hotSats, billboard, billboardPreviewSlide }: BoardRowProps) {
     const tier = !expired && rank ? TIERS[rank - 1] ?? DEFAULT_TIER : DEFAULT_TIER;
     const rankLabel = rank ? TIERS[rank - 1]?.label : undefined;
     const parent = parentOf(event);
@@ -99,10 +101,12 @@ export function BoardRow({ event, rank, sats, weight, expired = false, isNew = f
     const displayedSats = expired ? sats : weight ?? sats;
 
     return (
-        <li>
+        <li data-board-note={readingFocus ? undefined : event.id} data-reading-focus={readingFocus ? event.id : undefined}
+            data-discussion-key={readingFocus ? `event:${event.id}` : undefined} id={readingFocus ? `discussion-note-${event.id}` : undefined}
+            tabIndex={readingFocus ? -1 : undefined} style={{ marginTop: "var(--reading-gap, 0px)" }}>
             <div className="@container/row">
             <PixelPanel accent={tier.accent} glow={tier.glow}>
-                <article className="flex gap-3 p-4 @xl/row:gap-5 @xl/row:p-5">
+                <article aria-label={readingFocus ? "Discussion focus" : undefined} className="flex gap-3 p-4 @xl/row:gap-5 @xl/row:p-5">
                     {/* Fixed width so the content column does not step right at rank 10. */}
                     {!expired && <div className="flex w-10 shrink-0 flex-col items-center gap-1 @xl/row:w-12">
                         <span
@@ -195,7 +199,7 @@ export function BoardRow({ event, rank, sats, weight, expired = false, isNew = f
                         </div>
 
                         {hasBillboard && <BillboardScreen config={billboard!} initialSlide={billboardPreviewSlide} sourceContent={event.content} />}
-                        <Expandable label={expired ? "expired note" : `note at rank ${rank}`}
+                        <Expandable initiallyExpanded={initiallyExpanded} label={expired ? "expired note" : `note at rank ${rank}`}
                             expandLabel={hasBillboard ? "Show original" : "Show more"}
                             collapseLabel={hasBillboard ? "Hide original" : "Show less"}
                             expandedContent={hasBillboard ? <div className="mt-3 border-t border-cyan-400/15 pt-3 text-[13px] text-cyan-50/80 @xl/row:text-sm">
@@ -211,7 +215,8 @@ export function BoardRow({ event, rank, sats, weight, expired = false, isNew = f
                                 <div className="note-footer">
                                     {control}
                                     <div className="ml-auto flex flex-wrap items-center justify-end gap-x-5">
-                                        {ENABLE_DISCUSSIONS && <DiscussionLink id={event.id} author={event.pubkey} seed={event.rawEvent()} />}
+                                        {ENABLE_DISCUSSIONS && <DiscussionLink id={event.id} author={event.pubkey} seed={event.rawEvent()}
+                                            presentation={{ rank, sats, weight, expired, isNew, lastPaidAt, firstPaidAt, hotSats, billboard, billboardPreviewSlide }} />}
                                         <NoteExternalLink href={njumpUrl(event.id, "note")} />
                                         {onPromote && <PixelButton size="sm" variant="ghost" onClick={onPromote} className="note-boost">
                                             {expired ? "Promote again" : "Boost"}

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { nip19 } from "@nostr-dev-kit/ndk";
-import { fetchLinkPreview, firstPreviewLink } from "./linkPreview";
+import { cachedLinkPreview, fetchLinkPreview, firstPreviewLink } from "./linkPreview";
 
 afterEach(() => vi.unstubAllGlobals());
 describe("ordinary note link previews", () => {
@@ -16,9 +16,11 @@ describe("ordinary note link previews", () => {
         const fetch = vi.fn(async () => new Response(JSON.stringify({ url: "https://example.com/page", title: "A title", image_url: "invalid" })));
         vi.stubGlobal("fetch", fetch);
         const url = "https://example.com/unit-shared";
+        expect(cachedLinkPreview(url)).toBeNull();
         const [first, second] = await Promise.all([fetchLinkPreview(url), fetchLinkPreview(url)]);
         expect(first).toEqual({ url: "https://example.com/page", title: "A title", description: undefined, imageUrl: undefined });
         expect(second).toEqual(first);
+        expect(cachedLinkPreview(url)).toEqual(first);
         expect(fetch).toHaveBeenCalledTimes(1);
     });
     it("keeps errors and unsafe metadata out of cards", async () => {
@@ -27,6 +29,9 @@ describe("ordinary note link previews", () => {
             .mockResolvedValueOnce(new Response(JSON.stringify({ url: "javascript:alert(1)", title: "Unsafe" })))
             .mockRejectedValueOnce(new Error("Offline"));
         vi.stubGlobal("fetch", fetch);
-        for (const url of ["failed", "unsafe", "offline"]) expect(await fetchLinkPreview(`https://example.com/unit-${url}`)).toBeNull();
+        for (const url of ["failed", "unsafe", "offline"]) {
+            expect(await fetchLinkPreview(`https://example.com/unit-${url}`)).toBeNull();
+            expect(cachedLinkPreview(`https://example.com/unit-${url}`)).toBeNull();
+        }
     });
 });

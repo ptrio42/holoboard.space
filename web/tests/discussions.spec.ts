@@ -15,22 +15,24 @@ const wrong = make("Reply belongs to promotional quote", [["e", promo.id, "", "r
 const mention = make("Mention is not a reply", [["e", focus.id, "", "mention"]]);
 const profile = make(JSON.stringify({ name: "Discussion author" }), [], 1700000000, 0);
 const relayList = make("", [["r", "ws://127.0.0.1:3334"]], 1700000000, 10002);
-interface Options { focus?: Event; events?: Event[]; slowParent?: Event; blockReplies?: boolean; many?: number }
+interface Options { focus?: Event; events?: Event[]; slowParent?: Event; blockReplies?: boolean; many?: number; board?: Event[]; preview?: boolean }
 async function setup(context: BrowserContext, page: Page, options: Options = {}) {
     const selected = options.focus ?? focus;
     const extra = Array.from({ length: options.many ?? 0 }, (_, i) => make(`Sibling ${String(i + 1).padStart(2, "0")}`, [["e", selected.id, "", "reply"]], 1700000500 + i));
     const events = [selected, root, child, paid, promo, wrong, mention, profile, relayList, ...(options.events ?? []), ...extra].filter(event => event.id !== options.slowParent?.id);
-    const entry = (event: Event, rank: number) => ({ id: event.id, event, rank, weight: 200, sats_paid: 210, first_paid_at: 1700000000, last_paid_at: 1700000000 });
+    const entry = (event: Event, rank: number) => ({ id: event.id, event, rank, weight: 200, sats_paid: 210, hot_sats: 200, first_paid_at: 1700000000, last_paid_at: 1700000000 });
     const origin = new URL(test.info().project.use.baseURL!).origin;
     const closes = new Set<string>(), blocked = new Set<string>(), publications: unknown[] = [];
     let deliver: (() => void) | undefined;
     let missingAvailable = false;
+    let board = options.board;
     await context.route("**/*", route => {
         const url = new URL(route.request().url());
         if (url.origin === origin) return route.continue();
         if (url.origin !== "http://127.0.0.1:3334") return route.abort();
+        if (options.preview && url.pathname === "/api/link-preview") return route.fulfill({ json: { url: "https://preview.example/page", title: "Cached page preview", description: "Known page metadata" }, headers: { "Access-Control-Allow-Origin": "*" } });
         const data = url.pathname.includes("waiting-updates") ? { count: 0, note_ids: [], checked_at: Date.now() } :
-            { entries: [entry(selected, 1), entry(paid, 25)], targets: [], total: 2, active_posts: 2, has_more: false, posts: 2, total_sats: 420 };
+            { entries: board ? board.map((event, index) => entry(event, index + 1)) : [entry(selected, 1), entry(paid, 25)], targets: [], total: board?.length ?? 2, active_posts: board?.length ?? 2, has_more: false, posts: board?.length ?? 2, total_sats: 420 };
         return route.fulfill({ contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify(data) });
     });
     await context.routeWebSocket("**/*", socket => {
@@ -49,7 +51,7 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
             socket.send(JSON.stringify(["EOSE", msg[1]]));
         });
     });
-    return { selected, publications, closes, blocked, deliver: () => deliver?.(), hasDelivery: () => !!deliver };
+    return { selected, publications, closes, blocked, deliver: () => deliver?.(), hasDelivery: () => !!deliver, replaceBoard: (events: Event[]) => { board = events; } };
 }
 async function drain(page: Page) {
     for (let i = 0; i < 10; i++) {
@@ -107,6 +109,128 @@ test.describe("read-only discussion", () => {
         await page.goBack();
         await expect(row(page, paid)).toBeVisible();
         expect(fixture.publications).toEqual([]);
+    });
+    for (const expanded of [false, true]) test(`preserves the board card geometry and exact return position (${expanded ? "expanded" : "collapsed"})`, async ({ context, page }) => {
+        const selected = make("Promoted note with a longer body.\n".repeat(26), [["e", root.id, "", "root"], ["e", root.id, "", "reply"]]);
+        const filler = Array.from({ length: 10 }, (_, i) => make(`Board filler ${i}`, [], 1700000600 + i));
+        const board = [...filler.slice(0, 5), selected, ...filler.slice(5)];
+        const fixture = await setup(context, page, { focus: selected, board, slowParent: root });
+        await page.goto("/waiting?view=hot");
+        const source = page.locator(`[data-board-note="${selected.id}"]`);
+        await expect(source).toContainText("Promoted note with a longer body.");
+        await page.evaluate(() => document.fonts.ready);
+        if (expanded) await source.getByRole("button", { name: /Show more/ }).click();
+        const link = source.getByRole("link", { name: "Discussion", exact: true });
+        await link.scrollIntoViewIfNeeded();
+        const original = (await source.locator("article").boundingBox())!;
+        const boardScroll = await page.evaluate(() => scrollY);
+        // Observe every rendered frame, rather than only the final settled layout.
+        await page.evaluate(id => {
+            const samples: { x: number; y: number; width: number; height: number }[] = [];
+            Object.assign(window, { readingFrames: samples });
+            let remaining = 180;
+            const sample = () => {
+                const card = document.querySelector(`[data-reading-focus="${id}"] article`);
+                if (card) { const { x, y, width, height } = card.getBoundingClientRect(); samples.push({ x, y, width, height }); }
+                if (--remaining) requestAnimationFrame(sample);
+            };
+            requestAnimationFrame(sample);
+        }, selected.id);
+        await link.click();
+        const focusCard = page.getByRole("article", { name: "Discussion focus" });
+        await expect(focusCard).toContainText("Promoted note with a longer body.");
+        const sameGeometry = async () => {
+            const current = (await focusCard.boundingBox())!;
+            for (const axis of ["x", "y", "width", "height"] as const) expect(Math.abs(current[axis] - original[axis]), axis).toBeLessThan(2);
+        };
+        await sameGeometry();
+        await expect.poll(fixture.hasDelivery).toBe(true);
+        fixture.deliver();
+        await expect(page.getByRole("region", { name: "Ancestor context" })).toContainText(root.content);
+        await sameGeometry();
+        const frames = await page.evaluate(() => (window as unknown as { readingFrames: typeof original[] }).readingFrames);
+        expect(frames.length).toBeGreaterThan(0);
+        for (const frame of frames) for (const axis of ["x", "y", "width", "height"] as const) expect(Math.abs(frame[axis] - original[axis]), `frame ${axis}`).toBeLessThan(2);
+        await page.goBack();
+        await expect(page).toHaveURL(/\/waiting\?view=hot$/);
+        expect(Math.abs((await source.locator("article").boundingBox())!.y - original.y)).toBeLessThan(2);
+        expect(await page.evaluate(() => scrollY)).toBe(boardScroll);
+        await expect(source.locator(".note-disclosure")).toHaveAttribute("aria-expanded", String(expanded));
+        await page.goForward();
+        await expect(focusCard).toBeVisible();
+        await sameGeometry();
+        // A polling refresh can change the retained board while it is hidden.
+        fixture.replaceBoard([make("New entry inserted above the promoted note"), ...board]);
+        await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+        await expect(page.locator(`[data-board-note="${selected.id}"]`)).toContainText("Rank 7");
+        await page.getByRole("link", { name: "Back to board" }).click();
+        await expect(page).toHaveURL(/\/waiting\?view=hot$/);
+        await expect.poll(async () => Math.abs((await source.locator("article").boundingBox())!.y - original.y)).toBeLessThan(2);
+        expect(await page.evaluate(() => scrollY)).toBeGreaterThan(boardScroll);
+        expect(fixture.publications).toEqual([]);
+    });
+    test("keeps a short card in place at the end of the board", async ({ context, page }) => {
+        const selected = make("Short promoted note");
+        const fixture = await setup(context, page, { focus: selected, board: [make("First board note"), make("Second board note"), selected] });
+        await page.addInitScript(() => {
+            const replace = history.replaceState.bind(history);
+            let replacements = 0;
+            history.replaceState = (...args) => { replacements++; return replace(...args); };
+            Object.defineProperty(window, "readingHistoryReplacements", { get: () => replacements });
+        });
+        await page.goto("/");
+        const source = page.locator(`[data-board-note="${selected.id}"] article`);
+        await expect(source).toContainText(selected.content);
+        await page.evaluate(() => document.fonts.ready);
+        const link = source.getByRole("link", { name: "Discussion", exact: true });
+        await link.scrollIntoViewIfNeeded();
+        const before = (await source.boundingBox())!;
+        const scroll = await page.evaluate(() => scrollY);
+        await link.click();
+        const card = page.getByRole("article", { name: "Discussion focus" });
+        await expect(card).toContainText(selected.content);
+        await expect(page.getByRole("region", { name: "Discussion coverage" })).toHaveAttribute("data-read-state", /^(paused|settled)$/);
+        expect(await page.evaluate(() => (window as unknown as { readingHistoryReplacements: number }).readingHistoryReplacements)).toBe(2);
+        const after = (await card.boundingBox())!;
+        for (const axis of ["x", "y", "width", "height"] as const) expect(Math.abs(after[axis] - before[axis]), axis).toBeLessThan(2);
+        await page.getByRole("link", { name: "Back to board" }).click();
+        await expect(page).toHaveURL(/\/$/);
+        await expect.poll(async () => Math.abs((await source.boundingBox())!.y - before.y)).toBeLessThan(2);
+        expect(await page.evaluate(() => scrollY)).toBe(scroll);
+        expect(fixture.publications).toEqual([]);
+    });
+    test("keeps known quote and link previews in the first discussion frame", async ({ context, page }) => {
+        const quoted = make("Cached quotation");
+        const selected = make("Long source body.\n".repeat(20) + "https://preview.example/page", [["q", quoted.id]]);
+        await setup(context, page, { focus: selected, events: [quoted], preview: true });
+        await page.goto("/");
+        const source = page.locator(`[data-board-note="${selected.id}"]`);
+        await source.getByRole("button", { name: /Show more/ }).click();
+        await expect(source.getByText(quoted.content, { exact: true })).toBeVisible();
+        await expect(source.getByText("Cached page preview", { exact: true })).toBeVisible();
+        await page.evaluate(() => document.fonts.ready);
+        const link = source.getByRole("link", { name: "Discussion", exact: true });
+        await link.scrollIntoViewIfNeeded();
+        const before = (await source.locator("article").boundingBox())!;
+        await page.evaluate(() => {
+            const frames: { quote: boolean; preview: boolean; loading: boolean }[] = [];
+            Object.assign(window, { previewFrames: frames });
+            let remaining = 120;
+            const sample = () => {
+                const card = document.querySelector("[data-reading-focus] article");
+                if (card) frames.push({ quote: card.textContent!.includes("Cached quotation"), preview: card.textContent!.includes("Cached page preview"), loading: card.textContent!.includes("Loading preview") });
+                if (--remaining) requestAnimationFrame(sample);
+            };
+            requestAnimationFrame(sample);
+        });
+        await link.click();
+        const card = page.getByRole("article", { name: "Discussion focus" });
+        await expect(card.getByText(quoted.content, { exact: true })).toBeVisible();
+        const frames = await page.evaluate(() => (window as unknown as { previewFrames: { quote: boolean; preview: boolean; loading: boolean }[] }).previewFrames);
+        expect(frames.length).toBeGreaterThan(0);
+        expect(frames.every(frame => frame.quote && frame.preview && !frame.loading)).toBe(true);
+        const after = (await card.boundingBox())!;
+        for (const axis of ["x", "y", "width", "height"] as const) expect(Math.abs(after[axis] - before[axis]), axis).toBeLessThan(2);
     });
     test("keeps a reading anchor stable when a missing ancestor arrives", async ({ context, page }) => {
         const focus = make("Reading a long promoted reply.\n".repeat(45), [["e", root.id, "", "root"], ["e", root.id, "", "reply"]]);

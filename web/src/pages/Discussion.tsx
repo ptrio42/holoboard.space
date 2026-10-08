@@ -1,6 +1,10 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ENABLE_REPLY_PUBLICATION, SATS_ENDPOINT } from "../config";
 import type { Event } from "nostr-tools";
+import { NDKEvent } from "@nostr-dev-kit/ndk";
+import { ndk } from "../lib/ndk";
+import { boardPresentation, readingPosition } from "../lib/readingPosition";
+import { BoardRow } from "../components/BoardRow/BoardRow";
 import { useDiscussion } from "../hooks/useDiscussion";
 import { useSatsMap } from "../hooks/useSatsMap";
 import { nostrCache } from "../lib/nostrCache";
@@ -34,7 +38,15 @@ export default function Discussion({ focusId, author, from }: { focusId: string;
     const ledger = useSatsMap(SATS_ENDPOINT);
     const [reading, setReading] = useState(() => savedState(focusId));
     const [promote, setPromote] = useState(false);
+    const [promotion, setPromotion] = useState<{ id: string; weight?: number }>();
     const [replyTo, setReplyTo] = useState<Event>();
+    const [handoff] = useState(() => {
+        const origin = readingPosition(history.state).readingOrigin;
+        const presentation = origin?.id === focusId ? boardPresentation(origin) : undefined;
+        const seed = presentation && nostrCache.query({ ids: [focusId] })[0];
+        return origin && presentation && seed ? { origin, presentation, seed } : undefined;
+    });
+    const boardNote = useMemo(() => handoff && new NDKEvent(ndk, handoff.seed), [handoff]);
     const jumpTo = useRef<string | undefined>(undefined);
     useLayoutEffect(() => {
         if (!jumpTo.current) return;
@@ -83,7 +95,7 @@ export default function Discussion({ focusId, author, from }: { focusId: string;
         const join = children > 0 ? 34 : 26;
         return <li key={row.key} id={node?.event ? `discussion-note-${node.event.id}` : undefined} tabIndex={-1} data-discussion-key={row.key}
             className={tree ? "discussion-row relative focus:outline-neon-cyan" : "focus:outline-neon-cyan"}
-            style={tree ? { paddingLeft: `${depth * 12}px` } : undefined}>
+            style={{ marginTop: "var(--reading-gap, 0px)", ...(tree ? { paddingLeft: `${depth * 12}px` } : {}) }}>
             {tree && <div aria-hidden="true" className="pointer-events-none absolute inset-0">
                 {Array.from({ length: depth }, (_, level) => <span key={level} data-branch-rail
                     className="absolute top-0 w-px bg-cyan-400/25"
@@ -116,21 +128,28 @@ export default function Discussion({ focusId, author, from }: { focusId: string;
             </div>}
         </>;
     };
-    return <BoardLayout section="discussion" onPromote={() => setPromote(true)}>
-        <main id="discussion" tabIndex={-1} className="mx-auto max-w-3xl">
+    return <BoardLayout section="discussion" onPromote={() => { setPromotion(undefined); setPromote(true); }}>
+        <main id="discussion" tabIndex={-1} className={handoff ? "" : "mx-auto max-w-3xl"}>
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
                 <a href={from} onClick={navigateReading} className="note-action inline-flex min-h-11 items-center">{readingBackLabel(from)}</a>
                 <h2 className="font-pixel text-xs text-neon-cyan">Discussion</h2>
             </div>
             {error && <div role="alert"><p className="mb-3 text-sm text-neon-pink">Could not open this discussion. Try again.</p><PixelButton onClick={retry}>Try again</PixelButton></div>}
-            {!snapshot && !error && <StatusMessage loading>Opening discussion...</StatusMessage>}
+            {!snapshot && !error && !handoff && <StatusMessage loading>Opening discussion...</StatusMessage>}
             {snapshot && projection && <>
                 {projection.ancestors.length > 0 && <section aria-label="Ancestor context" className="mb-5">
                     <h3 className="mb-3 font-pixel text-[10px] text-cyan-100/75">Earlier context</h3>
                     {projection.ancestors.length > 8 && <button type="button" className="note-action mb-3 inline-flex min-h-11 items-center" aria-expanded={reading.context} onClick={() => setReading(value => ({ ...value, context: !value.context }))}>{reading.context ? "Less context" : `Show earlier context (${projection.ancestors.length - 8})`}</button>}
                     <ul className="space-y-3">{(reading.context ? projection.ancestors : projection.ancestors.slice(-8)).map(row => note(row))}</ul>
                 </section>}
-                <ul className="mb-6">{note(projection.focus)}</ul>
+            </>}
+            {(boardNote || (snapshot && projection)) && <ul className="mb-6">{boardNote && handoff
+                ? <BoardRow event={boardNote} {...handoff.presentation} initiallyExpanded={handoff.origin.expanded} readingFocus
+                    onPromote={() => { setPromotion({ id: focusId, weight: handoff.presentation.weight }); setPromote(true); }} />
+                : note(projection!.focus)}</ul>}
+            {boardNote && handoff && ENABLE_REPLY_PUBLICATION && <button type="button" className="note-action mb-3 inline-flex min-h-11 items-center" disabled={!snapshot}
+                onClick={() => setReplyTo(handoff.seed)}>Reply to note</button>}
+            {snapshot && projection && <div className={handoff ? "mx-auto max-w-3xl" : ""}>
                 <section id="discussion-replies" tabIndex={-1} aria-label="Replies" className="scroll-mt-4 focus:outline-none">
                     <h3 className="mb-2 font-pixel text-xs text-neon-cyan">{projection.loadedReplyCount} found {projection.loadedReplyCount === 1 ? "reply" : "replies"}</h3>
                     <p className="mb-4 text-xs text-cyan-100/75">Oldest first within each branch.</p>
@@ -149,9 +168,9 @@ export default function Discussion({ focusId, author, from }: { focusId: string;
                     <DiscussionSources snapshot={snapshot} />
                     {snapshot.hasMore && <PixelButton className="mt-3" variant="ghost" disabled={snapshot.state === "loading"} onClick={loadMore}>Load more</PixelButton>}
                 </section>
-            </>}
+            </div>}
         </main>
-        {promote && <PromoteModal onClose={() => setPromote(false)} onPaid={ledger.refresh} />}
+        {promote && <PromoteModal initialReference={promotion?.id} currentWeight={promotion?.weight} onClose={() => setPromote(false)} onPaid={ledger.refresh} />}
         {ReplyComposer && replyTo && snapshot && <Suspense fallback={<StatusMessage loading>Opening reply editor...</StatusMessage>}><ReplyComposer key={replyTo.id} parent={replyTo} graph={snapshot.graph} onClose={() => setReplyTo(undefined)} /></Suspense>}
     </BoardLayout>;
 }

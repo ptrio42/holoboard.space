@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { ENABLE_DISCUSSIONS } from "../config";
 import { useProfileRead } from "../hooks/useProfileRead";
 import { useProfilePromotions } from "../hooks/useProfilePromotions";
-import { useReadingRestore } from "../hooks/useReadingRestore";
 import { nostrCache } from "../lib/nostrCache";
 import { navigateReading } from "../lib/discussionNavigation";
 import { readingBackLabel } from "../lib/readingRoutes";
@@ -31,8 +30,6 @@ export default function Profile({ pubkey, hints, from }: { pubkey: string; hints
     const profile = snapshot?.profile;
     const name = profile?.displayName || profile?.name || shortNpub(pubkey);
     const bodies = useMemo(() => new Map(nostrCache.query({ ids: promotions.snapshot?.entries.map(entry => entry.id) ?? [] }).map(event => [event.id, event])), [promotions.snapshot]);
-    const contentVersion = useMemo(() => ({ snapshot, promotions: promotions.snapshot }), [snapshot, promotions.snapshot]);
-    useReadingRestore(contentVersion);
     const entries = promotions.snapshot?.entries ?? [];
     const visible = entries.slice(page * 21, (page + 1) * 21);
     return <BoardLayout section="profile" onPromote={() => setPromote(true)}>

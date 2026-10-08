@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { NDKEvent, type NDKFilter } from "@nostr-dev-kit/ndk";
 import { readNostr } from "../../lib/nostrReads";
-import { newerEvent } from "../../lib/nostrCache";
+import { newerEvent, nostrCache } from "../../lib/nostrCache";
 import { ndk } from "../../lib/ndk";
 import { quoteImages, quotePreviewContent, type NoteQuoteReference } from "../../lib/noteAttachments";
 import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
@@ -25,7 +25,11 @@ export function NoteQuote({ reference }: { reference: NoteQuoteReference }) {
 
 function QuotePreview({ request, href }: { request: string; href: string }) {
     const container = useRef<HTMLDivElement>(null);
-    const [event, setEvent] = useState<NDKEvent | null>(null);
+    const [event, setEvent] = useState<NDKEvent | null>(() => {
+        const { filter } = JSON.parse(request) as { filter: NDKFilter };
+        const cached = nostrCache.query(filter)[0];
+        return cached ? new NDKEvent(ndk, cached) : null;
+    });
     const [unavailable, setUnavailable] = useState(false);
     const [slow, setSlow] = useState(false);
     const [attempt, setAttempt] = useState(0);

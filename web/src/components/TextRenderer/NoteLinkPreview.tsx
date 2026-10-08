@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchLinkPreview, firstPreviewLink, type LinkPreview } from "../../lib/linkPreview";
+import { cachedLinkPreview, fetchLinkPreview, firstPreviewLink, type LinkPreview } from "../../lib/linkPreview";
 
 export function NoteLinkPreview({ text }: { text: string }) {
     const url = useMemo(() => firstPreviewLink(text), [text]);
@@ -9,7 +9,7 @@ export function NoteLinkPreview({ text }: { text: string }) {
 
 function PreviewCard({ url }: { url: string }) {
     const container = useRef<HTMLDivElement>(null);
-    const [preview, setPreview] = useState<LinkPreview | null>(null);
+    const [preview, setPreview] = useState<LinkPreview | null>(() => cachedLinkPreview(url));
     const [brokenImage, setBrokenImage] = useState(false);
     useEffect(() => {
         let active = true;

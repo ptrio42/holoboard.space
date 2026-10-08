@@ -126,11 +126,20 @@ export class ProfileReader {
 
 export const profileReader = new ProfileReader();
 const pending = new Map<string, Promise<SafeProfile | undefined>>();
+/** Reuse verified metadata before the first paint of a newly mounted note. */
+function cachedProfileEvent(pubkey: string): Event | undefined {
+    const cached = nostrCache.query({ kinds: [0], authors: [pubkey], limit: 1 })[0];
+    return cached && JSON.stringify(cached).length * 3 <= 65536 ? cached : undefined;
+}
+export function cachedProfileValue(pubkey: string): SafeProfile | undefined {
+    const cached = cachedProfileEvent(pubkey);
+    return cached ? profileMetadata(cached) : undefined;
+}
 export async function readProfileValue(pubkey: string, hints: string[] = []): Promise<SafeProfile | undefined> {
     if (!/^[0-9a-f]{64}$/.test(pubkey)) return;
     await nostrCache.ready;
-    const cached = nostrCache.query({ kinds: [0], authors: [pubkey], limit: 1 })[0];
-    if (cached && JSON.stringify(cached).length * 3 <= 65536) return profileMetadata(cached);
+    const cached = cachedProfileEvent(pubkey);
+    if (cached) return profileMetadata(cached);
     if (pending.has(pubkey)) return pending.get(pubkey);
     if (pending.size >= 64) return;
     const handle = profileReader.open(pubkey, hints);

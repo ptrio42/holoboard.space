@@ -22,12 +22,16 @@ export function firstPreviewLink(text: string): string | null {
     return null;
 }
 
-const cache = new Map<string, { expires: number; value: Promise<LinkPreview | null> }>();
+const cache = new Map<string, { expires: number; value: Promise<LinkPreview | null>; resolved?: LinkPreview | null }>();
+export function cachedLinkPreview(url: string): LinkPreview | null {
+    const existing = cache.get(url);
+    return existing && existing.expires > Date.now() ? existing.resolved ?? null : null;
+}
 export function fetchLinkPreview(url: string): Promise<LinkPreview | null> {
     const existing = cache.get(url);
     if (existing && existing.expires > Date.now()) return existing.value;
     if (cache.size >= 512) cache.delete(cache.keys().next().value!);
-    const entry = { expires: Date.now() + 3600000, value: Promise.resolve<LinkPreview | null>(null) };
+    const entry: { expires: number; value: Promise<LinkPreview | null>; resolved?: LinkPreview | null } = { expires: Date.now() + 3600000, value: Promise.resolve<LinkPreview | null>(null) };
     entry.value = fetch(`${RELAY_HTTP}/api/link-preview?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(6000) })
         .then(async (response): Promise<LinkPreview | null> => {
             if (!response.ok) return null;
@@ -44,6 +48,7 @@ export function fetchLinkPreview(url: string): Promise<LinkPreview | null> {
             }
             return { url: target.href, title: data.title, description: "description" in data && typeof data.description === "string" ? data.description : undefined, imageUrl };
         }).catch(() => null).then((result) => {
+            entry.resolved = result;
             entry.expires = Date.now() + (result ? 3600000 : 60000);
             return result;
         });

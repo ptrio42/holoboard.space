@@ -19,6 +19,8 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Keep promoted notes at the same position and width when opening discussions,
+  and restore their place on return even after the board refreshes.
 - Recheck signer signatures and requested payloads, reject stale account responses,
   validate remote relay changes and close timed-out signer sessions.
 - Verify Nostr event IDs, restrict external relay destinations and bound shared

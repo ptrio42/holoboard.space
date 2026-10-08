@@ -38,6 +38,7 @@
 }
 
 :root {
+    scrollbar-gutter: stable;
     color-scheme: dark;
     background-color: var(--color-void);
     color: #a5f3fc;
@@ -332,6 +333,8 @@ body::after {
 .note-open:hover, .note-body a.note-open:hover { color: var(--color-neon-cyan); }
 
 /* Discussion replies share branch rails instead of individual notched frames. */
+.reading-surface { padding-bottom: var(--reading-tail, 0px); }
+.reading-surface[data-reading-restoring] { overflow-anchor: none; }
 .discussion-replies { background: rgb(10 5 24 / 0.88); }
 .discussion-note { min-width: 0; }
 .discussion-note > header { margin-bottom: 4px; }

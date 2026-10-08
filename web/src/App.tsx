@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import Billboard from "./pages/Billboard";
 import Expired from "./pages/Expired";
 import Discussion from "./pages/Discussion";
@@ -8,6 +8,7 @@ import Help from "./pages/Help";
 import { ConnectionControls } from "./components/PromoteModal/ConnectionControls";
 import { ENABLE_DISCUSSIONS, ENABLE_PROFILES } from "./config";
 import { discussionRoute, profileRoute } from "./lib/readingRoutes";
+import { useReadingPosition } from "./hooks/useReadingPosition";
 
 const locationPath = () => window.location.pathname + window.location.search;
 const readingRoute = (path: string) => {
@@ -28,19 +29,18 @@ function App() {
     window.addEventListener("popstate", change);
     return () => window.removeEventListener("popstate", change);
   }, []);
-  useLayoutEffect(() => {
-    if (ENABLE_DISCUSSIONS || ENABLE_PROFILES) window.scrollTo(0, window.history.state?.readingScroll ?? 0);
-  }, [path]);
+  useReadingPosition(path, ENABLE_DISCUSSIONS || ENABLE_PROFILES);
   const boardName = boardPath?.split("?")[0];
   return <Fragment>
     <NDKHeadless />
     {/* Retain the board's rows, disclosures and position while reading. */}
-    {boardPath && <div hidden={!!route}>
+    {boardPath && <div hidden={!!route} data-reading-surface className="reading-surface">
       {boardName === "/help" && <ConnectionControls />}
       {boardName === "/help" ? <Help /> : boardName === "/expired" ? <Expired /> : <Billboard pathname={boardName} />}
     </div>}
-    {route?.type === "discussion" && <Discussion key={route.value.focusId} {...route.value} />}
-    {route?.type === "profile" && <Profile key={route.value.pubkey} {...route.value} />}
+    {route && <div data-reading-surface className="reading-surface">
+      {route.type === "discussion" ? <Discussion key={route.value.focusId} {...route.value} /> : <Profile key={route.value.pubkey} {...route.value} />}
+    </div>}
   </Fragment>;
 }
 

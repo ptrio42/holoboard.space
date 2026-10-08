@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useId, useRef, useState, type ReactNode } from "react";
 import { NoteDisclosure } from "./NoteControls";
 
 /**
@@ -22,6 +22,7 @@ const SLACK_PX = 24;
 
 interface ExpandableProps {
     children: ReactNode;
+    initiallyExpanded?: boolean;
     /** Named in the button's accessible label, e.g. "note by alice". */
     label?: string;
     expandedContent?: ReactNode;
@@ -30,8 +31,8 @@ interface ExpandableProps {
     footer?: (control: ReactNode) => ReactNode;
 }
 
-export function Expandable({ children, label, expandedContent, expandLabel = "Show more", collapseLabel = "Show less", footer }: ExpandableProps) {
-    const [expanded, setExpanded] = useState(false);
+export function Expandable({ children, initiallyExpanded = false, label, expandedContent, expandLabel = "Show more", collapseLabel = "Show less", footer }: ExpandableProps) {
+    const [expanded, setExpanded] = useState(initiallyExpanded);
     const [overflows, setOverflows] = useState(false);
     const [collapsedHeight, setCollapsedHeight] = useState(COLLAPSED_MAX_PX);
     const [clipsBlock, setClipsBlock] = useState(false);
@@ -40,7 +41,7 @@ export function Expandable({ children, label, expandedContent, expandLabel = "Sh
 
     // Measured on the inner element, which is never the one being clipped, so
     // its height is the real height whether or not the wrapper is collapsed.
-    useEffect(() => {
+    useLayoutEffect(() => {
         const element = contentRef.current;
         if (!element) return;
 
