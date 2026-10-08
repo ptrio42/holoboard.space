@@ -423,6 +423,11 @@ that wallet. Real payments cost sats, so use a small explicit test budget.
 
 ## Visual conventions
 
+The repository's [holoboard-ui skill](../.agents/skills/holoboard-ui/SKILL.md)
+provides a repeatable workflow for reviewing, comparing and implementing visual
+changes across Holoboard screens. Invoke it as `$holoboard-ui` in a skill-aware
+agent, or read its instructions directly.
+
 Use the pixel font for headings, controls and ranks; note bodies use a system
 monospace font. Promotion amounts use a compact picker, while original-note text
 and editor panel explanations use a readable body size. The modal scrolls its

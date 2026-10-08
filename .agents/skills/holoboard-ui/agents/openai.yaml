@@ -1,0 +1,4 @@
+interface:
+  display_name: "Holoboard UI"
+  short_description: "Review and refine Holoboard screens and interactions"
+  default_prompt: "Use $holoboard-ui to review and improve this Holoboard screen while preserving its current behavior and accepted design decisions."
