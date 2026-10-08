@@ -9,11 +9,11 @@ const makeNote = (content: string, tags: string[][] = [], key = authorKey, kind 
 const quotes = Array.from({ length: 6 }, (_, i) => makeNote(`Quoted source ${i + 1}. ` + "Context for the original note. ".repeat(12), [], quoteKey));
 const profiles = [makeNote(JSON.stringify({ name: "Row author" }), [], authorKey, 0), makeNote(JSON.stringify({ name: "Quote author" }), [], quoteKey, 0)];
 
-async function setup(context: BrowserContext, page: Page, options: { content?: string; billboard?: boolean; tags?: string[][]; availableQuotes?: Event[]; expired?: boolean; slowQuote?: { deliver?: () => void; fastReplies: number } } = {}) {
+async function setup(context: BrowserContext, page: Page, options: { content?: string; billboard?: boolean; tags?: string[][]; availableQuotes?: Event[]; expired?: boolean; ledger?: { rank?: number; sats_paid?: number; weight?: number }; slowQuote?: { deliver?: () => void; fastReplies: number } } = {}) {
     const origin = new URL(test.info().project.use.baseURL!).origin;
     const note = makeNote(options.content ?? "A billboard headline.\n" + quotes.map(quote => `nostr:${noteEncode(quote.id)}`).join("\n"), options.tags);
     const entry = { event: note, id: note.id, rank: 1, weight: 200, sats_paid: 210, first_paid_at: 1700000000, last_paid_at: 1700000000,
-        hot_sats: 21, author_share: 20, ...(options.billboard !== false ? { billboard: { template: "poster", color: "cyan", size: "medium", speed: "normal", text: "A billboard headline." } } : {}) };
+        hot_sats: 21, author_share: 20, ...options.ledger, ...(options.billboard !== false ? { billboard: { template: "poster", color: "cyan", size: "medium", speed: "normal", text: "A billboard headline." } } : {}) };
     await context.route("**/*", route => {
         const url = new URL(route.request().url());
         if (url.origin === origin) return route.continue();
@@ -53,7 +53,7 @@ async function setup(context: BrowserContext, page: Page, options: { content?: s
     return page.locator("article");
 }
 
-test("billboard controls share a footer and reveal complete quotes and original text", async ({ context, page }) => {
+test("billboard options reveal complete quotes and original text from the compact footer", async ({ context, page }, testInfo) => {
     const row = await setup(context, page, { tags: [["e", quotes[0].id, "", "reply"]] });
     const sections = page.getByRole("navigation", { name: "Board sections" });
     await expect(sections.getByRole("link", { name: "TOP 21" })).toHaveAttribute("aria-current", "page");
@@ -64,10 +64,9 @@ test("billboard controls share a footer and reveal complete quotes and original 
     await expect(row.locator(".note-quote__excerpt").first()).toContainText("Quoted source 1");
     await expect(row.getByText("In reply to quoted note", { exact: true })).toBeVisible();
     await expect(row.locator(".note-context")).toHaveCount(0);
-    const disclosure = row.getByRole("button", { name: /Show original/ });
-    const external = row.getByRole("link", { name: "Open note", exact: true });
-    await expect(external).toHaveAttribute("href", /^https:\/\/njump.me\/note1/);
-    await expect(row.locator(".note-footer").getByRole("button", { name: /Show original/ })).toBeVisible();
+    const options = row.getByRole("button", { name: "Note options", exact: true });
+    await page.screenshot({ path: testInfo.outputPath("billboard-note.png"), fullPage: true });
+    await expect(row.locator(".note-footer").getByRole("button", { name: "Note options", exact: true })).toBeVisible();
     await expect(row.locator(".note-footer").getByRole("button", { name: "Boost", exact: true })).toBeVisible();
     await expect.poll(() => row.locator(".note-quote[inert]").count()).toBeGreaterThan(0);
     const firstQuote = row.locator(".note-quote").first();
@@ -75,17 +74,31 @@ test("billboard controls share a footer and reveal complete quotes and original 
         const viewport = element.closest("[id]")!;
         return element.getBoundingClientRect().bottom <= viewport.getBoundingClientRect().bottom + 1;
     })).toBe(true);
-    for (const control of [disclosure, external, row.getByRole("button", { name: "Boost", exact: true }), firstQuote.getByRole("link", { name: "Open quoted note" })]) {
+    for (const control of [options, row.getByRole("button", { name: "Boost", exact: true }), firstQuote.getByRole("link", { name: "Open quoted note" })]) {
         expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     }
-    await disclosure.focus();
+    await options.focus();
     await page.keyboard.press("Enter");
+    const menu = page.getByRole("menu", { name: "Note options" });
+    const original = menu.getByRole("menuitem", { name: "Read original", exact: true });
+    await expect(original).toBeFocused();
+    const external = menu.getByRole("menuitem", { name: "Open in njump", exact: true });
+    await expect(external).toHaveAttribute("href", /^https:\/\/njump.me\/note1/);
+    for (const control of [original, external]) expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await page.keyboard.press("ArrowDown");
+    await expect(external).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(options).toBeFocused();
+    await expect(menu).toHaveCount(0);
+    await options.click();
+    await original.click();
     await expect(row.getByText("Original text", { exact: true })).toBeVisible();
     await expect(row.locator(".note-quote[inert]")).toHaveCount(0);
     await expect(row.getByRole("link", { name: "Open quoted note" })).toHaveCount(6);
     await row.locator(".note-quote").last().scrollIntoViewIfNeeded();
     await expect(row.locator(".note-quote").last()).toContainText("Quoted source 6");
-    await row.getByRole("button", { name: /Hide original/ }).click();
+    await options.click();
+    await menu.getByRole("menuitem", { name: "Hide original", exact: true }).click();
     await expect(row.getByText("Original text", { exact: true })).toHaveCount(0);
     await expect.poll(() => row.locator(".note-quote[inert]").count()).toBeGreaterThan(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -206,9 +219,9 @@ test("short replies keep conversation context near the author", async ({ context
     const row = await setup(context, page, { billboard: false, content: "A short reply.", tags: [["e", quotes[0].id, "", "reply"]] });
     const contextLink = row.getByRole("link", { name: /In reply to/ });
     await expect(contextLink).toHaveAttribute("href", `https://njump.me/${noteEncode(quotes[0].id)}`);
-    await expect(row.locator(".note-footer").getByRole("link", { name: /In reply to/ })).toHaveCount(0);
+    await expect(row.locator(".board-identity").getByRole("link", { name: /In reply to/ })).toBeVisible();
     await expect(row.getByRole("button", { name: /Show more|Show original/ })).toHaveCount(0);
-    expect((await contextLink.boundingBox())!.y).toBeLessThan((await row.getByText("A short reply.", { exact: true }).boundingBox())!.y);
+    expect((await contextLink.boundingBox())!.y).toBeGreaterThan((await row.locator(".board-author").boundingBox())!.y);
 });
 
 test("expired notes retain their historical payment and promotion action", async ({ context, page }) => {
@@ -222,10 +235,119 @@ test("expired notes retain their historical payment and promotion action", async
     await expect(page.getByRole("navigation", { name: "Connections" })).toHaveCount(1);
     await expect(page.getByRole("button", { name: "Promote a note", exact: true })).toBeVisible();
     await expect(page.locator("footer").getByRole("link", { name: "Help" })).toBeVisible();
-    await expect(row.getByText(/Last payment:/)).toBeVisible();
     await expect(row.getByRole("button", { name: "Promote again", exact: true })).toBeVisible();
-    await expect(row.getByRole("link", { name: "Open note", exact: true })).toBeVisible();
+    await expect(row.locator(".board-rank, .board-weight__track")).toHaveCount(0);
+    await row.getByRole("button", { name: /210 sats paid, no longer counting/ }).click();
+    const details = page.getByRole("dialog", { name: "Ranking weight" });
+    await expect(details).toContainText("No longer counting");
+    await expect(details).toContainText("210 sats");
+    await expect(details).not.toContainText("Remaining weight");
+    await page.getByRole("button", { name: "Close ranking weight" }).click();
+    await row.getByRole("button", { name: "Note options", exact: true }).click();
+    await expect(page.getByText(/Last payment:/)).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Open in njump", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
     await row.getByRole("button", { name: /Show more/ }).click();
     await expect(row.getByRole("button", { name: /Show less/ })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("gold sats open ranking details without crowding the author or Boost", async ({ context, page }, testInfo) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    const row = await setup(context, page, { billboard: false, content: "A simple note, with every line using the same text style.\nMore space for the message." });
+    const amount = row.getByRole("button", { name: "200 sats counting, 210 sats paid in total", exact: true });
+    const boost = row.getByRole("button", { name: "Boost", exact: true });
+    const author = row.locator(".board-author");
+    await expect(author).toContainText("Row author");
+    expect((await author.locator("[aria-hidden=true]").boundingBox())!.width).toBe(24);
+    for (const control of [author, amount, boost, row.getByRole("button", { name: "Note options", exact: true })]) {
+        const box = (await control.boundingBox())!;
+        expect(box.height).toBeGreaterThanOrEqual(44);
+        expect(box.width).toBeGreaterThanOrEqual(44);
+    }
+    expect((await amount.boundingBox())!.x + (await amount.boundingBox())!.width).toBeLessThanOrEqual((await boost.boundingBox())!.x);
+    await expect(amount).toHaveCSS("color", "rgb(251, 191, 36)");
+    await expect(row.locator(".board-note-content .note-body")).toHaveCSS("font-size", "14px");
+    await expect(row.locator(".board-note-content h1, .board-note-content h2")).toHaveCount(0);
+    await expect(row.locator(".board-rank__label")).toHaveText("TOP");
+    await page.screenshot({ path: testInfo.outputPath("compact-note.png"), fullPage: true });
+    await amount.click();
+    const details = page.getByRole("dialog", { name: "Ranking weight" });
+    await expect(details).toContainText("Counting today200 sats");
+    await expect(details).toContainText("Paid for visibility210 sats");
+    await expect(details).toContainText("95% still counts");
+    const bounds = (await details.boundingBox())!;
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(320);
+    await page.screenshot({ path: testInfo.outputPath("ranking-weight.png"), fullPage: true });
+    await page.keyboard.press("Escape");
+    await expect(amount).toBeFocused();
+    await expect(details).toHaveCount(0);
+    await amount.click();
+    // At narrow widths the details panel can cover the complete note body.
+    await page.mouse.click(8, 780);
+    await expect(details).toHaveCount(0);
+    await boost.click();
+    await expect(page.getByRole("dialog", { name: "Boost note", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+for (const [rank, label] of [[2, "2nd"], [3, "3rd"], [21, null]] as const) {
+    test(`rank ${rank} stays compact beside ordinary note text`, async ({ context, page }) => {
+        await page.setViewportSize({ width: 320, height: 800 });
+        const row = await setup(context, page, { billboard: false, content: "A readable opening sentence.\nA second line.", ledger: { rank } });
+        await expect(row.locator(".board-rank__number")).toHaveText(String(rank));
+        if (label) await expect(row.locator(".board-rank__label")).toHaveText(label);
+        else await expect(row.locator(".board-rank__label")).toHaveCount(0);
+        expect(await row.locator(".board-note-content .note-body").evaluate(body => {
+            const text = [...body.childNodes].find(node => node.nodeType === Node.TEXT_NODE)!;
+            const range = document.createRange(); range.setStart(text, 0); range.setEnd(text, 1);
+            const letter = range.getBoundingClientRect(), rank = body.parentElement!.querySelector(".board-rank")!.getBoundingClientRect();
+            return letter.right <= rank.left && letter.top < rank.bottom;
+        })).toBe(true);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
+}
+
+for (const weight of [210, 8]) {
+    test(`weight ${weight} preserves the paid total and its fade state`, async ({ context, page }) => {
+        const row = await setup(context, page, { billboard: false, content: "A note with a changing ranking weight.", ledger: { weight } });
+        const amount = row.locator(".board-weight");
+        const ratio = await amount.locator(".board-weight__track").evaluate(track => track.firstElementChild!.getBoundingClientRect().width / track.getBoundingClientRect().width);
+        expect(ratio).toBeCloseTo(weight / 210, 2);
+        await amount.click();
+        const details = page.getByRole("dialog", { name: "Ranking weight" });
+        await expect(details).toContainText("Paid for visibility210 sats");
+        await expect(details).toContainText(`${Math.round(weight / 210 * 100)}% still counts`);
+    });
+}
+
+test("large amounts wrap without losing the avatar or note options", async ({ context, page }, testInfo) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    const row = await setup(context, page, { billboard: false, content: "A short note.", ledger: { sats_paid: 987654321, weight: 987654321 } });
+    await expect(row.locator(".board-author")).toContainText("Row author");
+    const amount = row.locator(".board-weight");
+    expect((await amount.boundingBox())!.y).toBeGreaterThan((await row.locator(".board-author").boundingBox())!.y);
+    await amount.click();
+    await expect(page.getByRole("dialog", { name: "Ranking weight" })).toContainText("987,654,321 sats");
+    await page.keyboard.press("Escape");
+    await row.getByRole("button", { name: "Note options", exact: true }).click();
+    await expect(page.getByRole("menuitem", { name: "Open in njump", exact: true })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Read original", exact: true })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("large-amount-options.png"), fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("note images retain the full content width below the inline rank", async ({ context, page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route("https://example.com/banner.png", route => route.fulfill({ contentType: "image/webp", path: new URL("../src/assets/bg.webp", import.meta.url).pathname }));
+    const row = await setup(context, page, { billboard: false, content: "An image note with a short introduction.\nhttps://example.com/banner.png" });
+    const picture = row.locator(".board-note-content .note-body > img");
+    await expect(picture).toBeVisible();
+    await expect.poll(() => picture.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+    const imageBounds = (await picture.boundingBox())!, rankBounds = (await row.locator(".board-rank").boundingBox())!;
+    expect(imageBounds.y).toBeGreaterThanOrEqual(rankBounds.y + rankBounds.height);
+    expect(imageBounds.width).toBeCloseTo((await row.locator(".board-note-content").boundingBox())!.width, 0);
+    await page.screenshot({ path: testInfo.outputPath("image-note.png"), fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

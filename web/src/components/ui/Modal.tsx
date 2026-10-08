@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, type ReactNode, type Ref } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type Ref } from "react";
+import { ModalPopoverHost } from "./ModalPopoverHost";
 
 interface ModalProps {
     isOpen: boolean;
@@ -32,6 +33,8 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
     const overlayRef = useRef<HTMLDivElement>(null);
     const backdropMouseDown = useRef(false);
     const titleId = useId();
+    const popoverId = useId();
+    const [popoverHost, setPopoverHost] = useState<HTMLDivElement | null>(null);
 
     /*
      * Parents hand a fresh `onClose` down on every render. Reading it through a
@@ -115,7 +118,7 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
 
     if (!isOpen) return null;
 
-    return (
+    return <ModalPopoverHost.Provider value={popoverHost}>
         <div
             ref={overlayRef}
             className={`fixed inset-0 ${aboveScanlines ? "z-[60]" : "z-40"} flex justify-center bg-black/85 backdrop-blur-sm sm:items-center sm:p-6
@@ -133,6 +136,7 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby={titleId}
+                aria-owns={popoverId}
                 tabIndex={-1}
                 className={`pixel-frame w-full max-w-2xl bg-neon-cyan p-[3px]
                     shadow-[0_0_50px_rgba(34,211,238,0.35)] ${compact ? "sm:my-auto" : "my-auto"}
@@ -162,6 +166,7 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
                     {footerRef && <div ref={footerRef} className="shrink-0 border-t border-cyan-400/25 bg-panel px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-5 empty:hidden" />}
                 </div>
             </div>
+            <div id={popoverId} ref={setPopoverHost} className="pointer-events-none fixed inset-0 z-[70]" />
         </div>
-    );
+    </ModalPopoverHost.Provider>;
 }

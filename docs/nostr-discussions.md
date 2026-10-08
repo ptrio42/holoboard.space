@@ -351,7 +351,15 @@ even when an endpoint such as `/inbox` serves both roles.
 Branch state survives internal focus navigation and reloads within a bounded
 session-storage record. The board stays mounted during discussion reading.
 A board-origin focus reuses the shared board card at the same width and viewport
-offset, including its source expansion and campaign appearance. Return navigation
+offset, including its source expansion and campaign appearance. Board cards use
+the compact note design with inline ranks, gold ranking amounts, separate Boost
+controls and anchored note options. The discussion entry remains beside reading
+actions; reply rows keep their compact branch layout. Expansion is captured from
+the content state, including Billboard originals opened through note options,
+without depending on a visible disclosure button. Anchored popovers close on
+history navigation, including when their board remains mounted behind a reader.
+Local profile links and unverified address presentation remain feature-gated.
+Return navigation
 restores the source by exact event ID and viewport offset, allowing board polling
 to insert earlier rows without losing the reading position. Restoration observes
 late content for at most 35 seconds and yields to user interaction. Missing

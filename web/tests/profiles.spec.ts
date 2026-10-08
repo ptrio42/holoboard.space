@@ -124,6 +124,25 @@ test.describe("read-only profiles", () => {
         await expect.poll(() => owned.every(id => fixture.closed.has(id))).toBe(true);
         await expect(coverage(page)).toHaveCount(0); expect(fixture.errors).toEqual([]);
     });
+    test("closes note popovers when browser history hides the retained board", async ({ context, page }) => {
+        const fixture = await setup(context, page);
+        await page.goto("/");
+        const source = page.locator("[data-board-note]").first();
+        await source.getByRole("link", { name: "Profile author", exact: true }).click();
+        await expect(page.getByRole("region", { name: "Author profile", exact: true })).toBeVisible();
+        for (const kind of ["weight", "options"] as const) {
+            await page.goBack();
+            await expect(source).toBeVisible();
+            await source.locator(kind === "weight" ? ".board-weight" : ".board-options").click();
+            const popup = page.getByRole(kind === "weight" ? "dialog" : "menu", { name: kind === "weight" ? "Ranking weight" : "Note options", exact: true });
+            await expect(popup).toBeVisible();
+            await page.goForward();
+            await expect(page.getByRole("region", { name: "Author profile", exact: true })).toBeVisible();
+            await expect(popup).toHaveCount(0);
+        }
+        expect(fixture.publications).toEqual([]);
+        expect(fixture.errors).toEqual([]);
+    });
     test("returns to the same discussion branch and reading position", async ({ context, page }) => {
         test.skip(!discussions);
         await setup(context, page); await page.goto(`/discussion/${focus.id}?from=%2Fwaiting%3Fview%3Dhot`);

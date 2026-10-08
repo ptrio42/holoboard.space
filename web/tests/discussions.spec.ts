@@ -15,12 +15,12 @@ const wrong = make("Reply belongs to promotional quote", [["e", promo.id, "", "r
 const mention = make("Mention is not a reply", [["e", focus.id, "", "mention"]]);
 const profile = make(JSON.stringify({ name: "Discussion author" }), [], 1700000000, 0);
 const relayList = make("", [["r", "ws://127.0.0.1:3334"]], 1700000000, 10002);
-interface Options { focus?: Event; events?: Event[]; slowParent?: Event; blockReplies?: boolean; many?: number; board?: Event[]; preview?: boolean }
+interface Options { focus?: Event; events?: Event[]; slowParent?: Event; blockReplies?: boolean; many?: number; board?: Event[]; preview?: boolean; billboard?: boolean }
 async function setup(context: BrowserContext, page: Page, options: Options = {}) {
     const selected = options.focus ?? focus;
     const extra = Array.from({ length: options.many ?? 0 }, (_, i) => make(`Sibling ${String(i + 1).padStart(2, "0")}`, [["e", selected.id, "", "reply"]], 1700000500 + i));
     const events = [selected, root, child, paid, promo, wrong, mention, profile, relayList, ...(options.events ?? []), ...extra].filter(event => event.id !== options.slowParent?.id);
-    const entry = (event: Event, rank: number) => ({ id: event.id, event, rank, weight: 200, sats_paid: 210, hot_sats: 200, first_paid_at: 1700000000, last_paid_at: 1700000000 });
+    const entry = (event: Event, rank: number) => ({ id: event.id, event, rank, weight: 200, sats_paid: 210, hot_sats: 200, ...(options.billboard && event.id === selected.id ? { billboard: { template: "poster", color: "cyan", size: "medium", speed: "normal", text: "Promoted note with a longer body." } } : {}), first_paid_at: 1700000000, last_paid_at: 1700000000 });
     const origin = new URL(test.info().project.use.baseURL!).origin;
     const closes = new Set<string>(), blocked = new Set<string>(), publications: unknown[] = [];
     let deliver: (() => void) | undefined;
@@ -110,16 +110,21 @@ test.describe("read-only discussion", () => {
         await expect(row(page, paid)).toBeVisible();
         expect(fixture.publications).toEqual([]);
     });
-    for (const expanded of [false, true]) test(`preserves the board card geometry and exact return position (${expanded ? "expanded" : "collapsed"})`, async ({ context, page }) => {
+    for (const billboard of [false, true]) for (const expanded of [false, true]) test(`preserves the board card geometry and exact return position (${billboard ? "billboard" : "ordinary"}, ${expanded ? "expanded" : "collapsed"})`, async ({ context, page }) => {
         const selected = make("Promoted note with a longer body.\n".repeat(26), [["e", root.id, "", "root"], ["e", root.id, "", "reply"]]);
         const filler = Array.from({ length: 10 }, (_, i) => make(`Board filler ${i}`, [], 1700000600 + i));
         const board = [...filler.slice(0, 5), selected, ...filler.slice(5)];
-        const fixture = await setup(context, page, { focus: selected, board, slowParent: root });
+        const fixture = await setup(context, page, { focus: selected, board, slowParent: root, billboard });
         await page.goto("/waiting?view=hot");
         const source = page.locator(`[data-board-note="${selected.id}"]`);
         await expect(source).toContainText("Promoted note with a longer body.");
         await page.evaluate(() => document.fonts.ready);
-        if (expanded) await source.getByRole("button", { name: /Show more/ }).click();
+        if (expanded) {
+            if (billboard) {
+                await source.getByRole("button", { name: "Note options", exact: true }).click();
+                await page.getByRole("menuitem", { name: "Read original", exact: true }).click();
+            } else await source.getByRole("button", { name: /Show more/ }).click();
+        }
         const link = source.getByRole("link", { name: "Discussion", exact: true });
         await link.scrollIntoViewIfNeeded();
         const original = (await source.locator("article").boundingBox())!;
@@ -155,14 +160,14 @@ test.describe("read-only discussion", () => {
         await expect(page).toHaveURL(/\/waiting\?view=hot$/);
         expect(Math.abs((await source.locator("article").boundingBox())!.y - original.y)).toBeLessThan(2);
         expect(await page.evaluate(() => scrollY)).toBe(boardScroll);
-        await expect(source.locator(".note-disclosure")).toHaveAttribute("aria-expanded", String(expanded));
+        await expect(source.locator("[data-note-expanded]")).toHaveAttribute("data-note-expanded", String(expanded));
         await page.goForward();
         await expect(focusCard).toBeVisible();
         await sameGeometry();
         // A polling refresh can change the retained board while it is hidden.
         fixture.replaceBoard([make("New entry inserted above the promoted note"), ...board]);
         await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-        await expect(page.locator(`[data-board-note="${selected.id}"]`)).toContainText("Rank 7");
+        await expect(page.locator(`[data-board-note="${selected.id}"] .board-rank`)).toHaveAttribute("aria-label", "Rank 7");
         await page.getByRole("link", { name: "Back to board" }).click();
         await expect(page).toHaveURL(/\/waiting\?view=hot$/);
         await expect.poll(async () => Math.abs((await source.locator("article").boundingBox())!.y - original.y)).toBeLessThan(2);

@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useEffect, useId, useRef } from "react";
 import { ZAP_PRESETS } from "../../config";
 import { formatSats } from "../../lib/nostr";
 import { amountToPassWeight, type RankingTarget } from "../../lib/ranking";
@@ -17,6 +17,14 @@ interface PromotionAmountPickerProps {
 }
 export function PromotionAmountPicker({ amount, validAmount, currentWeight = 0, max = 10000000, appearanceFee = 0, onChange, targets, totalForPromotion = (value) => value, selection, onSelectionChange, disabled = false }: PromotionAmountPickerProps) {
     const errorId = useId();
+    const customInput = useRef<HTMLInputElement>(null);
+    const focusCustom = useRef(false);
+    useEffect(() => {
+        if (focusCustom.current) {
+            customInput.current?.focus();
+            focusCustom.current = false;
+        }
+    }, [selection.custom]);
     const selectedAmount = validAmount ? Number(amount) : null;
     const positions = targets.filter((target) => target.rank === 21 || target.rank <= 3).sort((a, b) => b.rank - a.rank);
     const targetButton = (target: RankingTarget) => {
@@ -41,10 +49,11 @@ export function PromotionAmountPicker({ amount, validAmount, currentWeight = 0, 
                     variant={selectedAmount === preset ? "accent" : "ghost"}
                     aria-pressed={selectedAmount === preset} onClick={() => { onSelectionChange({ mode: "amount", rank: null, custom: false }); onChange(String(preset)); }}>{formatSats(preset)}</PixelButton>) : positions.length ? positions.map(targetButton) :
                     <p className="col-span-4 flex min-h-12 items-center text-xs text-cyan-100/70">No higher target positions available.</p>}
-                <button type="button" className="promotion-action focus-pixel col-start-5 min-h-11 text-cyan-200/75" aria-expanded={selection.custom} onClick={() => onSelectionChange({ ...selection, custom: !selection.custom })}>Custom</button>
+                <button type="button" className="promotion-action focus-pixel col-start-5 min-h-11 text-cyan-200/75" aria-expanded={selection.custom}
+                    onClick={() => { focusCustom.current = !selection.custom; onSelectionChange({ ...selection, custom: !selection.custom }); }}>Custom</button>
             </div>
             {selection.custom && <label className="flex items-center gap-3 text-sm text-cyan-200/70">
-                <input aria-label="Custom total in sats" type="text" inputMode="numeric" pattern="[0-9]*" value={amount} autoFocus
+                <input ref={customInput} aria-label="Custom total in sats" type="text" inputMode="numeric" pattern="[0-9]*" value={amount}
                     aria-invalid={!validAmount} aria-describedby={!validAmount && amount !== "" ? errorId : undefined}
                     onFocus={(event) => event.currentTarget.select()}
                     onChange={(event) => { onSelectionChange({ ...selection, rank: null }); onChange(event.target.value); }}

@@ -157,7 +157,7 @@ test("the first ordinary link gets a safe card with text retained after image fa
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const top = page.getByRole("link", { name: "TOP 21", exact: true });
     await expect(top).toHaveText("TOP 21");
-    expect(await page.locator("footer a").first().evaluate(el => getComputedStyle(el).fontFamily)).toContain("PressStart2P");
+    expect(await page.getByRole("link", { name: "Help", exact: true }).evaluate(el => getComputedStyle(el).fontFamily)).toContain("PressStart2P");
 });
 
 test("failed metadata keeps the original link usable", async ({ context, page }) => {
@@ -186,7 +186,8 @@ test("billboard links show one preview before and after opening original text", 
     const row = page.getByRole("article").first();
     await expect(row.locator(".note-link-preview")).toHaveCount(1);
     await expect(row.locator(".note-link-preview")).toBeVisible();
-    await row.getByRole("button", { name: /Show original/ }).click();
+    await row.getByRole("button", { name: "Note options", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Read original", exact: true }).click();
     await expect(row.getByText("Original text", { exact: true })).toBeVisible();
     await expect(row.locator(".note-link-preview")).toHaveCount(1);
     expect(state.previewRequests).toEqual(["https://example.com/article"]);

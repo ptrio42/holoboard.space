@@ -703,17 +703,29 @@ branch and false-default flags while another release is prepared from main.
 The compact reading layout is implemented and visually reviewed. Before treating
 discussion retrieval as finished, review bounded work scheduling against the
 large-thread findings below.
-Before further visual work on readers, incorporate the finalized board-note
-redesign from the independent main checkout into this isolated branch. Use a
-committed checkpoint so ongoing uncommitted work stays untouched. Reconcile the
-shared author, expansion, action/popover and CSS changes rather than replacing
-whole files. Preserve feature-gated discussion entry points, local profile
-navigation and the unverified NIP-05 presentation. Keep the shared source card
-and event/viewport restoration contract, including expansion capture and
-reading-position markers. Adapt discussion and profile
-presentation to the new note design, then rerun board, reader, reply and
-default-release acceptance with mobile and desktop visual checks. This
-integration is authorized; main pushes and deployment remain separate gates.
+The board-note visual redesign is integrated from a stable local checkpoint,
+without modifying the independent main checkout or its index. Integration
+acceptance rechecked all 365 unit cases and 180 distinct enabled browser
+project/scenario pairs across the combined and focused runs. These include the
+new board presentation, Billboard originals, rendered-frame geometry, browser
+history menu cleanup, profile returns and reply publication fixtures. The
+focused 21-check run verifies ordinary and Billboard source geometry, menu
+cleanup and waiting-room updates. Another 75 default-release browser checks
+cover board notes, hidden reading/signer entry points, anonymous split invoices,
+scannable QR codes and promotion-editor focus. Enabled and disabled production
+builds pass; the disabled build excludes the reply editor chunk. A controlled
+public-read review at desktop and phone widths matched the source card's
+position, width and height before entry, immediately after entry, after the
+read settled and on return, with no page errors, horizontal overflow or public
+write frames. Board-origin
+focus cards share the new design; compact reply rows, local author profiles,
+unverified address presentation and false-default flags remain intact. Content
+expansion has its own state marker, so a Billboard original opened through note
+options also survives reader navigation. Popovers escape clipped frames and
+remain owned by an enclosing promotion dialog. The next implementation step is
+the bounded discussion scheduling review described below, preserving partial
+coverage and user-triggered batches. Main pushes and deployment remain separate
+gates.
 Integration must rerun acceptance against its actual base, without clearing saved
 invoices, identities, public outbox entries or the production ledger. Deployment,
 public publication, spending, main pushes, external configuration changes and

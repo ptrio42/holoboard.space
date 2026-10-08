@@ -35,7 +35,7 @@ export function HelpContent({ section = "" }: { section?: string }) {
                 <dt>30 days ago</dt><dd>1000 sats count as 500</dd>
                 <dt>60 days ago</dt><dd>1000 sats count as 250</dd>
             </dl>
-            <p>Each row shows the sats still counting today. Open that figure to see the total ever paid; the blocks show how much remains.</p>
+            <p>The gold amount shows the sats still counting today. Its underline shows the remaining ranking weight. Open the amount to compare it with the total paid for visibility.</p>
             <code className="block overflow-x-auto border border-cyan-400/25 bg-void p-3 text-xs">score = sum of each payment x 0.5 ^ (its age / 30 days)</code>
             <p>Top follows current weight. New follows the first promotion, so a boost does not reset its date. Hot follows visibility sats paid in the last 24 hours.</p>
         </section>

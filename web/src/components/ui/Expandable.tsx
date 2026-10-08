@@ -28,13 +28,15 @@ interface ExpandableProps {
     expandedContent?: ReactNode;
     expandLabel?: string;
     collapseLabel?: string;
-    footer?: (control: ReactNode) => ReactNode;
+    visibleExpandLabel?: string;
+    collapsedMaxHeight?: number;
+    footer?: (control: ReactNode, disclosure: { expanded: boolean; controls: string; toggle: () => void }) => ReactNode;
 }
 
-export function Expandable({ children, initiallyExpanded = false, label, expandedContent, expandLabel = "Show more", collapseLabel = "Show less", footer }: ExpandableProps) {
+export function Expandable({ children, initiallyExpanded = false, label, expandedContent, expandLabel = "Show more", collapseLabel = "Show less", visibleExpandLabel = "More", collapsedMaxHeight = COLLAPSED_MAX_PX, footer }: ExpandableProps) {
     const [expanded, setExpanded] = useState(initiallyExpanded);
     const [overflows, setOverflows] = useState(false);
-    const [collapsedHeight, setCollapsedHeight] = useState(COLLAPSED_MAX_PX);
+    const [collapsedHeight, setCollapsedHeight] = useState(collapsedMaxHeight);
     const [clipsBlock, setClipsBlock] = useState(false);
     const contentRef = useRef<HTMLDivElement>(null);
     const contentId = useId();
@@ -46,9 +48,9 @@ export function Expandable({ children, initiallyExpanded = false, label, expande
         if (!element) return;
 
         const measure = () => {
-            const overflowing = element.scrollHeight > COLLAPSED_MAX_PX + SLACK_PX;
+            const overflowing = element.scrollHeight > collapsedMaxHeight + SLACK_PX;
             setOverflows(overflowing);
-            let height = COLLAPSED_MAX_PX;
+            let height = collapsedMaxHeight;
             let blockBoundary = false;
             const top = element.getBoundingClientRect().top;
             const blocks = element.querySelectorAll<HTMLElement>("[data-note-block]");
@@ -59,7 +61,8 @@ export function Expandable({ children, initiallyExpanded = false, label, expande
                 const end = bounds.bottom - top;
                 if (start < height && end > height) {
                     // Keep a leading quote intact; later quotes unfold as complete previews.
-                    height = start < SLACK_PX ? end : start;
+                    // A leading quote can start below the compact inline rank.
+                    height = block === blocks[0] && start < 64 ? end : start;
                     blockBoundary = true;
                     break;
                 }
@@ -87,18 +90,18 @@ export function Expandable({ children, initiallyExpanded = false, label, expande
         const observer = new ResizeObserver(measure);
         observer.observe(element);
         return () => observer.disconnect();
-    }, [children, expanded]);
+    }, [children, expanded, collapsedMaxHeight]);
 
     const toggle = useCallback(() => setExpanded((open) => !open), []);
     const clamped = overflows && !expanded;
     const control = overflows || expandedContent ? <NoteDisclosure expanded={expanded} controls={contentId} onClick={toggle}
-        visibleLabel={expanded ? "Less" : expandedContent ? "Original" : "More"}>
+        visibleLabel={expanded ? "Less" : expandedContent ? "Original" : visibleExpandLabel}>
         {expanded ? collapseLabel : expandLabel}
         {label ? ` of the ${label}` : " of this note"}
     </NoteDisclosure> : null;
 
     return (
-        <div>
+        <div data-note-expanded={expanded}>
             <div
                 id={contentId}
                 className="relative overflow-hidden"
@@ -115,7 +118,7 @@ export function Expandable({ children, initiallyExpanded = false, label, expande
                 )}
             </div>
 
-            {footer ? footer(control) : control && <div className="mt-1">{control}</div>}
+            {footer ? footer(control, { expanded, controls: contentId, toggle }) : control && <div className="mt-1">{control}</div>}
         </div>
     );
 }

@@ -1194,6 +1194,7 @@ test("promotion tabs keep the draft and payment action accessible", async ({ con
     await expect(promotion).toHaveAttribute("aria-selected", "true");
     await expect(page.getByRole("tabpanel")).toHaveAccessibleName("Promotion");
     await page.getByRole("button", { name: "Custom", exact: true }).click();
+    await expect(page.getByRole("textbox", { name: "Custom total in sats" })).toBeFocused();
     await page.getByRole("textbox", { name: "Custom total in sats" }).fill("500");
     await setAuthorShare(page, 35);
     await promotion.focus();
@@ -1237,6 +1238,35 @@ test("promotion tabs keep the draft and payment action accessible", async ({ con
     expect(state.boardRequests[0]).toMatchObject({ amount_sats: 325, author_share: 35, notify_pubkey: note.pubkey, billboard: { template: "neon" } });
     expect(state.authorRequests[0].amount_sats).toBe(175);
     expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
+test("note popovers in the Billboard preview preserve the editor and its keyboard focus", async ({ context, page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const state = await setup(context, page, { newCampaign: true });
+    const editor = page.getByRole("dialog", { name: "Promote a note", exact: true });
+    await editor.getByRole("tab", { name: "Billboard", exact: true }).click();
+    await editor.getByRole("button", { name: "Billboard / +100 sats", exact: true }).click();
+    const preview = editor.getByRole("article");
+    const amount = preview.locator(".board-weight");
+    await amount.click();
+    const details = page.getByRole("dialog", { name: "Ranking weight", exact: true });
+    await expect(details).toBeVisible();
+    expect(await details.evaluate((element, hostId) => element.parentElement?.id === hostId, await editor.getAttribute("aria-owns"))).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("billboard-preview-weight.png") });
+    await page.keyboard.press("Escape");
+    await expect(details).toHaveCount(0);
+    await expect(editor).toBeVisible();
+    await expect(amount).toBeFocused();
+    const options = preview.getByRole("button", { name: "Note options", exact: true });
+    await options.click();
+    await expect(page.getByRole("menuitem", { name: "Read original", exact: true })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("menu", { name: "Note options", exact: true })).toHaveCount(0);
+    await expect(editor).toBeVisible();
+    expect(await editor.evaluate(element => element.contains(document.activeElement))).toBe(true);
+    expect(state.boardRequests).toHaveLength(0);
+    expect(state.authorRequests).toHaveLength(0);
+    expect(state.errors).toEqual([]);
 });
 
 test("author invoice limits are explained before a visibility-only choice", async ({ context, page }) => {

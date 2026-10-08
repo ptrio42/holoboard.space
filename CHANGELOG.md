@@ -19,6 +19,8 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Close note menus when browser history moves to another screen.
+- Keep keyboard focus on editor tabs when returning to a custom promotion amount.
 - Keep promoted notes at the same position and width when opening discussions,
   and restore their place on return even after the board refreshes.
 - Recheck signer signatures and requested payloads, reject stale account responses,
@@ -37,6 +39,11 @@ record deployment, not announcement publication.
 
 - Update Nostr relay transport while preserving saved invoices and queued
   account posts.
+- Give note content more space with one compact footer, smaller author avatars
+  beside pseudonyms and ranks in the upper corner, using TOP, 2nd and 3rd.
+- Show sats in gold with a thin ranking-weight underline and a separate lightning
+  Boost icon. Open the amount for ranking details, or note options for the
+  original Billboard text, njump and promotion dates.
 
 ## 2026-10-07
 

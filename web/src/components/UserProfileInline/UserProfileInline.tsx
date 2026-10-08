@@ -5,7 +5,7 @@ import { shortNpub } from "../../lib/nostr";
 
 interface Props {
     pubkey: string;
-    size?: "sm" | "md";
+    size?: "compact" | "sm" | "md";
 }
 
 /**
@@ -16,16 +16,16 @@ interface Props {
 export const UserProfileInline = ({ pubkey, size = "sm" }: Props) => {
     const profile = useProfileValue(pubkey);
     const name = profile?.displayName?.trim() || profile?.name?.trim() || shortNpub(pubkey);
-    const px = size === "sm" ? 28 : 36;
+    const px = size === "compact" ? 24 : size === "sm" ? 28 : 36;
 
     return (
         <ProfileLink
             pubkey={pubkey}
-            className="focus-pixel group inline-flex max-w-full items-center gap-2 no-underline"
+            className={`focus-pixel group inline-flex max-w-full items-center gap-2 no-underline ${size === "compact" ? "board-author" : ""}`}
         >
             <Avatar pubkey={pubkey} src={profile?.picture} name={name} size={px} />
-            <span className="min-w-0 truncate font-pixel text-[10px] tracking-wide text-cyan-200
-                group-hover:text-neon-pink @xl/row:text-[11px]">
+            <span className={`min-w-0 truncate font-pixel text-[10px] tracking-wide text-cyan-200
+                group-hover:text-neon-pink ${size === "compact" ? "" : "@xl/row:text-[11px]"}`}>
                 {name}
             </span>
 

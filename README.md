@@ -32,6 +32,10 @@ Notes show a compact preview for the first ordinary page link, with its title,
 domain and available description or thumbnail. Other links remain clickable.
 Failed previews leave the original link available.
 
+The gold sats amount opens the current ranking weight and total paid for
+visibility. Its underline shows how much weight remains. Note options include
+opening the post in njump and reading a Billboard's original text.
+
 ## Promote a note
 
 Open **Promote a note**, paste a note link, `note1`, `nevent1` or event ID, and
