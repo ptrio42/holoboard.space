@@ -344,7 +344,8 @@ retained records outside that display window remain reachable. Counts describe
 found connected replies. Coverage details and retention limits stay visible,
 and additional network batches require `Load more`.
 Source details list each relay once, retaining query counts and incomplete
-outcomes rather than presenting queued coverage as active subscriptions. Public
+outcomes. Eligible checks awaiting admission have a separate count, without
+reserving source records or presenting queued work as active subscriptions. Public
 read relays from NIP-65 remain distinct from NIP-17's dedicated DM relay lists,
 even when an endpoint such as `/inbox` serves both roles.
 
@@ -381,11 +382,15 @@ Controlled real-relay reading and finite runtime
 heap/navigation checks now supplement local signed-event fixtures. Their scope,
 results and repeatable commands are in
 [the Nostr reference](nostr.md#real-relay-and-runtime-resource-checks).
-Large-thread review confirmed the need for bounded work scheduling that does
-not consume author/target/source-record allowances prematurely. This remains
-open after the compact-layout change. Current partial-coverage reporting is
-required while these limits remain; visual improvements do not establish
-complete retrieval.
+Large-thread retrieval now admits targets, lookups and source records only when
+selecting network work. Cached ancestors do not consume missing-parent network
+slots. Relay discovery follows selected work, and primary checks are spread
+across breadth levels before alternative sources. The promoted focus context
+has priority; focus replies, other ancestors and connected reply descendants
+share later turns. The [retrieval contract](nostr.md#discussion-retrieval)
+describes the scheduling policy and unchanged hard limits. Partial-coverage
+reporting remains required; improved scheduling does not establish complete
+public-thread discovery.
 
 ## Acceptance before a discussion screen ships
 

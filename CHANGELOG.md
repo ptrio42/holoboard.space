@@ -19,6 +19,9 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Find more branches in large discussions by admitting reads when needed and
+  spreading primary checks before repeated sources, with unchanged reading limits.
+
 - Close note menus when browser history moves to another screen.
 - Keep keyboard focus on editor tabs when returning to a custom promotion amount.
 - Keep promoted notes at the same position and width when opening discussions,

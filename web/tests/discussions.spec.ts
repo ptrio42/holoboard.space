@@ -289,6 +289,28 @@ test.describe("read-only discussion", () => {
         await expect(row(page, comment)).toContainText(comment.content);
         await expect(row(page, nested)).toContainText(nested.content);
     });
+    test("continues a broad parent-only tree without reserving every source upfront", async ({ context, page }) => {
+        const selected = make("Broad discussion root");
+        const children = Array.from({ length: 70 }, (_, i) => make(`Broad child ${i}`, [["e", selected.id, "", "reply", selected.pubkey]], 1700000500 + i));
+        const grandchildren = children.map((parent, i) => make(`Broad grandchild ${i}`, [["e", parent.id, "", "reply", parent.pubkey]], 1700000600 + i));
+        const fixture = await setup(context, page, { focus: selected, events: [...children, ...grandchildren], board: [selected] });
+        await page.goto(`/discussion/${selected.id}`);
+        const coverage = page.getByRole("region", { name: "Discussion coverage" });
+        await expect(coverage).toHaveAttribute("data-read-state", "paused", { timeout: 35000 });
+        await coverage.getByText("Source details", { exact: true }).click();
+        await expect(coverage).toContainText("additional source checks remain");
+        await expect(coverage.getByRole("button", { name: "Load more", exact: true })).toBeEnabled();
+        await drain(page);
+        const heading = page.getByRole("region", { name: "Replies", exact: true }).getByRole("heading");
+        expect(Number.parseInt((await heading.innerText()), 10)).toBeGreaterThanOrEqual(130);
+        await expect(page.getByRole("region", { name: "Replies", exact: true }).locator("article")).toHaveCount(48);
+        await expect(coverage).toContainText("Reading limits were reached");
+        await expect(coverage.getByRole("button", { name: "Load more", exact: true })).toHaveCount(0);
+        const operations = Number.parseInt((await coverage.locator("details > p").first().innerText()), 10);
+        expect(operations).toBeLessThanOrEqual(128);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        expect(fixture.publications).toEqual([]);
+    });
     test("bounds rendered replies and exposes the rest through local pages", async ({ context, page }) => {
         const selected = make("Many replies focus");
         await setup(context, page, { focus: selected, many: 55 });

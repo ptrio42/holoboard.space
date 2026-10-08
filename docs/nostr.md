@@ -65,7 +65,10 @@ parents use hints, observed sources, configured fallbacks and known authors'
 NIP-65 write relays. Candidate replies use those fallback/hint/source groups and
 the focused authors' read relays. Relay-list discovery also uses reference and
 observed-source hints. An author's outbox is not treated as an index of unknown
-respondents. Sources are bounded and each selected relay has its own branch,
+respondents. Reply-source priority favors verified public read destinations and
+sources that delivered the target, interleaved with configured fallbacks and
+hints. The board relay remains a fallback for promoted items; unpaid replies
+may live only on public relays. Sources are bounded and each selected relay has its own branch,
 outcome and inclusive pagination cursor.
 
 Public mention/reply destinations come from `read` entries in verified
@@ -82,6 +85,31 @@ resolved, but only connected descendants become new discovery targets.
 Promotional quotes, ranking and payment state never supply graph edges.
 An exact old address version is fetched by ID even when the replaceable cache
 already holds a newer version. External scopes never become HTTP fetches.
+
+The planner reserves descendant targets, missing-parent lookups and
+predicate/relay coverage records only when selecting a content query to send.
+Cached ancestors do not use the network lookup allowance. Author relay lists
+are discovered for selected work, so an unsent frontier cannot reserve every
+author slot. By default, cache hydration separately scans up to 64 descendant
+targets per session and 64 ancestor candidates per pass; all normal event and
+graph limits still apply.
+
+The promoted item's own unresolved ancestry has first priority. Other work
+rotates through focus replies, other missing ancestors, focus replies and
+connected reply descendants, skipping empty classes. Within a class, fewer page
+attempts and shallower depth come first, then predicate and source order across
+the breadth level. This spreads primary checks over nearby branches before
+repeating their alternative predicates and fallback sources. NIP-10 and NIP-22
+filters, independent source cursors and exact version pinning are preserved.
+The policy is an application scheduling choice, not a Nostr completeness rule.
+
+Snapshots separately expose counts of eligible checks awaiting admission. They
+are derived from the bounded graph and do not reserve coverage records or
+subscriptions. Counts can change after relay discovery or graph updates; they
+are not a total reply count. Hard target, lookup, source-record and lifetime
+budgets can still leave work unchecked. `Load more` only continues eligible
+work, including retries; discovery retries stop when no new source record can
+be admitted. Coverage remains partial at a hard ceiling.
 
 Snapshots expose per-source coverage, routing outcomes, local retention loss,
 resource limitations and the fixed descendant `until` timestamp selected when
@@ -274,7 +302,7 @@ alone cannot establish this behavior.
 | Query retention | 512 events and 5 MiB | 512 events and 4 MiB |
 | Read cache | 2048 events and 8 MiB, including signatures | 256 immutable notes of at most 8 KiB each; 256 metadata entries of at most 8 KiB each |
 | Discussion sessions | 4 active/closing sessions and 16 view handles; one shared graph with 2048 events, 6144 nodes and 8 MiB | Not applicable |
-| Discussion session work | 64 descendant targets, 64 ancestor lookups, 256 branch/source records, 8 relays per predicate, 8 author discoveries; 128 queries over its lifetime, 16 per batch, 16 page attempts per descendant branch | Not applicable |
+| Discussion session work | 64 network descendant targets, 64 network ancestor lookups, 256 admitted branch/source records, 8 relays per predicate, 8 author discoveries; 128 queries over its lifetime, 16 per batch, 16 page attempts per descendant branch | Not applicable |
 | Discussion admission | 1024 observed events, 4 MiB of received serialized events, 256 KiB per event; 30-second batches and 4-second queries | Not applicable |
 | Profile metadata | 64 active/closing author reads, 256 view handles; 64 KiB per signed profile, six fields of at most 2048 characters each; 12-second reads, 4-second discovery and 6-second metadata queries | Not applicable |
 | Profile campaign scan | 8 pages of at most 21 entries, 128 retained note references, 64 KiB per admitted event; one 8-second HTTP request at a time per view | Existing campaign API, no new route |
@@ -594,6 +622,16 @@ declared version explicitly. Include the nested vendored module: its compression
 fixture caught a toolchain compatibility issue not covered by application-only
 tests.
 
+Run signature-heavy unit suites separately from browser and heap checks. If a
+pagination fixture exceeds its wall-clock deadline, measure signing,
+verification and planning separately before changing a resource limit or test
+allowance. Passing mocks do not replace the transport and browser checks.
+
+When running UI fixtures against a production preview, build with the same
+API/relay origins and feature flags as their test configuration. Runtime preview
+variables do not change a previously built bundle; a fixture that blocks the
+bundle's API origin fails before it exercises discussion behavior.
+
 Browser checks should include Chrome and WebKit, slow or absent EOSE, cache
 reloads and anonymous invoice access. Use Playwright's default port 4173, or a
 known browser-allowed alternate port. WebKit blocks port 4190 before the
@@ -646,8 +684,10 @@ The isolated discussion branch includes the foundation, pinned library migration
 and production fixes through `e651ac6`. The main checkout stays independent;
 implementation does not enable signer support or deploy any feature.
 
-Frontend acceptance covers 365 unit cases across 43 files, including public
-read versus DM relay-list separation and grouped coverage states. Changed-module lint
+Frontend acceptance covers 375 unit cases across 43 files, including lazy
+network admission, breadth-level scheduling, exact/address target accounting,
+hard-ceiling continuation, public read versus DM relay-list separation and
+grouped coverage states. Changed-module lint
 and production builds with all four features enabled and disabled pass. The
 disabled build excludes the reply editor chunk and controls. The combined
 enabled browser regression passed 87 scenarios across desktop
@@ -661,12 +701,20 @@ concurrency. These suites overlap and their counts must not be added as unique
 coverage. All publication/payment fixtures intercept remote traffic and use
 isolated keys; they do not spend funds or publish public notes. The final default
 configuration passed 21 invoice, hidden-signer, disabled-reply and native-outbox
-checks. A further nine browser checks verify that removing each required reply
+checks. The scheduling stage separately rechecked 15 default-release browser
+cases covering hidden discussion/profile/reply entry points and anonymous
+single/split invoices on all three projects. A further nine browser checks
+verify that removing each required reply
 flag keeps the editor absent. The defaults preserve anonymous payments.
 
-The discussion usability and navigation regression covers 93 distinct browser
+The discussion usability and navigation regression covers 105 distinct browser
 project/scenario pairs across discussion, profile and reply-editor suites,
-verified across the combined and focused runs. It verifies
+verified by a complete production-preview run. Nine default-only cases are
+intentionally skipped in that enabled run. After final source-priority and
+coverage changes, 15 focused production-preview checks reverified broad
+parent-only trees and ordinary/Billboard source geometry in all three browser
+projects. These repeat existing scenarios rather than adding unique coverage.
+It verifies
 automatic expansion, persistent explicit collapse, late parents, parent jumps
 across local pages, distinct participant bylines and one source row per relay.
 Compact-layout checks also cover short-row height, continuous rails, retained
@@ -715,9 +763,9 @@ NIP-05 domains are separate features, not implied by the implemented editor.
 
 Continue routine authorized checks and fixes autonomously. Preserve the isolated
 branch and false-default flags while another release is prepared from main.
-The compact reading layout is implemented and visually reviewed. Before treating
-discussion retrieval as finished, review bounded work scheduling against the
-large-thread findings below.
+The compact reading layout is implemented and visually reviewed. Bounded
+discussion scheduling now admits network work lazily; its controlled regression
+acceptance is recorded below. Hard limits still prevent a completeness claim.
 The board-note visual redesign is integrated from a stable local checkpoint,
 without modifying the independent main checkout or its index. Integration
 acceptance rechecked all 365 unit cases and 180 distinct enabled browser
@@ -737,9 +785,10 @@ focus cards share the new design; compact reply rows, local author profiles,
 unverified address presentation and false-default flags remain intact. Content
 expansion has its own state marker, so a Billboard original opened through note
 options also survives reader navigation. Popovers escape clipped frames and
-remain owned by an enclosing promotion dialog. The next implementation step is
-the bounded discussion scheduling review described below, preserving partial
-coverage and user-triggered batches. Main pushes and deployment remain separate
+remain owned by an enclosing promotion dialog. The retrieval stage preserves
+this presentation, partial coverage and user-triggered batches. Physical signer compatibility, deliberate public
+propagation/interoperability checks and the container/release smoke procedure
+remain the next release actions. Main pushes and deployment remain separate
 gates.
 Integration must rerun acceptance against its actual base, without clearing saved
 invoices, identities, public outbox entries or the production ledger. Deployment,
@@ -795,13 +844,29 @@ describe this sample, not a universal height reduction or complete discovery.
 The same read reached author, target and branch/source-record ceilings before
 the lifetime query allowance was exhausted. Branch/source records describe
 predicate/relay work, not only visible conversation branches. `Load more` can
-continue admitted work but cannot remove hard admission ceilings. Review work
-priorities and lazy admission before increasing limits; the current evidence
-does not establish a replacement scheduling policy. After correcting native
+continue eligible work but cannot remove hard admission ceilings. This led to
+lazy admission and breadth-level primary checks without increasing the limits.
+Controlled regressions establish the scheduling behavior; they do not prove
+complete public-thread retrieval. After correcting native
 socket shutdown, a fresh-context, cold-cache read found 77 connected replies and
 18 unresolved branches after four batches, with no uncaught page errors. It
 still reported partial coverage and hard limits. Network variability and cache
 seeding prevent treating the two counts as a before/after completeness measure.
+
+Controlled scheduling regressions use 70 direct replies with 70 parent-only
+grandchildren, so a root query alone cannot discover the grandchildren. The
+previous planner found 21 grandchildren in this fixture; the new acceptance
+requires at least 60 within the unchanged 128-query lifetime allowance. A
+separate cached-frontier regression reproduced 256 reserved source records after
+one network operation in the previous planner. It now requires one admitted record,
+only the focus author's routing state and no premature target/author/source
+limit. Cached ancestry fits within two actual missing-parent lookups. The broad fixture also runs with all replies
+on a public relay rather than the board. A one-query fixture requires selecting
+the known public read destination first. Additional
+checks preserve the promoted focus's context priority, shared accounting for an
+addressable item's predicates, retry cursors and terminal hard-ceiling behavior.
+These fixtures establish the reported bugs and scheduling behavior, not a
+public-thread completeness rate.
 
 Run the offline resource suite against a freshly built production bundle:
 
@@ -821,6 +886,17 @@ view and compares retained JavaScript heap medians after warmup. Its explicit
 allowance is the larger of 2 MiB and 20 percent of the reference median. This
 checks cache-backed graph and view lifetimes, not bulk network ingestion or
 total browser/process memory.
+
+Final scheduling acceptance repeated the production resource suite on
+2026-10-08: all four applicable cases passed, with mobile heap measurements
+intentionally excluded. Across 24 desktop cycles, the retained-heap medians were
+7,621,996 and 7,802,820 bytes, a 180,824-byte increase within the 2 MiB allowance.
+Wire peaks were seven sockets and nine REQs. Eight cancellation cycles per
+browser project left zero active REQs and at most one idle socket, with no page
+errors or write frames. An earlier WebKit run exceeded its 20-second cached-reply
+startup assertion; its unchanged isolated repeat and the complete final suite
+passed. That initial timing failure does not establish a planner defect or
+physical-device performance.
 
 Eight additional navigation cycles per browser project cancel relay reads that
 never send EOSE. Relay-side counters independently observe REQ/CLOSE, connection
