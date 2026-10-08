@@ -68,6 +68,13 @@ observed-source hints. An author's outbox is not treated as an index of unknown
 respondents. Sources are bounded and each selected relay has its own branch,
 outcome and inclusive pagination cursor.
 
+Public mention/reply destinations come from `read` entries in verified
+[NIP-65](https://github.com/nostr-protocol/nips/blob/master/65.md) kind-10002
+lists. The separate [NIP-17](https://github.com/nostr-protocol/nips/blob/master/17.md)
+kind-10050 DM lists do not supply discussion sources. A URL ending in `/inbox`
+can serve both roles; the path alone does not identify its purpose. Preserve
+the complete relay path instead of replacing such addresses with the host root.
+
 Candidate filters cover NIP-10 `e` and NIP-22 `e/E/a/A` tags. Signed, matching
 events pass through the existing normalizer before graph admission; a matching
 tag alone does not establish a parent. Valid missing parents and roots are
@@ -108,7 +115,7 @@ external redirect. Board navigation seeds the cache only after fresh signature
 and ID verification.
 
 The original event remains the focus, with ancestors in parent-edge order and
-expandable descendants. Siblings use ascending timestamps with an ID tie-break;
+descendants expanded by default. Siblings use ascending timestamps with an ID tie-break;
 same-author continuations use the same policy. Promotion badges join the current
 ledger by exact ID and cannot change topology, ordering or board membership.
 Missing context remains explicit. Candidate branches with a root claim but no
@@ -125,16 +132,26 @@ Cache-evicted bodies remain placeholders. Deletion/moderation discovery is not
 added by this screen.
 
 Internal discussion navigation keeps the board mounted. Reading positions use
-browser history and an in-memory map of at most 16 locations. Branch expansion,
-explicit collapse, local pages and context expansion survive reloads through
+browser history and an in-memory map of at most 16 locations. Explicit branch
+collapse, local pages and context expansion survive reloads through
 session storage for at most eight discussions, separately from payment and
-identity storage. Late parents expose the path to an already opened branch;
-explicit collapse takes precedence. Graph updates preserve a visible reading
+identity storage. New and late-parent branches open automatically unless an
+ancestor was explicitly collapsed. Each resolved reply names its actual parent
+author and previews the cached parent text. Selecting that context reveals and
+focuses the parent, including on an earlier local page or in hidden ancestor
+context. Parents beyond the projection use an exact discussion link instead.
+`Open thread` makes the selected note the reading focus without changing its
+protocol ancestry or promotion status. Graph updates preserve a visible reading
 anchor when that row remains rendered. Media resizing and browser scroll
 clamping are not covered by a universal no-jump guarantee.
 
 The counter names found connected replies, not a network-wide total. Source
 completion, partial results and local retention limits remain distinct.
+Source details group each selected relay once across content and relay-list
+discovery. They retain context/reply query counts, incomplete outcomes and public
+read/write roles. Coverage counters distinguish awaiting a first result, more
+pages, retries, exhausted queries, found references and reading limits. They
+describe planned coverage and last results, not active subscription counts.
 `Load more` starts another bounded batch. The displayed opening timestamp is
 fixed; closing and reopening checks newer replies. Leaving closes the view's
 handle and cancels outstanding reads when it was the final view.
@@ -553,7 +570,7 @@ current here; keep detailed discussion semantics in
 | Foundation and relation engine | Reviewed and locally verified with current production fixes; ready for integration. | Shared transport/cache/discovery and relation-contract regressions, full Go race suite, frontend unit/build checks and browser coverage. |
 | Go library migration | Implemented and locally verified; ready for integration, not deployed. | Pinned revision, reproducible patch, historical-format fixture including unknown fields, full Go race suite, Linux builds and payment/browser regressions. |
 | Discussion retrieval | Implemented and locally verified; consumed by the opt-in reading screen. | Bounded discovery and missing-parent retrieval, cancellation, pagination and honest per-relay coverage, feeding the shared relation engine. |
-| Discussion reading | Read-only screen implemented behind `VITE_ENABLE_DISCUSSIONS`, disabled by default. | Original-item focus, expandable paid/unpaid branches, unresolved context, bounded display pages and local browser navigation checks. |
+| Discussion reading | Read-only screen implemented behind `VITE_ENABLE_DISCUSSIONS`, disabled by default. | Original-item focus, paid/unpaid branches expanded by default, exact-parent previews and navigation, grouped source coverage, unresolved context, bounded display pages and local browser navigation checks. |
 | Profile reading | Read-only screen implemented and locally verified behind `VITE_ENABLE_PROFILES`, disabled by default. | Shared bounded metadata reads, explicit freshness/source outcomes, verified active campaign membership, discussion return navigation and selected public-relay reads. |
 | Signer compatibility | Local signer boundaries hardened and protocol fixtures verified; disabled by default. Physical Amber failures unresolved. | Fresh signature/template checks, connection-generation ownership, both NIP-46 initiation methods, bounded request lifetimes and validated relay changes. Device/environment matrix remains open. |
 | User-authored publication | Structural preparation, bounded routing, durable browser outbox and opt-in reply editor implemented; disabled by default. | Signed graph round trips, explicit account/destination consent, durable checkpoints before sending, exact-ID retry, per-relay acknowledgement, cancellation, native IndexedDB reload/failure and separate-tab concurrency. Physical signer and public propagation acceptance remain. |
@@ -571,7 +588,8 @@ The isolated discussion branch includes the foundation, pinned library migration
 and production fixes through `e651ac6`. The main checkout stays independent;
 implementation does not enable signer support or deploy any feature.
 
-Frontend acceptance covers 356 unit cases across 42 files. Changed-module lint
+Frontend acceptance covers 359 unit cases across 42 files, including public
+read versus DM relay-list separation and grouped coverage states. Changed-module lint
 and production builds with all four features enabled and disabled pass. The
 disabled build excludes the reply editor chunk and controls. The combined
 enabled browser regression passed 87 scenarios across desktop
@@ -587,6 +605,14 @@ isolated keys; they do not spend funds or publish public notes. The final defaul
 configuration passed 21 invoice, hidden-signer, disabled-reply and native-outbox
 checks. A further nine browser checks verify that removing each required reply
 flag keeps the editor absent. The defaults preserve anonymous payments.
+
+The discussion usability regression covers 81 distinct browser project/scenario
+pairs across discussion, profile and reply-editor suites, including the focused
+profile-return rerun after changing the default branch state. It verifies
+automatic expansion, persistent explicit collapse, late parents, parent jumps
+across local pages, distinct participant bylines and one source row per relay.
+Nine default-flag checks keep discussion, profile and reply entry points hidden.
+These checks overlap the signer-release evidence above.
 
 The application and retained Go dependency packages passed the full race suite.
 Regressions include global subscription limits, malformed frames, escaped
@@ -699,12 +725,13 @@ governor both returned to zero REQs and one closing socket. Observed peaks were
 Four resource scenarios passed: one desktop heap workload and one cancelled-read
 workload on each of the three browser projects. The two mobile-project heap cases were
 intentionally skipped. With the profile reader and delivery waiter support
-included, post-GC heap medians increased from 7,334,908 to 7,530,916 bytes
-(196,008 bytes, about 0.19 MiB),
+included and reply branches expanded by default, post-GC heap medians increased
+from 7,451,304 to 7,636,892 bytes (185,588 bytes, about 0.18 MiB),
 within the 2 MiB allowance. This workload measures discussion lifetimes after
 the shared profile-reader change; it does not measure repeated profile-screen heap use.
-Mock-relay peaks were seven sockets and eight subscriptions. Leaving each view
-closed its pending requests; idle socket counts fell to at most one. These
+Mock-relay peaks were seven sockets and nine subscriptions. Leaving each view
+closed its pending requests; the heap workload reached zero idle sockets and
+requests. Cancellation scenarios stayed at at most one idle socket. These
 finite measurements support the stated lifetime bounds, not a claim that every
 memory leak is excluded. JSON reports accompany test output.
 

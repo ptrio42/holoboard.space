@@ -319,8 +319,8 @@ client interoperability or discovery of every reply on the Nostr network.
 
 ## Implemented reading screen and remaining stages
 
-The opt-in discussion screen combines a focused ancestor path with expandable
-reply branches. `VITE_ENABLE_DISCUSSIONS` is disabled by default. The original
+The opt-in discussion screen combines a focused ancestor path with reply
+branches expanded by default. `VITE_ENABLE_DISCUSSIONS` is disabled by default. The original
 signed event remains the center, including a promoted middle reply. Current
 promotion badges join exact event IDs from board data. They cannot affect
 ancestry, reply ordering or board membership.
@@ -329,11 +329,18 @@ Siblings use ascending timestamps and an ID tie-break. Ancestors stay in edge
 order even with clock skew. Same-author series use the same sibling policy;
 account-dependent client ranking is not inherited. Root-only evidence with an
 unresolved parent path stays in a separate unresolved-branches section. Late
-parents preserve opened branches, while an explicit collapse remains effective.
+parents preserve open branches, while an explicit collapse remains effective.
+Resolved replies show their direct parent's author and a cached text preview;
+that context link reveals and focuses the exact parent across local pages.
+Indentation remains shallow on phones and is not the only indication of ancestry.
 Pages render at most 48 replies per section and initially eight ancestors;
 retained records outside that display window remain reachable. Counts describe
 found connected replies. Coverage details and retention limits stay visible,
 and additional network batches require `Load more`.
+Source details list each relay once, retaining query counts and incomplete
+outcomes rather than presenting queued coverage as active subscriptions. Public
+read relays from NIP-65 remain distinct from NIP-17's dedicated DM relay lists,
+even when an endpoint such as `/inbox` serves both roles.
 
 Branch state survives internal focus navigation and reloads within a bounded
 session-storage record. The board stays mounted during discussion reading.

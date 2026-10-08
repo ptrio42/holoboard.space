@@ -184,6 +184,21 @@ describe("Holoboard discussion retrieval", () => {
         expect(vi.mocked(queryNostr).mock.calls.flatMap(([, urls]) => urls).some((url) => url.includes("127.0.0.1") || url.includes("relay.local") || url.startsWith("ws:"))).toBe(false);
     });
 
+    it("uses a public read inbox even when it also receives DMs, without importing DM-only relays", async () => {
+        const author = key(), focus = note([], 100, author), child = reply(focus);
+        const shared = "wss://public.example.com/inbox", dmOnly = "wss://private.example.com/inbox";
+        list(author, [["r", shared, "read"]]);
+        const dmList = note([["relay", shared], ["relay", dmOnly]], 200, author, 10050);
+        nostrCache.put(dmList);
+        network(new Map([["wss://purplepag.es", [dmList]], [shared, [child]], [dmOnly, [child]]]));
+        const result = await drain(open(new DiscussionCoordinator(), focus));
+        expect(result.graph.events.has(child.id)).toBe(true);
+        expect(result.coverage.some(work => work.purpose === "descendants" && work.relay === shared)).toBe(true);
+        expect(result.coverage.some(work => work.relay === dmOnly)).toBe(false);
+        expect(vi.mocked(queryNostr).mock.calls.flatMap(([, urls]) => urls)).not.toContain(dmOnly);
+        expect(vi.mocked(queryNostr).mock.calls.some(([filter]) => filter.kinds?.includes(10050))).toBe(false);
+    });
+
     it("discovers NIP-22 replies by address and keeps the original exact focus", async () => {
         const author = key(), article = note([["d", "test"]], 100, author, 30023);
         const address = `30023:${article.pubkey}:test`;

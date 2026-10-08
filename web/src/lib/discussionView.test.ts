@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { boardReturnPath, discussionRoute, discussionHref, discussionProjection, expandedReplies, expansionPaths, discussionCoverage } from "./discussionView";
+import { boardReturnPath, discussionRoute, discussionHref, discussionProjection, expandedReplies, defaultExpansion, discussionCoverage, coverageCounts, discussionSources } from "./discussionView";
 import { createThreadGraph, reduceThreadGraph, type ThreadEvent } from "./threadGraph";
 import type { DiscussionSnapshot } from "./discussionReads";
 const id = (n: number) => n.toString(16).padStart(64, "0");
@@ -27,10 +27,10 @@ describe("discussion presentation contracts", () => {
         const after = discussionProjection(reduceThreadGraph(first, [event(2, 1)]), id(1));
         expect(after.unresolved).toEqual([]);
         const final = reduceThreadGraph(first, [event(2, 1)]);
-        expect(expandedReplies(after.replies, expansionPaths(final, new Set([key(3)]), new Set())).map(row => row.key)).toEqual([key(2), key(3), key(4)]);
-        expect(expandedReplies(after.replies, expansionPaths(final, new Set([key(3)]), new Set([key(2)]))).map(row => row.key)).toEqual([key(2)]);
-        expect(expandedReplies(after.replies, new Set([key(2), key(3)])).map(row => row.key)).toEqual([key(2), key(3), key(4)]);
-        expect(expandedReplies(after.replies, new Set([key(3)])).map(row => row.key)).toEqual([key(2)]);
+        expect(expandedReplies(before.unresolved, defaultExpansion(first, new Set())).map(row => row.key)).toEqual([key(3), key(4)]);
+        expect(expandedReplies(after.replies, defaultExpansion(final, new Set())).map(row => row.key)).toEqual([key(2), key(3), key(4)]);
+        expect(expandedReplies(after.replies, defaultExpansion(final, new Set([key(2)]))).map(row => row.key)).toEqual([key(2)]);
+        expect(expandedReplies(after.replies, defaultExpansion(final, new Set([key(3)]))).map(row => row.key)).toEqual([key(2), key(3)]);
     });
     it("never includes replies to a promotional quote or unrelated root scope", () => {
         const view = discussionProjection(graph(event(1), event(2, 1), event(10), event(11, 10, 10), event(12, 13, 10)), id(1));
@@ -56,5 +56,33 @@ describe("discussion presentation contracts", () => {
         expect(discussionCoverage({ ...snapshot, retentionLimited: true })).toMatchObject({ partial: true, limited: true, failed: 0 });
         expect(discussionCoverage({ ...snapshot, coverage: [{ outcome: "timeout", satisfied: false, exhausted: false }] as DiscussionSnapshot["coverage"] })).toMatchObject({ partial: true, failed: 1, pending: 1 });
         expect(discussionCoverage({ ...snapshot, routing: [{ author: id(999), read: [], write: [], fromCache: false, relays: { source: "timeout" } }] as DiscussionSnapshot["routing"] }).partial).toBe(true);
+    });
+    it("distinguishes queued work, additional pages, failures and terminal coverage", () => {
+        const states: Partial<DiscussionSnapshot["coverage"][number]>[] = [
+            { pages: 0 }, { pages: 1, outcome: "eose" }, { pages: 1, outcome: "timeout" },
+            { pages: 1, outcome: "eose", exhausted: true },
+            { pages: 0, outcome: "timeout", satisfied: true },
+            { pages: 16, outcome: "timeout", truncated: true },
+        ];
+        const work: DiscussionSnapshot["coverage"] = states.map((state, index) => ({ key: String(index), purpose: "descendants",
+            target: { type: "event", value: id(1), relays: [], hints: [] }, relay: "wss://one.example", filter: { "#e": [id(1)] },
+            pages: 0, exhausted: false, truncated: false, satisfied: false, ...state }));
+        expect(coverageCounts(work)).toEqual({ queued: 1, more: 1, retry: 1, finished: 1, found: 1, limited: 1 });
+    });
+    it("groups predicates, authors and relay-list checks without losing per-query counts", () => {
+        const snapshot = { coverage: [
+            { relay: "wss://one.example", purpose: "ancestor", pages: 0 },
+            { relay: "wss://one.example", purpose: "descendants", pages: 1, outcome: "timeout" },
+            { relay: "wss://two.example", purpose: "descendants", pages: 1, outcome: "eose", exhausted: true },
+        ], routing: [
+            { read: ["wss://one.example"], write: ["wss://two.example"], relays: { "wss://one.example": "eose" } },
+            { read: ["wss://one.example"], write: [], relays: { "wss://one.example": "timeout" } },
+        ] } as unknown as DiscussionSnapshot;
+        const sources = discussionSources(snapshot);
+        expect(sources).toHaveLength(2);
+        expect(sources[0]).toMatchObject({ relay: "wss://one.example", discovery: 2, discoveryFailed: 1, inbox: 2, outbox: 0 });
+        expect(coverageCounts(sources[0].work)).toMatchObject({ queued: 1, retry: 1 });
+        expect(sources[1]).toMatchObject({ discovery: 0, inbox: 0, outbox: 1 });
+        expect(sources.flatMap(source => source.work)).toHaveLength(snapshot.coverage.length);
     });
 });

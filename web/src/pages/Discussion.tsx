@@ -1,29 +1,29 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ENABLE_REPLY_PUBLICATION, SATS_ENDPOINT } from "../config";
 import type { Event } from "nostr-tools";
 import { useDiscussion } from "../hooks/useDiscussion";
 import { useSatsMap } from "../hooks/useSatsMap";
 import { nostrCache } from "../lib/nostrCache";
-import { DISCUSSION_PAGE_SIZE, discussionCoverage, discussionProjection, expandedReplies, expansionPaths } from "../lib/discussionView";
+import { DISCUSSION_PAGE_SIZE, defaultExpansion, discussionCoverage, discussionProjection, expandedReplies } from "../lib/discussionView";
 import { navigateReading } from "../lib/discussionNavigation";
 import type { ThreadRow } from "../lib/threadGraph";
 import { BoardLayout } from "../components/BoardLayout/BoardLayout";
 import { DiscussionNote } from "../components/Discussion/DiscussionNote";
+import { DiscussionSources } from "../components/Discussion/DiscussionSources";
 import { PixelButton } from "../components/ui/PixelButton";
 import { StatusMessage } from "../components/ui/StatusMessage";
 import { readingBackLabel } from "../lib/readingRoutes";
 import { PromoteModal } from "../components/PromoteModal/PromoteModal";
 const ReplyComposer = ENABLE_REPLY_PUBLICATION ? lazy(() => import("../components/Discussion/ReplyComposer").then(module => ({ default: module.ReplyComposer }))) : null;
 
-interface ReadingState { expanded: string[]; collapsed: string[]; page: number; pendingPage: number; context: boolean }
+interface ReadingState { collapsed: string[]; page: number; pendingPage: number; context: boolean }
 const STORAGE_KEY = "holoboard-discussion-reading-v1";
-const initialState = (): ReadingState => ({ expanded: [], collapsed: [], page: 0, pendingPage: 0, context: false });
+const initialState = (): ReadingState => ({ collapsed: [], page: 0, pendingPage: 0, context: false });
 function savedState(id: string): ReadingState {
     try {
         const value = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "{}")[id];
-        if (!value || !Array.isArray(value.expanded)) return initialState();
-        return { expanded: value.expanded.filter((key: unknown) => typeof key === "string" && /^event:[0-9a-f]{64}$/.test(key)).slice(0, 2048),
-            collapsed: Array.isArray(value.collapsed) ? value.collapsed.filter((key: unknown) => typeof key === "string" && /^event:[0-9a-f]{64}$/.test(key)).slice(0, 2048) : [],
+        if (!value || typeof value !== "object") return initialState();
+        return { collapsed: Array.isArray(value.collapsed) ? value.collapsed.filter((key: unknown) => typeof key === "string" && /^event:[0-9a-f]{64}$/.test(key)).slice(0, 2048) : [],
             page: Number.isSafeInteger(value.page) && value.page >= 0 ? Math.min(value.page, 128) : 0,
             pendingPage: Number.isSafeInteger(value.pendingPage) && value.pendingPage >= 0 ? Math.min(value.pendingPage, 128) : 0, context: value.context === true };
     } catch { return initialState(); }
@@ -35,6 +35,13 @@ export default function Discussion({ focusId, author, from }: { focusId: string;
     const [reading, setReading] = useState(() => savedState(focusId));
     const [promote, setPromote] = useState(false);
     const [replyTo, setReplyTo] = useState<Event>();
+    const jumpTo = useRef<string | undefined>(undefined);
+    useLayoutEffect(() => {
+        if (!jumpTo.current) return;
+        const target = document.getElementById(jumpTo.current);
+        jumpTo.current = undefined;
+        if (target) { target.scrollIntoView({ block: "center" }); target.focus({ preventScroll: true }); }
+    }, [reading]);
     useEffect(() => {
         try {
             const saved = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "{}");
@@ -43,19 +50,41 @@ export default function Discussion({ focusId, author, from }: { focusId: string;
         } catch { /* Reading remains usable when storage is disabled. */ }
     }, [focusId, reading]);
     const projection = useMemo(() => snapshot && discussionProjection(snapshot.graph, focusId), [snapshot, focusId]);
+    const projectedKeys = useMemo(() => new Set(projection ? [projection.focus, ...projection.ancestors, ...projection.replies, ...projection.unresolved].map(row => row.key) : []), [projection]);
     // One cache scan per graph update, rather than cloning the cache for each row.
     const bodies = useMemo(() => new Map(snapshot ? nostrCache.query({ ids: [...snapshot.graph.events.keys()] }).map(event => [event.id, event]) : []), [snapshot]);
-    const expanded = useMemo(() => snapshot ? expansionPaths(snapshot.graph, new Set(reading.expanded), new Set(reading.collapsed)) : new Set(reading.expanded), [snapshot, reading.expanded, reading.collapsed]);
+    const expanded = useMemo(() => snapshot ? defaultExpansion(snapshot.graph, new Set(reading.collapsed)) : new Set<string>(), [snapshot, reading.collapsed]);
     const coverage = snapshot && discussionCoverage(snapshot);
     const toggle = (key: string) => setReading(value => expanded.has(key)
-        ? { ...value, expanded: value.expanded.filter(id => id !== key), collapsed: [...value.collapsed, key].slice(-2048) }
-        : { ...value, expanded: [...value.expanded, key].slice(-2048), collapsed: value.collapsed.filter(id => id !== key) });
+        ? { ...value, collapsed: [...value.collapsed, key].slice(-2048) }
+        : { ...value, collapsed: value.collapsed.filter(id => id !== key) });
+    const showParent = (key: string) => {
+        if (!snapshot || !projection) return;
+        const path = new Set<string>();
+        let node = snapshot.graph.nodes.get(key);
+        while (node && !path.has(node.key) && path.size <= snapshot.graph.limits.maxDepth) {
+            path.add(node.key); node = node.parent ? snapshot.graph.nodes.get(node.parent) : undefined;
+        }
+        const collapsed = reading.collapsed.filter(id => !path.has(id));
+        const opened = defaultExpansion(snapshot.graph, new Set(collapsed));
+        const pageFor = (rows: ThreadRow[], previous: number) => {
+            const index = expandedReplies(rows, opened).findIndex(row => row.key === key);
+            return index < 0 ? previous : Math.floor(index / DISCUSSION_PAGE_SIZE);
+        };
+        setReading(value => ({ ...value, collapsed, context: value.context || projection.ancestors.some(row => row.key === key),
+            page: pageFor(projection.replies, value.page), pendingPage: pageFor(projection.unresolved, value.pendingPage) }));
+        jumpTo.current = `discussion-note-${key.slice("event:".length)}`;
+    };
     const note = (row: ThreadRow, tree = false) => {
         const node = snapshot!.graph.nodes.get(row.key);
+        const parent = node?.parentState === "resolved" && node.parent ? snapshot!.graph.nodes.get(node.parent) : undefined;
         const children = snapshot!.graph.children.get(row.key)?.length ?? 0;
-        return <li key={row.key} data-discussion-key={row.key} style={tree ? { marginLeft: `${Math.min(row.depth - 1, 3) * 12}px` } : undefined}>
-            {tree && <p className="mb-1 text-xs text-cyan-100/60">{row.depth === 1 ? "Reply" : `Reply level ${row.depth}`}</p>}
+        return <li key={row.key} id={node?.event ? `discussion-note-${node.event.id}` : undefined} tabIndex={-1} data-discussion-key={row.key}
+            className={tree ? "relative border-l-2 border-cyan-400/25 pl-3 focus:outline-neon-cyan" : "focus:outline-neon-cyan"}
+            style={tree ? { marginLeft: `${Math.min(row.depth - 1, 3) * 10}px` } : undefined}>
+            {tree && <span aria-hidden="true" className="absolute left-0 top-6 h-0.5 w-3 bg-cyan-400/40" />}
             <DiscussionNote node={node} event={node?.event ? bodies.get(node.event.id) : undefined} focus={row.key === `event:${focusId}`}
+                parent={parent} parentEvent={parent?.event ? bodies.get(parent.event.id) : undefined} onParent={parent && projectedKeys.has(parent.key) ? () => showParent(parent.key) : undefined}
                 promoted={!!node?.event && ledger.sats.has(node.event.id)}>
                 {ENABLE_REPLY_PUBLICATION && node?.event && bodies.has(node.event.id) && <button type="button" className="note-action inline-flex min-h-11 items-center" onClick={() => setReplyTo(bodies.get(node.event!.id))}>Reply</button>}
                 {tree && children > 0 && <button type="button" className="note-action inline-flex min-h-11 items-center" aria-expanded={expanded.has(row.key)}
@@ -93,7 +122,7 @@ export default function Discussion({ focusId, author, from }: { focusId: string;
                 <ul className="mb-6">{note(projection.focus)}</ul>
                 <section aria-label="Replies">
                     <h3 className="mb-2 font-pixel text-xs text-neon-cyan">{projection.loadedReplyCount} found {projection.loadedReplyCount === 1 ? "reply" : "replies"}</h3>
-                    <p className="mb-4 text-xs text-cyan-100/75">Oldest first within each branch. Promoted replies are highlighted.</p>
+                    <p className="mb-4 text-xs text-cyan-100/75">Oldest first within each branch.</p>
                     {projection.loadedReplyCount === 0 && <StatusMessage compact>No replies found yet. Other relays may have more.</StatusMessage>}
                     {replies(projection.replies)}
                 </section>
@@ -106,11 +135,7 @@ export default function Discussion({ focusId, author, from }: { focusId: string;
                     <StatusMessage compact loading={snapshot.state === "loading"}>{snapshot.state === "loading" ? "Loading discussion..." : coverage?.partial ? "Partial results. Some sources or reading limits remain unresolved." : "Checked selected sources. Other relays may have more replies."}</StatusMessage>
                     <p className="mt-2 text-xs text-cyan-100/75">This read covers replies up to {new Date(snapshot.until * 1000).toLocaleTimeString()}. Reopen the discussion to check newer replies.</p>
                     {(coverage?.limited || projection.truncated) && <p className="mt-2 text-xs text-neon-gold">Reading limits were reached. Some notes or context may be missing.</p>}
-                    <details className="mt-3 text-xs text-cyan-100/75"><summary className="focus-pixel inline-flex min-h-11 cursor-pointer items-center">Source details</summary>
-                        <p>{snapshot.requests} requests. {coverage?.pending} unfinished queries. {coverage?.failed} queries need retry.</p>
-                        {snapshot.routing.map(route => <p key={route.author} className="mt-2 break-all">Relay discovery: {route.fromCache ? "cached list" : Object.entries(route.relays).map(([relay, outcome]) => `${relay}: ${outcome}`).join(", ") || "pending"}</p>)}
-                        <ul className="mt-2 space-y-1 break-all">{snapshot.coverage.map(work => <li key={work.key}>{work.relay}: {work.purpose === "ancestor" ? "context" : "replies"}, {work.satisfied ? "reference found" : work.truncated ? "limited" : work.exhausted ? "query finished" : work.outcome ?? "not queried"}</li>)}</ul>
-                    </details>
+                    <DiscussionSources snapshot={snapshot} />
                     {snapshot.hasMore && <PixelButton className="mt-3" variant="ghost" disabled={snapshot.state === "loading"} onClick={loadMore}>Load more</PixelButton>}
                 </section>
             </>}

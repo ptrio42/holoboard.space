@@ -1,4 +1,4 @@
-import type { DiscussionSnapshot } from "./discussionReads";
+import type { DiscussionCoverage, DiscussionSnapshot } from "./discussionReads";
 import { projectThread, type ThreadGraph, type ThreadNode, type ThreadRow } from "./threadGraph";
 
 export const DISCUSSION_PAGE_SIZE = 48;
@@ -33,21 +33,6 @@ export function discussionProjection(graph: ThreadGraph, focusId: string) {
     }
     return { ...thread, unresolved };
 }
-/** Keep a previously opened branch visible when a late parent changes its path. */
-export function expansionPaths(graph: ThreadGraph, expanded: ReadonlySet<string>, collapsed: ReadonlySet<string>) {
-    const result = new Set(expanded);
-    for (const key of expanded) {
-        let node = graph.nodes.get(key);
-        const visited = new Set<string>();
-        while (node?.parent && visited.size < graph.limits.maxDepth && !visited.has(node.parent)) {
-            visited.add(node.parent);
-            if (collapsed.has(node.parent)) break;
-            result.add(node.parent);
-            node = graph.nodes.get(node.parent);
-        }
-    }
-    return result;
-}
 export function expandedReplies(rows: readonly ThreadRow[], expanded: ReadonlySet<string>) {
     const open = [true];
     return rows.filter(row => {
@@ -56,6 +41,44 @@ export function expandedReplies(rows: readonly ThreadRow[], expanded: ReadonlySe
         open.length = row.depth + 1;
         return visible;
     });
+}
+/** Newly found branches open automatically; only an explicit collapse hides them. */
+export function defaultExpansion(graph: ThreadGraph, collapsed: ReadonlySet<string>) {
+    return new Set([...graph.nodes.keys()].filter(key => !collapsed.has(key)));
+}
+export type CoverageState = "found" | "finished" | "limited" | "retry" | "queued" | "more";
+/** Work records describe coverage, not currently open subscriptions. */
+export function coverageState(work: DiscussionCoverage): CoverageState {
+    if (work.satisfied) return "found";
+    if (work.truncated) return "limited";
+    if (work.exhausted) return "finished";
+    if (work.outcome && !["eose", "found"].includes(work.outcome)) return "retry";
+    return work.pages > 0 ? "more" : "queued";
+}
+export function coverageCounts(work: readonly DiscussionCoverage[]) {
+    const counts: Record<CoverageState, number> = { found: 0, finished: 0, limited: 0, retry: 0, queued: 0, more: 0 };
+    for (const item of work) counts[coverageState(item)]++;
+    return counts;
+}
+export function discussionSources(snapshot: DiscussionSnapshot) {
+    const sources = new Map<string, { relay: string; work: DiscussionCoverage[]; discovery: number; discoveryFailed: number; discoveryOutcomes: Record<string, number>; inbox: number; outbox: number }>();
+    const get = (relay: string) => {
+        let source = sources.get(relay);
+        if (!source) { source = { relay, work: [], discovery: 0, discoveryFailed: 0, discoveryOutcomes: {}, inbox: 0, outbox: 0 }; sources.set(relay, source); }
+        return source;
+    };
+    for (const work of snapshot.coverage) get(work.relay).work.push(work);
+    for (const route of snapshot.routing) for (const [relay, outcome] of Object.entries(route.relays)) {
+        const source = get(relay);
+        source.discovery++;
+        source.discoveryOutcomes[outcome] = (source.discoveryOutcomes[outcome] ?? 0) + 1;
+        if (outcome !== "eose") source.discoveryFailed++;
+    }
+    for (const source of sources.values()) for (const route of snapshot.routing) {
+        if (route.read.includes(source.relay)) source.inbox++;
+        if (route.write.includes(source.relay)) source.outbox++;
+    }
+    return [...sources.values()].sort((a, b) => a.relay.localeCompare(b.relay));
 }
 export function discussionCoverage(snapshot: DiscussionSnapshot) {
     const failed = snapshot.coverage.filter(work => work.outcome && !["eose", "found"].includes(work.outcome) && !work.satisfied).length;

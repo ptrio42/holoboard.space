@@ -89,8 +89,12 @@ test.describe("read-only discussion", () => {
         await expect(page.getByRole("region", { name: "Ancestor context" })).toContainText(root.content);
         await expect(row(page, child)).toContainText(child.content);
         await expect(row(page, child).getByText("Promoted", { exact: true })).toHaveCount(0);
-        await row(page, child).getByRole("button", { name: "Show replies (1)" }).click();
         await expect(row(page, paid)).toContainText(paid.content);
+        await expect(row(page, paid).getByRole("link", { name: /Go to parent note by/ })).toContainText(child.content);
+        await row(page, paid).getByRole("link", { name: /Go to parent note by/ }).click();
+        await expect(row(page, child)).toBeFocused();
+        await expect(row(page, paid).getByRole("link", { name: "Open thread", exact: true })).toBeVisible();
+        await expect(page.getByText(/Reply level|Focus here/)).toHaveCount(0);
         await expect(row(page, paid).getByText("Promoted", { exact: true })).toBeVisible();
         await expect(page.getByText(wrong.content, { exact: true })).toHaveCount(0);
         await expect(page.getByText(mention.content, { exact: true })).toHaveCount(0);
@@ -127,7 +131,6 @@ test.describe("read-only discussion", () => {
         const fixture = await setup(context, page, { focus: orphanRoot, events: [orphan, grandchild], slowParent: missing });
         await page.goto(`/discussion/${orphanRoot.id}`);
         await expect(page.getByRole("region", { name: "Unresolved branches" })).toContainText(orphan.content);
-        await row(page, orphan).getByRole("button", { name: "Show replies (1)" }).click();
         await expect(row(page, grandchild)).toBeVisible();
         await expect.poll(fixture.hasDelivery).toBe(true);
         fixture.deliver();
@@ -136,6 +139,9 @@ test.describe("read-only discussion", () => {
         await expect(row(page, orphan).getByRole("button", { name: "Hide replies" })).toHaveAttribute("aria-expanded", "true");
         await expect(row(page, grandchild)).toBeVisible();
         await row(page, missing).getByRole("button", { name: "Hide replies" }).click();
+        await expect(row(page, grandchild)).toHaveCount(0);
+        await page.reload();
+        await drain(page);
         await expect(row(page, grandchild)).toHaveCount(0);
         await row(page, missing).getByRole("button", { name: "Show replies (1)" }).click();
         await page.reload();
@@ -152,8 +158,6 @@ test.describe("read-only discussion", () => {
         await drain(page);
         await expect(row(page, article)).toContainText(article.content);
         await expect(row(page, comment)).toContainText(comment.content);
-        await expect(row(page, nested)).toHaveCount(0);
-        await row(page, comment).getByRole("button", { name: "Show replies (1)" }).click();
         await expect(row(page, nested)).toContainText(nested.content);
     });
     test("bounds rendered replies and exposes the rest through local pages", async ({ context, page }) => {
@@ -168,6 +172,39 @@ test.describe("read-only discussion", () => {
         await expect(replies).toContainText("Sibling 55");
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     });
+    test("jumps to a deep reply's exact parent on an earlier local page", async ({ context, page }) => {
+        const selected = make("Deep discussion focus");
+        const chain: Event[] = [];
+        for (let i = 0; i < 53; i++) chain.push(make(`Deep message ${i + 1}`, [["e", selected.id, "", "root"], ["e", chain.at(-1)?.id ?? selected.id, "", "reply"]], 1700000500 + i));
+        await setup(context, page, { focus: selected, events: chain });
+        await page.goto(`/discussion/${selected.id}`);
+        const replies = page.getByRole("region", { name: "Replies", exact: true });
+        await expect(replies.locator("article")).toHaveCount(48);
+        await expect(row(page, chain[47])).toBeVisible();
+        await replies.getByRole("button", { name: "Next replies" }).click();
+        await expect(row(page, chain[48])).toBeVisible();
+        await expect(row(page, chain[48]).getByRole("link", { name: /Go to parent note by/ })).toContainText(chain[47].content);
+        await row(page, chain[48]).getByRole("link", { name: /Go to parent note by/ }).click();
+        await expect(row(page, chain[47])).toBeFocused();
+        await expect(replies.locator("article")).toHaveCount(48);
+        await replies.getByRole("button", { name: "Next replies" }).click();
+        await expect(row(page, chain[48])).toBeVisible();
+        await expect(row(page, chain[47])).toHaveCount(0);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
+    test("distinguishes the replying author from the parent and opens the selected subtree", async ({ context, page }) => {
+        const otherKey = generateSecretKey();
+        const response = finalizeEvent({ content: "A different author's response", tags: [["e", root.id, "", "root"], ["e", focus.id, "", "reply"]], created_at: 1700000400, kind: 1 }, otherKey);
+        const otherProfile = finalizeEvent({ content: JSON.stringify({ name: "Another participant" }), tags: [], created_at: 1700000000, kind: 0 }, otherKey);
+        await setup(context, page, { events: [response, otherProfile] });
+        await page.goto(`/discussion/${focus.id}`);
+        await drain(page);
+        await expect(row(page, response).getByRole("link", { name: "Another participant", exact: true })).toBeVisible();
+        await expect(row(page, response).getByRole("link", { name: "Go to parent note by Discussion author" })).toContainText(focus.content);
+        await row(page, response).getByRole("link", { name: "Open thread", exact: true }).click();
+        await expect(page.getByRole("article", { name: "Discussion focus" })).toContainText(response.content);
+        await expect(page.getByRole("region", { name: "Ancestor context" })).toContainText(focus.content);
+    });
     test("exposes a timeout as partial and retries without dropping found replies", async ({ context, page }) => {
         const options = { blockReplies: true };
         const fixture = await setup(context, page, options);
@@ -175,6 +212,12 @@ test.describe("read-only discussion", () => {
         const coverage = page.getByRole("region", { name: "Discussion coverage" });
         await expect(coverage).toHaveAttribute("data-read-state", "paused", { timeout: 15000 });
         await expect(coverage.getByRole("status").first()).toContainText("Partial results");
+        await coverage.getByText("Source details", { exact: true }).click();
+        await expect(coverage).toContainText("need retry");
+        await expect(coverage).not.toContainText("unfinished queries");
+        const sources = await coverage.locator("[data-source-relay]").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-source-relay")));
+        expect(sources.length).toBeGreaterThan(0);
+        expect(new Set(sources).size).toBe(sources.length);
         await expect(row(page, child)).toContainText(child.content);
         options.blockReplies = false;
         await page.getByRole("button", { name: "Load more", exact: true }).click();
