@@ -302,11 +302,30 @@ without changing shared admission or treating incomplete relay reads as absence.
 Profile ordering follows [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md):
 newest timestamp, then lowest ID. Fields follow kind-0 metadata and
 [NIP-24](https://github.com/nostr-protocol/nips/blob/master/24.md).
-The screen shows a name, biography, safe website, public key and avatar.
-NIP-05 is a claimed, explicitly unverified address. No domain verification,
-automatic biography embeds, follower counts, profile editing or public event
-publication are added. Website and image URLs reject unsupported schemes and credentials;
-React text nodes keep signed markup inert.
+The screen shows a name, biography, safe website, public key and avatar, with an
+optional bounded banner. Lightning contact fields follow
+[LUD-16](https://github.com/lnurl/luds/blob/luds/16.md): show `lud16`, or a valid
+Bech32 `lud06` LNURL when no address is available, with a copy action. Displaying
+or copying these fields does not request payment information or send funds.
+Website and image URLs reject unsupported schemes and credentials; React text
+nodes keep signed markup inert. No automatic biography embeds, follower counts,
+profile editing or public event publication are added.
+
+The open profile separately checks its declared
+[NIP-05](https://github.com/nostr-protocol/nips/blob/master/05.md) address using
+HTTPS `/.well-known/nostr.json?name=<local-part>`. A cyan check appears only when
+the response's exact `names` mapping matches this public key. Checking,
+key mismatch, invalid address and unavailable domain are distinct states;
+network, CORS, redirect and malformed-response failures are inconclusive and
+allow an explicit retry. This verifies a domain-to-key mapping, not a person's
+identity. Root `_@domain` claims display as `domain`.
+
+Each check uses shared read admission, an eight-second deadline including queue
+time, a 64 KiB streamed-response limit, no credentials or referrer and no
+redirects. Leaving the profile or replacing its claim cancels the check; a late
+result cannot verify a newer claim. Results stay within the mounted profile,
+without a persistent verification cache or background byline checks. Domain
+responses do not add relay destinations.
 
 Active promoted notes come from Holoboard's existing campaign API, joined to
 verified exact event IDs and authors. The initial read checks TOP 21 and one
@@ -367,7 +386,8 @@ alone cannot establish this behavior.
 | Discussion sessions | 4 active/closing sessions and 16 view handles; one shared graph with 2048 events, 6144 nodes and 8 MiB | Not applicable |
 | Discussion session work | 64 network descendant targets, 64 network ancestor lookups, 256 admitted branch/source records, 8 relays per predicate, 8 author discoveries; 128 queries over its lifetime, 16 per batch, 16 page attempts per descendant branch | Not applicable |
 | Discussion admission | 1024 observed events, 4 MiB of received serialized events, 256 KiB per event; 30-second batches and 4-second queries | Not applicable |
-| Profile metadata | 64 active/closing author reads, 256 view handles; 64 KiB per signed profile, six fields of at most 2048 characters each; 12-second reads, 4-second discovery and 6-second metadata queries | Not applicable |
+| Profile metadata | 64 active/closing author reads, 256 view handles; 64 KiB per signed profile, nine fields of at most 2048 characters each; 12-second reads, 4-second discovery and 6-second metadata queries | Not applicable |
+| Profile NIP-05 check | One claim per mounted profile; shared admission of 4 active reads and 64 queued, eight-second deadline including queue time, 64 KiB response | Direct browser HTTPS read, no proxy or backend route |
 | Profile campaign scan | 8 pages of at most 21 entries, 128 retained note references, 64 KiB per admitted event; one 8-second HTTP request at a time per view | Existing campaign API, no new route |
 | Browser publication | Two outbox deliveries globally; four transport publication jobs; 12 destinations, 64 KiB per event, eight-second acknowledgement waits | Existing account outbox remains separate |
 | Browser publication storage | 32 records and 1 MiB in a separate IndexedDB database; 16 admitted transactions and three-second storage deadlines | No payment-ledger change |
@@ -380,7 +400,8 @@ one day and observed deletion requests after 30 days. Matching precedes sorting
 and limits; tag count does not remove an event from the index. Authored deletion
 requests suppress only matching events of that author. Eviction bounds deletion
 retention, so the cache is not an authoritative deletion archive. Invalid profile
-field types are discarded. A declared NIP-05 string has no verified badge.
+field types are discarded. Signed metadata alone never verifies a NIP-05 claim;
+the profile badge requires a separate successful domain check.
 
 The old `holoboard` Dexie database is left untouched and is not read or expanded.
 The new limits apply to the active cache, not historical browser storage from
@@ -856,8 +877,9 @@ Remaining release gates are physical signer compatibility, deliberate public
 propagation/interoperability checks and deployment-origin/installed-PWA checks.
 Reported Amber failures still need device reproduction; protocol fixtures do not
 establish their cause. Live-wallet behavior remains separate from mocked payment
-regressions. Direct NIP-55 support, deletion/moderation discovery and verified
-NIP-05 domains are separate features, not implied by the implemented editor.
+regressions. Direct NIP-55 support and deletion/moderation discovery remain
+separate features. NIP-05 verification belongs to the opt-in profile reader,
+not the implemented reply editor.
 
 Continue routine authorized checks and fixes autonomously. Preserve the isolated
 branch and false-default flags while another release is prepared from main.
@@ -1220,8 +1242,8 @@ its external actions require the explicit authorization described above.
 ### Release checks
 
 Security, connection lifetime, discovery, cache, thread primitives and durable
-routing can ship as one foundation change. New discussion/profile screens and
-actual NIP-05 domain verification remain separate features.
+routing can ship as one foundation change. Opt-in discussion/profile screens
+and profile NIP-05 verification are separate from foundation acceptance.
 
 Acceptance checks cover forged IDs and verification flags, private and mixed
 DNS answers, an event without EOSE, partial profiles on timeout, cancellation

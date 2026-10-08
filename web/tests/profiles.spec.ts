@@ -1,4 +1,4 @@
-import { test, expect, type BrowserContext, type Page } from "@playwright/test";
+import { test, expect, type BrowserContext, type Page, type Route } from "@playwright/test";
 import { finalizeEvent, generateSecretKey, type Event } from "nostr-tools/pure";
 import { matchFilter } from "nostr-tools/filter";
 import { nprofileEncode } from "nostr-tools/nip19";
@@ -15,16 +15,25 @@ const foreign = finalizeEvent({ kind: 1, created_at: 1700000000, content: "Someo
 const profile = make(JSON.stringify({ name: "fixture", display_name: "Profile author", about: "Public author bio", website: "https://example.com/author", nip05: "claimed@example.com" }), [], 1700000000, 0);
 const fresh = make(JSON.stringify({ name: "fixture", display_name: "Updated author", about: "New outbox metadata", nip05: "claimed@example.com" }), [], 1700000100, 0);
 const list = make("", [["r", "wss://outbox.example.com", "write"], ["r", "wss://inbox.example.com", "read"]], 1700000000, 10002);
-interface Options { block?: boolean; empty?: boolean; outbox?: boolean; metadata?: Event; failWaiting?: boolean }
+interface Options { block?: boolean; empty?: boolean; outbox?: boolean; metadata?: Event; failWaiting?: boolean; nip05?: "match" | "mismatch" | "unavailable" | "redirect" | "pending" }
 async function setup(context: BrowserContext, page: Page, options: Options = {}) {
     const origin = new URL(test.info().project.use.baseURL!).origin;
     const requests: { relay: string; filter: Record<string, unknown> }[] = [];
     const closed = new Set<string>(), blocked = new Set<string>(), publications: string[] = [], errors: string[] = [];
+    const addressRequests: string[] = [], pendingAddresses: Route[] = [];
     page.on("pageerror", error => errors.push(error.message));
     const entry = (event: Event, rank: number) => ({ id: event.id, event, rank, weight: 200, sats_paid: 210, first_paid_at: 1700000000, last_paid_at: 1700000000 });
     await context.route("**/*", route => {
         const url = new URL(route.request().url());
         if (url.origin === origin) return route.continue();
+        if (url.origin === "https://example.com" && url.pathname === "/.well-known/nostr.json") {
+            addressRequests.push(url.href);
+            if (options.nip05 === "pending") { pendingAddresses.push(route); return; }
+            if (options.nip05 === "unavailable") return route.abort();
+            if (options.nip05 === "redirect") return route.fulfill({ status: 302, headers: { location: "https://other.example.com/.well-known/nostr.json" }, body: "redirect" });
+            return route.fulfill({ json: { names: { [url.searchParams.get("name")!]: options.nip05 === "mismatch" ? foreign.pubkey : focus.pubkey } } });
+        }
+        if (url.hostname === "images.example.com") return url.pathname.includes("broken") ? route.abort() : route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="300"><rect width="800" height="300" fill="#164e63"/></svg>' });
         if (url.origin !== "http://127.0.0.1:3334") return route.abort();
         if (url.pathname.includes("waiting-updates")) return route.fulfill({ json: { count: 0, note_ids: [], checked_at: Date.now() } });
         if (url.pathname.includes("campaigns") && url.searchParams.get("view") === "top") {
@@ -47,11 +56,16 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
             socket.send(JSON.stringify(["EOSE", msg[1]]));
         });
     });
-    return { requests, closed, blocked, publications, errors };
+    return { requests, closed, blocked, publications, errors, addressRequests, pendingAddresses };
 }
 const url = `/profile/${focus.pubkey}`;
 const coverage = (page: Page) => page.getByRole("region", { name: "Profile coverage", exact: true });
 async function settled(page: Page) { await expect(coverage(page)).toHaveAttribute("data-read-state", /^(settled|partial)$/, { timeout: 16000 }); }
+async function refreshProfile(page: Page) {
+    const refresh = page.getByRole("button", { name: "Refresh profile", exact: true });
+    if (!await refresh.isVisible()) await page.getByText("Profile details", { exact: true }).click();
+    await refresh.click();
+}
 
 test("profiles remain external and dedicated routes disabled by default", async ({ context, page }) => {
     test.skip(enabled);
@@ -64,11 +78,77 @@ test("profiles remain external and dedicated routes disabled by default", async 
 });
 test.describe("read-only profiles", () => {
     test.skip(!enabled);
+    test("keeps identity beside notes on desktop and readable on narrow phones", async ({ context, page }) => {
+        const metadata = make(JSON.stringify({ name: "fixture", display_name: "A longer profile author name", about: "A public biography with enough text to wrap on a phone.", banner: "https://images.example.com/banner.png", picture: "https://images.example.com/avatar.png", nip05: "claimed@example.com", lud16: "author@pay.example.com" }), [], 1700000200, 0);
+        const fixture = await setup(context, page, { metadata });
+        await page.goto(url); await settled(page);
+        await expect(page.locator('[data-nip05-state="verified"]')).toBeVisible();
+        const identity = page.getByRole("region", { name: "Author profile", exact: true });
+        await expect(identity.getByRole("img", { name: "Profile banner", exact: true })).toBeVisible();
+        await expect(identity.getByRole("region", { name: "Lightning address" })).toContainText("author@pay.example.com");
+        for (const width of [320, 390, 1280]) {
+            await page.setViewportSize({ width, height: 900 });
+            await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+            const author = await identity.boundingBox();
+            const notes = await page.getByRole("region", { name: "Active promoted notes", exact: true }).boundingBox();
+            expect(author).not.toBeNull(); expect(notes).not.toBeNull();
+            if (width >= 768) { expect(notes!.x).toBeGreaterThan(author!.x + author!.width); expect(Math.abs(notes!.y - author!.y)).toBeLessThan(2); }
+            else expect(notes!.y).toBeGreaterThan(author!.y + author!.height);
+            await page.screenshot({ path: test.info().outputPath(`profile-identity-${width}.png`), fullPage: true });
+        }
+        await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (value: string) => { sessionStorage.setItem("test-copied-address", value); } } }));
+        await identity.getByRole("button", { name: "Copy Lightning address", exact: true }).click();
+        await expect(identity.getByText("Lightning address copied.", { exact: true })).toBeVisible();
+        expect(await page.evaluate(() => sessionStorage.getItem("test-copied-address"))).toBe("author@pay.example.com");
+        await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined }));
+        await identity.getByRole("button", { name: "Copy Lightning address", exact: true }).click();
+        await expect(identity.getByText("Clipboard unavailable. Select the address to copy it.", { exact: true })).toBeVisible();
+        expect(fixture.publications).toEqual([]); expect(fixture.errors).toEqual([]);
+    });
+    for (const outcome of ["mismatch", "unavailable", "redirect"] as const) test(`keeps NIP-05 ${outcome} distinct from verified metadata`, async ({ context, page, browserName }) => {
+        test.skip(outcome === "redirect" && browserName === "webkit", "Playwright WebKit cannot fulfill intercepted requests with redirect statuses; unit and Chromium checks cover redirects.");
+        const options: Options = { nip05: outcome }; const fixture = await setup(context, page, options);
+        await page.goto(url); await settled(page);
+        await expect(page.getByRole("heading", { name: "Profile author", exact: true })).toBeVisible();
+        await expect(page.locator(".profile-nip05")).toHaveAttribute("data-nip05-state", outcome === "mismatch" ? "mismatch" : "unavailable");
+        await expect(page.getByRole("img", { name: "NIP-05 address matches this public key", exact: true })).toHaveCount(0);
+        if (outcome !== "mismatch") {
+            options.nip05 = "match"; await page.getByRole("button", { name: "Retry address check" }).click();
+            await expect(page.locator('[data-nip05-state="verified"]')).toBeVisible();
+        }
+        expect(fixture.publications).toEqual([]); expect(fixture.errors).toEqual([]);
+    });
+    test("does not apply an older NIP-05 check to a changed address", async ({ context, page }) => {
+        const options: Options = { nip05: "pending" }; const fixture = await setup(context, page, options);
+        await page.goto(url); await settled(page);
+        await expect.poll(() => fixture.pendingAddresses.length).toBeGreaterThan(0);
+        await expect(page.locator('[data-nip05-state="checking"]')).toBeVisible();
+        options.metadata = make(JSON.stringify({ name: "fixture", display_name: "Profile author", nip05: "new@example.com" }), [], 1700000300, 0);
+        await refreshProfile(page);
+        await expect(page.locator(".profile-nip05-address")).toHaveText("new@example.com");
+        await expect.poll(() => fixture.pendingAddresses.some(route => new URL(route.request().url()).searchParams.get("name") === "new")).toBe(true);
+        for (const route of fixture.pendingAddresses.filter(route => new URL(route.request().url()).searchParams.get("name") === "claimed")) await route.fulfill({ json: { names: { claimed: focus.pubkey } } }).catch(() => {});
+        await expect(page.locator('[data-nip05-state="checking"]')).toBeVisible();
+        const current = fixture.pendingAddresses.find(route => new URL(route.request().url()).searchParams.get("name") === "new")!;
+        await current.fulfill({ json: { names: { new: foreign.pubkey } } });
+        await expect(page.locator('[data-nip05-state="mismatch"]')).toBeVisible();
+        expect(fixture.errors).toEqual([]);
+    });
+    test("collapses broken banners and keeps absent profile fields compact", async ({ context, page }) => {
+        const metadata = make(JSON.stringify({ name: "fixture", display_name: "Profile author", banner: "https://images.example.com/broken.png" }), [], 1700000200, 0);
+        await setup(context, page, { metadata }); await page.goto(url); await settled(page);
+        await expect(page.locator(".profile-banner")).toHaveCount(0);
+        await expect(page.locator(".profile-identity")).not.toHaveClass(/has-banner/);
+        await expect(page.getByRole("region", { name: "Lightning address" })).toHaveCount(0);
+        await expect(page.locator(".profile-nip05")).toHaveCount(0);
+        await expect(page.getByRole("heading", { name: "Profile author", exact: true })).toBeVisible();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
     test("reads author outboxes and joins only the author's active campaigns", async ({ context, page }) => {
         const fixture = await setup(context, page, { outbox: true });
         await page.goto(url); await settled(page);
         await expect(page.getByRole("heading", { name: "Updated author", exact: true })).toBeVisible();
-        await expect(page.getByText("Claimed address (unverified): claimed@example.com")).toBeVisible();
+        await expect(page.locator('[data-nip05-state="verified"]')).toContainText("claimed@example.com");
         const notes = page.getByRole("region", { name: "Active promoted notes", exact: true });
         await expect(notes).toContainText(waiting.content);
         await expect(notes).toContainText(focus.content);
@@ -80,7 +160,9 @@ test.describe("read-only profiles", () => {
         await page.screenshot({ path: `/private/tmp/holoboard-profile-${test.info().project.name}.png`, fullPage: true });
         await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined }));
         await page.getByRole("button", { name: "Copy npub", exact: true }).click();
-        await expect(page.getByText("Clipboard is unavailable. Select the public key above to copy it.", { exact: true })).toBeVisible();
+        await expect(page.getByText("Clipboard is unavailable. Select the public key below to copy it.", { exact: true })).toBeVisible();
+        await expect(page.getByLabel("Nostr public key", { exact: true })).toBeVisible();
+        await expect(page.getByLabel("Nostr public key", { exact: true })).toBeFocused();
         expect(fixture.publications).toEqual([]); expect(fixture.errors).toEqual([]);
     });
     test("retains metadata on timeout and allows an explicit retry", async ({ context, page }) => {
@@ -89,7 +171,7 @@ test.describe("read-only profiles", () => {
         await expect(coverage(page)).toHaveAttribute("data-read-state", "partial");
         await expect(page.getByRole("heading", { name: "Profile author", exact: true })).toBeVisible();
         await expect(coverage(page)).toContainText("Some sources could not be checked");
-        options.block = false; await page.getByRole("button", { name: "Refresh profile" }).click();
+        options.block = false; await refreshProfile(page);
         await expect(coverage(page)).toHaveAttribute("data-read-state", "settled");
     });
     test("distinguishes checked absence from an unreadable signed profile", async ({ context, page }) => {
@@ -97,7 +179,7 @@ test.describe("read-only profiles", () => {
         await page.goto(url); await settled(page);
         await expect(coverage(page)).toContainText("No profile found on checked sources");
         options.empty = false; options.metadata = make("null", [], 1700000200, 0);
-        await page.getByRole("button", { name: "Refresh profile" }).click(); await settled(page);
+        await refreshProfile(page); await settled(page);
         await expect(coverage(page)).toContainText("unreadable metadata");
     });
     test("keeps malformed fields and markup inert", async ({ context, page }) => {
