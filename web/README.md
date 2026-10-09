@@ -323,6 +323,13 @@ public-zap creation and remote-signer restoration out of this release. Set it to
 applies when that flag is enabled. Existing invoices and manual npub
 notifications work with either setting.
 
+The header's Sign in offers a browser extension or Amber / remote signer, with
+manual bunker-link setup in a disclosure. Missing extension support is explicit.
+During remote pairing, opening the signer is the primary action; copying and
+cancelling stay above the optional QR code.
+Account sign-in, reply signing and public-zap setup share the same connection
+session, while their explanations follow the action the user is taking.
+
 Invoice links, copying and QR codes stay available without connecting anything.
 The wallet connection form accepts a masked NWC link through its Connect wallet
 action or Enter. Setup help expands on demand; connecting never sends a payment.

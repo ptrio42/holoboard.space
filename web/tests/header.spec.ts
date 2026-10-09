@@ -75,13 +75,60 @@ test("header keeps promotion primary and wallet available without signing in", a
     expect(state.writes).toEqual([]); expect(state.publicFrames).toEqual([]); expect(state.errors).toEqual([]);
 });
 
+test("sign in presents account methods without payment copy and explains missing extensions", async ({ context, page }, testInfo) => {
+    test.skip(!signerEnabled);
+    const state = await setup(context, page);
+    await page.evaluate(() => Reflect.deleteProperty(window, "nostr"));
+    const trigger = page.getByRole("navigation", { name: "Connections", exact: true }).getByRole("button", { name: "Sign in", exact: true });
+    await trigger.click();
+    const dialog = page.getByRole("dialog", { name: "Sign in", exact: true });
+    const extension = dialog.getByRole("button", { name: "Browser extension", exact: true });
+    const remote = dialog.getByRole("button", { name: "Amber / remote signer", exact: true });
+    await expect(extension).toBeDisabled();
+    await expect(extension).toHaveAccessibleDescription("No Nostr extension detected in this browser.");
+    await expect(remote).toBeEnabled();
+    await expect(dialog).not.toContainText(/optional|zap|invoice|wallet/i);
+    await expect(dialog.getByLabel("Bunker connection link")).toBeHidden();
+    for (const width of [1280, 390, 320]) {
+        await page.setViewportSize({ width, height: 844 });
+        expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+        for (const button of [extension, remote]) expect((await button.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+        await page.screenshot({ path: testInfo.outputPath(`sign-in-${width}.png`) });
+    }
+    await dialog.getByText("Use a bunker link", { exact: true }).click();
+    await expect(dialog.getByLabel("Bunker connection link")).toBeVisible();
+    await expect(dialog.getByLabel("Bunker connection link")).toHaveAttribute("type", "password");
+    await page.screenshot({ path: testInfo.outputPath("sign-in-bunker-320.png") });
+    await page.setViewportSize({ width: 320, height: 640 });
+    await remote.click();
+    await expect(dialog.getByRole("link", { name: "Open Amber / signer", exact: true })).toBeVisible();
+    await expect(dialog.getByRole("status")).toContainText("Waiting for approval");
+    await expect(dialog.getByText("Approve the connection in your signer, then return here.", { exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("sign-in-amber-320.png") });
+    await dialog.getByText("Show QR", { exact: true }).click();
+    const qr = dialog.getByRole("img", { name: "Signer connection QR code", exact: true });
+    await expect(qr).toBeVisible();
+    const cancel = dialog.getByRole("button", { name: "Cancel sign in", exact: true });
+    expect((await cancel.boundingBox())!.y).toBeLessThan((await qr.boundingBox())!.y);
+    await qr.scrollIntoViewIfNeeded();
+    await expect(qr).toBeInViewport({ ratio: 1 });
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("sign-in-amber-qr-320.png") });
+    await cancel.click();
+    await expect(remote).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    expect(state.writes).toEqual([]); expect(state.publicFrames).toEqual([]); expect(state.errors).toEqual([]);
+});
+
 for (const longName of [false, true]) test(`account menu preserves focus and optional profile navigation (${longName ? "long name and missing picture" : "profile"})`, async ({ context, page }, testInfo) => {
     test.skip(!signerEnabled);
     const name = longName ? "starlight with a very long public display name" : "starlight";
     const state = await setup(context, page, name, longName);
     const connections = page.getByRole("navigation", { name: "Connections", exact: true });
     await connections.getByRole("button", { name: "Sign in", exact: true }).click();
-    await page.getByRole("button", { name: "Connect browser extension", exact: true }).click();
+    await page.getByRole("dialog", { name: "Sign in", exact: true }).getByRole("button", { name: "Browser extension", exact: true }).click();
     await expect(page.getByText("Connected extension:", { exact: false })).toBeVisible();
     const account = connections.getByRole("button", { name: `Account: ${name}`, exact: true });
     await expect(account).toBeAttached();

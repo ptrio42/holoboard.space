@@ -74,9 +74,9 @@ export function ConnectionControls({ className = "mx-auto max-w-5xl justify-end 
                     {connections.signerStatus === "connecting" && <><span className="header-tool__status is-connecting" aria-hidden="true" /><span id={signerStatusId} className="sr-only">Connection in progress</span></>}
                 </button>)}
         </nav>
-        {section && <Modal isOpen onClose={() => setSection(null)} title={section === "wallet" ? connections.walletStatus === "connected" ? "Wallet" : "Connect wallet" : "Nostr account"}
+        {section && <Modal isOpen onClose={() => setSection(null)} title={section === "wallet" ? connections.walletStatus === "connected" ? "Wallet" : "Connect wallet" : connections.signerStatus === "connected" ? "Nostr account" : "Sign in"}
             returnFocusRef={section === "signer" ? accountRef : walletRef} scrollBody panelClassName="promotion-typography max-w-xl">
-            <ConnectionSettings section={section} embedded />
+            <ConnectionSettings section={section} purpose={section === "signer" ? "account" : "zap"} embedded />
         </Modal>}
     </>;
 }
