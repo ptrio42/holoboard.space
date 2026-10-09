@@ -103,6 +103,7 @@ test("sign in presents account methods without payment copy and explains missing
     await remote.click();
     await expect(dialog.getByRole("link", { name: "Open Amber / signer", exact: true })).toBeVisible();
     await expect(dialog.getByRole("status")).toContainText("Waiting for approval");
+    await expect(dialog.locator(".pixel-status__copy")).toHaveCSS("font-family", /PressStart2P/);
     await expect(dialog.getByText("Approve the connection in your signer, then return here.", { exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("sign-in-amber-320.png") });
     await dialog.getByText("Show QR", { exact: true }).click();

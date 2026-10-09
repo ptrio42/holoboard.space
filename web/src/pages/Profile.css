@@ -18,7 +18,7 @@
 .profile-nip05.is-verified .profile-nip05-address { color: var(--color-neon-cyan); }
 .profile-nip05:is(.is-mismatch, .is-invalid) .profile-nip05-address { color: var(--color-neon-pink); }
 .profile-nip05-status { display: block; font-size: 12px; margin-top: 4px; color: #9eb6c2; }
-.profile-nip05.is-checking .profile-nip05-status { color: var(--color-neon-cyan); }
+.profile-nip05.is-checking .profile-nip05-status { color: var(--color-neon-cyan); font-family: var(--font-pixel); font-size: 10px; line-height: 1.8; }
 .profile-nip05:is(.is-mismatch, .is-invalid) .profile-nip05-status { color: #f6a9d1; }
 .profile-nip05-retry { min-height: 44px; font-size: 10px; }
 .profile-about { font-size: 16px; line-height: 1.65; color: #d2edf2; margin-top: 18px; }

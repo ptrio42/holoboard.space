@@ -29,6 +29,7 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Use pixel type for loading labels across sign-in, previews, profiles and wallets.
 - Keep large discussions responsive as new replies arrive.
 - Bring selected invoice QR codes into view above payment controls on narrow screens.
 - Keep billboards in the adaptive note layout with readable quote galleries,

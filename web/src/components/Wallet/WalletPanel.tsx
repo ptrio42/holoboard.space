@@ -108,7 +108,7 @@ export function WalletPanel({ disabled = false }: { disabled?: boolean }) {
                     </div>
                 </div>
                 <div className="wallet-balance-readout">
-                    <p className={balanceAvailable ? "wallet-balance-value" : "wallet-balance-unavailable"} aria-live="polite" data-testid="wallet-balance" style={{ "--wallet-digits": Math.max(4, balanceValue.length) } as CSSProperties}>{!can("get_balance") ? "Balance access not granted" : account.balance === null ? account.refreshing ? "Loading balance..." : "Balance unavailable" : <><span className="wallet-balance-number">{balanceValue}</span>{" "}<span className="wallet-balance-unit">sats</span></>}</p>
+                    <p className={balanceAvailable ? "wallet-balance-value" : "wallet-balance-unavailable"} aria-live="polite" data-testid="wallet-balance" style={{ "--wallet-digits": Math.max(4, balanceValue.length) } as CSSProperties}>{!can("get_balance") ? "Balance access not granted" : account.balance === null ? account.refreshing ? <span className="pixel-loading-label">Loading balance...</span> : "Balance unavailable" : <><span className="wallet-balance-number">{balanceValue}</span>{" "}<span className="wallet-balance-unit">sats</span></>}</p>
                 </div>
                 {account.balanceUpdatedAt > 0 && <p className="wallet-balance-updated">Updated {new Date(account.balanceUpdatedAt).toLocaleTimeString()}</p>}
                 {account.balanceError && <p role="alert" className="mt-2 text-xs text-neon-pink">{account.balanceError} {account.balance !== null && "The displayed balance may be out of date."}</p>}
@@ -194,7 +194,7 @@ export function WalletPanel({ disabled = false }: { disabled?: boolean }) {
         {tab === "connection" && <section className="wallet-workspace space-y-4" aria-label="Wallet permissions">
             <h4 className="promotion-section-title text-neon-cyan">Connection permissions</h4>
             <dl className="space-y-2">{permissions.map(([method, label]) => <div key={method} className="flex justify-between gap-3 border-b border-cyan-400/15 py-2"><dt>{label}</dt><dd className={can(method) ? "text-neon-gold" : "text-cyan-100/50"}>{can(method) ? "Allowed" : "Not granted"}</dd></div>)}</dl>
-            <p className="text-xs">{account.notifications === "active" ? "Wallet notifications are active." : account.notifications === "connecting" ? "Connecting wallet notifications..." : account.notifications === "failed" ? "Wallet notifications are unavailable. Data refreshes while this panel is open." : "Data refreshes while this panel is open."}</p>
+            {account.notifications === "connecting" ? <StatusMessage compact loading>Connecting wallet notifications...</StatusMessage> : <p className="text-xs">{account.notifications === "active" ? "Wallet notifications are active." : account.notifications === "failed" ? "Wallet notifications are unavailable. Data refreshes while this panel is open." : "Data refreshes while this panel is open."}</p>}
             {!can("get_budget") && <p className="text-xs text-cyan-100/60">This wallet does not expose the connection budget. Manage spending limits in your wallet.</p>}
             {account.budget && !budget && <p className="text-xs text-cyan-100/60">The wallet reports no connection budget.</p>}
             <p className="text-xs text-cyan-100/60">Enable additional permissions in your wallet, then reconnect. Disconnecting here removes the local connection; revoke it in your wallet to invalidate its permissions.</p>

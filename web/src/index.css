@@ -1007,7 +1007,7 @@ body::after {
     line-height: 1.65;
 }
 .pixel-status__copy > * + * { margin-top: 8px; }
-.pixel-status--loading:not(.pixel-status--compact) .pixel-status__copy {
+.pixel-status--loading .pixel-status__copy {
     font-family: var(--font-pixel);
     font-size: 12px;
     line-height: 1.8;
@@ -1025,6 +1025,12 @@ body::after {
 }
 .pixel-status--compact .pixel-status__symbol svg { width: 20px; height: 20px; }
 .pixel-status--compact .pixel-status__copy { font-size: 12px; }
+.pixel-status--loading.pixel-status--compact .pixel-status__copy,
+.pixel-loading-label {
+    font-family: var(--font-pixel);
+    font-size: 10px;
+    line-height: 1.8;
+}
 .pixel-status--icon-only {
     justify-content: center;
     min-height: 24px;

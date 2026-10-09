@@ -543,7 +543,10 @@ Retain the effect on the board and background. Its scrolling body leaves the
 action footer visible and stable across mobile editor tabs; compact boosts
 retain their smaller layout. Reuse `StatusMessage` for loading and empty states.
 Its symbols are decorative, its text is exposed as a status, and its loading
-blocks follow the shared reduced-motion rules.
+blocks follow the shared reduced-motion rules. All visible loading labels use
+the pixel font, including compact connection, preview, profile and wallet
+states. Use 12px for full loading panels and 10px for compact labels, leaving
+ordinary explanations and completed or unavailable status text in the body font.
 
 [Press Start 2P](https://fonts.google.com/specimen/Press+Start+2P), by CodeMan38,
 is bundled as WOFF2 under the SIL Open Font License 1.1.
