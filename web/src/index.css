@@ -379,6 +379,8 @@ body::after {
 .discussion-note__header > button { flex-shrink: 0; }
 .discussion-note__content { padding-left: 30px; }
 .discussion-note .note-body { font-size: 16px; line-height: 1.7; }
+.discussion-note-compact .note-body { font-size: 14px; }
+.discussion-sources[open] { flex-basis: 100%; }
 .discussion-note-compact {
     position: relative;
     border-bottom: 1px solid rgb(34 211 238 / 0.1);

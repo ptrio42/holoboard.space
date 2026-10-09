@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import holoboardMark from "../../assets/holoboard-mark.svg";
 import { ConnectionControls } from "../PromoteModal/ConnectionControls";
 import { PixelButton } from "../ui/PixelButton";
 
@@ -21,7 +22,7 @@ export function BoardLayout({ section, onPromote, headerContent, children, newWa
             <div className="grid grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 md:grid-cols-[minmax(0,1fr)_auto_auto] md:gap-x-5 md:gap-y-3">
                 <h1 className="min-w-0 font-pixel text-2xl leading-tight tracking-widest text-neon-pink [text-shadow:0_0_18px_rgba(236,72,153,0.55)]">
                     <a href="/" title="Holoboard home" className="focus-pixel inline-flex min-h-11 min-w-11 items-center">
-                        <span aria-hidden="true" className="md:hidden">H</span><span className="sr-only md:not-sr-only">HOLOBOARD</span>
+                        <img src={holoboardMark} width={24} height={24} alt="" aria-hidden="true" className="md:hidden" /><span className="sr-only md:not-sr-only">HOLOBOARD</span>
                     </a>
                 </h1>
                 <PixelButton variant="accent" aria-label="Promote a note" className="justify-self-center [&>span]:min-h-[38px] [&>span]:px-4 [&>span]:py-0 [&>span]:text-[10px]" onClick={onPromote}>

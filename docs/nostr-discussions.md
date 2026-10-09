@@ -350,9 +350,10 @@ stay beside the author, with reading and reply actions in a compact footer.
 Local page changes return to the reply heading;
 pages starting inside a branch explicitly identify the continuation.
 Pages render at most 48 replies per section and initially eight ancestors;
-retained records outside that display window remain reachable. Counts describe
-found connected replies. Coverage details and retention limits stay visible,
-and additional network batches require `Load more`.
+retained records outside that display window remain reachable. The compact Replies
+count describes found connected replies. A short coverage status stays visible;
+source explanations, read cutoff and retention limits sit inside Source details.
+Additional network batches require `Load more`.
 Source details list each relay once, retaining query counts and incomplete
 outcomes. Eligible checks awaiting admission have a separate count, without
 reserving source records or presenting queued work as active subscriptions. Public
@@ -372,7 +373,7 @@ unpromoted focus has no invented rank or empty amount row. Its controls support
 reading and replying; Boost requires active backend campaign membership. Profile Boost opens the selected note and
 refreshes author campaign reads after a confirmed payment. Ordinary note bodies
 use a 16px base; adaptive cards may enlarge a short body uniformly. Compact
-comments retain 16px text and separate protocol context from promotion styling.
+comments use 14px text and separate protocol context from promotion styling.
 Phone branch steps are 8px, capped at four visible levels, with no avatar-column
 padding in the body. Relationship warnings share a visible unresolved-context
 disclosure; the specific warnings remain readable on expansion.
@@ -382,9 +383,9 @@ same footer, with the accessible name Discussion. On phones, identity,
 Discussion and note options share the first row, while reading, ranking weight
 and Boost share the second. The current discussion focus
 omits its own Discussion shortcut without changing the source card's height.
-Reply rows retain their Thread action for choosing a different focus and keep
-their compact branch layout. Expansion is captured from
-the content state, including Billboard originals opened through note options,
+Reply rows open a different focus through their timestamp and use the shared
+speech bubble for replying, without an additional Thread label. Expansion is
+captured from the content state, including Billboard originals opened through note options,
 without depending on a visible disclosure button. Anchored popovers close on
 history navigation, including when their board remains mounted behind a reader.
 The note-options hint stays dismissed after opening, choosing or closing its menu.

@@ -531,10 +531,12 @@ test.describe("read-only discussion", () => {
         await expect(replies.locator("article")).toHaveCount(48);
         await page.evaluate(() => document.fonts.ready);
         const first = replies.locator("article").first();
-        // A 16px text line plus the author, parent and footer's 44px targets.
-        await expect(first.locator(".note-text")).toHaveCSS("font-size", "16px");
+        // A 14px text line plus the author, parent and footer's 44px targets.
+        await expect(first.locator(".note-text")).toHaveCSS("font-size", "14px");
         expect((await first.boundingBox())!.height).toBeLessThan(190);
         await expect(first.locator("[data-parent-preview]")).toHaveCount(0);
+        await expect(replies.getByText("Thread", { exact: true })).toHaveCount(0);
+        await expect(page.getByText("Oldest first within each branch.", { exact: true })).toHaveCount(0);
         const hitAreas = await first.locator(".discussion-actions a, .discussion-actions button, .discussion-parent").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
         expect(hitAreas.every(height => height >= 44)).toBe(true);
         const rails = await replies.locator("[data-discussion-key]").evaluateAll(nodes => nodes.slice(0, 2).map(node => {
@@ -595,7 +597,10 @@ test.describe("read-only discussion", () => {
         const coverage = page.getByRole("region", { name: "Discussion coverage" });
         await expect(coverage).toHaveAttribute("data-read-state", "paused", { timeout: 15000 });
         await expect(coverage.getByRole("status").first()).toContainText("Partial results");
+        await expect(coverage.locator("details")).not.toHaveAttribute("open", "");
+        await expect(coverage.getByText(/Replies checked up to/)).not.toBeVisible();
         await coverage.getByText("Source details", { exact: true }).click();
+        await expect(coverage.getByText(/Replies checked up to/)).toBeVisible();
         await expect(coverage).toContainText("need retry");
         await expect(coverage).not.toContainText("unfinished queries");
         const sources = await coverage.locator("[data-source-relay]").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-source-relay")));

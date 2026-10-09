@@ -1,3 +1,5 @@
+import jsQR from "jsqr";
+import { PNG } from "pngjs";
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import { matchFilter } from "nostr-tools/filter";
@@ -113,6 +115,9 @@ test("sign in presents account methods without payment copy and explains missing
     expect((await cancel.boundingBox())!.y).toBeLessThan((await qr.boundingBox())!.y);
     await qr.scrollIntoViewIfNeeded();
     await expect(qr).toBeInViewport({ ratio: 1 });
+    const token = await dialog.getByRole("link", { name: "Open Amber / signer", exact: true }).getAttribute("href");
+    const png = PNG.sync.read(await qr.screenshot({ path: testInfo.outputPath("signer-qr-320.png") }));
+    expect(jsQR(new Uint8ClampedArray(png.data), png.width, png.height)?.data).toBe(token);
     expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath("sign-in-amber-qr-320.png") });
     await cancel.click();

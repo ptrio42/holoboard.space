@@ -4,7 +4,7 @@ import type { ThreadNode } from "../../lib/threadGraph";
 import { njumpUrl } from "../../lib/nostr";
 import { NoteContent } from "../TextRenderer/NoteContent";
 import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
-import { NoteExternalLink } from "../ui/NoteControls";
+import { NoteExternalLink, NoteReplyButton } from "../ui/NoteControls";
 import { DiscussionLink } from "../ui/DiscussionLink";
 import { PixelPanel } from "../ui/PixelPanel";
 
@@ -18,10 +18,13 @@ export function DiscussionNote({ node, event, parent, parentEvent, hints = [], p
     const validDate = date && Number.isFinite(date.getTime());
     const footer = (control?: React.ReactNode) => <footer className="discussion-actions">
         {control}
-        {onReply && <button type="button" className="note-action inline-flex min-h-11 items-center" onClick={onReply}>Reply</button>}
-        {event && !focus && <DiscussionLink id={event.id} author={event.pubkey} hints={hints} seed={event} label="Thread" accessibleLabel="Open thread" />}
+        {onReply && <NoteReplyButton onClick={onReply} />}
         {node?.reference.type === "event" && <NoteExternalLink href={njumpUrl(node.reference.value, "note", hints, event?.pubkey)} />}
-        {validDate && <time className="discussion-time" dateTime={date.toISOString()} title={date.toLocaleString()}>{date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time>}
+        {validDate && (event && !focus
+            ? <DiscussionLink id={event.id} author={event.pubkey} hints={hints} seed={event} accessibleLabel="Open thread">
+                <time dateTime={date.toISOString()} title={`${date.toLocaleString()} (open thread)`}>{date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time>
+            </DiscussionLink>
+            : <time className="discussion-time" dateTime={date.toISOString()} title={date.toLocaleString()}>{date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time>)}
     </footer>;
     const article = <article className={`discussion-note ${compact ? "discussion-note-compact" : "p-3 sm:p-5"} ${promoted ? "discussion-note-promoted" : ""}`} aria-label={focus ? "Discussion focus" : undefined}>
         <header className="discussion-note__header">

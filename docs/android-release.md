@@ -22,6 +22,13 @@ the app and open the Trusted Web Activity without a browser toolbar.
 
 ## Build and inspect
 
+The launcher, splash and store icons share the website's pink pixel H. After
+changing `web/src/assets/holoboard-mark.svg`, regenerate the assets from the
+repository root with `python3 -B web/scripts/brand-assets.py --android`
+(requires Pillow). Preserve the maskable safe area. Checked-in icon changes
+require a new Android build and release to reach installed packages; a website
+deployment alone updates only the web assets.
+
 From `android/`:
 
 ```bash

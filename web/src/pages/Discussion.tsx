@@ -16,6 +16,7 @@ import type { ThreadRow } from "../lib/threadGraph";
 import { BoardLayout } from "../components/BoardLayout/BoardLayout";
 import { DiscussionNote } from "../components/Discussion/DiscussionNote";
 import { DiscussionSources } from "../components/Discussion/DiscussionSources";
+import { NoteReplyButton } from "../components/ui/NoteControls";
 import { PixelButton } from "../components/ui/PixelButton";
 import { StatusMessage } from "../components/ui/StatusMessage";
 import { readingBackLabel } from "../lib/readingRoutes";
@@ -163,12 +164,14 @@ export default function Discussion({ focusId, author, hints, from }: { focusId: 
                         onReply={ENABLE_REPLY_PUBLICATION ? () => setReplyTo(focusBody) : undefined}
                         onPromote={ledger.sats.has(focusId) ? () => { setPromotion({ id: focusId, weight: ledger.weights.get(focusId) }); setPromote(true); } : undefined} />
                 </li> : note(projection!.focus)}</ul>}
-            {boardNote && handoff && ENABLE_REPLY_PUBLICATION && <button type="button" className="note-action mb-3 inline-flex min-h-11 items-center" disabled={!snapshot}
-                onClick={() => setReplyTo(handoff.seed)}>Reply to note</button>}
             {snapshot && projection && <div className="mx-auto max-w-3xl">
                 <section id="discussion-replies" tabIndex={-1} aria-label="Replies" className="scroll-mt-4 focus:outline-none">
-                    <h3 className="mb-2 font-pixel text-xs text-neon-cyan">{projection.loadedReplyCount} found {projection.loadedReplyCount === 1 ? "reply" : "replies"}</h3>
-                    <p className="mb-4 text-xs text-cyan-100/75">Oldest first within each branch.</p>
+                    <div className="mb-2 flex min-h-11 items-center justify-between gap-3">
+                        <h3 className="flex items-center gap-3 font-pixel text-[10px] text-neon-cyan" aria-label={`${projection.loadedReplyCount} found ${projection.loadedReplyCount === 1 ? "reply" : "replies"}`}>
+                            <span>{projection.loadedReplyCount}</span><span aria-hidden="true" className="text-cyan-100/75">Replies</span>
+                        </h3>
+                        {boardNote && handoff && ENABLE_REPLY_PUBLICATION && <NoteReplyButton onClick={() => setReplyTo(handoff.seed)} />}
+                    </div>
                     {projection.loadedReplyCount === 0 && <StatusMessage compact>No replies found yet. Other relays may have more.</StatusMessage>}
                     {replies(projection.replies)}
                 </section>
@@ -178,10 +181,10 @@ export default function Discussion({ focusId, author, hints, from }: { focusId: 
                     {replies(projection.unresolved, true)}
                 </section>}
                 <section aria-label="Discussion coverage" data-read-state={snapshot.state} className="mt-6 border-t-2 border-cyan-400/20 pt-4">
-                    <StatusMessage compact loading={snapshot.state === "loading"}>{snapshot.state === "loading" ? "Loading discussion..." : coverage?.partial ? "Partial results. Some sources or reading limits remain unresolved." : "Checked selected sources. Other relays may have more replies."}</StatusMessage>
-                    <p className="mt-2 text-xs text-cyan-100/75">This read covers replies up to {new Date(snapshot.until * 1000).toLocaleTimeString()}. Reopen the discussion to check newer replies.</p>
-                    {(coverage?.limited || projection.truncated) && <p className="mt-2 text-xs text-neon-gold">Reading limits were reached. Some notes or context may be missing.</p>}
-                    <DiscussionSources snapshot={snapshot} />
+                    <div className="flex flex-wrap items-center justify-between gap-x-4">
+                        <StatusMessage compact loading={snapshot.state === "loading"}>{snapshot.state === "loading" ? "Loading discussion..." : coverage?.partial || projection.truncated ? "Partial results" : "Sources checked"}</StatusMessage>
+                        <DiscussionSources snapshot={snapshot} limited={coverage?.limited || projection.truncated} />
+                    </div>
                     {snapshot.hasMore && <PixelButton className="mt-3" variant="ghost" disabled={snapshot.state === "loading"} onClick={loadMore}>Load more</PixelButton>}
                 </section>
             </div>}

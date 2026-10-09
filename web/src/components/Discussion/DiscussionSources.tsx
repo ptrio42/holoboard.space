@@ -9,13 +9,15 @@ function summary(work: DiscussionSnapshot["coverage"]) {
     return Object.entries(coverageCounts(work)).filter(([, count]) => count > 0)
         .map(([state, count]) => `${count} ${labels[state as CoverageState]}`).join("; ");
 }
-export function DiscussionSources({ snapshot }: { snapshot: DiscussionSnapshot }) {
+export function DiscussionSources({ snapshot, limited = false }: { snapshot: DiscussionSnapshot; limited?: boolean }) {
     const sources = discussionSources(snapshot);
     const queued = snapshot.queuedWork.ancestor + snapshot.queuedWork.descendants;
     const cached = snapshot.routing.filter(route => route.fromCache).length;
-    return <details className="mt-3 text-xs text-cyan-100/75">
+    return <details className="discussion-sources text-xs text-cyan-100/75">
         <summary className="focus-pixel inline-flex min-h-11 cursor-pointer items-center">Source details</summary>
         <p>{snapshot.requests} read operations. {sources.length} selected relays, each listed once below.</p>
+        <p className="mt-2">Replies checked up to {new Date(snapshot.until * 1000).toLocaleTimeString()}. Reopen for newer replies. Other relays may have more.</p>
+        {limited && <p className="mt-2 text-neon-gold">Reading limits were reached. Some notes or context may be missing.</p>}
         <p className="mt-2">Content coverage: {summary(snapshot.coverage) || "no content queries sent yet"}.</p>
         {queued > 0 && <p className="mt-2">{queued} additional source checks remain. {snapshot.hasMore ? "Load more continues available reads." : "Reading limits prevent further checks in this session."}</p>}
         {cached > 0 && <p className="mt-2">{cached} author relay {cached === 1 ? "list reused" : "lists reused"} from cache.</p>}

@@ -11,7 +11,7 @@ import TextRenderer from "../TextRenderer/TextRenderer";
 import { NoteContent } from "../TextRenderer/NoteContent";
 import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
 import { Expandable } from "../ui/Expandable";
-import { BoostIcon } from "../ui/NoteControls";
+import { BoostIcon, NoteReplyButton } from "../ui/NoteControls";
 import { NotePopover } from "../ui/NotePopover";
 import { PixelButton } from "../ui/PixelButton";
 import { PixelPanel } from "../ui/PixelPanel";
@@ -139,7 +139,7 @@ export function NoteCard({ context, onReply, hints, showUnknownRank = true, even
                             <div className="board-note-actions">
                                 {ENABLE_DISCUSSIONS && !readingFocus && <DiscussionLink compact id={event.id} author={event.pubkey} hints={eventHints} seed={event.rawEvent()}
                                     presentation={{ rank, sats, weight, expired, isNew, lastPaidAt, firstPaidAt, hotSats, billboard, billboardPreviewSlide }} />}
-                                {onReply && <button type="button" className="note-action inline-flex min-h-11 items-center" onClick={onReply}>Reply</button>}
+                                {onReply && <NoteReplyButton onClick={onReply} />}
                                 <span className="board-hint-wrap" data-hint-dismissed={optionsHintDismissed || popup?.kind === "options" || undefined}
                                     onPointerLeave={event => { if (!event.currentTarget.querySelector(":focus-visible")) setOptionsHintDismissed(false); }}
                                     onBlur={() => setOptionsHintDismissed(false)}><button type="button" className="note-icon-control board-options"

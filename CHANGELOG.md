@@ -62,6 +62,11 @@ record deployment, not announcement publication.
 
 ### Changed
 
+- Make discussions easier to scan with smaller comment text, speech-bubble reply
+  controls, a compact reply count and collapsible source explanations.
+- Use the wordmark's pink pixel H consistently in the mobile header, favicon
+  and app icons. Add a small H to invoice and connection QRs when readability
+  checks pass, retaining plain codes for dense or unverified candidates.
 - Simplify wallet connection with a full-width connect action, keyboard submission
   and expandable NWC setup help, keeping anonymous Invoice / QR payments available.
 - Clarify opt-in account sign-in with explicit connection methods, missing-extension

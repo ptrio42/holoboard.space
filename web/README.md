@@ -362,7 +362,27 @@ description hash. Address providers must support browser CORS requests. Camera
 and image QR reading use `jsqr`, loaded on demand. Camera tracks stop when scanning ends or
 the panel closes. Payment proofs are checked using Web Crypto SHA-256.
 
-Invoice QR codes use uppercase alphanumeric encoding to reduce density.
+Invoice QR codes use uppercase alphanumeric encoding to reduce density. The
+shared QR renderer adds the pink Holoboard H near the center only after an
+H-correction candidate decodes to the exact payload at the measured display size
+and, for larger codes, at 220px. Container resizing regenerates the symbol for
+its available width instead of shrinking an already validated image. Validation also covers the device pixel scale
+(up to 3x). It preserves four quiet
+modules and leaves tracking and alignment patterns clear. The candidate uses
+a conservative two-CSS-pixel module budget at no more than 220px, including
+larger signer codes. Dense codes, encoding overflow, unavailable branding or
+failed validation retain the unbranded M-correction SVG renderer. Branded codes
+display the validated local PNG raster, avoiding differences between canvas
+validation and WebKit's SVG edges. Optional branding
+has a three-second deadline so stalled assets cannot block invoices. The generator
+and decoder load on demand; validation keeps invoices and connection tokens in
+the browser. Logo overlays consume the QR's
+[error-correction capacity](https://www.qrcode.com/en/about/error_correction.html).
+Browser decoding does not replace physical wallet and signer scans.
+`tests/qrCodes.spec.ts` covers both display sizes, payload replacement and stalled
+mark recovery. For dense unbranded grids, jsQR may require module-aligned
+resampling of fractional-pixel screenshots; keep the rendered image and use an
+independent decoder when investigating a failed round trip.
 Receive requests a one-hour invoice with amount, optional description, QR,
 copy, share and wallet link actions. Optional
 [NWC notifications](https://github.com/nostr-wallet-connect/nwc/blob/main/02.md)
@@ -456,12 +476,24 @@ provides a repeatable workflow for reviewing, comparing and implementing visual
 changes across Holoboard screens. Invoke it as `$holoboard-ui` in a skill-aware
 agent, or read its instructions directly.
 
+Use the pink pixel H from `src/assets/holoboard-mark.svg` as the shared mark.
+It follows the H in the HOLOBOARD wordmark; keep the full wordmark on desktop.
+The mobile header and QR renderer use the vector directly. Generate the favicon
+and installed-app icons from the same source with
+`python3 -B web/scripts/brand-assets.py` from the repository root (requires
+Pillow); add `--android` to refresh native launcher, splash and store assets.
+Keep maskable artwork inside the
+[manifest safe circle](https://www.w3.org/TR/appmanifest/#icon-masks).
+Icon regeneration does not build
+or publish an Android package.
+
 Use the pixel font for headings, controls and ranks; note bodies use a system
 monospace font. Promotion amounts use a compact picker, while original-note text
 and editor panel explanations use a readable body size. The modal scrolls its
 body independently of the action footer, including on small phone screens.
 Promotion actions and short labels share a 10px pixel style; panel headings use
-12px. Board notes and discussion bodies use a 16px monospace base size. Promotion
+12px. Board notes and focused notes use a 16px monospace base size; compact
+discussion comments use 14px. Promotion
 previews and payment totals use 14px, helper text uses 12px, and editable values
 use 16px. Connection controls use the same action style in the app header and
 promotion panels.
@@ -515,7 +547,10 @@ promotions reuse the adaptive note card, including local text expansion, bounded
 quote and destination previews, rank, current weight, total paid and Boost.
 Profile cards and direct focuses show the original signed note. Board-origin
 focuses preserve the source card's geometry, campaign appearance and expansion.
-Comments keep a lighter row with 16px text. Phone branch steps are 8px, capped at
+Comments keep a lighter row with 14px text. Reply actions use the shared speech bubble,
+and comment timestamps open their thread. The Replies count is compact; a short
+coverage status keeps read limits and source explanations behind Source details.
+Phone branch steps are 8px, capped at
 four visible levels, and their bodies use the row's full available width. Exact
 parent links remain 44px targets. A visible unresolved-context disclosure groups
 specific relationship warnings without changing or inferring graph relations.
