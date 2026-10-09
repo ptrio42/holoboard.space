@@ -39,8 +39,9 @@ it("binds the user account separately from the bunker key and sends client metad
 it("requests reply permissions only for the opted-in editor and does not silently expand restored zap sessions", async () => {
     fixtures.replyEnabled = true;
     await connectRemote("bunker://fixture");
-    expect(fixtures.request.mock.calls[0][1][2]).toBe("sign_event:9734,sign_event:1,sign_event:1111");
+    expect(fixtures.request.mock.calls[0][1][2]).toBe("sign_event:9734,sign_event:1,sign_event:1111,sign_event:24242,sign_event:27235");
     expect(getConnections().signerCanReply).toBe(true);
+    expect(getConnections().signerCanUpload).toBe(true);
     disconnectSigner(); fixtures.request.mockClear();
     const session = { kind: "remote" as const, clientKey: "b".repeat(64), pointer: fixtures.pointer, pubkey: getPublicKey(key) };
     await connectRemote(undefined, session);
@@ -52,6 +53,9 @@ it("requests reply permissions only for the opted-in editor and does not silentl
     disconnectSigner();
     await connectRemote(undefined, { ...session, replyPermissions: true });
     expect(getConnections().signerCanReply).toBe(true);
+    expect(getConnections().signerCanUpload).toBe(false);
+    await expect(getConnectedSigner()!.signEvent({ ...template, kind: 24242 })).rejects.toThrow("file upload permissions");
+    await expect(getConnectedSigner()!.signEvent({ ...template, kind: 27235 })).rejects.toThrow("file upload permissions");
 });
 it("validates switched relay destinations before creating a replacement subscription", async () => {
     fixtures.request.mockImplementation(async (method: string) => method === "switch_relays" ? '["ws://127.0.0.1:9000"]' : "ack");

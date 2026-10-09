@@ -3,6 +3,7 @@ import { relayCandidates } from "./relayPolicy";
 import type { ThreadGraph, ThreadNode } from "./threadGraph";
 import { normalizeThreadRelations, type RelationTarget } from "./threadRelations";
 import { verifiedNostrEvent } from "./verifyNostrEvent";
+import { attachmentTags, type ComposerAttachment } from "./composerMedia";
 
 export interface PreparedReply {
     template: EventTemplate;
@@ -29,9 +30,10 @@ function complete(node: ThreadNode) {
 /** Graph metadata must come from the verified ingress, as for discussion display.
  * This pure preparation step cannot sign, publish or add paid board membership.
  */
-export function prepareReply({ parent: input, graph, content, createdAt, hints = {} }: {
+export function prepareReply({ parent: input, graph, content, createdAt, hints = {}, attachments = [] }: {
     parent: Event; graph: ThreadGraph; content: string; createdAt: number;
     hints?: Readonly<Record<string, readonly string[]>>;
+    attachments?: readonly ComposerAttachment[];
 }): PreparedReply {
     if (!content.trim() || new TextEncoder().encode(content).length > 16384) throw new RangeError("A reply needs text of at most 16 KiB.");
     if (!Number.isSafeInteger(createdAt) || createdAt < 0) throw new RangeError("Invalid reply timestamp.");
@@ -83,6 +85,7 @@ export function prepareReply({ parent: input, graph, content, createdAt, hints =
         // values into web requests or substitute an address for an exact ID.
         if (root.type === "external") tags[0] = ["I", root.value];
     }
+    tags.push(...attachmentTags(attachments, content));
     const template: EventTemplate = { kind: parent.kind === 1 ? 1 : 1111, created_at: createdAt, content, tags };
     if (JSON.stringify(template).length * 3 > 65536) throw new RangeError("Prepared reply exceeds the 64 KiB event limit.");
     const recipients = [...new Set(tags.filter(tag => ["p", "P"].includes(tag[0])).map(tag => tag[1]))].sort();

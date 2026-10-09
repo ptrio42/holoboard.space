@@ -3,6 +3,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent, type Event
 import { matchFilter } from "nostr-tools/filter";
 import { decode } from "nostr-tools/nip19";
 import * as nip44 from "nostr-tools/nip44";
+import { createHash } from "node:crypto";
 
 test.use({ serviceWorkers: "block", reducedMotion: "reduce" });
 const enabled = ["VITE_ENABLE_DISCUSSIONS", "VITE_ENABLE_NOSTR_CONNECT", "VITE_ENABLE_REPLY_PUBLICATION"].every(key => process.env[key] === "true");
@@ -12,17 +13,46 @@ const make = (content: string, tags: string[][] = [], kind = 1) => finalizeEvent
 const root = make("Original protocol root");
 const focus = make("Promoted middle reply", [["e", root.id, "", "root"], ["e", root.id, "", "reply"]]);
 const urls = ["wss://first.example.com/", "wss://second.example.com/"];
-interface Options { remote?: boolean; slowSign?: boolean; missingParent?: boolean; article?: boolean; partial?: boolean; forged?: boolean; rejectAll?: boolean }
+const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==", "base64");
+interface Options { remote?: boolean; slowSign?: boolean; missingParent?: boolean; article?: boolean; partial?: boolean; forged?: boolean; rejectAll?: boolean; uploadFailure?: number; wrongUploadHash?: boolean; gifUnavailable?: boolean }
 async function setup(context: BrowserContext, page: Page, options: Options = {}) {
     const origin = new URL(test.info().project.use.baseURL!).origin;
     const article = make("Addressable article", [["d", "article"]], 30023);
     const selected = options.article ? article : focus;
-    const state = { writes: [] as { relay: string; event: Event }[], signatures: [] as EventTemplate[], errors: [] as string[], acceptAll: !options.partial, finishSign: undefined as (() => void) | undefined };
+    const state = { writes: [] as { relay: string; event: Event }[], signatures: [] as EventTemplate[], uploads: [] as { url: string; auth: Event }[], gifRequests: 0, errors: [] as string[], acceptAll: !options.partial, finishSign: undefined as (() => void) | undefined };
     const lists = [finalizeEvent({ kind: 10002, created_at: 1700000000, content: "", tags: urls.map(url => ["r", url, "write"]) }, userKey), make("", [["r", urls[0], "read"]], 10002)];
     const events = [selected, ...(!options.missingParent ? [root] : []), ...lists];
     await context.route("**/*", route => {
         const url = new URL(route.request().url());
         if (url.origin === origin) return route.continue();
+        if (url.hostname === "gifs.nostr.build" && url.pathname === "/api/v1/search") {
+            state.gifRequests++;
+            if (options.gifUnavailable) return route.fulfill({ status: 503, json: { error: "Fixture GIF outage" } });
+            return route.fulfill({ json: { items: [{ url: "https://gifs.nostr.build/reaction.gif", title: "Happy reaction", previews: { w240: { still: "https://gifs.nostr.build/still/reaction.gif" } } }] } });
+        }
+        if (url.hostname === "nostrcheck.me" && url.pathname === "/.well-known/nostr/nip96.json") return route.fulfill({ json: { api_url: "https://cdn.nostrcheck.me", content_types: ["image/png"], plans: { free: { max_byte_size: 104857600 } } } });
+        if (["blossom.primal.net", "blossom.nostr.build", "media.example.com", "cdn.nostrcheck.me"].includes(url.hostname) && ["PUT", "POST"].includes(route.request().method())) {
+            const header = route.request().headers().authorization?.replace(/^Nostr /, "");
+            const auth = JSON.parse(Buffer.from(header!, "base64url").toString()) as Event;
+            expect(verifyEvent(auth)).toBe(true); expect(auth.pubkey).toBe(user);
+            state.uploads.push({ url: url.href, auth });
+            if (options.uploadFailure) return route.fulfill({ status: options.uploadFailure, json: { error: "Fixture upload failure" } });
+            const blossom = route.request().method() === "PUT";
+            const bytes = route.request().postDataBuffer();
+            // WebKit's inspector omits File request bodies. Compare its signed
+            // hash with the known fixture; Chromium also verifies the wire bytes.
+            const hash = createHash("sha256").update(blossom && bytes ? bytes : png).digest("hex");
+            const fileUrl = `${url.origin}/${hash}.png`;
+            expect(auth.kind).toBe(blossom ? 24242 : 27235);
+            if (blossom) {
+                expect(auth.tags).toContainEqual(["x", hash]); expect(auth.tags).toContainEqual(["server", url.hostname]);
+                return route.fulfill({ status: 201, json: { url: fileUrl, sha256: options.wrongUploadHash ? "f".repeat(64) : hash, size: bytes?.length ?? png.length, type: "image/png" } });
+            }
+            expect(auth.tags).toContainEqual(["u", url.href]); expect(auth.tags).toContainEqual(["method", "POST"]);
+            expect(auth.tags).toContainEqual(["payload", hash]);
+            return route.fulfill({ status: 201, json: { status: "success", nip94_event: { tags: [["url", fileUrl], ["ox", hash], ["x", hash], ["m", "image/png"]] } } });
+        }
+        if (["gifs.nostr.build", "blossom.primal.net", "blossom.nostr.build", "cdn.nostrcheck.me", "media.example.com"].includes(url.hostname) && route.request().method() === "GET") return route.fulfill({ contentType: "image/png", body: png });
         if (url.origin !== "http://127.0.0.1:3334") return route.abort();
         return route.fulfill({ json: { entries: [{ id: selected.id, event: selected, rank: 1, sats_paid: 210, weight: 200 }], targets: [], has_more: false, active_posts: 1, total: 1, count: 0, note_ids: [], checked_at: Date.now() } });
     });
@@ -39,7 +69,7 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
                 subscriptions.set(frame[1], frame.slice(2));
                 if (options.remote && frame[2].kinds?.includes(24133) && !frame[2].authors) {
                     const uri = new URL((await page.getByRole("link", { name: "Open Amber / signer" }).getAttribute("href"))!);
-                    expect(uri.searchParams.get("perms")).toBe("sign_event:9734,sign_event:1,sign_event:1111");
+                    expect(uri.searchParams.get("perms")).toBe("sign_event:9734,sign_event:1,sign_event:1111,sign_event:24242,sign_event:27235");
                     sendEvent(finalizeEvent({ kind: 24133, created_at: Math.floor(Date.now() / 1000), tags: [["p", uri.hostname]], content: nip44.encrypt(JSON.stringify({ id: "connect", result: uri.searchParams.get("secret") }), nip44.getConversationKey(transportKey, uri.hostname)) }, transportKey));
                 }
                 for (const event of events) sendEvent(event);
@@ -103,6 +133,152 @@ test("reply entry points require all three release flags", async ({ context, pag
 });
 test.describe("explicit reply publication", () => {
     test.skip(!enabled);
+    test("composer tools insert at the caret, preview and preserve drafts on desktop and narrow phones", async ({ context, page }) => {
+        const { state } = await setup(context, page);
+        let dialog = await open(page);
+        const field = dialog.getByRole("textbox", { name: "Reply text" });
+        await field.fill("Before after");
+        await field.evaluate((element: HTMLTextAreaElement) => { element.setSelectionRange(7, 7); element.dispatchEvent(new Event("select", { bubbles: true })); });
+        await dialog.getByRole("button", { name: "Emoji", exact: true }).click();
+        await dialog.getByRole("button", { name: "happy smile", exact: true }).click();
+        await expect(field).toHaveValue("Before 😀after");
+        await dialog.getByRole("button", { name: "GIF", exact: true }).click();
+        await dialog.getByRole("searchbox", { name: "Search GIFs" }).fill("happy");
+        await dialog.getByRole("button", { name: "Search", exact: true }).click();
+        await dialog.getByRole("button", { name: "Insert Happy reaction", exact: true }).click();
+        await expect(field).toHaveValue(/https:\/\/gifs.nostr.build\/reaction.gif/);
+        const draft = await field.inputValue();
+        await dialog.getByRole("tab", { name: "Preview", exact: true }).click();
+        await expect(dialog.getByRole("region", { name: "Draft preview" })).toContainText("Before 😀");
+        await expect(dialog.getByRole("region", { name: "Draft preview" }).locator("img")).toHaveCount(1);
+        await dialog.getByRole("tab", { name: "Write", exact: true }).click();
+        for (const width of test.info().project.name === "desktop" ? [1280, 390, 320] : [390, 320]) {
+            await page.setViewportSize({ width, height: width > 600 ? 900 : 800 });
+            const action = dialog.getByRole("button", { name: "Review reply", exact: true });
+            const box = (await action.boundingBox())!;
+            expect(box.y + box.height).toBeLessThanOrEqual(await page.evaluate(() => innerHeight));
+            expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+            expect(await field.evaluate(element => getComputedStyle(element).fontSize)).toBe("16px");
+            await page.screenshot({ path: `/private/tmp/holoboard-composer-${test.info().project.name}-${width}.png` });
+        }
+        await dialog.getByRole("button", { name: "Close dialog", exact: true }).click();
+        await page.reload(); dialog = await open(page);
+        await expect(dialog.getByRole("textbox", { name: "Reply text" })).toHaveValue(draft);
+        expect(state.gifRequests).toBe(1); expect(state.uploads).toEqual([]); expect(state.writes).toEqual([]); expect(state.signatures).toEqual([]); expect(state.errors).toEqual([]);
+    });
+    test("uploads through all built-in servers and restores descriptions before an explicit signed reply", async ({ context, page }) => {
+        const { state } = await setup(context, page);
+        let dialog = await open(page);
+        await dialog.getByRole("textbox", { name: "Reply text" }).fill("Attachments for this reply");
+        await dialog.getByRole("button", { name: "Connect browser extension", exact: true }).click();
+        for (const server of ["primal", "build", "check"]) {
+            await dialog.getByLabel("Choose attachments").setInputFiles({ name: `${server}.png`, mimeType: "image/png", buffer: png });
+            await dialog.getByRole("combobox", { name: "Upload server" }).selectOption(server);
+            await dialog.getByRole("textbox", { name: `Description for ${server}.png`, exact: true }).fill(`Description ${server}`);
+            await expect(dialog.getByRole("button", { name: "Review reply", exact: true })).toBeDisabled();
+            expect((await dialog.getByRole("button", { name: "Upload file", exact: true }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+            await dialog.getByRole("button", { name: "Upload file", exact: true }).click();
+            await expect(dialog.getByRole("list", { name: "Selected files" })).toHaveCount(0);
+        }
+        await expect(dialog.getByRole("list", { name: "Uploaded attachments" }).getByRole("listitem")).toHaveCount(3);
+        expect(state.signatures.map(value => value.kind)).toEqual([24242, 24242, 27235]); expect(state.writes).toEqual([]);
+        await dialog.getByRole("button", { name: "Close dialog", exact: true }).click(); await page.reload(); dialog = await open(page);
+        await expect.poll(() => dialog.getByRole("list", { name: "Uploaded attachments" }).getByRole("textbox").evaluateAll(elements => elements.map(element => (element as HTMLInputElement).value))).toEqual(["Description primal", "Description build", "Description check"]);
+        await dialog.getByRole("button", { name: "Connect browser extension", exact: true }).click();
+        await dialog.getByRole("button", { name: "Review reply", exact: true }).click();
+        await dialog.getByRole("button", { name: "Sign reply", exact: true }).click();
+        await expect(dialog.getByRole("region", { name: "Reply delivery" })).toContainText("Saved locally");
+        await expect(dialog.getByText("Signed and saved locally", { exact: true })).toBeVisible();
+        const signed = state.signatures.at(-1)!;
+        expect(signed.tags.filter(tag => tag[0] === "imeta")).toHaveLength(3);
+        expect(signed.tags).toContainEqual(["e", focus.id, "", "reply", focus.pubkey]);
+        expect(state.writes).toEqual([]); expect(state.uploads).toHaveLength(3); expect(state.errors).toEqual([]);
+    });
+    for (const options of [{ uploadFailure: 402 }, { wrongUploadHash: true }]) test(`keeps files and text recoverable after ${options.uploadFailure ? "paid-server rejection" : "a mismatched upload hash"}`, async ({ context, page }) => {
+        const { state } = await setup(context, page, options);
+        const dialog = await open(page);
+        await dialog.getByRole("textbox", { name: "Reply text" }).fill("Keep this draft");
+        await dialog.getByRole("button", { name: "Connect browser extension", exact: true }).click();
+        await dialog.getByLabel("Choose attachments").setInputFiles({ name: "image.png", mimeType: "image/png", buffer: png });
+        await dialog.getByRole("button", { name: "Upload file", exact: true }).click();
+        await expect(dialog.getByRole("alert")).toContainText(options.uploadFailure ? "requires payment" : "does not match");
+        await expect(dialog.getByRole("textbox", { name: "Reply text" })).toHaveValue("Keep this draft");
+        await expect(dialog.getByRole("list", { name: "Uploaded attachments" })).toHaveCount(0);
+        await dialog.getByRole("button", { name: "Remove image.png", exact: true }).click();
+        await expect(dialog.getByRole("button", { name: "Review reply", exact: true })).toBeEnabled();
+        expect(state.uploads).toHaveLength(1); expect(state.writes).toEqual([]); expect(state.errors).toEqual([]);
+    });
+    test("closing while upload approval is pending cannot upload or add a late URL", async ({ context, page }) => {
+        const { state } = await setup(context, page, { slowSign: true });
+        const dialog = await open(page);
+        await dialog.getByRole("textbox", { name: "Reply text" }).fill("Draft before upload");
+        await dialog.getByRole("button", { name: "Connect browser extension", exact: true }).click();
+        await dialog.getByLabel("Choose attachments").setInputFiles({ name: "image.png", mimeType: "image/png", buffer: png });
+        await dialog.getByRole("button", { name: "Upload file", exact: true }).click();
+        await expect.poll(() => state.signatures.length).toBe(1);
+        await dialog.getByRole("button", { name: "Close dialog", exact: true }).click(); state.finishSign!();
+        const reopened = await open(page);
+        await expect(reopened.getByRole("textbox", { name: "Reply text" })).toHaveValue("Draft before upload");
+        expect(state.uploads).toEqual([]); expect(state.writes).toEqual([]); expect(state.errors).toEqual([]);
+    });
+    test("stages pasted and dropped files locally and enforces the attachment limit", async ({ context, page }) => {
+        const { state } = await setup(context, page);
+        const dialog = await open(page);
+        const field = dialog.getByRole("textbox", { name: "Reply text" });
+        await field.evaluate((element, bytes) => {
+            const data = new DataTransfer(); data.items.add(new File([new Uint8Array(bytes)], "pasted.png", { type: "image/png" }));
+            element.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+        }, [...png]);
+        await dialog.getByRole("region", { name: "Note editor", exact: true }).evaluate((element, bytes) => {
+            const data = new DataTransfer(); data.items.add(new File([new Uint8Array(bytes)], "dropped.png", { type: "image/png" }));
+            element.dispatchEvent(new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true }));
+        }, [...png]);
+        await expect(dialog.getByRole("list", { name: "Selected files" }).getByRole("listitem")).toHaveCount(2);
+        await dialog.getByLabel("Choose attachments").setInputFiles(Array.from({ length: 7 }, (_, index) => ({ name: `${index}.png`, mimeType: "image/png", buffer: png })));
+        await expect(dialog.getByRole("alert")).toContainText("at most eight");
+        await expect(dialog.getByRole("list", { name: "Selected files" }).getByRole("listitem")).toHaveCount(2);
+        expect(state.uploads).toEqual([]); expect(state.signatures).toEqual([]); expect(state.writes).toEqual([]); expect(state.errors).toEqual([]);
+    });
+    test("uses a custom Blossom server with NIP-46 upload permission without publishing", async ({ context, page }) => {
+        const { state } = await setup(context, page, { remote: true });
+        const dialog = await open(page);
+        await dialog.getByRole("button", { name: "Connect Amber / remote signer", exact: true }).click();
+        await expect(dialog.getByRole("status").filter({ hasText: /^Connected/ })).toBeVisible();
+        await dialog.getByLabel("Choose attachments").setInputFiles({ name: "custom.png", mimeType: "image/png", buffer: png });
+        await dialog.getByRole("combobox", { name: "Upload server" }).selectOption("custom");
+        await dialog.getByRole("textbox", { name: "Blossom server", exact: true }).fill("https://media.example.com");
+        await dialog.getByRole("button", { name: "Upload file", exact: true }).click();
+        await expect(dialog.getByRole("list", { name: "Uploaded attachments" }).getByRole("listitem")).toHaveCount(1);
+        expect(state.uploads[0].url).toBe("https://media.example.com/upload");
+        expect(state.signatures.map(value => value.kind)).toEqual([24242]); expect(state.writes).toEqual([]); expect(state.errors).toEqual([]);
+    });
+    test("keeps a direct GIF fallback when search fails", async ({ context, page }) => {
+        const { state } = await setup(context, page, { gifUnavailable: true });
+        const dialog = await open(page);
+        await dialog.getByRole("button", { name: "GIF", exact: true }).click();
+        await dialog.getByRole("button", { name: "Search", exact: true }).click();
+        await expect(dialog.getByRole("alert")).toContainText("GIF search is unavailable");
+        await dialog.getByRole("textbox", { name: "GIF link", exact: true }).fill("https://gifs.nostr.build/reaction.gif");
+        await dialog.getByRole("button", { name: "Add", exact: true }).click();
+        await expect(dialog.getByRole("textbox", { name: "Reply text" })).toHaveValue("https://gifs.nostr.build/reaction.gif");
+        expect(state.uploads).toEqual([]); expect(state.signatures).toEqual([]); expect(state.writes).toEqual([]); expect(state.errors).toEqual([]);
+    });
+    test("bounds emoji bytes, keeps the footer usable at keyboard height and reviews with a shortcut", async ({ context, page }) => {
+        const { state } = await setup(context, page);
+        const dialog = await open(page), field = dialog.getByRole("textbox", { name: "Reply text" });
+        await field.fill("😀".repeat(4097));
+        await expect(dialog.getByRole("alert").filter({ hasText: "exceeds 16 KiB" })).toBeVisible();
+        await expect(dialog.getByRole("button", { name: "Review reply", exact: true })).toBeDisabled();
+        await field.fill("Draft with a shorter viewport");
+        await page.setViewportSize({ width: 390, height: 430 });
+        const box = (await dialog.getByRole("button", { name: "Review reply", exact: true }).boundingBox())!;
+        expect(box.y + box.height).toBeLessThanOrEqual(430);
+        await expect(dialog.getByRole("button", { name: "Review reply", exact: true })).toBeEnabled();
+        await expect(page.getByRole("region", { name: "Discussion coverage" })).toHaveAttribute("data-read-state", /^(settled|paused)$/);
+        await field.press("Control+Enter");
+        await expect(dialog.getByRole("region", { name: "Reply preview", exact: true })).toContainText("Draft with a shorter viewport");
+        expect(state.signatures).toEqual([]); expect(state.writes).toEqual([]); expect(state.errors).toEqual([]);
+    });
     for (const remote of [false, true]) test(`${remote ? "NIP-46" : "NIP-07"} signs the promoted middle reply but publishes only after destination consent`, async ({ context, page }) => {
         const { state } = await setup(context, page, { remote });
         const dialog = await prepare(page, remote);

@@ -23,7 +23,7 @@ export function ConnectionSettings({ disabled = false, section = "all", embedded
         disabled={disabled} onClick={disconnectSigner}>{accountConnection ? "Cancel" : "Cancel signer connection"}</PixelButton>;
     const walletError = connections.walletError && <p id={walletErrorId} role="alert" className="text-neon-pink">{connections.walletError}</p>;
     const content = <div className="promotion-typography space-y-5 text-sm leading-relaxed text-cyan-100/75">
-            {section === "signer" && !accountConnection && !paymentOnly && connections.walletStatus !== "connected" && <p className="text-xs">Invoice links, copying and QR payments work without connecting.</p>}
+            {section === "signer" && purpose === "zap" && !paymentOnly && connections.walletStatus !== "connected" && <p className="text-xs">Invoice links, copying and QR payments work without connecting.</p>}
             {section !== "signer" && <section className="space-y-3" aria-label="Payment wallet">
                 {section === "all" && <h3 className="promotion-section-title text-neon-cyan">Payment wallet</h3>}
                 {connections.walletStatus === "connected" ? <>
@@ -75,9 +75,9 @@ export function ConnectionSettings({ disabled = false, section = "all", embedded
                 {connections.walletStatus !== "disconnected" && walletError}
             </section>}
             {section !== "wallet" && <section className="space-y-3" aria-label={accountConnection ? "Nostr account" : "Nostr signer"}>
-                {!accountConnection && <h3 className="promotion-section-title text-neon-cyan">Nostr signer</h3>}
+                {!accountConnection && <h3 className="promotion-section-title text-neon-cyan">{purpose === "reply" ? "Your account" : "Nostr signer"}</h3>}
                 {accountConnection ? connections.signerStatus === "disconnected" && <p className="text-cyan-100">Use your Nostr account on Holoboard.</p>
-                    : <p>{purpose === "reply" ? "Connect the account that will sign your reply. Connecting does not publish anything." : "A signer is optional. It identifies a public zap to the author and does not pay invoices."}</p>}
+                    : <p>{purpose === "reply" ? "Sign in to send your reply." : "A signer is optional. It identifies a public zap to the author and does not pay invoices."}</p>}
                 {connections.signerStatus === "connected" ? <>
                     <p role="status">Connected {connections.signerKind === "extension" ? "extension" : "remote signer"}: {shortNpub(connections.signerPubkey)}</p>
                     <PixelButton size="sm" variant="ghost" disabled={disabled} onClick={disconnectSigner}>{accountConnection ? "Disconnect account" : "Disconnect signer"}</PixelButton>
@@ -96,12 +96,14 @@ export function ConnectionSettings({ disabled = false, section = "all", embedded
                     {(!accountConnection || !connections.signerLink) && cancelSigner}
                 </> : <>
                     <div className={accountConnection ? "grid gap-3" : "flex flex-wrap gap-3"}>
-                        <PixelButton size="sm" className={accountConnection ? "w-full [&>span]:min-h-[38px]" : ""}
+                        <PixelButton size="sm" variant={purpose === "reply" ? "ghost" : "primary"} className={accountConnection ? "w-full [&>span]:min-h-[38px]" : purpose === "reply" ? "w-full sm:w-auto [&>span]:min-h-11" : ""}
+                            aria-label={purpose === "reply" ? "Connect browser extension" : undefined}
                             aria-describedby={accountConnection && !extensionAvailable ? extensionHintId : undefined}
-                            disabled={disabled || !extensionAvailable} onClick={() => void connectExtension()}>{accountConnection ? "Browser extension" : "Connect browser extension"}</PixelButton>
+                            disabled={disabled || !extensionAvailable} onClick={() => void connectExtension()}>{accountConnection || purpose === "reply" ? "Browser extension" : "Connect browser extension"}</PixelButton>
                         {accountConnection && !extensionAvailable && <p id={extensionHintId} className="text-xs text-cyan-100/60">No Nostr extension detected in this browser.</p>}
-                        <PixelButton size="sm" className={accountConnection ? "w-full [&>span]:min-h-[38px]" : ""}
-                            disabled={disabled} onClick={() => void connectRemote()}>{accountConnection ? "Amber / remote signer" : "Connect Amber / remote signer"}</PixelButton>
+                        <PixelButton size="sm" variant={purpose === "reply" ? "ghost" : "primary"} className={accountConnection ? "w-full [&>span]:min-h-[38px]" : purpose === "reply" ? "w-full sm:w-auto [&>span]:min-h-11" : ""}
+                            aria-label={purpose === "reply" ? "Connect Amber / remote signer" : undefined}
+                            disabled={disabled} onClick={() => void connectRemote()}>{purpose === "reply" ? "Amber / signer" : accountConnection ? "Amber / remote signer" : "Connect Amber / remote signer"}</PixelButton>
                     </div>
                     <details className={`disclosure${accountConnection ? " border-t border-cyan-400/20 pt-1" : ""}`}><summary className="promotion-action focus-pixel min-h-11 cursor-pointer">{accountConnection ? "Use a bunker link" : "Use a signer connection string"}</summary><div className="space-y-3">
                         <label className="block space-y-2"><span className="promotion-label">{accountConnection ? "Bunker connection link" : "Bunker connection string"}</span><input type="password" className={FIELD} value={bunkerUri} autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="bunker://..." disabled={disabled} onChange={(event) => setBunkerUri(event.target.value)} /></label>
@@ -111,7 +113,7 @@ export function ConnectionSettings({ disabled = false, section = "all", embedded
                 {connections.signerAuthUrl && <a href={connections.signerAuthUrl} target="_blank" rel="noopener noreferrer" className="promotion-action focus-pixel inline-flex min-h-11 items-center text-neon-gold">Approve request with signer</a>}
                 {connections.signerError && <p role="alert" className="text-neon-pink">{connections.signerError}</p>}
             </section>}
-            {!accountConnection && !paymentOnly && section !== "wallet" && <p className="text-xs text-cyan-100/60">Disconnecting removes the local connection. You can revoke wallet permissions in your wallet and signer permissions in your signer.</p>}
+            {!accountConnection && purpose !== "reply" && !paymentOnly && section !== "wallet" && <p className="text-xs text-cyan-100/60">Disconnecting removes the local connection. You can revoke wallet permissions in your wallet and signer permissions in your signer.</p>}
         </div>;
     if (embedded) return content;
     return <details open={expanded || connections.signerStatus === "connecting" || !!connections.signerAuthUrl} onToggle={(event) => setExpanded(event.currentTarget.open)} className="disclosure border-t-2 border-cyan-400/20 pt-3">

@@ -1,4 +1,6 @@
+import { attachmentTags, type ComposerAttachment } from "./composerMedia";
 const KEY = "holoboard-reply-drafts-v1";
+const MEDIA_KEY = "holoboard-reply-media-v1";
 const HEX = /^[0-9a-f]{64}$/;
 const bytes = (value: string) => new TextEncoder().encode(value).length;
 function load(): Record<string, string> {
@@ -22,5 +24,33 @@ export function saveReplyDraft(parentId: string, text: string): boolean {
         if (text) drafts[parentId] = text; else delete drafts[parentId];
         if (Object.keys(drafts).length > 8) return false;
         sessionStorage.setItem(KEY, JSON.stringify(drafts)); return true;
+    } catch { return false; }
+}
+function loadMedia(): Record<string, ComposerAttachment[]> {
+    const raw = sessionStorage.getItem(MEDIA_KEY) ?? "{}";
+    if (raw.length > 262144) throw new Error("Attachment drafts exceed their limit.");
+    const value: unknown = JSON.parse(raw);
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid attachment drafts.");
+    const entries = Object.entries(value);
+    if (entries.length > 8) throw new Error("Too many attachment drafts.");
+    for (const [id, items] of entries) {
+        if (!HEX.test(id) || !Array.isArray(items)) throw new Error("Invalid attachment draft.");
+        attachmentTags(items, items.map(item => item.url).join("\n"));
+    }
+    return value as Record<string, ComposerAttachment[]>;
+}
+export function readReplyAttachments(parentId: string): { attachments: ComposerAttachment[]; saved: boolean } {
+    try { return { attachments: loadMedia()[parentId] ?? [], saved: true }; }
+    catch { return { attachments: [], saved: false }; }
+}
+/** Separate metadata storage keeps earlier text drafts and rollback readable. */
+export function saveReplyAttachments(parentId: string, attachments: ComposerAttachment[]): boolean {
+    try {
+        if (!HEX.test(parentId)) return false;
+        attachmentTags(attachments, attachments.map(item => item.url).join("\n"));
+        const drafts = loadMedia();
+        if (attachments.length) drafts[parentId] = attachments; else delete drafts[parentId];
+        if (Object.keys(drafts).length > 8) return false;
+        sessionStorage.setItem(MEDIA_KEY, JSON.stringify(drafts)); return true;
     } catch { return false; }
 }

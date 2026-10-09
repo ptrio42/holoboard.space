@@ -519,6 +519,60 @@ the editor never overwrites malformed storage or evicts another draft. Invoice,
 wallet and signer records are separate. Signed replies use the durable outbox,
 not the expendable read cache.
 
+The reusable `NoteEditor` owns text and attachment editing independently of the
+reply graph. The Reply shell supplies verified parent context and the existing
+review, signature and public-delivery steps. Desktop uses a wider dialog; phones
+use the full available visual viewport with a fixed action footer. Write and
+Preview retain the same draft. Unicode emoji and GIF URLs insert at the caret;
+Ctrl/Cmd+Enter reviews the draft and never signs or publishes it. Unsigned
+previews skip automatic quote and destination embeds.
+
+File selection, paste and drag/drop stage local files without uploading.
+Each explicit upload uses the selected server only, with no automatic fallback,
+mirroring, payment or Nostr publication. Primal and nostr.build use
+[Blossom BUD-02](https://github.com/hzrd149/blossom/blob/master/buds/02.md);
+custom public HTTPS Blossom origins are supported. nostrcheck.me uses its
+advertised [NIP-96](https://github.com/nostr-protocol/nips/blob/master/96.md)
+endpoint, constrained to the built-in expected API. NIP-96 is deprecated in
+favor of Blossom; the compatibility adapter does not define the editor model.
+One upload is admitted globally, with eight attachments per draft, 20 MiB per
+file and 40 MiB of selected local files. HTTP transfer has a 120-second deadline,
+the full operation 150 seconds, and JSON responses are bounded to 64 KiB.
+
+[BUD-11](https://github.com/hzrd149/blossom/blob/master/buds/11.md) authorization
+uses kind 24242, the exact SHA-256 file hash, server domain and a five-minute
+expiration. NIP-96 uses kind 27235 HTTP authorization for the discovered URL,
+POST method and original file hash. These events go only to the chosen HTTP
+server. New opt-in remote sessions request these two upload kinds; restored
+sessions without saved media permissions require explicit reconnection and
+cannot silently gain them. Closing or changing accounts stops upload ownership;
+a late signature cannot send a file or edit a closed draft. Cancelling a request
+does not establish whether the server received its bytes. Paid-server responses
+stop the flow without issuing or paying an invoice.
+
+Blossom descriptors must match the local file hash and size. NIP-96 descriptors
+must match its original hash; transformed file metadata remains distinct. This
+validates the returned descriptor, not an independently retrieved hosted file.
+Only valid HTTPS URLs enter the text. Current attachment descriptions and hashes
+become [NIP-92](https://github.com/nostr-protocol/nips/blob/master/92.md) `imeta`
+tags only while their URL remains in the draft. Parent media tags are not
+inherited. Uploaded metadata uses a separate bounded session-storage key so
+existing text drafts remain readable by earlier builds. Unuploaded local files
+are not restored after closing. Removing an attachment does not delete its
+hosted file; public upload availability and retention depend on the provider.
+
+[gifs.nostr.build](https://gifs.nostr.build/developers) provides browser search
+without an API key for registered origins and loopback development. The
+documented production-origin registration costs 1000 sats once; implementation
+does not register an origin or spend funds. Set `VITE_ENABLE_GIF_SEARCH=true`
+only after registering the release origin. With search disabled or unavailable,
+the picker still accepts direct GIF links. Search starts on an explicit action,
+requests at most 24 safe results, bounds JSON to 128 KiB and uses a 12-second
+deadline. Closing the picker cancels its request. Results use static thumbnails
+and display the required nostr.build attribution. Live read-only research
+verified the API shape and loopback CORS; intercepted browser upload tests do
+not establish production upload policies or physical signer compatibility.
+
 Browser acceptance uses isolated fixture keys and intercepted relays for NIP-07
 and NIP-46, consent and account changes, promoted middle ancestry, stable-address
 NIP-22 comments, missing context, forged signatures, late approval after closing,

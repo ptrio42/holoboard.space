@@ -62,6 +62,9 @@ record deployment, not announcement publication.
 
 ### Changed
 
+- Make Reply a wider desktop and full-screen mobile editor with previews, emoji,
+  GIF links and optional GIF search, explicit file uploads, and saved attachment
+  descriptions. Preserve separate signing and public delivery.
 - Give mixed-media quotes their own layout below the original note, avoid repeating
   its identical media, and render Markdown article previews with readable formatting.
 - Keep link previews compact with two-line titles and descriptions and readable

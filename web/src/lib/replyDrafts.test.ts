@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { readReplyDraft, saveReplyDraft } from "./replyDrafts";
+import { readReplyAttachments, readReplyDraft, saveReplyAttachments, saveReplyDraft } from "./replyDrafts";
 let storage: Map<string, string>;
 const id = "a".repeat(64);
 beforeEach(() => {
@@ -30,4 +30,14 @@ it("does not overwrite invalid or unavailable storage", () => {
     expect(storage.get("holoboard-reply-drafts-v1")).toBe("broken");
     vi.stubGlobal("sessionStorage", { getItem() { throw new DOMException("blocked"); } });
     expect(saveReplyDraft(id, "draft")).toBe(false);
+});
+it("restores uploaded attachment descriptions separately from backwards-compatible text drafts", () => {
+    const media = [{ url: "https://media.example.com/file.png", type: "image/png", alt: "Description" }];
+    expect(saveReplyAttachments(id, media)).toBe(true); expect(saveReplyDraft(id, media[0].url)).toBe(true);
+    expect(readReplyAttachments(id)).toEqual({ attachments: media, saved: true });
+    expect(JSON.parse(storage.get("holoboard-reply-drafts-v1")!)[id]).toBe(media[0].url);
+    storage.set("holoboard-reply-media-v1", "broken");
+    expect(saveReplyAttachments(id, [])).toBe(false);
+    expect(storage.get("holoboard-reply-media-v1")).toBe("broken");
+    expect(readReplyDraft(id).text).toBe(media[0].url);
 });

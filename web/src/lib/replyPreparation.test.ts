@@ -7,6 +7,15 @@ const key = generateSecretKey(), other = generateSecretKey();
 const make = (kind = 1, tags: string[][] = [], content = "context", created_at = 1700000000, secret = key) => finalizeEvent({ kind, tags, content, created_at }, secret);
 const graphOf = (...events: Event[]) => reduceThreadGraph(createThreadGraph(), events);
 const prepare = (parent: Event, events: Event[] = [parent]) => prepareReply({ parent, graph: graphOf(...events), content: "A new reply", createdAt: 1700000100 });
+it("preserves reply ancestry while adding only the current attachment metadata", () => {
+    const parent = make(1, [["imeta", "url https://old.example.com/parent.png", "alt Parent file"]]);
+    const attachment = { url: "https://media.example.com/reply.png", type: "image/png", alt: "Reply file" };
+    const prepared = prepareReply({ parent, graph: graphOf(parent), content: attachment.url, attachments: [attachment], createdAt: 1700000100 });
+    expect(prepared.template.tags).toContainEqual(["imeta", `url ${attachment.url}`, "m image/png", "alt Reply file"]);
+    expect(JSON.stringify(prepared.template.tags)).not.toContain("Parent file");
+    const signed = finalizeEvent(prepared.template, other);
+    expect(graphOf(parent, signed).nodes.get(`event:${signed.id}`)?.parent).toBe(`event:${parent.id}`);
+});
 function roundtrip(parent: Event, events: Event[]) {
     const prepared = prepare(parent, events);
     const signed = finalizeEvent(prepared.template, other);

@@ -158,6 +158,23 @@ Signer browser tests remain available in a separate run with the flag enabled:
 VITE_ENABLE_NOSTR_CONNECT=true HOLOBOARD_TEST_PORT=4200 npm run test:e2e -- tests/payments.spec.ts --grep "signer|Amber|extension|public author zap|notification identity"
 ```
 
+The opt-in Reply editor has a wide desktop dialog and a full-screen phone layout,
+with its action footer remaining visible. Write and Preview share a tab-saved
+draft. Emoji, GIF links and uploads insert into the text at the cursor. Select,
+paste or drop files, choose Primal, nostr.build, nostrcheck.me or a custom Blossom
+server, and upload explicitly. Files become public on the selected server before
+the reply is published; no automatic payment or fallback upload occurs. Local
+files are limited to 20 MiB each, eight attachments and 40 MiB selected in total.
+Uploaded URLs and descriptions restore with the draft; unuploaded files stay
+only until the editor closes. Signing and publishing remain separate steps.
+See the [reply and media contract](../docs/nostr.md#reply-editor) for permissions,
+metadata, cancellation and provider compatibility limits.
+
+GIF search uses gifs.nostr.build and works on localhost without registration.
+Production search requires registering the site's origin, then setting
+`VITE_ENABLE_GIF_SEARCH=true`; the flag defaults to false. Its registration fee
+is separate from this implementation. Direct GIF links work without search.
+
 ## Configuration
 
 | Variable | Purpose |
