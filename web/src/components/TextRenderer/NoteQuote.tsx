@@ -81,17 +81,16 @@ function QuotePreview({ request, href, adaptive, initiallyExpanded, initiallyExp
         <div ref={container} className={`note-quote${adaptive ? " note-quote--adaptive" : ""}`} aria-label="Quoted note" data-note-block>
             <div className="note-quote-header">
                 {event && <UserProfileInline pubkey={event.pubkey} size="compact" />}
+                {!event && <StatusMessage compact inline loading={!unavailable}>
+                    {unavailable ? "Preview timed out" : slow ? "Still loading preview..." : "Loading preview..."}
+                </StatusMessage>}
                 <NoteExternalLink href={href} label="Open quoted note" className="note-quote-open shrink-0" />
             </div>
             {event ? <QuoteContent key={event.id} event={event} adaptive={adaptive} parentMedia={parentMedia}
-                initiallyExpanded={initiallyExpanded || initiallyExpandedTexts.includes(`quote:${event.id}`)} /> : <div className="mt-2">
-                <StatusMessage compact loading={!unavailable}>
-                    {unavailable ? "Preview timed out" : slow ? "Still loading preview..." : "Loading preview..."}
-                </StatusMessage>
-                {unavailable && <button type="button" className="note-action mt-1" onClick={() => {
+                initiallyExpanded={initiallyExpanded || initiallyExpandedTexts.includes(`quote:${event.id}`)} /> :
+                unavailable && <button type="button" className="note-action mt-1 min-h-11" onClick={() => {
                     setUnavailable(false); setSlow(false); setAttempt((value) => value + 1);
                 }}>Retry preview</button>}
-            </div>}
         </div>
     );
 }
@@ -118,6 +117,6 @@ function QuoteContent({ event, adaptive, initiallyExpanded, parentMedia }: { eve
             {adaptive && videos.map(src => <video key={src} className="note-content-video" src={src}
                 poster={videoPoster(event.tags, src)} controls playsInline preload="metadata" data-note-block />)}
         </div>}
-        {body.link && <NoteLinkPreview text={event.content} url={body.link} />}
+        {body.link && <NoteLinkPreview text={event.content} url={body.link} compact />}
     </div>;
 }

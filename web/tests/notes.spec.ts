@@ -225,8 +225,11 @@ test("timed-out quotes retain an accessible external link and can be retried", a
     const options = { content: `A billboard headline.\nnostr:${noteEncode(quotes[0].id)}`, availableQuotes: [] as Event[] };
     const row = await setup(context, page, options);
     await expect(row.getByText("Loading preview", { exact: false })).toBeVisible();
+    expect((await row.locator(".note-quote").boundingBox())!.height).toBeLessThanOrEqual(64);
+    expect((await row.getByRole("link", { name: "Open quoted note" }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await page.clock.runFor(31000);
     await expect(row.getByText("Preview timed out", { exact: true })).toBeVisible();
+    expect((await row.getByRole("button", { name: "Retry preview" }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
     const link = row.getByRole("link", { name: "Open quoted note" });
     await expect(link).toHaveAttribute("href", /^https:\/\/njump.me\/nevent1/);
     await expect(link).toHaveAttribute("target", "_blank");
@@ -527,6 +530,38 @@ test("long text-only notes use the full reading width before and after expansion
     }
 });
 
+test("multiple quotes keep compact link previews and independent text expansion", async ({ context, page }) => {
+    const sourceText = "Main paragraph with useful context.\n\n".repeat(30);
+    const quotedText = "A separate quoted explanation. ".repeat(40);
+    const quote = makeNote(quotedText + "https://example.com/project", [], quoteKey);
+    const preview = { requests: 0, title: "Quoted destination title. ".repeat(10), description: "More destination details. ".repeat(15), image_url: "https://example.com/thumbnail.png" };
+    await page.route("https://example.com/thumbnail.png", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450"><rect width="800" height="450" fill="#164e63"/></svg>' }));
+    const row = await setup(context, page, { billboard: false, content: sourceText + `nostr:${noteEncode(quotes[0].id)}\nnostr:${noteEncode(quote.id)}`, availableQuotes: [quotes[0], quote], preview });
+    const main = row.locator('[data-note-text="main"]'), embedded = row.locator(".note-quote").last(), link = embedded.locator(".note-link-preview");
+    await expect(link).toBeVisible();
+    await expect(row.locator(".note-quote")).toHaveCount(2);
+    const card = await link.elementHandle(), image = await link.locator("img").elementHandle();
+    for (const width of [1280, 390, 320]) {
+        await page.setViewportSize({ width, height: 900 });
+        await expect(async () => {
+            expect((await link.boundingBox())!.height).toBeLessThanOrEqual(90);
+            if (width === 1280) expect(await main.evaluate(node => node.getBoundingClientRect().height / parseFloat(getComputedStyle(node).lineHeight))).toBeLessThanOrEqual(6.1);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        }).toPass();
+        const before = await main.locator(".note-text-content").innerText();
+        await embedded.getByRole("button", { name: "Show more quoted note text", exact: true }).click();
+        await expect(embedded.locator(".note-text-content")).toContainText(quotedText.trim());
+        expect(await main.locator(".note-text-content").innerText()).toBe(before);
+        await embedded.getByRole("button", { name: "Show less quoted note text", exact: true }).click();
+        await main.getByRole("button", { name: "Show more note text", exact: true }).click();
+        await expect(main.locator(".note-text-content")).toContainText(sourceText.trim());
+        expect(await card!.evaluate(node => node.isConnected)).toBe(true);
+        expect(await image!.evaluate(node => node.isConnected)).toBe(true);
+        await main.getByRole("button", { name: "Show less note text", exact: true }).click();
+    }
+    expect(preview.requests).toBe(1);
+});
+
 test("link cards fit below text beside media and keep one instance across phone layouts", async ({ context, page }, testInfo) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.route("https://example.com/*.png", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450"><rect width="800" height="450" fill="#164e63"/></svg>' }));
@@ -583,14 +618,20 @@ test("link placement follows late metadata and local text expansion without rest
     expect(preview.requests).toBe(1);
 });
 
-test("long text keeps its link below media", async ({ context, page }) => {
+test("expanded long text moves its fitted link below media without replacing either", async ({ context, page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.route("https://example.com/photo.png", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450"><rect width="800" height="450" fill="#164e63"/></svg>' }));
     const preview = { requests: 0, title: "Project details", description: "A longer destination description that needs another line in the available column." };
     const row = await setup(context, page, { billboard: false, content: "A longer campaign paragraph with important details. ".repeat(40) + "\nhttps://example.com/project\nhttps://example.com/photo.png", preview });
+    await expect(row.locator(".note-composition")).toHaveAttribute("data-link-placement", "text");
+    const image = await row.locator(".note-composition-media img").elementHandle(), card = await row.locator(".note-link-preview").elementHandle();
+    await row.getByRole("button", { name: "Show more note text", exact: true }).click();
     await expect(row.locator(".note-composition")).toHaveAttribute("data-link-placement", "media");
     const m = (await row.locator(".note-composition-media").boundingBox())!, l = (await row.locator(".note-link-preview").boundingBox())!;
     expect(l.x).toBeCloseTo(m.x, 0); expect(l.y).toBeGreaterThanOrEqual(m.y + m.height);
+    expect(await image!.evaluate(node => node.isConnected)).toBe(true);
+    expect(await card!.evaluate(node => node.isConnected)).toBe(true);
+    expect(preview.requests).toBe(1);
 });
 
 test("unavailable link-only previews do not reserve an empty desktop column", async ({ context, page }) => {
@@ -696,8 +737,10 @@ test("mixed article quotes keep their own layout and show shared images once", a
             expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         }).toPass();
         await row.screenshot({ path: testInfo.outputPath(`mixed-article-${width}.png`) });
-        for (const text of await embedded.locator(".note-link-preview .line-clamp-2").all()) {
-            expect(await text.evaluate(node => node.getBoundingClientRect().height <= parseFloat(getComputedStyle(node).lineHeight) * 2 + 1)).toBe(true);
+        const labels = embedded.locator(".note-link-preview .line-clamp-1");
+        await expect(labels).toHaveCount(3);
+        for (const text of await labels.all()) {
+            expect(await text.evaluate(node => node.getBoundingClientRect().height <= parseFloat(getComputedStyle(node).lineHeight) + 1)).toBe(true);
         }
     }
     const excerpt = embedded.locator(".note-quote__excerpt");

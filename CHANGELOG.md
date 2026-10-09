@@ -68,7 +68,8 @@ record deployment, not announcement publication.
 - Give mixed-media quotes their own layout below the original note, avoid repeating
   its identical media, and render Markdown article previews with readable formatting.
 - Keep link previews compact with two-line titles and descriptions and readable
-  pixel hostname labels.
+  pixel hostname labels. Use smaller destination previews inside quotes, shorter
+  desktop text previews and compact quote loading states.
 - Make discussions easier to scan with smaller comment text, speech-bubble reply
   controls, a compact reply count and collapsible source explanations.
 - Use the wordmark's pink pixel H consistently in the mobile header, favicon

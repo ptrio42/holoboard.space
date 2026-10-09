@@ -543,6 +543,8 @@ Ordinary board cards place text beside media on wide screens and stack them on
 phones. Keep the rank on a compact line above the content, with text and media
 starting below it. Short openings use larger type; all text-only notes use the
 full available width, including their expanded text.
+Long board text previews use up to six lines on desktop; expanding shows the
+complete original text without changing its attachments.
 Complete short text can sit centrally beside taller media while staying aligned
 to the left. Billboards use the same vertical placement. Long text remains at the
 top. Quotes follow the original note's text, media and destination preview at the
@@ -558,8 +560,11 @@ destinations without credentials can become article links or media. HTML stays
 inert text, and fenced or inline code cannot create media or destination previews.
 Ordinary kind-1 quotes retain their literal text. Article previews use the same
 local expansion, shared galleries, link previews and bounded Nostr reads.
-Link preview titles and descriptions each use at most two lines. Their hostname
-labels use 10px pixel type. Avoid display utilities that override the line clamp.
+Link preview titles and descriptions each use at most two lines. Inside quotes,
+use a horizontal preview with a 64px thumbnail and one line each for the hostname,
+title and description. Keep unloaded quote status beside its external reading
+action; timeout retains an explicit retry. Hostname labels use 10px pixel type.
+Avoid display utilities that override the line clamp.
 When a note contains both media and a destination link, the link preview fits
 under the text if their combined height fits beside the media. Otherwise it
 stays below the media. Placement responds to column width, loaded content and
