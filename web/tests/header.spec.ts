@@ -67,7 +67,7 @@ test("header keeps promotion primary and wallet available without signing in", a
     await page.locator("header").first().screenshot({ path: testInfo.outputPath("header-signed-out.png") });
     const wallet = connections.getByRole("button", { name: "Wallet", exact: true });
     await wallet.click();
-    await expect(page.getByRole("dialog", { name: "Payment wallet", exact: true })).toContainText("Invoice links, copying and QR payments work without connecting.");
+    await expect(page.getByRole("dialog", { name: "Connect wallet", exact: true })).toContainText("Invoice / QR payments also work without connecting.");
     await page.keyboard.press("Escape");
     await expect(wallet).toBeFocused();
     for (const width of [768, 320]) { await page.setViewportSize({ width, height: 800 }); await checkHeader(page); }

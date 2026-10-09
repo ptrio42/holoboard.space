@@ -324,6 +324,8 @@ applies when that flag is enabled. Existing invoices and manual npub
 notifications work with either setting.
 
 Invoice links, copying and QR codes stay available without connecting anything.
+The wallet connection form accepts a masked NWC link through its Connect wallet
+action or Enter. Setup help expands on demand; connecting never sends a payment.
 The payer's [NWC connection](https://github.com/nostr-protocol/nips/blob/master/47.md)
 uses the [Alby SDK](https://github.com/getAlby/js-sdk) and is separate from the
 relay's receiving wallet. Use an application-specific mainnet connection with

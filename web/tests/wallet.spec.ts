@@ -12,7 +12,7 @@ const walletPubkey = getPublicKey(walletKey);
 const uri = `nostr+walletconnect://${walletPubkey}?relay=ws%3A%2F%2F127.0.0.1%3A3334&secret=${bytesToHex(clientKey)}`;
 const methods = ["get_info", "get_balance", "get_budget", "pay_invoice", "make_invoice", "lookup_invoice", "list_transactions"];
 
-async function setup(context: BrowserContext, page: Page, options: { restoredProof?: string | null; methods?: string[]; loseResponse?: boolean; historySize?: number; balanceFailure?: boolean; notifications?: boolean } = {}) {
+async function setup(context: BrowserContext, page: Page, options: { restoredProof?: string | null; methods?: string[]; loseResponse?: boolean; historySize?: number; balanceFailure?: boolean; notifications?: boolean; submitWithEnter?: boolean; beforeConnect?: () => Promise<void> } = {}) {
     const origin = new URL(test.info().project.use.baseURL!).origin;
     const permissions = options.methods ?? methods;
     const sentInvoice = walletInvoice();
@@ -113,8 +113,10 @@ async function setup(context: BrowserContext, page: Page, options: { restoredPro
     page.on("pageerror", (error) => state.errors.push(error.message));
     await page.goto("/help");
     await page.getByRole("navigation", { name: "Connections" }).getByRole("button", { name: /^Wallet/ }).click();
-    await page.getByLabel("NWC connection string").fill(uri);
-    await page.getByRole("button", { name: "Connect NWC wallet", exact: true }).click();
+    await options.beforeConnect?.();
+    await page.getByLabel("NWC connection link").fill(uri);
+    if (options.submitWithEnter) await page.getByLabel("NWC connection link").press("Enter");
+    else await page.getByRole("button", { name: "Connect wallet", exact: true }).click();
     await expect(page.getByText("Connected: Fixture wallet.", { exact: false })).toBeVisible();
     return { state, sentInvoice, dialog: page.getByRole("dialog") };
 }
@@ -125,6 +127,50 @@ async function sendReview(page: Page, invoice: string) {
     await page.getByRole("button", { name: "Review payment" }).click();
     await expect(page.getByRole("button", { name: "Send 21 sats" })).toBeVisible();
 }
+
+test("wallet connection keeps setup help optional and accepts Enter without sending", async ({ context, page }, testInfo) => {
+    const { state, dialog } = await setup(context, page, {
+        submitWithEnter: true,
+        beforeConnect: async () => {
+            const dialog = page.getByRole("dialog", { name: "Connect wallet", exact: true });
+            const input = dialog.getByLabel("NWC connection link");
+            const connect = dialog.getByRole("button", { name: "Connect wallet", exact: true });
+            const help = dialog.getByText("Where do I get a link?", { exact: true });
+            await expect(input).toHaveAttribute("type", "password");
+            await expect(input).toHaveAccessibleDescription("Connecting does not send sats.");
+            await expect(connect).toBeDisabled();
+            await input.fill("   ");
+            await expect(connect).toBeDisabled();
+            await input.press("Enter");
+            await expect(dialog).toBeVisible();
+            await expect(dialog.getByText("In your wallet, create a mainnet Nostr Wallet Connect (NWC) connection for Holoboard.")).toBeHidden();
+            for (const width of [1280, 390, 320]) {
+                await page.setViewportSize({ width, height: 844 });
+                expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+                const bounds = await connect.boundingBox();
+                expect(bounds?.height).toBeGreaterThanOrEqual(44);
+                await page.screenshot({ path: testInfo.outputPath(`wallet-connect-${width}.png`) });
+            }
+            await help.click();
+            await expect(dialog.getByText("You can revoke access in your wallet at any time.", { exact: false })).toBeVisible();
+            await page.screenshot({ path: testInfo.outputPath("wallet-connect-help-320.png") });
+            await help.click();
+            await input.fill("invalid-connection");
+            await input.press("Enter");
+            await expect(input).toHaveValue("");
+            await expect(dialog.getByRole("alert")).toHaveCount(1);
+            await expect(input).toHaveAccessibleDescription(/Connecting does not send sats.*Paste a Nostr Wallet Connect/);
+        },
+    });
+    await expect(dialog).toHaveAccessibleName("Wallet");
+    await expect(dialog.getByRole("alert")).toHaveCount(0);
+    expect(state.methods).toContain("get_info");
+    expect(state.methods).not.toContain("pay_invoice");
+    expect(state.methods).not.toContain("make_invoice");
+    expect(state.charges).toBe(0);
+    expect(state.attempts).toBe(0);
+    expect(state.errors).toEqual([]);
+});
 
 test("balance, budget, filtered history, details and permissions", async ({ context, page }) => {
     const { state, dialog } = await setup(context, page, { historySize: 22 });
@@ -156,7 +202,7 @@ test("receiving-only connection preserves access without fabricating zero balanc
     await page.getByRole("navigation", { name: "Wallet views" }).getByRole("button", { name: "Send", exact: true }).click();
     await expect(dialog.getByText("This connection does not allow sending.", { exact: false })).toBeVisible();
     await dialog.getByRole("button", { name: "Disconnect wallet" }).click();
-    await expect(dialog.getByLabel("NWC connection string")).toBeVisible();
+    await expect(dialog.getByLabel("NWC connection link")).toBeVisible();
     expect(state.methods).toEqual(["get_info"]); expect(state.errors).toEqual([]);
 });
 
@@ -236,8 +282,8 @@ async function loseSendResponse(page: Page, invoice: string, charges: () => numb
 }
 async function reconnect(page: Page, connection = uri) {
     await page.getByRole("button", { name: "Disconnect wallet", exact: true }).click();
-    await page.getByLabel("NWC connection string").fill(connection);
-    await page.getByRole("button", { name: "Connect NWC wallet", exact: true }).click();
+    await page.getByLabel("NWC connection link").fill(connection);
+    await page.getByRole("button", { name: "Connect wallet", exact: true }).click();
     await expect(page.getByText("Connected: Fixture wallet.", { exact: false })).toBeVisible();
     await page.getByRole("navigation", { name: "Wallet views" }).getByRole("button", { name: "Send", exact: true }).click();
 }

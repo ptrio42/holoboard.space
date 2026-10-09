@@ -61,6 +61,9 @@ record deployment, not announcement publication.
 
 ### Changed
 
+- Simplify wallet connection with a full-width connect action, keyboard submission
+  and expandable NWC setup help, keeping anonymous Invoice / QR payments available.
+
 - Move Expired notes into the footer, keeping TOP 21 and Waiting room in the
   main section navigation.
 - Simplify the header around one Promote button, a quiet wallet icon and an

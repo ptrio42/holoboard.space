@@ -251,8 +251,8 @@ async function expectSplitInvoices(page: Page) {
 }
 async function connectNwc(page: Page) {
     await openConnections(page, "wallet");
-    await page.getByLabel("NWC connection string").fill(walletUri);
-    await page.getByRole("button", { name: "Connect NWC wallet", exact: true }).click();
+    await page.getByLabel("NWC connection link").fill(walletUri);
+    await page.getByRole("button", { name: "Connect wallet", exact: true }).click();
     await expect(page.getByText("Connected: Test NWC wallet.", { exact: false })).toBeVisible();
 }
 
@@ -1052,7 +1052,7 @@ test("amount modes and inline split preserve a boost draft across contextual pan
     await expect(page.getByRole("button", { name: "Target position", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("slider", { name: "Holoboard share in percent" })).toHaveValue("50");
     await openConnections(page, "wallet");
-    await expect(page.getByLabel("NWC connection string")).toBeVisible();
+    await expect(page.getByLabel("NWC connection link")).toBeVisible();
     await backToForm(page);
     await expect(page.getByRole("button", { name: "Target position", exact: true })).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: "Reach rank 2, estimated total 801 sats", exact: true }).click();
@@ -1360,7 +1360,7 @@ test("global connections and legacy ranking help work without promotion", async 
     const state = await setup(context, page);
     await page.getByRole("button", { name: "Close dialog", exact: true }).click();
     await page.getByRole("navigation", { name: "Connections", exact: true }).getByRole("button", { name: "Wallet", exact: true }).click();
-    await expect(page.getByLabel("NWC connection string")).toBeVisible();
+    await expect(page.getByLabel("NWC connection link")).toBeVisible();
     await page.getByRole("button", { name: "Close dialog", exact: true }).click();
     await page.goto("/#how-ranking-works");
     await expect(page.getByRole("heading", { name: "How ranking works", exact: true })).toBeVisible();
@@ -1379,8 +1379,8 @@ test("header account disconnect preserves its independent payment wallet", async
     const connections = page.getByRole("navigation", { name: "Connections", exact: true });
     const wallet = connections.getByRole("button", { name: "Wallet", exact: true });
     await wallet.click();
-    await page.getByLabel("NWC connection string").fill(walletUri);
-    await page.getByRole("button", { name: "Connect NWC wallet", exact: true }).click();
+    await page.getByLabel("NWC connection link").fill(walletUri);
+    await page.getByRole("button", { name: "Connect wallet", exact: true }).click();
     await expect(page.getByText("Connected: Test NWC wallet.", { exact: false })).toBeVisible();
     await page.keyboard.press("Escape");
     await connections.getByRole("button", { name: "Sign in", exact: true }).click();
@@ -1479,8 +1479,8 @@ test("connecting and disconnecting inside payment preserves invoices and tab ord
     await prepareInvoices(page);
     const before = await savedPayment(page);
     await walletMethod(page);
-    await page.getByLabel("NWC connection string").fill(walletUri);
-    await page.getByRole("button", { name: "Connect NWC wallet", exact: true }).click();
+    await page.getByLabel("NWC connection link").fill(walletUri);
+    await page.getByRole("button", { name: "Connect wallet", exact: true }).click();
     await expect(page.getByText("NWC: Test NWC wallet", { exact: true })).toBeVisible();
     await expect(page.getByRole("tablist", { name: "Payment method", exact: true }).getByRole("tab").first()).toHaveText("Invoice / QR");
     await page.getByText("Wallet settings", { exact: true }).click();

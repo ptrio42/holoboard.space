@@ -487,7 +487,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
 
     const panelHeading: Record<Exclude<Panel, "compose">, string> = {
         appearance: "Billboard appearance",
-        options: "Payment options", wallet: "Payment wallet", signer: "Connect Nostr", help: "Holoboard help",
+        options: "Payment options", wallet: connections.walletStatus === "connected" ? "Wallet" : "Connect wallet", signer: "Connect Nostr", help: "Holoboard help",
     };
     const panelBody = <div className="space-y-5" {...tabPanelProps}>
         {panel !== "compose" && <h3 tabIndex={-1} className="promotion-section-title text-neon-pink">{panelHeading[panel]}</h3>}
