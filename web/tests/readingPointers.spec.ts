@@ -50,6 +50,10 @@ test.describe("NIP-19 reading pointers", () => {
         const thread = child.getByRole("link", { name: "Open thread", exact: true });
         const shared = decode(new URL((await thread.getAttribute("href"))!, "https://holoboard.invalid").pathname.split("/")[2]);
         expect(shared).toMatchObject({ type: "nevent", data: { id: reply.id, author: note.pubkey, relays: [hint] } });
+        const focusByline = page.getByRole("article", { name: "Discussion focus", exact: true }).getByRole("link", { name: "Pointer author", exact: true });
+        await expect(focusByline).toBeVisible();
+        const focusProfilePointer = decode(new URL((await focusByline.getAttribute("href"))!, "https://holoboard.invalid").pathname.split("/")[2]);
+        expect(focusProfilePointer).toMatchObject({ type: "nprofile", data: { pubkey: note.pubkey, relays: [hint] } });
         const byline = child.getByRole("link", { name: "Pointer author", exact: true });
         await expect(byline).toHaveAttribute("href", /^\/profile\/nprofile1/);
         const profilePointer = decode(new URL((await byline.getAttribute("href"))!, "https://holoboard.invalid").pathname.split("/")[2]);

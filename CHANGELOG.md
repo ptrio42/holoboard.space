@@ -10,13 +10,15 @@ record deployment, not announcement publication.
 
 - Give promoted notes adaptive text and media layouts, larger short openings,
   full-frame portrait galleries and inline more/less controls for text and quotes.
+  Reuse this presentation on profiles with rank, weight details and Boost.
   Fit destination previews beneath text beside media when space allows, and
   distinguish quoted text with smaller type. Let text-only notes use the full
   card width and start content below its rank.
 - Add an opt-in read-only discussion screen for original promoted notes, with
   replies expanded by default, compact reply rows, continuous branch lines,
   direct parent navigation, promotion highlights and grouped relay details with
-  explicit partial context.
+  explicit partial context. Keep the main note consistent across board and direct
+  discussion entry, and give deep phone replies more reading space.
 - Add opt-in author profiles with banners, visible NIP-05 domain checks,
   copyable Lightning addresses and active promoted notes. Keep source coverage
   explicit and preserve navigation back to discussions.

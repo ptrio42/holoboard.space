@@ -79,6 +79,63 @@ test("discussion entry points stay disabled in the default release", async ({ co
 
 test.describe("read-only discussion", () => {
     test.skip(!enabled);
+    test("keeps direct discussion focus consistent with the board card", async ({ context, page }, testInfo) => {
+        const selected = make("A short note with a portrait and a destination. https://images.example.com/portrait.png https://preview.example/page");
+        const fixture = await setup(context, page, { focus: selected, board: [selected], preview: true });
+        await context.route("https://images.example.com/portrait.png", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="600"><rect width="300" height="600" fill="#164e63"/></svg>' }));
+        for (const width of [320, 390, 1280]) {
+            await page.setViewportSize({ width, height: 900 });
+            await page.goto("/");
+            const source = page.locator(`[data-board-note="${selected.id}"]`);
+            await expect(source.locator(".note-link-preview")).toContainText("Cached page preview");
+            await page.evaluate(() => document.fonts.ready);
+            const sourceBounds = await source.boundingBox();
+            const sourceType = await source.locator(".note-text").evaluate(node => getComputedStyle(node).fontSize);
+            await page.goto(`/discussion/${selected.id}`);
+            const card = page.getByRole("article", { name: "Discussion focus", exact: true });
+            await expect(card.locator(".note-link-preview")).toContainText("Cached page preview");
+            await expect(card.getByRole("button", { name: "Boost", exact: true })).toBeVisible();
+            await expect(card.locator(".board-rank")).toHaveAttribute("aria-label", "Rank 1");
+            await expect(card.getByRole("link", { name: "Discussion", exact: true })).toHaveCount(0);
+            expect(Math.abs((await card.boundingBox())!.width - sourceBounds!.width)).toBeLessThan(12);
+            await expect(card.locator(".note-text")).toHaveCSS("font-size", sourceType);
+            await expect(card.getByRole("button", { name: /Show more note text/ })).toHaveCount(0);
+            await card.getByRole("button", { name: /counting,.*paid in total/ }).click();
+            await expect(page.getByRole("dialog", { name: "Ranking weight" })).toContainText("210 sats");
+            await page.keyboard.press("Escape");
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+            await card.screenshot({ path: testInfo.outputPath(`discussion-direct-${width}.png`) });
+        }
+        expect(fixture.publications).toEqual([]);
+    });
+    test("retains readable width and exact parent links in deep phone branches", async ({ context, page }, testInfo) => {
+        const selected = make("Deep phone context");
+        const chain: Event[] = [];
+        for (let i = 0; i < 5; i++) chain.push(make(`A short comment ${i + 1}`, [["e", selected.id, "", "root"], ["e", chain.at(-1)?.id ?? selected.id, "", "reply"]], 1700000500 + i));
+        await setup(context, page, { focus: selected, events: chain });
+        await page.setViewportSize({ width: 320, height: 800 });
+        await page.goto(`/discussion/${selected.id}`);
+        const last = row(page, chain[4]);
+        await expect(last).toContainText(chain[4].content);
+        expect((await last.locator(".note-text").boundingBox())!.width).toBeGreaterThanOrEqual(230);
+        const header = (await last.locator(".discussion-note__header").boundingBox())!;
+        const join = (await last.locator(":scope > div[aria-hidden] > span").last().boundingBox())!;
+        expect(Math.abs(join.y + join.height / 2 - header.y - header.height / 2)).toBeLessThan(1);
+        await last.getByRole("link", { name: /Go to parent note by/ }).click();
+        await expect(row(page, chain[3])).toBeFocused();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await page.getByRole("region", { name: "Replies", exact: true }).screenshot({ path: testInfo.outputPath("deep-phone-branches.png") });
+    });
+    test("keeps unresolved context visible and its specific warning accessible", async ({ context, page }) => {
+        const selected = make("Missing parent focus", [["e", "d".repeat(64), "", "reply"]]);
+        await setup(context, page, { focus: selected });
+        await page.goto(`/discussion/${selected.id}`);
+        const card = page.getByRole("article", { name: "Discussion focus", exact: true });
+        await expect(card.locator(".discussion-context-status > summary")).toBeVisible();
+        await card.locator(".discussion-context-status > summary").click();
+        await expect(card.getByText("Parent not found yet. This branch keeps its original reference.")).toBeVisible();
+        await expect(card.getByRole("link", { name: /Go to parent note by/ })).toHaveCount(0);
+    });
     test("joins discussion and boost in one footer and keeps comment context readable", async ({ context, page }, testInfo) => {
         const selected = make("Small projects need a place to be discovered.\n\nWe are building an open source map of places where you can pay with bitcoin. Add your favourite spot, or tell us what would make the map useful to you.");
         const novaKey = generateSecretKey(), riverKey = generateSecretKey();
@@ -525,7 +582,10 @@ test.describe("read-only discussion", () => {
         await expect(row(page, response).getByRole("link", { name: "Go to parent note by Discussion author" })).toContainText("Replying to Discussion author");
         await expect(row(page, response).locator("[data-parent-preview]")).toHaveCount(0);
         await row(page, response).getByRole("link", { name: "Open thread", exact: true }).click();
-        await expect(page.getByRole("article", { name: "Discussion focus" })).toContainText(response.content);
+        const focusCard = page.getByRole("article", { name: "Discussion focus" });
+        await expect(focusCard).toContainText(response.content);
+        await expect(focusCard.locator(".board-rank, .board-weight-actions")).toHaveCount(0);
+        await expect(focusCard.getByRole("button", { name: "Boost", exact: true })).toHaveCount(0);
         await expect(page.getByRole("region", { name: "Ancestor context" })).toContainText(focus.content);
     });
     test("exposes a timeout as partial and retries without dropping found replies", async ({ context, page }) => {

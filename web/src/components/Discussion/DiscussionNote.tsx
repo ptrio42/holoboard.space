@@ -1,16 +1,12 @@
+import { DiscussionContext } from "./DiscussionContext";
 import type { Event } from "nostr-tools";
 import type { ThreadNode } from "../../lib/threadGraph";
-import { njumpUrl, shortNpub } from "../../lib/nostr";
+import { njumpUrl } from "../../lib/nostr";
 import { NoteContent } from "../TextRenderer/NoteContent";
 import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
 import { NoteExternalLink } from "../ui/NoteControls";
 import { DiscussionLink } from "../ui/DiscussionLink";
 import { PixelPanel } from "../ui/PixelPanel";
-import { useProfileValue } from "../../hooks/useProfile";
-import { discussionHref } from "../../lib/discussionView";
-import { navigateReading } from "../../lib/discussionNavigation";
-import { parseContent } from "../../utils/textProcessing/parseContent";
-import { linkLabel } from "../../lib/noteAttachments";
 
 export function DiscussionNote({ node, event, parent, parentEvent, hints = [], parentHints = [], onParent, focus = false, promoted = false, compact = false, parentIsFocus = false, onReply, branch }: {
     node?: ThreadNode; event?: Event; parent?: ThreadNode; parentEvent?: Event; onParent?: () => void;
@@ -18,12 +14,6 @@ export function DiscussionNote({ node, event, parent, parentEvent, hints = [], p
     focus?: boolean; promoted?: boolean; compact?: boolean; parentIsFocus?: boolean; onReply?: () => void;
     branch?: { count: number; expanded: boolean; toggle: () => void };
 }) {
-    const parentProfile = useProfileValue(parent?.event?.pubkey, parentHints);
-    const parentName = parent?.event && (parentProfile?.displayName?.trim() || parentProfile?.name?.trim() || shortNpub(parent.event.pubkey));
-    const parentPreview = (!compact || !parentIsFocus) && parentEvent && parseContent(parentEvent.content).map(token =>
-        token.kind === "text" ? token.value : token.kind === "mention" ? `${token.bech32.slice(0, 12)}...` :
-            token.kind === "link" ? linkLabel(token.href) : token.kind === "image" ? "[Image]" : "[Video]"
-    ).join("").replace(/\s+/g, " ").trim().slice(0, 160);
     const date = node?.event && new Date(node.event.created_at * 1000);
     const validDate = date && Number.isFinite(date.getTime());
     const footer = (control?: React.ReactNode) => <footer className="discussion-actions">
@@ -46,19 +36,7 @@ export function DiscussionNote({ node, event, parent, parentEvent, hints = [], p
             </button>}
         </header>
         <div className="discussion-note__content">
-            {parent?.event && <a href={discussionHref(parent.event.id, parent.event.pubkey, window.location.pathname + window.location.search, parentHints)}
-                onClick={event => { if (!onParent) return navigateReading(event); if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onParent(); }}
-                className="discussion-parent focus-pixel"
-                aria-label={`Go to parent note by ${parentName}`}>
-                <span className="flex min-w-0 items-center gap-2"><svg aria-hidden="true" className="shrink-0 text-cyan-400/60" width="10" height="10" viewBox="0 0 10 10" fill="currentColor" shapeRendering="crispEdges"><path d="M0 0h2v4h4V2h2v2h2v2H8v2H6V6H0V0Z" /></svg>
-                    <span className="truncate">Replying to <span className="text-cyan-200">{parentName}</span></span>
-                </span>
-                {parentPreview && <span data-parent-preview className="mt-0.5 line-clamp-1 break-all pl-[18px] text-cyan-100/55">{parentPreview}</span>}
-            </a>}
-            {node && !["none", "resolved"].includes(node.parentState) && <p className="my-2 text-xs text-cyan-100/75">
-                {node.parentState === "missing" ? "Parent not found yet. This branch keeps its original reference." : node.parentState === "external" ? "Replies refer to an external context." : "The parent relationship could not be resolved safely."}
-            </p>}
-            {node && ["invalid", "conflict", "unresolved", "budget", "depth-limit"].includes(node.rootState) && <p className="my-2 text-xs text-cyan-100/75">Root context remains unresolved.</p>}
+            <DiscussionContext node={node} parent={parent} parentEvent={parentEvent} parentHints={parentHints} onParent={onParent} compact={compact} parentIsFocus={parentIsFocus} />
             {event ? <><NoteContent text={event.content} tags={event.tags} ownId={event.id} embedQuotes={false} previewLinks={false} />{footer()}</> : <>
                 <p className="my-2 break-words text-sm text-cyan-100/75">{node?.event ? "Content is unavailable in the read cache." : "This referenced note has not been found. Other replies remain available."}</p>
                 {footer()}

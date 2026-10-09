@@ -3,6 +3,7 @@ import { ProfilePromotions, type ProfilePromotionsSnapshot } from "../lib/profil
 
 export function useProfilePromotions(pubkey: string) {
     const [snapshot, setSnapshot] = useState<ProfilePromotionsSnapshot | null>(null);
+    const [generation, setGeneration] = useState(0);
     const handle = useRef<ProfilePromotions | null>(null);
     useEffect(() => {
         let active = true, current: ProfilePromotions | undefined;
@@ -17,6 +18,6 @@ export function useProfilePromotions(pubkey: string) {
             });
         });
         return () => { active = false; current?.close(); handle.current = null; };
-    }, [pubkey]);
-    return { snapshot, loadMore: () => void handle.current?.loadMore() };
+    }, [pubkey, generation]);
+    return { snapshot, refresh: () => setGeneration(value => value + 1), loadMore: () => void handle.current?.loadMore() };
 }

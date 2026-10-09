@@ -372,7 +372,7 @@ body::after {
 /* Restoration spacers must apply immediately, including under reduced motion. */
 .reading-surface [data-board-note], .reading-surface [data-discussion-key] { transition-property: none; }
 .reading-surface[data-reading-restoring] { overflow-anchor: none; }
-.discussion-replies { background: rgb(10 5 24 / 0.88); }
+.discussion-replies { --branch-step: 12px; background: rgb(10 5 24 / 0.88); }
 .discussion-note { min-width: 0; }
 .discussion-note__header { display: flex; min-height: 44px; align-items: center; gap: 8px; }
 .discussion-note__header > a { flex: 1; min-width: 0; }
@@ -382,7 +382,7 @@ body::after {
 .discussion-note-compact {
     position: relative;
     border-bottom: 1px solid rgb(34 211 238 / 0.1);
-    padding: 12px 8px 8px 10px;
+    padding: 8px 8px 4px 10px;
 }
 .discussion-promotion { flex-shrink: 0; font-family: var(--font-pixel); font-size: 10px; color: var(--color-neon-gold); }
 .discussion-note-promoted.discussion-note-compact::before {
@@ -395,6 +395,17 @@ body::after {
     background: rgb(251 191 36 / 0.5);
 }
 .discussion-parent { display: flex; min-width: 0; min-height: 44px; flex-direction: column; justify-content: center; margin-bottom: 4px; font-size: 12px; line-height: 1.5; color: rgb(165 243 252 / 0.6); text-decoration: none; }
+/* Relationship warnings remain visible, with details available on demand. */
+.discussion-context:empty { display: none; }
+.discussion-context-status { font-size: 12px; color: rgb(165 243 252 / 0.75); }
+.discussion-context-status > summary { display: flex; align-items: center; min-height: 44px; gap: 8px; cursor: pointer; color: var(--color-neon-gold); }
+.discussion-context-status > summary::before { content: '+'; font-family: var(--font-pixel); font-size: 10px; }
+.discussion-context-status[open] > summary::before { content: '-'; }
+.discussion-context-status p { margin: 4px 0 8px; }
+@media (max-width: 639px) {
+    .discussion-replies { --branch-step: 8px; }
+    .discussion-note__content { padding-left: 0; }
+}
 .discussion-parent:hover { color: var(--color-neon-cyan); }
 .discussion-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; margin-top: 4px; }
 .discussion-time { margin-left: auto; font-size: 11px; line-height: 1.5; white-space: nowrap; color: rgb(165 243 252 / 0.5); }

@@ -15,11 +15,12 @@ const foreign = finalizeEvent({ kind: 1, created_at: 1700000000, content: "Someo
 const profile = make(JSON.stringify({ name: "fixture", display_name: "Profile author", about: "Public author bio", website: "https://example.com/author", nip05: "claimed@example.com" }), [], 1700000000, 0);
 const fresh = make(JSON.stringify({ name: "fixture", display_name: "Updated author", about: "New outbox metadata", nip05: "claimed@example.com" }), [], 1700000100, 0);
 const list = make("", [["r", "wss://outbox.example.com", "write"], ["r", "wss://inbox.example.com", "read"]], 1700000000, 10002);
-interface Options { block?: boolean; empty?: boolean; outbox?: boolean; metadata?: Event; failWaiting?: boolean; nip05?: "match" | "mismatch" | "unavailable" | "redirect" | "pending" }
+interface Options { selected?: Event; events?: Event[]; block?: boolean; empty?: boolean; outbox?: boolean; metadata?: Event; failWaiting?: boolean; nip05?: "match" | "mismatch" | "unavailable" | "redirect" | "pending" }
 async function setup(context: BrowserContext, page: Page, options: Options = {}) {
     const origin = new URL(test.info().project.use.baseURL!).origin;
     const requests: { relay: string; filter: Record<string, unknown> }[] = [];
     const closed = new Set<string>(), blocked = new Set<string>(), publications: string[] = [], errors: string[] = [];
+    const previewNotes: string[] = [];
     const addressRequests: string[] = [], pendingAddresses: Route[] = [];
     page.on("pageerror", error => errors.push(error.message));
     const entry = (event: Event, rank: number) => ({ id: event.id, event, rank, weight: 200, sats_paid: 210, first_paid_at: 1700000000, last_paid_at: 1700000000 });
@@ -35,12 +36,17 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
         }
         if (url.hostname === "images.example.com") return url.pathname.includes("broken") ? route.abort() : route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="300"><rect width="800" height="300" fill="#164e63"/></svg>' });
         if (url.origin !== "http://127.0.0.1:3334") return route.abort();
+        if (url.pathname === "/api/promote/preview") {
+            const selected = options.selected ?? focus;
+            previewNotes.push(route.request().postDataJSON().note);
+            return route.fulfill({ json: { event: selected, active: true, sats_paid: 210, weight: 200, rank: 1, billboard_fee_sats: 100, images: [], author_share: 20 } });
+        }
         if (url.pathname.includes("waiting-updates")) return route.fulfill({ json: { count: 0, note_ids: [], checked_at: Date.now() } });
         if (url.pathname.includes("campaigns") && url.searchParams.get("view") === "top") {
             if (options.failWaiting) return route.fulfill({ status: 503, body: "unavailable" });
             return route.fulfill({ json: { entries: [entry(waiting, 22)], targets: [], total: 1, active_posts: 22, has_more: false } });
         }
-        return route.fulfill({ json: { entries: [entry(focus, 1), entry(foreign, 2)], targets: [], total: 22, active_posts: 22, has_more: false, posts: 22, total_sats: 420 } });
+        return route.fulfill({ json: { entries: [entry(options.selected ?? focus, 1), entry(foreign, 2)], targets: [], total: 22, active_posts: 22, has_more: false, posts: 22, total_sats: 420 } });
     });
     await context.routeWebSocket("**/*", socket => {
         if (socket.url().startsWith(origin.replace(/^http/, "ws"))) return socket.connectToServer();
@@ -49,14 +55,14 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
             if (msg[0] === "CLOSE") { closed.add(msg[1]); return; }
             if (msg[0] !== "REQ") { publications.push(msg[0]); return; }
             for (const filter of msg.slice(2)) requests.push({ relay: socket.url(), filter });
-            const events = [focus, child, nested, waiting, list];
+            const events = [options.selected ?? focus, child, nested, waiting, list, ...(options.events ?? [])];
             if (!options.empty) events.push(options.metadata ?? (options.outbox && socket.url().includes("outbox.example.com") ? fresh : profile));
             for (const event of events) if (msg.slice(2).some((filter: Parameters<typeof matchFilter>[0]) => matchFilter(filter, event))) socket.send(JSON.stringify(["EVENT", msg[1], event]));
             if (options.block && msg.slice(2).some((filter: { kinds?: number[] }) => filter.kinds?.includes(0))) { blocked.add(msg[1]); return; }
             socket.send(JSON.stringify(["EOSE", msg[1]]));
         });
     });
-    return { requests, closed, blocked, publications, errors, addressRequests, pendingAddresses };
+    return { requests, closed, blocked, publications, errors, addressRequests, pendingAddresses, previewNotes };
 }
 const url = `/profile/${focus.pubkey}`;
 const coverage = (page: Page) => page.getByRole("region", { name: "Profile coverage", exact: true });
@@ -78,6 +84,39 @@ test("profiles remain external and dedicated routes disabled by default", async 
 });
 test.describe("read-only profiles", () => {
     test.skip(!enabled);
+    test("shows adaptive profile cards with quotes and accurate promotion controls", async ({ context, page }, testInfo) => {
+        const quoted = make("Quoted original context");
+        const selected = make("Short profile note with a quote", [["q", quoted.id]]);
+        const fixture = await setup(context, page, { selected, events: [quoted] });
+        await page.goto(url); await settled(page);
+        const card = page.locator(`[data-profile-note="${selected.id}"]`);
+        await expect(card).toContainText(quoted.content);
+        for (const width of [320, 390, 1280]) {
+            await page.setViewportSize({ width, height: 900 });
+            await expect(card.locator(".board-rank")).toHaveAttribute("aria-label", "Rank 1");
+            await expect(card.getByRole("button", { name: "Boost", exact: true })).toBeVisible();
+            await expect(card.getByRole("button", { name: "Note options", exact: true })).toBeVisible();
+            await card.getByRole("button", { name: /counting,.*paid in total/ }).click();
+            await expect(page.getByRole("dialog", { name: "Ranking weight" })).toContainText("210 sats");
+            await page.keyboard.press("Escape");
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+            await card.screenshot({ path: testInfo.outputPath(`profile-card-${width}.png`) });
+        }
+        await card.getByRole("button", { name: "Boost", exact: true }).click();
+        const boost = page.getByRole("dialog", { name: "Boost note", exact: true });
+        await expect(boost).toBeVisible();
+        await expect(boost).toContainText(selected.content);
+        expect(fixture.previewNotes).toEqual([selected.id]);
+        await page.keyboard.press("Escape");
+        await expect(boost).toHaveCount(0);
+        if (discussions) {
+            await card.getByRole("link", { name: "Discussion", exact: true }).click();
+            await expect(page.getByRole("article", { name: "Discussion focus", exact: true })).toContainText(selected.content);
+            await page.getByRole("link", { name: "Back to profile", exact: true }).click();
+            await expect(card).toBeVisible();
+        }
+        expect(fixture.publications).toEqual([]); expect(fixture.errors).toEqual([]);
+    });
     test("keeps identity beside notes on desktop and readable on narrow phones", async ({ context, page }) => {
         const metadata = make(JSON.stringify({ name: "fixture", display_name: "A longer profile author name", about: "A public biography with enough text to wrap on a phone.", banner: "https://images.example.com/banner.png", picture: "https://images.example.com/avatar.png", nip05: "claimed@example.com", lud16: "author@pay.example.com" }), [], 1700000200, 0);
         const fixture = await setup(context, page, { metadata });

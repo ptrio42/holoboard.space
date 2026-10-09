@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ENABLE_DISCUSSIONS, RELAY_URL } from "../config";
+import { RELAY_URL } from "../config";
 import { useProfileRead } from "../hooks/useProfileRead";
 import { useProfilePromotions } from "../hooks/useProfilePromotions";
 import { nostrCache } from "../lib/nostrCache";
@@ -12,19 +12,21 @@ import { ProfileIdentity } from "../components/Profile/ProfileIdentity";
 import { PixelButton } from "../components/ui/PixelButton";
 import { StatusMessage } from "../components/ui/StatusMessage";
 import { NoteExternalLink } from "../components/ui/NoteControls";
-import { DiscussionLink } from "../components/ui/DiscussionLink";
-import { NoteContent } from "../components/TextRenderer/NoteContent";
+import { NoteCard } from "../components/BoardRow/NoteCard";
+import { NDKEvent } from "@nostr-dev-kit/ndk";
+import { ndk } from "../lib/ndk";
 import "./Profile.css";
 
 export default function Profile({ pubkey, hints, from }: { pubkey: string; hints: string[]; from: string }) {
     const { snapshot, error, refresh } = useProfileRead(pubkey, hints);
     const promotions = useProfilePromotions(pubkey);
     const [promote, setPromote] = useState(false);
+    const [promotion, setPromotion] = useState<{ id: string; weight: number }>();
     const [page, setPage] = useState(0);
-    const bodies = useMemo(() => new Map(nostrCache.query({ ids: promotions.snapshot?.entries.map(entry => entry.id) ?? [] }).map(event => [event.id, event])), [promotions.snapshot]);
+    const bodies = useMemo(() => new Map(nostrCache.query({ ids: promotions.snapshot?.entries.map(entry => entry.id) ?? [] }).map(event => [event.id, new NDKEvent(ndk, event)])), [promotions.snapshot]);
     const entries = promotions.snapshot?.entries ?? [];
     const visible = entries.slice(page * 21, (page + 1) * 21);
-    return <BoardLayout section="profile" onPromote={() => setPromote(true)}>
+    return <BoardLayout section="profile" onPromote={() => { setPromotion(undefined); setPromote(true); }}>
         <main id="profile" tabIndex={-1}>
             <div className="profile-page-context"><a href={from} onClick={navigateReading} className="note-action">{readingBackLabel(from)}</a><h2>Profile</h2></div>
             <div className="profile-composition">
@@ -34,12 +36,12 @@ export default function Profile({ pubkey, hints, from }: { pubkey: string; hints
                     <p className="profile-list-subtitle">Active on Holoboard, ordered by board rank.</p>
                     <ul className="profile-note-list">{visible.map(entry => {
                         const event = bodies.get(entry.id);
-                        return <li key={entry.id}><article className="profile-promoted-note" data-profile-note={entry.id}>
-                            <header className="profile-note-metadata"><span className="profile-note-rank">Rank {entry.rank}</span><span aria-label={`${formatSats(entry.weight)} sats counting`}>{formatSats(entry.weight)} sats</span></header>
-                            {event ? <><NoteContent text={event.content} tags={event.tags} ownId={event.id} embedQuotes={false} previewLinks={false} />
-                                <div className="note-footer">{ENABLE_DISCUSSIONS && <DiscussionLink id={event.id} author={event.pubkey} hints={[RELAY_URL]} seed={event} />}<NoteExternalLink href={njumpUrl(event.id, "note", [RELAY_URL], event.pubkey)} /></div>
-                            </> : <><StatusMessage compact>Content is unavailable in the read cache.</StatusMessage><NoteExternalLink href={njumpUrl(entry.id, "note", [RELAY_URL], pubkey)} /></>}
-                        </article></li>;
+                        return <li key={entry.id} data-profile-note={entry.id}>
+                            {event ? <NoteCard event={event} rank={entry.rank} sats={entry.satsPaid} weight={entry.weight}
+                                onPromote={() => { setPromotion({ id: entry.id, weight: entry.weight }); setPromote(true); }} />
+                                : <article className="profile-promoted-note"><p className="mb-2 font-pixel text-[10px] text-neon-gold">Rank {entry.rank}</p>
+                                    <p className="mb-3 text-xs text-cyan-100/75">{formatSats(entry.weight)} sats counting, {formatSats(entry.satsPaid)} sats paid in total</p><StatusMessage compact>Content is unavailable in the read cache.</StatusMessage><NoteExternalLink href={njumpUrl(entry.id, "note", [RELAY_URL], pubkey)} /></article>}
+                        </li>;
                     })}</ul>
                     {entries.length > 21 && <div className="profile-pagination"><PixelButton variant="ghost" disabled={page === 0} onClick={() => setPage(value => value - 1)}>Previous notes</PixelButton><span>Page {page + 1} of {Math.ceil(entries.length / 21)}</span><PixelButton variant="ghost" disabled={(page + 1) * 21 >= entries.length} onClick={() => setPage(value => value + 1)}>Next notes</PixelButton></div>}
                     <div className="profile-promotion-coverage" aria-label="Promotion coverage">
@@ -53,6 +55,6 @@ export default function Profile({ pubkey, hints, from }: { pubkey: string; hints
                 </section>
             </div>
         </main>
-        {promote && <PromoteModal onClose={() => setPromote(false)} />}
+        {promote && <PromoteModal initialReference={promotion?.id} currentWeight={promotion?.weight} onPaid={() => { setPage(0); promotions.refresh(); }} onClose={() => setPromote(false)} />}
     </BoardLayout>;
 }

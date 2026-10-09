@@ -501,8 +501,15 @@ Video uses matching signed [NIP-92 metadata](https://github.com/nostr-protocol/n
 for preview images when available. Billboard animations occupy the text area in
 the same adaptive composition and share its media galleries. They keep a separate
 original-text disclosure in note options. Mentions retain nprofile relay hints
-inside animations as well as ordinary text. Discussion replies and profile notes
-use inline reading with 16px text.
+inside animations as well as ordinary text. Direct discussion focuses and profile
+promotions reuse the adaptive note card, including local text expansion, bounded
+quote and destination previews, rank, current weight, total paid and Boost.
+Profile cards and direct focuses show the original signed note. Board-origin
+focuses preserve the source card's geometry, campaign appearance and expansion.
+Comments keep a lighter row with 16px text. Phone branch steps are 8px, capped at
+four visible levels, and their bodies use the row's full available width. Exact
+parent links remain 44px targets. A visible unresolved-context disclosure groups
+specific relationship warnings without changing or inferring graph relations.
 
 Primary section navigation contains TOP 21 and Waiting room. Expired notes remain
 available in the footer beside Help and GitHub, with a current-page indication

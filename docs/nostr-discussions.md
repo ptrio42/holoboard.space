@@ -365,7 +365,17 @@ A board-origin focus reuses the shared board card at the same width and viewport
 offset, including its source expansion and campaign appearance. Board cards use
 the compact note design with inline ranks, gold ranking amounts, separate Boost
 controls and anchored note options. Only the first rank repeats a TOP label;
-other positions use their number. Ordinary note and reply bodies use 16px text.
+other positions use their number. Direct focuses and profile promotions reuse
+that adaptive card for the original signed body, with bounded quotes and link
+previews. Their rank, weight and paid total come from the backend ledger; an
+unpromoted focus has no invented rank or empty amount row. Its controls support
+reading and replying; Boost requires active backend campaign membership. Profile Boost opens the selected note and
+refreshes author campaign reads after a confirmed payment. Ordinary note bodies
+use a 16px base; adaptive cards may enlarge a short body uniformly. Compact
+comments retain 16px text and separate protocol context from promotion styling.
+Phone branch steps are 8px, capped at four visible levels, with no avatar-column
+padding in the body. Relationship warnings share a visible unresolved-context
+disclosure; the specific warnings remain readable on expansion.
 Boost keeps its lightning stem and 44px hit area, with a smaller arrowhead.
 The discussion shortcut is a stepped speech bubble beside note options in the
 same footer, with the accessible name Discussion. On phones, identity,

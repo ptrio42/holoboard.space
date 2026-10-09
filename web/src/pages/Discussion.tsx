@@ -4,6 +4,8 @@ import type { Event } from "nostr-tools";
 import { NDKEvent } from "@nostr-dev-kit/ndk";
 import { ndk } from "../lib/ndk";
 import { boardPresentation, readingPosition } from "../lib/readingPosition";
+import { NoteCard } from "../components/BoardRow/NoteCard";
+import { DiscussionContext } from "../components/Discussion/DiscussionContext";
 import { BoardRow } from "../components/BoardRow/BoardRow";
 import { useDiscussion } from "../hooks/useDiscussion";
 import { useSatsMap } from "../hooks/useSatsMap";
@@ -65,6 +67,10 @@ export default function Discussion({ focusId, author, hints, from }: { focusId: 
     const projectedKeys = useMemo(() => new Set(projection ? [projection.focus, ...projection.ancestors, ...projection.replies, ...projection.unresolved].map(row => row.key) : []), [projection]);
     // One cache scan per graph update, rather than cloning the cache for each row.
     const bodies = useMemo(() => new Map(snapshot ? nostrCache.query({ ids: [...snapshot.graph.events.keys()] }).map(event => [event.id, event]) : []), [snapshot]);
+    const focusBody = bodies.get(focusId);
+    const focusNote = useMemo(() => focusBody && new NDKEvent(ndk, focusBody), [focusBody]);
+    const focusNode = snapshot?.graph.nodes.get(`event:${focusId}`);
+    const focusParent = focusNode?.parentState === "resolved" && focusNode.parent ? snapshot?.graph.nodes.get(focusNode.parent) : undefined;
     const expanded = useMemo(() => snapshot ? defaultExpansion(snapshot.graph, new Set(reading.collapsed)) : new Set<string>(), [snapshot, reading.collapsed]);
     const coverage = snapshot && discussionCoverage(snapshot);
     const toggle = (key: string) => setReading(value => expanded.has(key)
@@ -92,15 +98,15 @@ export default function Discussion({ focusId, author, hints, from }: { focusId: 
         const parent = node?.parentState === "resolved" && node.parent ? snapshot!.graph.nodes.get(node.parent) : undefined;
         const children = snapshot!.graph.children.get(row.key)?.length ?? 0;
         const depth = Math.min(row.depth, 4);
-        const join = 34;
+        const join = 30;
         return <li key={row.key} id={node?.event ? `discussion-note-${node.event.id}` : undefined} tabIndex={-1} data-discussion-key={row.key}
             className={tree ? "discussion-row relative focus:outline-neon-cyan" : "focus:outline-neon-cyan"}
-            style={{ marginTop: "var(--reading-gap, 0px)", ...(tree ? { paddingLeft: `${depth * 12}px` } : {}) }}>
+            style={{ marginTop: "var(--reading-gap, 0px)", ...(tree ? { paddingLeft: `calc(${depth} * var(--branch-step))` } : {}) }}>
             {tree && <div aria-hidden="true" className="pointer-events-none absolute inset-0">
                 {Array.from({ length: depth }, (_, level) => <span key={level} data-branch-rail
                     className="absolute top-0 w-px bg-cyan-400/25"
-                    style={{ left: level * 12, bottom: nextDepth > level ? 0 : `calc(100% - ${join}px)` }} />)}
-                <span className="absolute h-px w-3 bg-cyan-400/40" style={{ left: (depth - 1) * 12, top: join - 1 }} />
+                    style={{ left: `calc(${level} * var(--branch-step))`, bottom: nextDepth > level ? 0 : `calc(100% - ${join}px)` }} />)}
+                <span className="absolute h-px bg-cyan-400/40" style={{ width: "var(--branch-step)", left: `calc(${depth - 1} * var(--branch-step))`, top: join - 1 }} />
             </div>}
             <DiscussionNote node={node} event={node?.event ? bodies.get(node.event.id) : undefined} focus={row.key === `event:${focusId}`}
                 hints={node?.event ? snapshot?.sources[node.event.id] ?? (node.event.id === focusId ? hints : node.reference.relays) : node?.reference.relays}
@@ -131,7 +137,7 @@ export default function Discussion({ focusId, author, hints, from }: { focusId: 
         </>;
     };
     return <BoardLayout section="discussion" onPromote={() => { setPromotion(undefined); setPromote(true); }}>
-        <main id="discussion" tabIndex={-1} className={handoff ? "" : "mx-auto max-w-3xl"}>
+        <main id="discussion" tabIndex={-1}>
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
                 <a href={from} onClick={navigateReading} className="note-action inline-flex min-h-11 items-center">{readingBackLabel(from)}</a>
                 <h2 className="font-pixel text-xs text-neon-cyan">Discussion</h2>
@@ -139,7 +145,7 @@ export default function Discussion({ focusId, author, hints, from }: { focusId: 
             {error && <div role="alert"><p className="mb-3 text-sm text-neon-pink">Could not open this discussion. Try again.</p><PixelButton onClick={retry}>Try again</PixelButton></div>}
             {!snapshot && !error && !handoff && <StatusMessage loading>Opening discussion...</StatusMessage>}
             {snapshot && projection && <>
-                {projection.ancestors.length > 0 && <section aria-label="Ancestor context" className="mb-5">
+                {projection.ancestors.length > 0 && <section aria-label="Ancestor context" className="mx-auto mb-5 max-w-3xl">
                     <h3 className="mb-3 font-pixel text-[10px] text-cyan-100/75">Earlier context</h3>
                     {projection.ancestors.length > 8 && <button type="button" className="note-action mb-3 inline-flex min-h-11 items-center" aria-expanded={reading.context} onClick={() => setReading(value => ({ ...value, context: !value.context }))}>{reading.context ? "Less context" : `Show earlier context (${projection.ancestors.length - 8})`}</button>}
                     <ul className="space-y-3">{(reading.context ? projection.ancestors : projection.ancestors.slice(-8)).map(row => note(row))}</ul>
@@ -149,10 +155,17 @@ export default function Discussion({ focusId, author, hints, from }: { focusId: 
                 ? <BoardRow event={boardNote} {...handoff.presentation} initiallyExpanded={handoff.origin.expanded}
                     initiallyExpandedTexts={handoff.origin.expandedTexts} readingFocus
                     onPromote={() => { setPromotion({ id: focusId, weight: handoff.presentation.weight }); setPromote(true); }} />
-                : note(projection!.focus)}</ul>}
+                : focusNote ? <li id={`discussion-note-${focusId}`} data-discussion-key={`event:${focusId}`} data-reading-focus={focusId} tabIndex={-1} style={{ marginTop: "var(--reading-gap, 0px)" }}>
+                    <NoteCard event={focusNote} readingFocus showUnknownRank={false} rank={ledger.ranks.get(focusId)} sats={ledger.sats.get(focusId)} weight={ledger.weights.get(focusId)} hints={snapshot?.sources[focusId] ?? hints}
+                        context={<DiscussionContext node={focusNode} parent={focusParent} parentEvent={focusParent?.event ? bodies.get(focusParent.event.id) : undefined}
+                            parentHints={focusParent?.event ? snapshot?.sources[focusParent.event.id] ?? focusParent.reference.relays : undefined}
+                            onParent={focusParent && projectedKeys.has(focusParent.key) ? () => showParent(focusParent.key) : undefined} />}
+                        onReply={ENABLE_REPLY_PUBLICATION ? () => setReplyTo(focusBody) : undefined}
+                        onPromote={ledger.sats.has(focusId) ? () => { setPromotion({ id: focusId, weight: ledger.weights.get(focusId) }); setPromote(true); } : undefined} />
+                </li> : note(projection!.focus)}</ul>}
             {boardNote && handoff && ENABLE_REPLY_PUBLICATION && <button type="button" className="note-action mb-3 inline-flex min-h-11 items-center" disabled={!snapshot}
                 onClick={() => setReplyTo(handoff.seed)}>Reply to note</button>}
-            {snapshot && projection && <div className={handoff ? "mx-auto max-w-3xl" : ""}>
+            {snapshot && projection && <div className="mx-auto max-w-3xl">
                 <section id="discussion-replies" tabIndex={-1} aria-label="Replies" className="scroll-mt-4 focus:outline-none">
                     <h3 className="mb-2 font-pixel text-xs text-neon-cyan">{projection.loadedReplyCount} found {projection.loadedReplyCount === 1 ? "reply" : "replies"}</h3>
                     <p className="mb-4 text-xs text-cyan-100/75">Oldest first within each branch.</p>
