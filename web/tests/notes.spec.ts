@@ -1,6 +1,6 @@
 import { test, expect, type BrowserContext, type Page, type Route } from "@playwright/test";
 import { finalizeEvent, generateSecretKey, type Event } from "nostr-tools/pure";
-import { neventEncode, noteEncode, nprofileEncode } from "nostr-tools/nip19";
+import { naddrEncode, neventEncode, noteEncode, nprofileEncode } from "nostr-tools/nip19";
 
 test.use({ serviceWorkers: "block", reducedMotion: "reduce" });
 const authorKey = generateSecretKey(), quoteKey = generateSecretKey();
@@ -133,13 +133,12 @@ for (const width of [320, 390, 1440]) test(`billboards share the adaptive quote 
     const quote = makeNote("Quoted context. ".repeat(40) + "\n" + [1, 2, 3].map(index => `https://example.com/billboard-photo-${index}.png`).join("\n"), [], quoteKey);
     const row = await setup(context, page, { content: `Signed opening.\nnostr:${noteEncode(quote.id)}`, availableQuotes: [quote] });
     const presentation = row.locator(".note-composition-presentation");
-    const media = row.locator(".note-composition-media");
+    const media = row.locator(".note-composition-quotes");
     const gallery = media.locator(".note-gallery");
     await expect(gallery).toHaveClass(/gallery-portraits/);
     await expect(gallery.getByRole("button")).toHaveCount(3);
     const leadBounds = (await presentation.boundingBox())!, mediaBounds = (await media.boundingBox())!;
-    if (width === 1440) expect(mediaBounds.x).toBeGreaterThanOrEqual(leadBounds.x + leadBounds.width);
-    else expect(mediaBounds.y).toBeGreaterThanOrEqual(leadBounds.y + leadBounds.height);
+    expect(mediaBounds.y).toBeGreaterThanOrEqual(leadBounds.y + leadBounds.height);
     const image = await gallery.locator("img").first().elementHandle();
     const billboard = await presentation.locator(".billboard-screen").elementHandle();
     await media.getByRole("button", { name: "Show more quoted note text", exact: true }).click();
@@ -161,7 +160,8 @@ for (const width of [320, 390, 1440]) test(`billboards share the adaptive quote 
 });
 
 test("plain text and quoted text expand independently before the footer", async ({ context, page }) => {
-    const row = await setup(context, page, { billboard: false, content: "A long paragraph.\n".repeat(24) + `nostr:${noteEncode(quotes[0].id)}` });
+    const quoted = makeNote("Quoted source 1. " + "Context for the original note. ".repeat(40), [], quoteKey);
+    const row = await setup(context, page, { billboard: false, content: "A long paragraph.\n".repeat(24) + `nostr:${noteEncode(quoted.id)}`, availableQuotes: [quoted] });
     const main = row.locator('[data-note-text="main"]');
     const quote = row.locator(".note-quote");
     await expect(quote.locator(".note-quote__excerpt")).toContainText("Quoted source 1");
@@ -559,9 +559,9 @@ test("link cards fit below text beside media and keep one instance across phone 
 
 test("link placement follows late metadata and local text expansion without restarting media", async ({ context, page }) => {
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await page.route("https://example.com/photo.png", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450"><rect width="800" height="450" fill="#164e63"/></svg>' }));
+    await page.route("https://example.com/photo*.png", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1800"><rect width="800" height="1800" fill="#164e63"/></svg>' }));
     const preview: PreviewFixture = { requests: 0, title: "Project details", pending: [] };
-    const row = await setup(context, page, { billboard: false, content: "A long campaign paragraph with useful information. ".repeat(50) + `\nhttps://example.com/project\nhttps://example.com/photo.png\nnostr:${noteEncode(quotes[0].id)}`, preview });
+    const row = await setup(context, page, { billboard: false, content: "A long campaign paragraph with useful information. ".repeat(50) + `\nhttps://example.com/project\nhttps://example.com/photo.png\nhttps://example.com/photo-2.png\nnostr:${noteEncode(quotes[0].id)}`, preview });
     await expect(row.locator(".note-quote__excerpt")).toContainText("Quoted source 1");
     await expect(row.locator(".note-quote__excerpt")).toHaveCSS("font-size", "14px");
     await expect.poll(() => preview.pending!.length).toBe(1);
@@ -569,7 +569,7 @@ test("link placement follows late metadata and local text expansion without rest
     const composition = row.locator(".note-composition");
     await expect(composition).toHaveAttribute("data-link-placement", "text");
     const card = await row.locator(".note-composition > .note-link-container .note-link-preview").elementHandle();
-    const image = await row.locator(".note-composition-media > .note-gallery img").elementHandle();
+    const image = await row.locator(".note-composition-media > .note-gallery img").first().elementHandle();
     const before = await image!.boundingBox();
     const main = row.locator('[data-note-text="main"]');
     await main.getByRole("button", { name: "Show more note text", exact: true }).click();
@@ -667,4 +667,57 @@ test("unsafe markup stays text and hidden links cannot receive focus", async ({ 
     await expect(link).toHaveAttribute("href", "https://example.com/final-destination");
     await link.focus(); await expect(link).toBeFocused();
     expect(await page.evaluate(() => "injected" in window)).toBe(false);
+});
+
+test("mixed article quotes keep their own layout and show shared images once", async ({ context, page }, testInfo) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.route("https://example.com/photo.png", route => route.fulfill({ contentType: "image/svg+xml",
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900"><rect width="1440" height="900" fill="#164e63"/></svg>' }));
+    const quote = makeNote("### Small code. Big ideas.\n\n**Build something useful**, then share it.\n\n" + "Article context. ".repeat(40) +
+        "\n\n![Playground](https://example.com/photo.png)\n\n![Demo](https://example.com/demo.mp4)\n\n[Explore the project](https://example.com/project)", [["d", "project"]], quoteKey, 30023);
+    const preview = { requests: 0, title: "Project destination with useful details. ".repeat(8), description: "A playground for tiny apps. ".repeat(12) };
+    const reference = naddrEncode({ kind: 30023, pubkey: quote.pubkey, identifier: "project" });
+    const row = await setup(context, page, { billboard: false, content: `Introducing a playground for small projects.\nhttps://example.com/photo.png\nnostr:${reference}`,
+        availableQuotes: [quote], preview });
+    const embedded = row.locator(".note-quote");
+    await expect(embedded.locator(".note-quote__excerpt")).toContainText("Small code. Big ideas.");
+    const image = row.locator(".note-gallery img"), video = embedded.locator("video");
+    await expect(image).toHaveCount(1); await expect(video).toHaveCount(1);
+    await expect(embedded.locator("strong").first()).toBeVisible();
+    await expect(embedded.locator(".note-link-preview")).toBeVisible();
+    const imageNode = await image.elementHandle(), videoNode = await video.elementHandle();
+    for (const width of [1280, 390, 320]) {
+        await page.setViewportSize({ width, height: 900 });
+        await expect(async () => {
+            const main = (await row.locator('[data-note-text="main"]').boundingBox())!;
+            const picture = (await image.boundingBox())!, quoted = (await embedded.boundingBox())!;
+            expect(quoted.y).toBeGreaterThanOrEqual(Math.max(main.y + main.height, picture.y + picture.height));
+            expect(quoted.width + 1).toBeGreaterThanOrEqual(picture.width);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        }).toPass();
+        await row.screenshot({ path: testInfo.outputPath(`mixed-article-${width}.png`) });
+        for (const text of await embedded.locator(".note-link-preview .line-clamp-2").all()) {
+            expect(await text.evaluate(node => node.getBoundingClientRect().height <= parseFloat(getComputedStyle(node).lineHeight) * 2 + 1)).toBe(true);
+        }
+    }
+    const excerpt = embedded.locator(".note-quote__excerpt");
+    await excerpt.getByRole("button", { name: "Show more quoted note text", exact: true }).click();
+    await expect(excerpt.getByRole("link", { name: "Explore the project", exact: true })).toHaveAttribute("href", "https://example.com/project");
+    await expect(excerpt).not.toContainText(/###|\*\*|!\[|\]\(/);
+    expect(await imageNode!.evaluate(element => element.isConnected)).toBe(true);
+    expect(await videoNode!.evaluate(element => element.isConnected)).toBe(true);
+    expect(preview.requests).toBe(1);
+});
+
+test("article previews keep unsafe markup inert and ordinary quotes literal", async ({ context, page }) => {
+    const article = makeNote('### Article\n\n<script>window.injected=true</script>\n\n[Unsafe](javascript:alert%281%29)\n\n' + "More article text. ".repeat(30), [], quoteKey, 30023);
+    const plain = makeNote("### Literal heading and **literal emphasis**.", [], quoteKey);
+    const row = await setup(context, page, { billboard: false, content: `Source.\nnostr:${noteEncode(article.id)}\nnostr:${noteEncode(plain.id)}`, availableQuotes: [article, plain] });
+    const quote = row.locator(".note-quote").first();
+    await expect(quote.locator(".note-quote__excerpt")).toContainText("Article");
+    await quote.getByRole("button", { name: "Show more quoted note text", exact: true }).click();
+    await expect(quote.locator("script")).toHaveCount(0);
+    await expect(quote.locator('a[href^="javascript:"]')).toHaveCount(0);
+    expect(await page.evaluate(() => "injected" in window)).toBe(false);
+    await expect(row.locator(".note-quote").last().locator(".note-quote__excerpt")).toContainText("### Literal heading and **literal emphasis**.");
 });

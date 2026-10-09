@@ -1,16 +1,17 @@
-import { useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createElement, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { nip19 } from "@nostr-dev-kit/ndk";
-import type { ContentToken } from "../../utils/textProcessing/parseContent";
+import type { NoteTextToken } from "../../lib/noteTextTokens";
 import { linkLabel } from "../../lib/noteAttachments";
 import { NostrMention } from "./NostrMention";
 
-function inlineToken(token: ContentToken, key: number): ReactNode {
+function inlineToken(token: NoteTextToken, key: number): ReactNode {
     if (token.kind === "text") return token.value;
     if (token.kind === "image" || token.kind === "video") return null;
-    if (token.kind === "link") {
-        const label = linkLabel(token.href);
+    if (token.kind === "link" || token.kind === "article-link") {
+        const label = token.kind === "article-link" ? token.label : linkLabel(token.href);
         return <a key={key} href={token.href} target="_blank" rel="noopener noreferrer nofollow">{label.length > 48 ? `${label.slice(0, 45)}...` : label}</a>;
     }
+    if (token.kind === "formatted") return token.value;
     try {
         const decoded = nip19.decode(token.bech32);
         if (decoded.type === "npub") return <NostrMention key={key} pubkey={decoded.data} />;
@@ -21,9 +22,11 @@ function inlineToken(token: ContentToken, key: number): ReactNode {
 
 /** Measure DOM copies, keeping each mention and its shared profile read mounted once. */
 export function InlineNoteText({ tokens, className = "", complete = false, initiallyExpanded = false, textKey = "main", quoted = false }: {
-    tokens: ContentToken[]; className?: string; complete?: boolean; initiallyExpanded?: boolean; textKey?: string; quoted?: boolean;
+    tokens: NoteTextToken[]; className?: string; complete?: boolean; initiallyExpanded?: boolean; textKey?: string; quoted?: boolean;
 }) {
     const segments = useMemo(() => tokens.flatMap((token, index) => {
+        if (token.kind === "formatted") return (token.value.match(/\S+\s*|\s+/gu) ?? []).map(word =>
+            token.formats.reduceRight<ReactNode>((child, format) => createElement(format, null, child), word));
         const part = inlineToken(token, index);
         return typeof part === "string" ? part.match(/\S+\s*|\s+/gu) ?? [] : part ? [part] : [];
     }), [tokens]);

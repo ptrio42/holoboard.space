@@ -1,5 +1,10 @@
 import type { ContentToken } from "../utils/textProcessing/parseContent";
 
+export type TextFormat = "strong" | "em" | "code" | "del";
+export type NoteTextToken = ContentToken
+    | { kind: "formatted"; value: string; formats: readonly TextFormat[] }
+    | { kind: "article-link"; href: string; label: string };
+
 /** Removed media URLs must not leave empty paragraphs before a gallery. */
 export function noteTextTokens(tokens: ContentToken[]): ContentToken[] {
     const output: ContentToken[] = [];

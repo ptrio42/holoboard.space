@@ -528,8 +528,21 @@ starting below it. Short openings use larger type; all text-only notes use the
 full available width, including their expanded text.
 Complete short text can sit centrally beside taller media while staying aligned
 to the left. Billboards use the same vertical placement. Long text remains at the
-top. Quote text uses 14px type, secondary to the 16px ordinary note body, with
-independent expansion.
+top. Quotes follow the original note's text, media and destination preview at the
+full card width. Each quote lays out its own text and media independently, so a
+tall quote does not stretch the original media column. Quote text uses 14px type,
+secondary to the 16px ordinary note body, with independent expansion. Skip quoted
+media whose exact URL is already displayed by the original note; keep that source
+accessible through its gallery and the quote's external reading link.
+[NIP-23 articles](https://github.com/nostr-protocol/nips/blob/master/23.md) use
+Markdown previews parsed by the pinned `marked` lexer. Render basic formatting,
+lists, code and link labels as React nodes, never generated HTML. Only HTTP(S)
+destinations without credentials can become article links or media. HTML stays
+inert text, and fenced or inline code cannot create media or destination previews.
+Ordinary kind-1 quotes retain their literal text. Article previews use the same
+local expansion, shared galleries, link previews and bounded Nostr reads.
+Link preview titles and descriptions each use at most two lines. Their hostname
+labels use 10px pixel type. Avoid display utilities that override the line clamp.
 When a note contains both media and a destination link, the link preview fits
 under the text if their combined height fits beside the media. Otherwise it
 stays below the media. Placement responds to column width, loaded content and

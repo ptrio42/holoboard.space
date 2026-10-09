@@ -1,12 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { NDKEvent, type NDKFilter } from "@nostr-dev-kit/ndk";
 import { readNostr } from "../../lib/nostrReads";
 import { newerEvent, nostrCache } from "../../lib/nostrCache";
 import { ndk } from "../../lib/ndk";
-import { quoteImages, type NoteQuoteReference } from "../../lib/noteAttachments";
+import { type NoteQuoteReference } from "../../lib/noteAttachments";
 import { parseContent } from "../../utils/textProcessing/parseContent";
 import { videoPoster } from "../../lib/noteMedia";
 import { noteTextTokens } from "../../lib/noteTextTokens";
+import { articlePreview } from "../../lib/articlePreview";
+import { firstPreviewLink } from "../../lib/linkPreview";
+import { useNoteLinkPlacement } from "../../hooks/useNoteLinkPlacement";
 import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
 import { InlineNoteText } from "./InlineNoteText";
 import { NoteMediaGallery } from "./NoteMediaGallery";
@@ -16,7 +19,7 @@ import { NoteExternalLink } from "../ui/NoteControls";
 import { StatusMessage } from "../ui/StatusMessage";
 
 /** One level of quotation only. A quote never imports another ranked row or its animations. */
-export function NoteQuote({ reference, adaptive = false, initiallyExpanded = false, initiallyExpandedTexts = [] }: { reference: NoteQuoteReference; adaptive?: boolean; initiallyExpanded?: boolean; initiallyExpandedTexts?: readonly string[] }) {
+export function NoteQuote({ reference, adaptive = false, initiallyExpanded = false, initiallyExpandedTexts = [], parentMedia = [] }: { reference: NoteQuoteReference; adaptive?: boolean; initiallyExpanded?: boolean; initiallyExpandedTexts?: readonly string[]; parentMedia?: readonly string[] }) {
     // Parents reconstruct references on each board refresh. Request identity must
     // follow the lookup, not the identity of those temporary objects.
     const request = JSON.stringify({
@@ -25,10 +28,10 @@ export function NoteQuote({ reference, adaptive = false, initiallyExpanded = fal
         author: reference.author,
     });
     return <QuotePreview key={request} request={request} href={`https://njump.me/${reference.bech32}`} adaptive={adaptive}
-        initiallyExpanded={initiallyExpanded} initiallyExpandedTexts={initiallyExpandedTexts} />;
+        initiallyExpanded={initiallyExpanded} initiallyExpandedTexts={initiallyExpandedTexts} parentMedia={parentMedia} />;
 }
 
-function QuotePreview({ request, href, adaptive, initiallyExpanded, initiallyExpandedTexts }: { request: string; href: string; adaptive: boolean; initiallyExpanded: boolean; initiallyExpandedTexts: readonly string[] }) {
+function QuotePreview({ request, href, adaptive, initiallyExpanded, initiallyExpandedTexts, parentMedia }: { request: string; href: string; adaptive: boolean; initiallyExpanded: boolean; initiallyExpandedTexts: readonly string[]; parentMedia: readonly string[] }) {
     const container = useRef<HTMLDivElement>(null);
     const [event, setEvent] = useState<NDKEvent | null>(() => {
         const { filter } = JSON.parse(request) as { filter: NDKFilter };
@@ -80,13 +83,8 @@ function QuotePreview({ request, href, adaptive, initiallyExpanded, initiallyExp
                 {event && <UserProfileInline pubkey={event.pubkey} size="compact" />}
                 <NoteExternalLink href={href} label="Open quoted note" className="note-quote-open shrink-0" />
             </div>
-            {event ? <>
-                <QuoteText key={event.id} event={event} initiallyExpanded={initiallyExpanded || initiallyExpandedTexts.includes(`quote:${event.id}`)} textKey={`quote:${event.id}`} />
-                {adaptive ? <NoteMediaGallery images={quoteImages(event.content)} quoted /> : <QuoteMedia images={quoteImages(event.content)} />}
-                {adaptive && parseContent(event.content).flatMap((token, index) => token.kind === "video" ? [<video key={index}
-                    className="note-content-video" src={token.src} poster={videoPoster(event.tags, token.src)} controls playsInline preload="metadata" />] : [])}
-                <NoteLinkPreview text={event.content} />
-            </> : <div className="mt-2">
+            {event ? <QuoteContent key={event.id} event={event} adaptive={adaptive} parentMedia={parentMedia}
+                initiallyExpanded={initiallyExpanded || initiallyExpandedTexts.includes(`quote:${event.id}`)} /> : <div className="mt-2">
                 <StatusMessage compact loading={!unavailable}>
                     {unavailable ? "Preview timed out" : slow ? "Still loading preview..." : "Loading preview..."}
                 </StatusMessage>
@@ -98,9 +96,28 @@ function QuotePreview({ request, href, adaptive, initiallyExpanded, initiallyExp
     );
 }
 
-function QuoteText({ event, initiallyExpanded, textKey }: { event: NDKEvent; initiallyExpanded: boolean; textKey: string }) {
-    const tokens = noteTextTokens(parseContent(event.content).filter(token => token.kind !== "image" && token.kind !== "video"));
-    const length = tokens.reduce((count, token) => count + (token.kind === "text" ? token.value.length : 32), 0);
-    return <InlineNoteText tokens={tokens} className="note-quote__excerpt" complete={length <= 160} quoted
-        initiallyExpanded={initiallyExpanded} textKey={textKey} />;
+function QuoteContent({ event, adaptive, initiallyExpanded, parentMedia }: { event: NDKEvent; adaptive: boolean; initiallyExpanded: boolean; parentMedia: readonly string[] }) {
+    const body = useMemo(() => {
+        if (event.kind === 30023) return articlePreview(event.content);
+        const tokens = parseContent(event.content);
+        return { words: noteTextTokens(tokens.filter(token => token.kind !== "image" && token.kind !== "video")),
+            images: [...new Set(tokens.flatMap(token => token.kind === "image" ? [token.src] : []))],
+            videos: [...new Set(tokens.flatMap(token => token.kind === "video" ? [token.src] : []))], link: firstPreviewLink(event.content) };
+    }, [event.kind, event.content]);
+    const images = body.images.filter(src => !parentMedia.includes(src));
+    const videos = body.videos.filter(src => !parentMedia.includes(src));
+    const visual = !!(images.length || adaptive && videos.length);
+    const length = body.words.reduce((count, token) => count + (token.kind === "text" || token.kind === "formatted" ? token.value.length : 32), 0);
+    const root = useRef<HTMLDivElement>(null);
+    useNoteLinkPlacement(root, adaptive && visual && !!body.link, event.id);
+    return <div ref={root} className={`note-quote-layout note-quote-content${adaptive ? " note-composition--adaptive" : ""}${visual ? " note-composition--media" : ""}${visual || body.link ? "" : " note-composition--text"}`}>
+        <InlineNoteText tokens={body.words} className="note-quote__excerpt" complete={length <= 160} quoted
+            initiallyExpanded={initiallyExpanded} textKey={`quote:${event.id}`} />
+        {visual && <div className="note-quote-media">
+            {adaptive ? <NoteMediaGallery images={images} quoted /> : <QuoteMedia images={images} />}
+            {adaptive && videos.map(src => <video key={src} className="note-content-video" src={src}
+                poster={videoPoster(event.tags, src)} controls playsInline preload="metadata" data-note-block />)}
+        </div>}
+        {body.link && <NoteLinkPreview text={event.content} url={body.link} />}
+    </div>;
 }

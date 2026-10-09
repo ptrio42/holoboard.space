@@ -645,15 +645,16 @@ body::after {
 .note-quote__media-more { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; background: rgb(3 2 8 / 0.62); font-family: var(--font-pixel); font-size: 11px; color: var(--color-neon-cyan); }
 
 /* Adaptive note content keeps text disclosure separate from usable media. */
-.note-composition { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.note-composition-media { display: grid; gap: 12px; min-width: 0; }
-.note-composition-media > .note-quote { margin: 0; }
-.note-composition > .note-link-container .note-link-preview { margin-top: 0; }
+.note-composition, .note-quote-layout { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.note-composition-media, .note-quote-media { display: grid; gap: 12px; min-width: 0; }
+.note-composition-quotes { display: grid; gap: 16px; min-width: 0; }
+.note-composition-quotes > .note-quote { margin: 0; }
+.note-composition > .note-link-container .note-link-preview, .note-quote-layout > .note-link-container .note-link-preview { margin-top: 0; }
 .note-link-measure { position: fixed; left: -10000px; top: 0; visibility: hidden; pointer-events: none; }
 .note-link-measure .note-link-preview { flex-direction: row !important; align-items: center !important; }
 .note-link-measure-image { flex: none; width: 64px; height: 64px; }
 .note-text { --note-lines: 5; min-width: 0; white-space: pre-wrap; font-size: 16px; line-height: 1.65; }
-.note-composition--text > .note-text { --note-lines: 9; }
+.note-composition--text:not(.note-quote-content) > .note-text { --note-lines: 9; }
 .note-text-tail { white-space: nowrap; }
 .note-text-toggle { display: inline-block; min-width: 44px; padding: 0 2px; border: 0; background: transparent; color: var(--color-neon-cyan); font: inherit; text-decoration: underline; text-underline-offset: 3px; vertical-align: baseline; cursor: pointer; }
 .note-text-toggle:hover { color: #a5f3fc; }
@@ -692,15 +693,17 @@ body::after {
 @container row (min-width: 640px) {
     .note-composition--adaptive:not(.note-composition--text) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 45%); grid-template-areas: "text media"; align-items: start; column-gap: 24px; row-gap: 12px; }
     .note-composition--adaptive > :is(.note-text, .note-composition-presentation) { grid-area: text; }
-    .note-composition--adaptive > .note-composition-media { grid-area: media; }
+    .note-composition--adaptive > :is(.note-composition-media, .note-quote-media) { grid-area: media; }
+    .note-composition--adaptive > .note-composition-quotes { grid-column: 1 / -1; }
     .note-composition--adaptive > .note-link-container { grid-area: media; }
     .note-composition--adaptive.note-composition--media:has(> .note-link-container) { grid-template-areas: "text media" "text link"; grid-template-rows: min-content 1fr; }
     .note-composition--adaptive.note-composition--media > .note-link-container { grid-area: link; }
     .note-composition--adaptive.note-composition--media[data-link-placement="text"] { grid-template-areas: "text media" "link media"; grid-template-rows: auto 1fr; }
     .note-composition--adaptive.note-composition--media[data-text-complete="true"]:not(:has(> .note-link-container .note-link-preview)) > :is(.note-text, .note-composition-presentation) { align-self: center; }
     .note-composition--adaptive:not(:has(> .note-text, > .note-composition-presentation)) { display: flex; align-items: stretch; }
+    .note-composition--adaptive:not(.note-composition--media):not(:has(> .note-link-container)) { display: flex; align-items: stretch; }
     .note-composition--adaptive:not(.note-composition--media):has(> .note-link-container[data-preview-state="unavailable"]) { display: flex; align-items: stretch; }
-    .board-note--adaptive .note-composition:not(.note-composition--text) > .note-text { --note-lines: 10; }
+    .board-note--adaptive .note-composition:not(.note-composition--text):not(.note-quote-content) > .note-text { --note-lines: 10; }
     .note-composition--adaptive[data-text-emphasis="brief"] > .note-text { font-size: 22px; }
     .note-composition--adaptive[data-text-emphasis="short"] > .note-text { font-size: 20px; }
     .note-composition--adaptive .note-gallery { --media-height: 288px; }

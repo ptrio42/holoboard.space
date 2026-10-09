@@ -368,7 +368,11 @@ the compact note design with inline ranks, gold ranking amounts, separate Boost
 controls and anchored note options. Only the first rank repeats a TOP label;
 other positions use their number. Direct focuses and profile promotions reuse
 that adaptive card for the original signed body, with bounded quotes and link
-previews. Their rank, weight and paid total come from the backend ledger; an
+previews. Quotes follow the original note at full card width and compose their own
+text, media and link preview. Exact media URLs already displayed in the original
+note are not repeated in its quotes. Markdown previews apply only to NIP-23
+articles; ordinary notes retain their literal text. Card rank, weight and paid
+total come from the backend ledger; an
 unpromoted focus has no invented rank or empty amount row. Its controls support
 reading and replying; Boost requires active backend campaign membership. Profile Boost opens the selected note and
 refreshes author campaign reads after a confirmed payment. Ordinary note bodies

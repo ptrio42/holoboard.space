@@ -6,7 +6,7 @@ export function useNoteLinkPlacement(root: RefObject<HTMLDivElement | null>, ena
         const element = root.current;
         if (!element || !enabled) return;
         const text = element.querySelector<HTMLElement>(":scope > .note-text, :scope > .note-composition-presentation");
-        const media = element.querySelector<HTMLElement>(":scope > .note-composition-media");
+        const media = element.querySelector<HTMLElement>(":scope > .note-composition-media, :scope > .note-quote-media");
         const link = element.querySelector<HTMLElement>(":scope > .note-link-container");
         if (!text || !media || !link) return;
         const fit = () => {

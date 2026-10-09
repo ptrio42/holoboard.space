@@ -339,17 +339,17 @@ test.describe("read-only discussion", () => {
     });
     for (const expanded of [false, true]) test(`keeps fitted link placement in the first discussion frame (${expanded ? "expanded" : "collapsed"})`, async ({ context, page }) => {
         await page.setViewportSize({ width: 1440, height: 900 });
-        await page.route("https://images.example/square.png", route => route.fulfill({
-            contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800"><rect width="800" height="800" fill="#164e63"/></svg>',
+        await page.route("https://images.example/fitted-portrait*.png", route => route.fulfill({
+            contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1800"><rect width="800" height="1800" fill="#164e63"/></svg>',
         }));
         const quoted = make("Known quotation beside the destination card.");
-        const selected = make("Long source body.\n".repeat(20) + "https://images.example/square.png\nhttps://preview.example/page", [["q", quoted.id]]);
+        const selected = make("Long source body.\n".repeat(20) + "https://images.example/fitted-portrait.png\nhttps://images.example/fitted-portrait-2.png\nhttps://preview.example/page", [["q", quoted.id]]);
         await setup(context, page, { focus: selected, events: [quoted], preview: true });
         await page.goto("/");
         const source = page.locator(`[data-board-note="${selected.id}"]`);
         await expect(source.getByText(quoted.content, { exact: true })).toBeVisible();
         await expect(source.getByText("Cached page preview", { exact: true })).toBeVisible();
-        await expect.poll(() => source.locator(".note-gallery img").evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(800);
+        await expect(source.locator(".note-gallery")).toHaveClass(/gallery-portraits/);
         if (expanded) await source.getByRole("button", { name: "Show more note text", exact: true }).click();
         const placement = expanded ? "media" : "text";
         await expect(source.locator(".note-composition")).toHaveAttribute("data-link-placement", placement);

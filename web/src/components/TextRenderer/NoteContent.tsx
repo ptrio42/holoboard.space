@@ -33,9 +33,9 @@ export function NoteContent({ text, tags, ownId, adaptive = false, embedQuotes =
         const length = words.reduce((count, token) => count + (token.kind === "text" ? token.value.length : token.kind === "link" ? Math.min(48, token.href.length) : 16), 0);
         const images = [...new Set(tokens.flatMap(token => token.kind === "image" ? [token.src] : []))];
         const videos = [...new Set(tokens.flatMap(token => token.kind === "video" ? [token.src] : []))];
-        const hasVisualMedia = !!(images.length || videos.length || quotes.length);
+        const hasVisualMedia = !!(images.length || videos.length);
         const hasLink = previewLinks && !!firstPreviewLink(text);
-        return { words: words as ContentToken[], length, images, videos, quotes, hasVisualMedia, hasLink, hasMedia: hasVisualMedia || hasLink };
+        return { words: words as ContentToken[], length, images, videos, quotes, hasVisualMedia, hasLink, hasMedia: hasVisualMedia || hasLink || !!quotes.length };
     }, [text, tagsKey, ownId, embedQuotes, previewLinks]);
     const emphasis = adaptive && content.length <= 100 ? "brief" : adaptive && (content.length <= 160 || !content.hasMedia && content.length <= 280) ? "short" : undefined;
     const complete = adaptive && (content.length <= 220 || !content.hasMedia && content.length <= 280);
@@ -47,9 +47,11 @@ export function NoteContent({ text, tags, ownId, adaptive = false, embedQuotes =
         {content.hasVisualMedia && <div className="note-composition-media">
             <NoteMediaGallery images={content.images} />
             {content.videos.map(src => <video key={src} className="note-content-video" src={src} poster={videoPoster(tags, src)} controls playsInline preload="metadata" data-note-block />)}
-            {content.quotes.map(reference => <NoteQuote key={reference.key} reference={reference} adaptive
-                initiallyExpandedTexts={initiallyExpandedTexts} />)}
         </div>}
         {content.hasLink && <NoteLinkPreview text={text} />}
+        {!!content.quotes.length && <div className="note-composition-quotes">
+            {content.quotes.map(reference => <NoteQuote key={reference.key} reference={reference} adaptive
+                parentMedia={[...content.images, ...content.videos]} initiallyExpandedTexts={initiallyExpandedTexts} />)}
+        </div>}
     </div>;
 }
