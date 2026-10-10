@@ -1212,8 +1212,18 @@ Chromium and WebKit both served the worker response with the origin stopped,
 and both no-worker negative controls failed. The retained legacy-client worker
 compatibility scenario also passed on all three projects.
 
-The visual checkpoint through `838ed85` is integrated and combined local
-reader, source-position, anonymous-payment, PWA and build acceptance is complete.
+The current frontend implementation checkpoint is `4a2bb89`. Focused note and
+navigation acceptance passed 147 browser cases across desktop, Android and
+iPhone emulation, with changed-module lint and native default/read-only builds.
+Reply, upload and signer fixtures retain their separate local evidence. This
+does not close full candidate acceptance: the latest broad unit attempt left
+the retrieval fixture with more than 512 matching events at one timestamp above
+its 60-second deadline, and an isolated retry also timed out. Its cause remains
+unresolved; the confirmed test failure does not yet identify a product defect.
+Diagnose it before approving the reader artifact. Earlier production-origin and
+PWA acceptance applies to its recorded checkpoints and must be refreshed for
+the final release candidate.
+
 The next release-preparation step is a read-only artifact with an explicit source
 and production configuration record, followed by its bounded public-read smoke
 and the frontend-origin checks below. Mock-endpoint acceptance builds are not
