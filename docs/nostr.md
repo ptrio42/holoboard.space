@@ -573,6 +573,11 @@ and display the required nostr.build attribution. Live read-only research
 verified the API shape and loopback CORS; intercepted browser upload tests do
 not establish production upload policies or physical signer compatibility.
 
+Upload fixtures compare authorization hashes with a known local file. Chromium
+also checks the intercepted binary body. The current Playwright WebKit inspector
+can omit XHR `File` bodies, so its upload cases do not independently verify the
+transferred bytes. Keep that tooling limitation distinct from server acceptance.
+
 Browser acceptance uses isolated fixture keys and intercepted relays for NIP-07
 and NIP-46, consent and account changes, promoted middle ancestry, stable-address
 NIP-22 comments, missing context, forged signatures, late approval after closing,

@@ -55,6 +55,10 @@ reviewing board content; ordinary-note comparisons do not exercise that path.
 Include a narrow phone, a normal phone and desktop. Exercise long identifiers,
 missing media, empty results, loading and partial data where they affect the
 surface. Inspect both individual items and a whole list for accumulated height.
+Include multiple quotes with destination previews inside them. Measure loading
+and settled cards separately; nested previews can dominate height even when
+each text block is short. Compare the height savings separately on phones and
+desktop rather than assuming the same improvement on both.
 
 When a decision is open, compare a few materially different compositions while
 holding unrelated typography and controls steady. Explain the tradeoff in
@@ -86,6 +90,9 @@ and unavailable states, width changes and local expansion. Check that fallback
 layouts reclaim unused space while preserving a single live preview and media
 playback. Use inert measurements without media sources so measurement does not
 start reads or image/video requests.
+After changing text clipping or preview density, recheck automatic link placement
+with collapsed and expanded text. A shorter text block can make the same link
+fit beside media; expansion must preserve the live media and preview instances.
 
 Use the shared modal and popover behavior. Verify keyboard ownership, Escape
 and focus return when a viewer or contextual panel opens above another dialog.
@@ -107,6 +114,8 @@ components at the selected widths and relevant states. Test shared controls in
 their other affected callers. Run crypto-heavy unit fixtures separately from
 multi-browser workloads; investigate local contention before extending timeouts.
 Follow documented port and output-directory isolation for concurrent previews.
+When assertions iterate over matched elements, assert their expected count first
+so a changed selector cannot silently leave the checks unperformed.
 
 Return reviewable local changes with their feature base, verification and any
 material limits. For integration handoffs, identify the revision where checks
