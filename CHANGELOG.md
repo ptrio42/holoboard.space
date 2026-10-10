@@ -29,8 +29,10 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Keep invoice QR codes available in already-open tabs after automatic app updates.
 - Use pixel type for loading labels across sign-in, previews, profiles and wallets.
-- Keep large discussions responsive as new replies arrive.
+- Keep large discussions responsive as new replies arrive, and avoid repeated
+  cache writes when history pages overlap.
 - Bring selected invoice QR codes into view above payment controls on narrow screens.
 - Keep billboards in the adaptive note layout with readable quote galleries,
   and use their embedded relay hints to load mentioned profiles.

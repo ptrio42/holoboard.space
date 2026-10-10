@@ -574,7 +574,10 @@ export class DiscussionCoordinator {
             session.receivedBytes += size;
             if (events.size >= 512) { limited = true; return; }
             events.set(event.id, event);
-            if (!work || !this.retain(session, event, work, work.relay, true)) nostrCache.put(event);
+            // Overlapping pages and sources still need verification and coverage,
+            // but an already retained event does not need another cache write.
+            if (!work || (!this.retain(session, event, work, work.relay, true) &&
+                (!session.observed.has(event.id) || !nostrCache.hasRetained(event.id)))) nostrCache.put(event);
             if (session.limitations.has("events")) controller.abort("events");
         };
         try {

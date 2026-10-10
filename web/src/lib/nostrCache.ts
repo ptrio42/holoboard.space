@@ -90,6 +90,8 @@ export class NostrCache {
             .sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id))
             .slice(0, filter.limit ?? MAX_ENTRIES);
     }
+    /** Retention membership only; deletion visibility remains query()'s policy. */
+    hasRetained(id: string): boolean { this.prune(); return this.records.has(id); }
     private scheduleSave() {
         this.dirty = true;
         if (this.timer || !this.db) return;

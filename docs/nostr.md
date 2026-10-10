@@ -35,6 +35,11 @@ expands a saturated timestamp up to 512 events. It reports truncation instead
 of skipping a full timestamp silently. It retains separate exhaustion and
 transport completeness. The common cursor preserves each full relay page's
 unseen range; failed sources require retrying the page before advancing.
+Discussion pages verify overlapping events again and retain each source's
+coverage, but do not rewrite events already admitted to the session and still
+retained in its read cache. An expired or evicted body is cached again when received.
+This avoids repeated cache verification without trusting an event's ID or the
+library's verification flag as proof that an incoming duplicate is valid.
 The discussion normalizer and bounded metadata graph distinguish root claims
 from direct parents for NIP-10/NIP-22, including address and exact-version
 references, missing parents and explicit conflicts. `discussionReads.ts`
@@ -1199,50 +1204,70 @@ HTTP writes and Nostr write/authentication frames. This checks compatibility
 at the observation time, not network-wide reply completeness or live payment
 settlement. Reports omit response bodies and wallet data.
 
-The preparation based on `d681c07` passed eight production API route checks
-(board, four campaign views, waiting updates, expired notes and link preview),
-including CORS and fresh note signatures. A native reader build exercised board,
-discussion and profile reading against the unchanged production backend and
-public relays, without page errors or write attempts. The local worker
-update/rollback check passed on all three browser projects using a committed
-`7cfd9ea` stable source build. It preserves the exact
-saved invoice, wallet link, clipboard/decoded QR and status checks without
-issuing another invoice. An old tab retains its original document after worker
-activation and can still open the saved invoice and QR. Both HTTP servers stop
-during the cached-shell check; an uncached API request must fail. This measures
-server unavailability, not a
-physical device going offline. A separate minimal worker reproduced
-[Playwright 1.63 WebKit's offline-emulation failure](https://github.com/microsoft/playwright/issues/42775);
-Chromium and WebKit both served the worker response with the origin stopped,
-and both no-worker negative controls failed. The retained legacy-client worker
-compatibility scenario also passed on all three projects.
+Candidate acceptance was refreshed after the reply editor, visual integration,
+discussion cache optimization and worker-update fix. Native unit acceptance
+passed 445 tests. Browser acceptance on desktop Chrome, Android-sized Chrome and
+iPhone-sized WebKit includes:
 
-The current frontend implementation checkpoint is `4a2bb89`. Focused note and
-navigation acceptance passed 147 browser cases across desktop, Android and
-iPhone emulation, with changed-module lint and native default/read-only builds.
-Reply, upload and signer fixtures retain their separate local evidence. This
-does not close full candidate acceptance: the latest broad unit attempt left
-the retrieval fixture with more than 512 matching events at one timestamp above
-its 60-second deadline, and an isolated retry also timed out. Its cause remains
-unresolved; the confirmed test failure does not yet identify a product defect.
-Diagnose it before approving the reader artifact. Earlier production-origin and
-PWA acceptance applies to its recorded checkpoints and must be refreshed for
-the final release candidate.
+| Local stage | Passed | Skipped |
+| --- | --- | --- |
+| Default feature gates | 18 | 0 |
+| Discussion, profile and note navigation | 248 | 7 |
+| Enabled account header | 12 | 0 |
+| Payments, wallet and board updates | 408 | 3 |
+| Reply publication and durable outbox fixtures | 69 | 3 |
+| Legacy invoice, reader rollback and enabled Reply PWA | 9 | 0 |
 
-The next release-preparation step is a read-only artifact with an explicit source
-and production configuration record, followed by its bounded public-read smoke
-and the frontend-origin checks below. Mock-endpoint acceptance builds are not
-the final release candidate. Production deployment still requires authorization.
+The skips cover disabled-feature cases exercised by the default stage and one
+WebKit NIP-05 redirect-interception limitation covered by native and Chromium
+checks. No passing stage needed automatic retries. Three native build variants
+(default, readers and enabled signer/reply) passed. The verification runner's
+10 regression tests passed separately; use Python `-B` and do not create source
+outputs while a source-preservation check is active.
 
-Public frontend-origin verification also remains open: the preparation
-environment received Cloudflare HTTP 403 for the site and worker. The backend
-API remained available. This does not establish a general site outage or its
-cause. Confirm the actual Pages deployment/flag configuration, served worker
-and deep-link routing before approval, and check the installed PWA after release.
-Local source rollback tests do not identify the currently hosted Pages artifact.
-Pages configuration changes, production-branch push and deployment still require
-explicit authorization. A Cloudflare Pages frontend release does not require
-starting Docker; enabled container acceptance applies to a container release.
+The timestamp retrieval regression with 513 signed matching replies now passes
+with its original 60-second deadline. Overlapping pages had repeatedly written
+already-retained verified bodies to the cache. The fix preserves fresh signature
+checks, relay provenance and pagination coverage, and restores a body after cache
+expiry or eviction. Read budgets and incompleteness reporting are unchanged.
+
+Worker acceptance exposed a separate confirmed defect: Workbox removed an old
+lazy QR module during activation, and an already-open tab received HTTP 404 when
+opening its saved invoice. The bounded asset archive described in
+[the frontend reference](../web/README.md#check-changes) fixes this update path.
+The PWA scenarios preserve the original invoice, wallet link, clipboard/decoded
+QR, status checks and unsigned Reply draft without issuing another invoice or
+publishing. They use Git-built baselines `56439d7` and `7cfd9ea`, which are not
+identified as the currently deployed Pages artifact. Stopping both local HTTP
+servers checks cached-shell startup, not physical-device offline behavior.
+Expected WebKit native ledger-fetch failures are paired with actual requests
+during that controlled outage; unrelated errors still fail acceptance.
+
+Production-configuration reader and enabled signer/reply variants passed eight
+bounded API-route checks, browser CORS, fresh note signatures, and board,
+discussion and profile reads against the unchanged public backend. The enabled
+variant also opens and previews an unsigned Reply draft. HTTP writes and Nostr
+publication/authentication frames remain blocked in this smoke. Keep a source
+revision, explicit configuration and file-hash record with the selected artifact.
+For the enabled variant, set all four feature flags true explicitly; repository
+defaults remain false and GIF search stays disabled until its provider setup.
+
+Refreshed frontend-origin checks returned HTTP 200 for the site, worker, manifest
+and a discussion deep link, with the expected content types and SPA fallback.
+The earlier Cloudflare 403 did not recur. This does not identify the hosted
+revision or confirm Pages build flags, and an installed-device PWA check remains
+part of deployment verification. Pages configuration changes, production-branch
+push and deployment require explicit authorization. A Pages-only frontend
+release does not require Docker.
+
+The next enabled-release check is explicitly authorized public Reply delivery
+and authenticated media uploads. Use a separate disposable test identity, a
+controlled test root and reply, a public Holoboard icon, at most one upload per
+supported provider, and a zero-sat budget. Verify returned file hashes/URLs and
+independently retrieved reply IDs and relationships. Local upload fixtures and
+user-confirmed basic Amber/extension login do not close those external gates.
+Public events and files may persist; do not publish cleanup events, spend funds
+or add retries beyond the authorized test scope automatically.
 
 Continue implementation and automated verification without waiting for the
 maintainer to provide a device, wallet or manual test session. Pending external

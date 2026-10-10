@@ -134,6 +134,15 @@ class VerificationTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertFalse((self.repo / "reports").exists())
 
+    def test_enabled_rollback_uses_enabled_artifact_only_for_enabled_profiles(self):
+        for profiles, expected in (({"readers"}, False), ({"publication"}, True), ({"payments"}, True)):
+            plan = verify.make_plan(self.repo, self.out, profiles, [], rollback=self.root / "baseline")
+            enabled = [step for step in plan if step["name"] == "pwa-enabled-rollback"]
+            self.assertEqual(bool(enabled), expected)
+            if expected:
+                self.assertEqual(enabled[0]["env"]["HOLOBOARD_ENABLED_DIST"], str(self.out / "builds/enabled"))
+                self.assertEqual(enabled[0]["env"]["VITE_ENABLE_NOSTR_CONNECT"], "false")
+
 
 if __name__ == "__main__":
     unittest.main()

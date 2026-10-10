@@ -126,6 +126,10 @@ def make_plan(repo, output, profiles, changed, legacy=None, rollback=None, upstr
         browser("pwa-reader-rollback", ["tests/pwa.spec.ts"], OFF,
                 ["--grep", "read-only PWA"],
                 {"HOLOBOARD_ROLLBACK_DIST": str(rollback), "HOLOBOARD_READER_DIST": str(output / "builds/readers")})
+        if {"payments", "publication"} & set(profiles):
+            browser("pwa-enabled-rollback", ["tests/pwa.spec.ts"], OFF,
+                    ["--grep", "enabled PWA"],
+                    {"HOLOBOARD_ROLLBACK_DIST": str(rollback), "HOLOBOARD_ENABLED_DIST": str(output / "builds/enabled")})
     return steps
 
 

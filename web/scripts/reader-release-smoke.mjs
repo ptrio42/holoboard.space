@@ -8,6 +8,7 @@ if (process.env.HOLOBOARD_LIVE_READS !== "1") throw new Error("Set HOLOBOARD_LIV
 const apiOrigin = new URL(process.env.HOLOBOARD_API_ORIGIN ?? "https://relay.holoboard.space").href.replace(/\/$/, "");
 const siteOrigin = "https://holoboard.space";
 const previewOrigin = process.env.HOLOBOARD_PREVIEW_ORIGIN;
+const replyReadSmoke = process.env.HOLOBOARD_REPLY_READ_SMOKE === "1";
 if (previewOrigin && !/^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(previewOrigin)) throw new Error("Use a loopback production preview.");
 const report = { started: new Date().toISOString(), apiOrigin, mode: "GET and Nostr reads only", routes: [], browser: null };
 const hex = /^[0-9a-f]{64}$/;
@@ -127,7 +128,20 @@ try {
         await link.click();
         await expect(page.getByRole("article", { name: "Discussion focus", exact: true })).toBeVisible();
         await expect(page.getByRole("region", { name: "Discussion coverage", exact: true })).toHaveAttribute("data-read-state", /^(paused|settled)$/, { timeout: 35000 });
-        await expect(page.getByRole("button", { name: "Reply", exact: true })).toHaveCount(0);
+        if (replyReadSmoke) {
+            // Board handoff keeps its source card unchanged, so its Reply action
+            // lives beside the reply count, outside the focus article.
+            await page.getByRole("region", { name: "Replies", exact: true })
+                .getByRole("heading", { level: 3 }).locator("..")
+                .getByRole("button", { name: "Reply", exact: true }).click();
+            const editor = page.getByRole("dialog", { name: "Reply", exact: true });
+            await expect(editor.getByRole("region", { name: "Reply context" })).toContainText(entry.event.content.slice(0, 1024));
+            await editor.getByRole("textbox", { name: "Reply text" }).fill("Local release verification draft. No signature or publication requested.");
+            await editor.getByRole("tab", { name: "Preview", exact: true }).click();
+            await expect(editor.getByRole("region", { name: "Draft preview" })).toContainText("Local release verification draft.");
+            await editor.getByRole("button", { name: "Close dialog", exact: true }).click();
+            evidence.views.push("enabled unsigned Reply editor and preview");
+        } else await expect(page.getByRole("button", { name: "Reply", exact: true })).toHaveCount(0);
         evidence.views.push("board and seeded discussion");
         await page.goto(`${previewOrigin}/profile/${nprofileEncode({ pubkey: entry.event.pubkey, relays: ["wss://relay.holoboard.space"] })}`);
         await expect(page.getByRole("region", { name: "Author profile", exact: true })).toBeVisible();

@@ -45,6 +45,7 @@ export default defineConfig({
         ],
       },
       workbox: {
+        importScripts: ['preserve-assets.js'],
         cleanupOutdatedCaches: true,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff,woff2}'],
         globIgnores: ['og.png'],
@@ -53,6 +54,17 @@ export default defineConfig({
           /^\/relay(?:\/|$)/,
           /^\/\.well-known\//,
         ],
+        runtimeCaching: [{
+          // Precache routes win for the current build. Only obsolete immutable
+          // modules reach this bounded archive; API responses never enter it.
+          urlPattern: ({ url, sameOrigin }) => sameOrigin &&
+              /^\/assets\/.+-[\w-]+\.(?:js|css|woff2?|svg|png|webp)$/.test(url.pathname),
+          handler: 'CacheOnly',
+          options: {
+            cacheName: 'holoboard-previous-assets-v1',
+            expiration: { maxEntries: 96, maxAgeSeconds: 24 * 60 * 60 },
+          },
+        }],
       },
     }),
   ],

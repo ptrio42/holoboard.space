@@ -74,6 +74,9 @@ mock-backend baselines. `--legacy-dist <path>` adds the old-invoice update check
 fresh read-only build. Identify baseline revisions in the final evidence. Do not
 substitute an arbitrary old build or call a Git baseline the currently deployed
 artifact without deployment evidence.
+With `payments` or `publication` selected, the rollback input also adds an enabled
+PWA check. It preserves anonymous invoices and unsigned reply drafts through
+update, rollback and re-enabling, without connecting a signer or publishing.
 
 For retained-module updates, add `--nostr-upstream <downloaded-module-path>`.
 The existing provenance verifier checks the pinned manifest and patch. Missing

@@ -1384,7 +1384,7 @@ test("header account disconnect preserves its independent payment wallet", async
     await expect(page.getByText("Connected: Test NWC wallet.", { exact: false })).toBeVisible();
     await page.keyboard.press("Escape");
     await connections.getByRole("button", { name: "Sign in", exact: true }).click();
-    await page.getByRole("button", { name: "Connect browser extension", exact: true }).click();
+    await page.getByRole("dialog", { name: "Sign in", exact: true }).getByRole("button", { name: "Browser extension", exact: true }).click();
     await expect(page.getByText("Connected extension:", { exact: false })).toBeVisible();
     await page.keyboard.press("Escape");
     await connections.getByRole("button", { name: "Account: Account", exact: true }).click();

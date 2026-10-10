@@ -21,7 +21,10 @@ describe("verified bounded read cache", () => {
         const candidates = [signed(0, 100, [], '{"name":"one"}'), signed(0, 100, [], '{"name":"two"}')].sort((a, b) => a.id.localeCompare(b.id));
         cache.put(candidates[1]); cache.put(candidates[0]); cache.put(candidates[1]);
         expect(cache.query({ kinds: [0] })[0].id).toBe(candidates[0].id);
+        expect(cache.hasRetained(candidates[0].id)).toBe(true);
+        expect(cache.hasRetained(candidates[1].id)).toBe(false);
         vi.advanceTimersByTime(15 * 60_000 + 1);
+        expect(cache.hasRetained(candidates[0].id)).toBe(false);
         expect(cache.query({ kinds: [0] })).toEqual([]);
     });
     it("honours author-bound deletions and ignores someone else's deletion", () => {
@@ -31,6 +34,7 @@ describe("verified bounded read cache", () => {
         cache.put(foreign); expect(cache.query({ ids: [note.id] })).toHaveLength(1);
         cache.put(signed(5, 102, [["e", note.id]], ""));
         expect(cache.query({ ids: [note.id] })).toEqual([]);
+        expect(cache.hasRetained(note.id)).toBe(true);
     });
     it("bounds retained bytes and rejects oversized events", () => {
         const cache = new NostrCache();

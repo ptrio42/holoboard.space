@@ -116,6 +116,43 @@ describe("Holoboard discussion retrieval", () => {
         expect(result.graph.children.get(`event:${focus.id}`)).toHaveLength(512);
     }, 60_000);
 
+    it("caches overlapping pages once while preserving verified sources and their cursors", async () => {
+        const author = key(); list(author);
+        const focus = note([], 1, author), child = reply(focus);
+        network(new Map([[a, [child]], [b, [child]]]));
+        const put = vi.spyOn(nostrCache, "put");
+        try {
+            const result = await drain(open(new DiscussionCoordinator({ pageSize: 1, maxTargets: 1 }), focus));
+            expect(put.mock.calls.filter(([event]) => event.id === child.id)).toHaveLength(1);
+            expect(result.sources[child.id]).toEqual([a, b]);
+            const coverage = result.coverage.filter(work => work.filter["#e"]);
+            expect(coverage.filter(work => [a, b].includes(work.relay))).toHaveLength(2);
+            expect(coverage.every(work => work.exhausted && work.outcome === "eose")).toBe(true);
+            expect(result.graph.children.get(`event:${focus.id}`)).toEqual([`event:${child.id}`]);
+        } finally { put.mockRestore(); }
+    });
+
+    it("rejects a changed duplicate before adding its relay to the observed sources", async () => {
+        const author = key(); list(author);
+        const focus = note([], 1, author), child = reply(focus);
+        network(new Map([[a, [child]], [b, [{ ...child, content: "changed after signing" }]]]));
+        const result = await drain(open(new DiscussionCoordinator({ maxTargets: 1 }), focus));
+        expect(result.sources[child.id]).toEqual([a]);
+        expect(nostrCache.query({ ids: [child.id] })[0]?.content).toBe(child.content);
+    });
+
+    it("restores an observed reply whose read-cache entry expired before another source delivered it", async () => {
+        const author = key(); list(author);
+        const focus = note([], 1, author), child = reply(focus);
+        network(new Map([[a, [child]], [b, [child]]]), (filter, url) => {
+            if (url === a && filter["#e"]) nostrCache.put(child, Date.now() - 1);
+            return "eose";
+        });
+        const result = await drain(open(new DiscussionCoordinator({ maxTargets: 1 }), focus));
+        expect(result.sources[child.id]).toEqual([a, b]);
+        expect(nostrCache.query({ ids: [child.id] })[0]?.content).toBe(child.content);
+    });
+
     it("fetches an exact old address version through its author's outbox despite a newer cached version", async () => {
         const author = key(), pubkey = getPublicKey(author), outbox = "wss://writer.example.com";
         list(author, [["r", outbox, "write"]]);

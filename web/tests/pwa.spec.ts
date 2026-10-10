@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Request as BrowserRequest } from "@playwright/test";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { resolve, extname } from "node:path";
@@ -14,6 +14,7 @@ const legacyDist = process.env.HOLOBOARD_LEGACY_DIST;
 const currentDist = resolve(process.env.HOLOBOARD_CURRENT_DIST ?? "dist");
 const rollbackDist = process.env.HOLOBOARD_ROLLBACK_DIST;
 const readerDist = process.env.HOLOBOARD_READER_DIST;
+const enabledDist = process.env.HOLOBOARD_ENABLED_DIST;
 const types: Record<string, string> = { ".js": "text/javascript", ".html": "text/html", ".css": "text/css", ".json": "application/json", ".webmanifest": "application/manifest+json", ".woff2": "font/woff2", ".png": "image/png", ".webp": "image/webp", ".svg": "image/svg+xml" };
 
 async function stopServer(server: ReturnType<typeof createServer>) {
@@ -24,13 +25,14 @@ async function stopServer(server: ReturnType<typeof createServer>) {
     });
 }
 
-for (const readerRelease of [false, true]) test(readerRelease
-    ? "read-only PWA update and code rollback preserve the original invoice"
-    : "previous frontend works with current API and PWA updates preserve prepared invoices", async ({ context, page }) => {
+for (const mode of ["legacy", "readers", "enabled"] as const) test(mode !== "legacy"
+    ? `${mode === "enabled" ? "enabled" : "read-only"} PWA update and code rollback preserve the original invoice`
+    : "previous frontend works with current API and PWA updates preserve prepared invoices", async ({ context, page, browserName }) => {
+    const readerRelease = mode !== "legacy", signerRelease = mode === "enabled";
     const previous = readerRelease ? rollbackDist : legacyDist;
-    const candidate = readerRelease ? readerDist : currentDist;
+    const candidate = signerRelease ? enabledDist : readerRelease ? readerDist : currentDist;
     test.skip(!previous || !candidate, readerRelease
-        ? "Set HOLOBOARD_ROLLBACK_DIST and HOLOBOARD_READER_DIST to local-mock production builds."
+        ? `Set HOLOBOARD_ROLLBACK_DIST and HOLOBOARD_${signerRelease ? "ENABLED" : "READER"}_DIST to local-mock production builds.`
         : "Set HOLOBOARD_LEGACY_DIST to a built previous frontend; build the current frontend with the local mock relay.");
     test.setTimeout(readerRelease ? 120000 : 90000);
     let version: "legacy" | "current" = "legacy";
@@ -63,9 +65,9 @@ for (const readerRelease of [false, true]) test(readerRelease
     const requests: Record<string, unknown>[] = [];
     const copiedInvoices: string[] = [];
     const statusRequests: { hash: string | null; note: string | null; method: string | undefined; accept: string | undefined }[] = [];
-    const errors: string[] = [];
+    const errors: Error[] = [];
     const writeFrames: string[] = [];
-    page.on("pageerror", (error) => errors.push(error.message));
+    page.on("pageerror", (error) => errors.push(error));
     const apiServer = createServer(async (req, res) => {
         const url = new URL(req.url ?? "/", "http://localhost");
         res.setHeader("Access-Control-Allow-Origin", "*");
@@ -97,6 +99,14 @@ for (const readerRelease of [false, true]) test(readerRelease
     const apiAddress = apiServer.address();
     if (!apiAddress || typeof apiAddress === "string") throw new Error("No mock API server address");
     const apiOrigin = `http://127.0.0.1:${apiAddress.port}`;
+    const expectedUnavailableRequests = new WeakSet<BrowserRequest>();
+    let unavailableLedgerFailures = 0;
+    context.on("request", request => {
+        if (!apiServer.listening && request.url() === `${apiOrigin}/api/board`) expectedUnavailableRequests.add(request);
+    });
+    context.on("requestfailed", request => {
+        if (expectedUnavailableRequests.has(request)) unavailableLedgerFailures++;
+    });
     await context.exposeFunction("testCopyInvoice", (invoice: string) => { copiedInvoices.push(invoice); });
     await context.addInitScript(() => {
         Object.defineProperty(navigator, "clipboard", {
@@ -155,7 +165,7 @@ for (const readerRelease of [false, true]) test(readerRelease
         const baselinePayment = baselineKey ? await page.evaluate(key => sessionStorage.getItem(key), baselineKey) : null;
         const retained = readerRelease ? await context.newPage() : undefined;
         if (retained) {
-            retained.on("pageerror", error => errors.push(error.message));
+            retained.on("pageerror", error => errors.push(error));
             await retained.addInitScript(({ key, payment }) => {
                 sessionStorage.setItem("holoboard-last-payment", key!);
                 sessionStorage.setItem(key!, payment!);
@@ -186,7 +196,13 @@ for (const readerRelease of [false, true]) test(readerRelease
             await expect(page.getByRole("link", { name: "Discussion", exact: true })).toBeVisible();
             await page.goto(`${origin}/discussion/${neventEncode({ id: note.id, author: note.pubkey, relays: ["ws://127.0.0.1:3334"] })}`);
             await expect(page.getByRole("article", { name: "Discussion focus", exact: true })).toContainText(note.content);
-            await expect(page.getByRole("button", { name: "Reply", exact: true })).toHaveCount(0);
+            if (signerRelease) {
+                await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
+                await page.getByRole("button", { name: "Reply", exact: true }).click();
+                const editor = page.getByRole("dialog", { name: "Reply", exact: true });
+                await editor.getByRole("textbox", { name: "Reply text" }).fill("Preserved unsigned reply draft 😀");
+                await editor.getByRole("button", { name: "Close dialog", exact: true }).click();
+            } else await expect(page.getByRole("button", { name: "Reply", exact: true })).toHaveCount(0);
             await page.goto(`${origin}/profile/${nprofileEncode({ pubkey: note.pubkey, relays: ["ws://127.0.0.1:3334"] })}`);
             await expect(page.getByRole("region", { name: "Author profile", exact: true })).toBeVisible();
             await expect(page.getByRole("button", { name: /Connect Nostr|Nostr signer/ })).toHaveCount(0);
@@ -232,6 +248,11 @@ for (const readerRelease of [false, true]) test(readerRelease
             await page.goto(`${origin}/discussion/${neventEncode({ id: note.id })}`);
             await expect(page.getByRole("region", { name: "Discussion coverage", exact: true })).toHaveCount(0);
             await expect(page.locator("article").first()).toBeVisible();
+            await expect(page.getByRole("button", { name: "Reply", exact: true })).toHaveCount(0);
+            if (signerRelease) {
+                await expect(page.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(0);
+                expect(await page.evaluate(id => JSON.parse(sessionStorage.getItem("holoboard-reply-drafts-v1") ?? "{}")[id], note.id)).toBe("Preserved unsigned reply draft 😀");
+            }
             await page.getByRole("button", { name: "Boost", exact: true }).first().click();
             await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", `lightning:${invoice}`);
             expect(await page.evaluate(key => sessionStorage.getItem(key!), saved)).toBe(before);
@@ -244,11 +265,32 @@ for (const readerRelease of [false, true]) test(readerRelease
         await expect(qr).toBeVisible();
         const png = PNG.sync.read(await qr.screenshot());
         expect(jsQR(new Uint8ClampedArray(png.data), png.width, png.height)?.data.toLowerCase()).toBe(invoice);
+        if (signerRelease) {
+            version = "current";
+            await updateWorker();
+            await page.goto(`${origin}/discussion/${note.id}`);
+            await page.getByRole("button", { name: "Reply", exact: true }).click();
+            const editor = page.getByRole("dialog", { name: "Reply", exact: true });
+            await expect(editor.getByRole("textbox", { name: "Reply text" })).toHaveValue("Preserved unsigned reply draft 😀");
+            await editor.getByRole("button", { name: "Close dialog", exact: true }).click();
+            expect(requests).toHaveLength(1);
+        }
         const api = await page.goto(`${origin}/api/promote/status?payment_hash=example`);
         expect(api?.status()).toBe(418);
         expect(await api?.json()).toEqual({ error: "API navigation reached the server" });
         expect(writeFrames).toEqual([]);
-        expect(errors).toEqual([]);
+        // WebKit can report a caught native fetch failure as pageerror. Accept
+        // only the exact ledger transport error paired with a failed request
+        // that started while this test intentionally stopped the API server.
+        const unexpected = errors.filter(error => {
+            if (browserName === "webkit" && unavailableLedgerFailures > 0 &&
+                error.stack?.startsWith(`Fetch API cannot load ${apiOrigin}/api/board due to access control checks.\n`)) {
+                unavailableLedgerFailures--;
+                return false;
+            }
+            return true;
+        });
+        expect(unexpected.map(error => error.message)).toEqual([]);
     } finally {
         await page.goto("about:blank");
         await stopServer(apiServer);

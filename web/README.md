@@ -59,6 +59,19 @@ the web app manifest and service worker. Preview the production build to test
 installation and offline startup, because the service worker is disabled in
 development.
 
+Automatic worker updates preserve immutable modules needed by existing tabs,
+including a QR generator that was not loaded before the update. Workbox normally
+[removes obsolete precache entries during activation](https://developer.chrome.com/docs/workbox/modules/workbox-precaching).
+The install hook copies only this application's hashed assets to a separate
+archive. Its steady-state limits are 96 entries and 12 MiB, with a 24-hour
+availability window; copying can temporarily use 24 MiB. These limits are
+additional to the current build's precache. An oversized generation prevents
+worker installation instead of activating an incomplete archive. API responses,
+HTML shells, invoices and other worker scopes are excluded. Expired modules
+require reloading the tab. Rolling back to an older worker also restores its
+original asset policy; prefer a disabled-feature build containing this fix when
+rollback must preserve lazy modules in still-open tabs.
+
 Browser payment tests use local HTTP and WebSocket mocks, generated test keys,
 and no real wallets or funds. They cover desktop Chrome, Android-sized Chrome
 and iPhone-sized WebKit:
@@ -135,6 +148,16 @@ servers stopped. It does not emulate a physical device's loss of connectivity.
 Playwright 1.63 WebKit's `setOffline` rejects even literal worker responses;
 the server-unavailability check retains coverage on all three browser projects.
 See the [upstream issue](https://github.com/microsoft/playwright/issues/42775).
+The outage check also distinguishes WebKit's native ledger-fetch transport
+message from application exceptions. It accepts that exact message only when
+paired with an actual failed request started while the mock API was stopped.
+
+For an enabled signer/reply release, also build the candidate with all four flags
+enabled. Set `HOLOBOARD_ENABLED_DIST` to that mock-endpoint build and select
+`--grep 'enabled PWA'`. This checks the original anonymous invoice and an unsigned
+reply draft through update, rollback and re-enabling. It does not connect a signer,
+publish or upload. The verification runner adds this check when a rollback baseline
+and the payments or publication profile are selected.
 
 `HOLOBOARD_LIVE_READS=1 npm run test:reader-release` checks the public production
 API contract, CORS and fresh note signatures with bounded GET requests. To also
@@ -142,6 +165,9 @@ exercise a production build with real public reads, serve it on loopback and
 set `HOLOBOARD_PREVIEW_ORIGIN=http://127.0.0.1:4293`. Its compiled API and relay
 origins must point to production. The smoke blocks HTTP writes, Nostr publication
 and authentication frames, and checks board, discussion and profile reading.
+For a compiled build with signer/reply flags enabled, set
+`HOLOBOARD_REPLY_READ_SMOKE=1` to also open and preview an unsigned reply draft.
+The same write restrictions remain in effect.
 Set `HOLOBOARD_SMOKE_REPORT` to retain its JSON report outside the checkout.
 No invoice is created and no payment or public publication is performed.
 See the [read-only release contract](../docs/nostr.md#read-only-frontend-release)
