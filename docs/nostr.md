@@ -681,11 +681,15 @@ Keep `VITE_ENABLE_NOSTR_CONNECT` disabled by default until the signer release
 passes its own acceptance checks. Reading and anonymous invoice payments remain
 available independently of signer support.
 
-Reported Amber connection failures need reproduction; their cause is not yet
-established. Current code exposes a browser extension and NIP-46 remote flows,
+On 2026-10-10, ptrio42 reported successful sign-in with Amber and a browser
+extension after the fixes. This is actual-environment evidence for basic login;
+the pairing method, device, browser and signer versions have not yet been
+recorded. Signing, public reply delivery and uploads were not reported as tested.
+Current code exposes a browser extension and NIP-46 remote flows,
 including `nostrconnect://` and pasted `bunker://` strings. Both remote connection
 paths request `sign_event:9734` (zap requests) by default. Opting into the reply
-editor also requests `sign_event:1` and `sign_event:1111`, using the optional
+editor also requests `sign_event:1` and `sign_event:1111`, plus upload
+authorization kinds `sign_event:24242` and `sign_event:27235`, using the optional
 [NIP-46 permissions](https://github.com/nostr-protocol/nips/blob/master/46.md).
 Restored zap-only sessions require explicit reconnection to request the new scope;
 restoration cannot silently expand it. This earlier scope limitation does not
@@ -796,7 +800,7 @@ current here; keep detailed discussion semantics in
 | Discussion retrieval | Implemented and locally verified; consumed by the opt-in reading screen. | Bounded discovery and missing-parent retrieval, cancellation, pagination and honest per-relay coverage, feeding the shared relation engine. |
 | Discussion reading | Read-only screen implemented behind `VITE_ENABLE_DISCUSSIONS`, disabled by default. | Original-item focus, paid/unpaid branches expanded by default, exact-parent previews and navigation, grouped source coverage, unresolved context, bounded display pages and local browser navigation checks. |
 | Profile reading | Read-only screen implemented and locally verified behind `VITE_ENABLE_PROFILES`, disabled by default. | Shared bounded metadata reads, explicit freshness/source outcomes, verified active campaign membership, discussion return navigation and selected public-relay reads. |
-| Signer compatibility | Local signer boundaries hardened and protocol fixtures verified; disabled by default. Physical Amber failures unresolved. | Fresh signature/template checks, connection-generation ownership, both NIP-46 initiation methods, bounded request lifetimes and validated relay changes. Device/environment matrix remains open. |
+| Signer compatibility | Local signer boundaries hardened and protocol fixtures verified; disabled by default. ptrio42 reports successful actual Amber and browser-extension login. | Fresh signature/template checks, connection-generation ownership, both NIP-46 initiation methods, bounded request lifetimes and validated relay changes. Record the successful login environments; broader device and publishing checks remain open. |
 | User-authored publication | Structural preparation, bounded routing, durable browser outbox and opt-in reply editor implemented; disabled by default. | Signed graph round trips, explicit account/destination consent, durable checkpoints before sending, exact-ID retry, per-relay acknowledgement, cancellation, native IndexedDB reload/failure and separate-tab concurrency. Physical signer and public propagation acceptance remain. |
 
 Keep stages reviewable and independently releasable where their dependencies
@@ -933,10 +937,11 @@ with physical wire counters and retained Chromium heap measurements. Their scope
 commands and measured limits are below. They do not prove complete discovery,
 public propagation or universal absence of memory leaks.
 
-Remaining release gates are physical signer compatibility, deliberate public
+Remaining release gates are broader signer/device acceptance, deliberate public
 propagation/interoperability checks and deployment-origin/installed-PWA checks.
-Reported Amber failures still need device reproduction; protocol fixtures do not
-establish their cause. Live-wallet behavior remains separate from mocked payment
+Basic Amber and browser-extension login has actual user-reported confirmation;
+signing, rejection/recovery and other pairing methods retain their own acceptance.
+Live-wallet behavior remains separate from mocked payment
 regressions. Direct NIP-55 support and deletion/moderation discovery remain
 separate features. NIP-05 verification belongs to the opt-in profile reader,
 not the implemented reply editor.
@@ -1149,7 +1154,7 @@ interoperability checks.
 | --- | --- |
 | Frontend with all new features disabled | Combined-base board, promotion and anonymous-payment regressions; production build without the reply editor chunk; target API route checks and PWA update/rollback checks. No signer/device acceptance is implied. |
 | Read-only discussions and profiles | Reading flags enabled with signer and reply flags disabled; combined-base relation, cancellation, navigation and profile acceptance; target-origin checks. Physical signer acceptance is not a dependency of reading. |
-| Signer support | The actual device/environment matrix below, including Amber reproduction and a second independent remote signer. Connection approval alone does not authorize publication or payment. |
+| Signer support | Record the environments for the successful Amber and browser-extension logins and complete the supported device/method matrix below, including a second independent remote signer. Connection approval alone does not authorize publication or payment. |
 | User-authored replies | Signer acceptance plus explicit destination/account consent, durable exact-ID recovery and independently observed public reply relationships. |
 | Migrated backend | Combined-base Go race and historical-ledger compatibility checks, container startup/restart/shutdown evidence, controlled DM/payment/account-publication interoperability, and preservation of the production identity, volume and current ledger. Frontend flags cannot waive this gate. |
 
@@ -1249,8 +1254,9 @@ Keep release evidence scoped to what was exercised. Local DM and NWC tests do
 not establish interoperability with an independent client or a live wallet.
 Before releasing the migrated backend, retain the passing container acceptance
 and complete controlled interoperability checks for existing DM, payment and
-publication flows. Amber device checks gate the signer release; signer entry points remain
-disabled in the meantime. Record unavailable checks as open release gates,
+publication flows. Actual signer checks must cover the enabled publishing actions;
+signer defaults remain disabled until release acceptance is complete. Record
+unavailable checks as open release gates,
 without marking them passed or assigning routine verification to the maintainer.
 
 Keep the remaining gates separate so a frontend release with disabled features
