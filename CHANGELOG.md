@@ -29,6 +29,8 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Complete queued nostrcheck.me uploads before adding their final media metadata,
+  and support Primal's deployed upload authorization encoding.
 - Keep invoice QR codes available in already-open tabs after automatic app updates.
 - Use pixel type for loading labels across sign-in, previews, profiles and wallets.
 - Keep large discussions responsive as new replies arrive, and avoid repeated

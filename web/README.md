@@ -193,6 +193,9 @@ the reply is published; no automatic payment or fallback upload occurs. Local
 files are limited to 20 MiB each, eight attachments and 40 MiB selected in total.
 Uploaded URLs and descriptions restore with the draft; unuploaded files stay
 only until the editor closes. Signing and publishing remain separate steps.
+Queued nostrcheck.me uploads wait for completed metadata through bounded,
+authenticated status reads, without repeating the file transfer. Primal uses
+its deployed legacy authorization encoding; other Blossom servers use BUD-11.
 See the [reply and media contract](../docs/nostr.md#reply-editor) for permissions,
 metadata, cancellation and provider compatibility limits.
 

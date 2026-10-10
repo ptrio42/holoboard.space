@@ -547,13 +547,31 @@ the full operation 150 seconds, and JSON responses are bounded to 64 KiB.
 [BUD-11](https://github.com/hzrd149/blossom/blob/master/buds/11.md) authorization
 uses kind 24242, the exact SHA-256 file hash, server domain and a five-minute
 expiration. NIP-96 uses kind 27235 HTTP authorization for the discovered URL,
-POST method and original file hash. These events go only to the chosen HTTP
+POST method and original file hash. Queued NIP-96 uploads use a separate GET
+authorization scoped to the exact processing URL on the advertised API origin.
+At most eight status reads, spaced two seconds apart, request fresh GET signatures
+within the existing operation deadline. nostrcheck.me rejects reuse of a token
+with HTTP 401, so each read may require signer approval. Approval taking 45 seconds
+or more stops the read before sending its stale token. Redirects, changed
+processing URLs, payment requests and cross-origin processing stop the flow.
+Only completed metadata enters the draft; a processing timeout preserves the
+uncertain upload outcome without repeating its file transfer.
+These events go only to the chosen HTTP
 server. New opt-in remote sessions request these two upload kinds; restored
 sessions without saved media permissions require explicit reconnection and
 cannot silently gain them. Closing or changing accounts stops upload ownership;
 a late signature cannot send a file or edit a closed draft. Cancelling a request
 does not establish whether the server received its bytes. Paid-server responses
 stop the flow without issuing or paying an invoice.
+
+Primal currently requires padded standard Base64 authorization, whereas current
+BUD-11 requires unpadded Base64url. An explicit compatibility rule applies only
+to `https://blossom.primal.net`; other Blossom origins keep BUD-11 encoding.
+This matches the provider's [decoder implementation](https://github.com/PrimalHQ/primal-blossom-server/blob/main/src/lib.rs)
+and a controlled read comparison: the same signed list token returned HTTP 400
+with Base64url and HTTP 200 with standard Base64. Its error response omitted
+CORS headers, hiding the reason behind a browser network error. A browser HEAD
+check accepted the compatible encoding. No encoding fallback repeats an upload.
 
 Blossom descriptors must match the local file hash and size. NIP-96 descriptors
 must match its original hash; transformed file metadata remains distinct. This
@@ -1215,7 +1233,7 @@ iPhone-sized WebKit includes:
 | Discussion, profile and note navigation | 248 | 7 |
 | Enabled account header | 12 | 0 |
 | Payments, wallet and board updates | 408 | 3 |
-| Reply publication and durable outbox fixtures | 69 | 3 |
+| Reply publication and durable outbox fixtures | 72 | 3 |
 | Legacy invoice, reader rollback and enabled Reply PWA | 9 | 0 |
 
 The skips cover disabled-feature cases exercised by the default stage and one
@@ -1224,6 +1242,13 @@ checks. No passing stage needed automatic retries. Three native build variants
 (default, readers and enabled signer/reply) passed. The verification runner's
 10 regression tests passed separately; use Python `-B` and do not create source
 outputs while a source-preservation check is active.
+
+After the media compatibility corrections, all 453 native unit tests, changed
+TypeScript lint and default/enabled builds passed. The affected upload paths
+passed 18 browser cases across desktop Chrome, Android Chrome and phone WebKit.
+Three additional queued-processing checks passed after making GET tokens
+single-use. These targeted reruns cover the changed upload behavior; they do
+not represent another full payment, reader or PWA acceptance run.
 
 The timestamp retrieval regression with 513 signed matching replies now passes
 with its original 60-second deadline. Overlapping pages had repeatedly written
@@ -1260,14 +1285,29 @@ part of deployment verification. Pages configuration changes, production-branch
 push and deployment require explicit authorization. A Pages-only frontend
 release does not require Docker.
 
-The next enabled-release check is explicitly authorized public Reply delivery
-and authenticated media uploads. Use a separate disposable test identity, a
-controlled test root and reply, a public Holoboard icon, at most one upload per
-supported provider, and a zero-sat budget. Verify returned file hashes/URLs and
-independently retrieved reply IDs and relationships. Local upload fixtures and
-user-confirmed basic Amber/extension login do not close those external gates.
-Public events and files may persist; do not publish cleanup events, spend funds
-or add retries beyond the authorized test scope automatically.
+Controlled live acceptance on `7444229` published one test root and one direct
+Reply from the actual editor, using a disposable identity and zero sats. All
+five selected public relays accepted both events. An independent Go client
+retrieved both from every relay and verified their IDs, signatures and direct
+reply relationship. nostr.build returned HTTP 201; its hosted PNG matched the
+498-byte source and SHA-256, and appeared in the discussion after reload.
+The original browser harness omitted the provider's returned `blossom.band`
+hostname and blocked two image GETs. A corrected read-only check loaded the
+image with no blocked writes; distinguish this harness failure from delivery.
+
+One authorized upload per provider also exposed two compatibility gaps. Primal's
+Base64 decoding failure is addressed by the origin-specific rule above, but
+another actual PUT has not been performed. nostrcheck.me accepted the upload with
+HTTP 202; the old adapter rejected its processing URL. The queued-processing
+adapter now reads completed metadata. Replaying the recorded POST response and
+performing a real authenticated GET for that existing job returned the final
+WebP metadata without another transfer. The hosted 464-byte WebP matched its
+reported transformed SHA-256 and preserved the original hash separately.
+Local and browser fixtures cover queued processing, cancellation, bounded reads,
+single-use tokens and safe destinations. Fresh full uploads after these corrections,
+live partial-delivery recovery and physical signer publishing remain open gates.
+Public events and files may persist; cleanup events, spending and additional
+uploads or publication beyond the approved scope require separate authorization.
 
 Continue implementation and automated verification without waiting for the
 maintainer to provide a device, wallet or manual test session. Pending external
@@ -1292,7 +1332,7 @@ migrated-backend acceptance:
 | --- | --- | --- |
 | Container release | `npm run test:release-containers` from `web/` builds both backend targets, exercises real Compose/nginx/API/WebSocket paths and mock-invoice restart retention, and checks the disabled frontend plus opt-in Compose arguments. Add `-- --with-features` for an enabled container release. | Deployment-origin health, unchanged production identity and ledger, installed-PWA update and rollback readiness. |
 | Signers | Existing extension/NIP-46 fixtures cover pairing methods, signatures, cancellation, account changes, permissions and restoration. Keep every feature flag false by default. | Record OS, browser and signer versions for same-phone Amber handoff/return, desktop-to-phone QR, pasted bunker pairing, rejection and reconnect; include a second independent remote signer and supported desktop extension. |
-| Public delivery | Durable outbox, exact-ID retries and per-relay outcomes are locally exercised without public writes. | Explicitly authorized publication, retrieval through an independent client and verification of reply relationships and partial-delivery recovery. |
+| Public delivery | Durable outbox, exact-ID retries and per-relay outcomes are locally exercised. A controlled editor Reply was accepted and independently retrieved with verified relationships from five public relays. | Live partial-delivery recovery, fresh provider uploads after compatibility corrections and physical signer publishing. |
 | Payments and DMs | Isolated protocol and recovery fixtures, plus anonymous mock-invoice container checks. | Independent-client DM exchange and live-wallet settlement within an explicitly approved recipient and spending budget. |
 
 Record connection approval and event-publication approval separately. Device

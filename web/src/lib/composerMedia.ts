@@ -31,9 +31,12 @@ export function attachmentTags(attachments: readonly ComposerAttachment[], conte
             ...(item.size === undefined ? [] : [`size ${item.size}`]), ...(item.alt.trim() ? [`alt ${item.alt.trim()}`] : [])];
     });
 }
-const authorization = (event: Event, blossom: boolean) => {
+const authorization = (event: Event, blossom: boolean, serverOrigin?: string) => {
     const raw = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(event))));
-    return `Nostr ${blossom ? raw.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") : raw}`;
+    // Primal's deployed decoder still requires padded standard Base64.
+    // Keep this origin-specific compatibility rule separate from BUD-11.
+    const urlSafe = blossom && serverOrigin !== "https://blossom.primal.net";
+    return `Nostr ${urlSafe ? raw.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") : raw}`;
 };
 export async function readMediaJson(response: Response, maximum = 65536): Promise<unknown> {
     if (!response.ok) throw new Error(response.status === 402 ? "This server requires payment. Choose another server." : `Media server returned HTTP ${response.status}.`);
@@ -75,6 +78,45 @@ function transfer(url: string, method: string, body: File | FormData, headers: R
 }
 /** One explicit upload, no fallback, mirroring, publication or payment. */
 let uploadActive = false;
+interface Nip96Response { status?: string; processing_url?: unknown; payment_request?: unknown; nip94_event?: { tags?: string[][] } }
+const processingError = () => new Error("File processing did not finish. The file may already be on the server; your draft is preserved.");
+function processingDelay(signal: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const abort = () => { clearTimeout(timer); signal.removeEventListener("abort", abort); reject(processingError()); };
+        const timer = setTimeout(() => { signal.removeEventListener("abort", abort); resolve(); }, 2000);
+        signal.addEventListener("abort", abort, { once: true });
+        if (signal.aborted) abort();
+    });
+}
+async function finishNip96Processing(result: Nip96Response, endpoint: string, sign: (template: EventTemplate) => Promise<Event>, signal: AbortSignal): Promise<Nip96Response> {
+    const requireFree = (response: Nip96Response) => {
+        if (typeof response.payment_request === "string" && response.payment_request.trim()) throw new Error("This server requires payment. Choose another server.");
+    };
+    requireFree(result);
+    if (!result.processing_url) return result;
+    if (result.status !== "success") throw new Error("File processing failed. Your draft is preserved.");
+    if (typeof result.processing_url !== "string") throw new Error("The server returned an invalid processing URL.");
+    const url = mediaUrl(result.processing_url);
+    if (new URL(url).origin !== new URL(endpoint).origin) throw new Error("The server advertised processing on a different origin. Upload was stopped.");
+    for (let attempt = 0; attempt < 8; attempt++) {
+        if (signal.aborted) throw processingError();
+        // nostrcheck.me consumes HTTP tokens once. Each later read needs a fresh
+        // signature; the delay also separates their second-based event IDs.
+        const created_at = Math.floor(Date.now() / 1000);
+        const auth = await sign({ kind: 27235, created_at, content: "", tags: [["u", url], ["method", "GET"]] });
+        if (signal.aborted || Math.floor(Date.now() / 1000) - created_at >= 45) throw processingError();
+        const response = await readMediaJson(await fetch(url, { method: "GET", headers: { Authorization: authorization(auth, false) },
+            signal, credentials: "omit", redirect: "error", referrerPolicy: "no-referrer" })) as Nip96Response;
+        if (signal.aborted) throw processingError();
+        if (!response || typeof response !== "object") throw new Error("The server returned invalid processing metadata.");
+        requireFree(response);
+        if (response.processing_url && response.processing_url !== url) throw new Error("The server changed the processing URL. Upload was stopped.");
+        if (response.status === "success" && !response.processing_url) return response;
+        if (response.status !== "processing" && !(response.status === "success" && response.processing_url === url)) throw new Error("File processing failed. Your draft is preserved.");
+        if (attempt < 7) await processingDelay(signal);
+    }
+    throw processingError();
+}
 export async function uploadMedia(file: File, server: MediaServer, sign: (template: EventTemplate) => Promise<Event>, signal: AbortSignal, progress: (value: number) => void): Promise<ComposerAttachment> {
     if (uploadActive) throw new Error("Another file upload is already active.");
     uploadActive = true;
@@ -109,7 +151,7 @@ async function performUpload(file: File, server: MediaServer, sign: (template: E
     requireActive();
     const form = new FormData(); form.append("file", file); form.append("size", String(file.size)); form.append("content_type", file.type || "application/octet-stream");
     const result = await transfer(endpoint, blossom ? "PUT" : "POST", blossom ? file : form,
-        { Authorization: authorization(auth, blossom), ...(blossom ? { "Content-Type": file.type || "application/octet-stream", "X-SHA-256": hash } : {}) }, bounded, progress);
+        { Authorization: authorization(auth, blossom, origin.origin), ...(blossom ? { "Content-Type": file.type || "application/octet-stream", "X-SHA-256": hash } : {}) }, bounded, progress);
     requireActive();
     if (!result || typeof result !== "object") throw new Error("The server did not return file metadata.");
     let attachment: ComposerAttachment;
@@ -118,7 +160,8 @@ async function performUpload(file: File, server: MediaServer, sign: (template: E
         if (blob.sha256 !== hash || blob.size !== file.size || typeof blob.url !== "string") throw new Error("The uploaded file's hash or size does not match. The URL was not added.");
         attachment = { url: mediaUrl(blob.url), sha256: hash, size: file.size, type: file.type || "application/octet-stream", alt: "" };
     } else {
-        const response = result as { status?: string; processing_url?: string; nip94_event?: { tags?: string[][] } };
+        const response = await finishNip96Processing(result as Nip96Response, endpoint, sign, bounded);
+        requireActive();
         const tags = response.nip94_event?.tags;
         const tag = (key: string) => tags?.find(value => Array.isArray(value) && value[0] === key)?.[1];
         if (response.status !== "success" || response.processing_url || tag("ox") !== hash || !tag("url")) throw new Error("Upload metadata is incomplete or still processing. Your draft is preserved.");
