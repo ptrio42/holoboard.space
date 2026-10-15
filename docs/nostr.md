@@ -831,13 +831,30 @@ current here; keep detailed discussion semantics in
 
 | Stage | Current state | Completion evidence |
 | --- | --- | --- |
-| Foundation and relation engine | Reviewed and locally verified with current production fixes; ready for integration. | Shared transport/cache/discovery and relation-contract regressions, full Go race suite, frontend unit/build checks and browser coverage. |
-| Go library migration | Implemented and locally verified; ready for integration, not deployed. | Pinned revision, reproducible patch, historical-format fixture including unknown fields, full Go race suite, Linux builds and payment/browser regressions. |
-| Discussion retrieval | Implemented and locally verified; consumed by the opt-in reading screen. | Bounded discovery and missing-parent retrieval, cancellation, pagination and honest per-relay coverage, feeding the shared relation engine. |
-| Discussion reading | Read-only screen implemented behind `VITE_ENABLE_DISCUSSIONS`, disabled by default. | Original-item focus, paid/unpaid branches expanded by default, exact-parent previews and navigation, grouped source coverage, unresolved context, bounded display pages and local browser navigation checks. |
-| Profile reading | Read-only screen implemented and locally verified behind `VITE_ENABLE_PROFILES`, disabled by default. | Shared bounded metadata reads, explicit freshness/source outcomes, verified active campaign membership, discussion return navigation and selected public-relay reads. |
-| Signer compatibility | Local signer boundaries hardened and protocol fixtures verified; disabled by default. ptrio42 reports successful actual Amber and browser-extension login. | Fresh signature/template checks, connection-generation ownership, both NIP-46 initiation methods, bounded request lifetimes and validated relay changes. Record the successful login environments; broader device and publishing checks remain open. |
-| User-authored publication | Structural preparation, bounded routing, durable browser outbox and opt-in reply editor implemented; disabled by default. | Signed graph round trips, explicit account/destination consent, durable checkpoints before sending, exact-ID retry, per-relay acknowledgement, cancellation, native IndexedDB reload/failure and separate-tab concurrency. Physical signer and public propagation acceptance remain. |
+| Foundation and relation engine | Deployed on 2026-10-15. | Shared transport/cache/discovery and relation-contract regressions, full Go race suite, frontend unit/build checks and browser coverage. |
+| Go library migration | Deployed on 2026-10-15 with the existing volume and identity. | Pinned revision, reproducible patch, historical-format fixture including unknown fields, Go race and Linux/container checks; production API, stored-event WebSocket and public board retention checks. Real settlement and public DM routing remain unverified. |
+| Discussion retrieval | Deployed and consumed by production discussions. | Bounded discovery and missing-parent retrieval, cancellation, pagination and honest per-relay coverage, feeding the shared relation engine. |
+| Discussion reading | Enabled by the Pages production profile; ordinary build defaults remain disabled. | Original-item focus, paid/unpaid branches expanded by default, exact-parent previews and navigation, grouped source coverage, unresolved context, bounded display pages and browser navigation checks. |
+| Profile reading | Enabled by the Pages production profile; ordinary build defaults remain disabled. | Shared bounded metadata reads, explicit freshness/source outcomes, verified active campaign membership, discussion return navigation and selected public-relay reads. |
+| Signer compatibility | Enabled in production with explicitly accepted validation gaps. ptrio42 reports successful actual Amber and browser-extension login. | Fresh signature/template checks, connection-generation ownership, both NIP-46 initiation methods, bounded request lifetimes and validated relay changes. Broader device and publishing checks remain open. |
+| User-authored publication | Reply editor and durable browser outbox enabled in production with explicitly accepted validation gaps. | Signed graph round trips, explicit consent, exact-ID recovery and per-relay outcomes; controlled public editor delivery and provider reads. Physical signer publishing and remaining live recovery acceptance remain open. |
+
+The 2026-10-15 release uses frontend revision `f0b4485` and backend image digest
+`sha256:7b88e0d993700b0ec650800d83703258d8a916711ebf5bd63996e9022ca72047`.
+The backend was deployed and checked before the frontend push. Checks retained
+all 42 public board notes and their cumulative amounts, the same relay key and
+one machine on the existing volume. Pages reported success for the exact source
+revision, which is also exposed by the production HTML's `holoboard-revision` tag.
+The four production feature flags are versioned in `web/production-features.json`.
+Production browser checks passed board, discussion, profile and unsigned Reply
+reading, plus fresh PWA activation/reload and the phone sign-in screen. Writes
+remained blocked. Four Cloudflare `/cdn-cgi/rum` telemetry attempts were recorded
+separately from application writes; no application write or page exception was
+observed. These browser checks do not establish an installed physical device's
+update behavior or a real signer publication.
+The release was explicitly authorized with the remaining real-environment
+checks below still open. Authorization does not mark those checks passed or
+authorize test payments, public test messages or additional uploads.
 
 Keep stages reviewable and independently releasable where their dependencies
 allow. Before closing a stage, compare the final diff to its acceptance criteria

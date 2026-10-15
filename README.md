@@ -36,6 +36,18 @@ The gold sats amount opens the current ranking weight and total paid for
 visibility. Its underline shows how much weight remains. Note options include
 opening the post in njump and reading a Billboard's original text.
 
+Open **Discussion** to read replies to the original promoted note, including
+unpaid replies found on public relays. Promoted replies are highlighted. Parent
+links show exactly who is replying to whom, and returning to the board restores
+your reading position. Author profiles show identity details and active promoted
+notes. Share discussions and profiles with relay hints through `nevent` and
+`nprofile` links.
+
+**Sign in** connects a browser extension, Amber or another remote Nostr signer.
+The reply editor supports previews, saved drafts, emoji, GIF links and file
+uploads. Signing and public delivery require explicit actions. Reading and
+ordinary invoice payments remain available without signing in.
+
 ## Promote a note
 
 Open **Promote a note**, paste a note link, `note1`, `nevent1` or event ID, and
@@ -74,9 +86,9 @@ Wallet payment requires a separate explicit action. Invoice payments show one
 recipient's QR at a time, with Open in wallet and Copy invoice always available
 for that invoice. Select Holoboard or Author to change the displayed invoice.
 No login or Nostr signer is needed for payments. The header's wallet icon connects
-an optional NWC wallet; **Payment options** also offers that connection. Nostr
-connection is reserved for a later website release. Confirmation DMs still accept
-a manually entered npub.
+an optional NWC wallet; **Payment options** also offers that connection. **Sign in**
+connects a separate Nostr identity. Confirmation DMs accept that identity or a
+manually entered npub.
 
 **Restart payment** returns an unpaid session to the same promotion choices
 without creating new invoices. Check your wallet before confirming: issued
@@ -98,8 +110,9 @@ connection grants access. Send accepts a Lightning invoice, a QR code or a
 Lightning Address and asks for confirmation after review. Receive creates an
 invoice to copy, share or scan. Read-only and receiving-only connections work;
 unavailable permissions are explained in the panel.
-Author support uses ordinary invoices in the current website release. Existing
-public zap invoices remain usable; replacements use ordinary author support.
+Author support normally uses ordinary invoices. With a connected signer and a
+compatible recipient, you can explicitly choose a public zap. Existing invoices
+remain available in their original payment session.
 The two payments can succeed independently: the form keeps their separate
 statuses and unfinished invoices in the current browser tab after a refresh.
 Wallet payment proofs and valid zap receipts confirm author support. Manual

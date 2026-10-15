@@ -6,113 +6,46 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+## 2026-10-15
+
 ### Added
 
-- Show complete photos and videos in mixed galleries with thumbnails, a compact
-  counter and a full-screen phone viewer with swipe and image zoom. Preserve
-  playback position and reading context, pause hidden videos, and keep failed
-  attachments available for retry or opening their source.
-
-- Give promoted notes adaptive text and media layouts, larger short openings,
-  full-frame portrait galleries and inline more/less controls for text and quotes.
-  Reuse this presentation on profiles with rank, weight details and Boost.
-  Fit destination previews beneath text beside media when space allows, and
-  distinguish quoted text with smaller type. Let text-only notes use the full
-  card width and start content below its rank.
-- Add an opt-in read-only discussion screen for original promoted notes, with
-  replies expanded by default, compact reply rows, continuous branch lines,
-  direct parent navigation, promotion highlights and grouped relay details with
-  explicit partial context. Keep the main note consistent across board and direct
-  discussion entry, and give deep phone replies more reading space.
-- Add opt-in author profiles with banners, visible NIP-05 domain checks,
-  copyable Lightning addresses and active promoted notes. Keep source coverage
-  explicit and preserve navigation back to discussions.
-- Share discussions and profiles as `nevent` and `nprofile` links with safe
-  relay hints, while keeping existing hexadecimal links readable.
-- Add an opt-in reply editor with original-note context, separate signing and
-  public consent, saved drafts and durable retries of the same signed reply.
-
-### Fixed
-
-- Keep video previews visible beneath Play and move gallery arrows and counts
-  onto the main image, with thumbnails below and more room for the selected media.
-- Keep the visible reading position steady when earlier images, quotes and link
-  previews load. Keep sats, Boost and note actions together on one phone footer row.
-- Complete queued nostrcheck.me uploads before adding their final media metadata,
-  and support Primal's deployed upload authorization encoding.
-- Keep invoice QR codes available in already-open tabs after automatic app updates.
-- Use pixel type for loading labels across sign-in, previews, profiles and wallets.
-- Keep large discussions responsive as new replies arrive, and avoid repeated
-  cache writes when history pages overlap.
-- Bring selected invoice QR codes into view above payment controls on narrow screens.
-- Keep billboards in the adaptive note layout with readable quote galleries,
-  and use their embedded relay hints to load mentioned profiles.
-- Show verified author profiles as soon as their metadata arrives, even while
-  slower relays are pending.
-- Keep author-wallet issues and visibility-only recovery beside the promotion
-  action, and show payment progress inside the wallet payment button.
-- Keep note menus and hints in sync after selection, dismissal and browser
-  navigation, including Safari trigger clicks.
-- Honor discussion, profile and reply feature flags in Docker builds, preserving
-  their disabled defaults.
-- Find more branches in large discussions by admitting reads when needed and
-  spreading primary checks before repeated sources, with unchanged reading limits.
-- Keep keyboard focus on editor tabs when returning to a custom promotion amount.
-- Keep promoted notes at the same position and width when opening discussions,
-  including read-only mobile Billboard views, and restore their place on return
-  even after the board refreshes.
-- Recheck signer signatures and requested payloads, reject stale account responses,
-  validate remote relay changes and close timed-out signer sessions.
-- Verify Nostr event IDs, restrict external relay destinations and bound shared
-  connections, subscriptions, history reads and caches. Keep partial results
-  when relays time out, cancel reads promptly while connections open and
-  reconnect receipt monitors after disconnects.
-- Close relay connections reliably when incoming traffic exceeds browser limits.
-- Preserve author and relay hints in quotes and mentions, refresh validated
-  profiles and avoid showing unverified Nostr addresses as verified.
-- Persist recipient relay routing before public delivery, retry account replies
-  durably and send deletion requests to the original quote destinations.
+- Read discussions on original promoted notes, including unpaid replies found
+  on public relays, promotion highlights, exact parent links and source coverage.
+- Open author profiles with NIP-05 checks, Lightning addresses and active promoted
+  notes. Share discussions and profiles through `nevent` and `nprofile` links.
+- Sign in with a browser extension, Amber or a remote Nostr signer. Reply with
+  previews, saved drafts, emoji, GIF links and nostr.build, nostrcheck.me or
+  Blossom uploads, with explicit signing and public delivery.
+- View complete photos and videos in mixed galleries, with on-image navigation,
+  thumbnails, a full-screen viewer, swipe, zoom and playback-position recovery.
 
 ### Changed
 
-- Make phone profiles more compact with verification recovery beside its status
-  and secondary identity tools in Profile details.
-- Make Reply a wider desktop and full-screen mobile editor with previews, emoji,
-  GIF links and optional GIF search, explicit file uploads, and saved attachment
-  descriptions. Preserve separate signing and public delivery.
-- Give mixed-media quotes their own layout below the original note, avoid repeating
-  its identical media, and render Markdown article previews with readable formatting.
-- Keep link previews compact with two-line titles and descriptions and readable
-  pixel hostname labels. Use smaller destination previews inside quotes, shorter
-  desktop text previews and compact quote loading states.
-- Make discussions easier to scan with a shared author and parent header,
-  readable 16px comment text, speech-bubble reply controls, clearer branch
-  disclosures, a compact reply count and collapsible source explanations.
-  Collapse earlier context until requested and open it when navigating to a parent.
-- Use the wordmark's pink pixel H consistently in the mobile header, favicon
-  and app icons. Add a small H to invoice and connection QRs when readability
-  checks pass, retaining plain codes for dense or unverified candidates.
-- Simplify wallet connection with a full-width connect action, keyboard submission
-  and expandable NWC setup help, keeping anonymous Invoice / QR payments available.
-- Clarify opt-in account sign-in with explicit connection methods, missing-extension
-  guidance and expandable bunker-link setup. Make opening Amber the primary
-  pairing action and keep cancellation above its optional QR code.
-- Move Expired notes into the footer, keeping TOP 21 and Waiting room in the
-  main section navigation.
-- Simplify the header around one Promote button, a quiet wallet icon and an
-  optional Sign in action. Connected accounts show an avatar and desktop
-  pseudonym, with profile access and connection controls in a compact menu.
-- Update Nostr relay transport while preserving saved invoices and queued
-  account posts.
-- Give note content more space with larger text, one compact footer and smaller
-  author avatars beside pseudonyms. Keep ranks in the upper corner, with TOP
-  on the first position.
-- Place Discussion beside note options in the compact footer. Keep the current
-  thread free of a duplicate shortcut, with quieter comment rows, compact
-  avatars, parent previews and secondary timestamps.
-- Show sats in gold with a thin ranking-weight underline and a separate lightning
-  Boost icon with a compact arrowhead. Open the amount for ranking details, or
-  note options for the original Billboard text, njump and promotion dates.
+- Share adaptive note layouts across the board, discussions and profiles, with
+  full-width text, readable mixed-media quotes and compact destination previews.
+- Make phone discussions and profiles more compact, with clearer branch guides,
+  quieter metadata, collapsible context and source explanations.
+- Simplify the header, sign-in, Amber pairing and NWC connection screens. Use the
+  pink pixel H across the header, favicon, app icons and eligible QR codes.
+- Keep reading controls together, with gold ranking amounts, separate Boost
+  actions, pixel loading labels and a compact phone footer.
+- Update Nostr transport and dependencies with verified events, safe relay hints,
+  bounded connections, reads and caches, and durable publication routing.
+
+### Fixed
+
+- Preserve reading position as images, quotes and links load and when moving
+  between the board and discussions. Keep selected gallery media on return.
+- Keep video previews behind Play and pause hidden videos without losing their
+  playback position. Keep failed attachments available for retry or source access.
+- Complete queued nostrcheck.me uploads and support Primal's upload authorization.
+- Preserve invoice QR modules across automatic PWA updates. Keep author-wallet
+  recovery beside promotion and show wallet-payment progress inside its action.
+- Keep large discussions responsive, reuse overlapping history pages and show
+  verified profiles promptly while slower relays remain pending.
+- Tighten signer response checks, relay validation, subscription cancellation
+  and monitor shutdown while preserving existing invoices and payment records.
 
 ## 2026-10-07
 

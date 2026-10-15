@@ -87,7 +87,12 @@ fly volumes snapshots create <volume-id> -a holoboard-relay
 fly volumes snapshots list <volume-id> -a holoboard-relay
 ```
 
-Wait for the new snapshot to report `created` and record its ID before deploying.
+Wait for the new snapshot to report `created` and record its ID before deploying;
+see [Fly's snapshot states](https://fly.io/docs/volumes/snapshots/).
+An API listing can temporarily contain both an in-progress and a completed row
+for the same ID. Select its `created` record with a nonempty digest and stored
+size; do not take the first matching ID. Run verification and deployment in a
+fail-fast process so a failed precondition stops the update.
 Keep the existing volume and secrets; updating code does not require recreating
 either. For an explicitly requested local backup, use the download command below
 and keep the file in private storage outside the repository and public artifacts.

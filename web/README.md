@@ -59,6 +59,12 @@ the web app manifest and service worker. Preview the production build to test
 installation and offline startup, because the service worker is disabled in
 development.
 
+For worker lifecycle checks, await the explicit `statechange` to `activated`
+inside `page.evaluate`, then assert the worker and page controller after reload.
+Keep `waitForFunction` predicates synchronous; an asynchronous predicate can
+resolve false without being polled again. Registration alone is not evidence
+that the worker has finished activation.
+
 Automatic worker updates preserve immutable modules needed by existing tabs,
 including a QR generator that was not loaded before the update. Workbox normally
 [removes obsolete precache entries during activation](https://developer.chrome.com/docs/workbox/modules/workbox-precaching).
@@ -212,7 +218,7 @@ is separate from this implementation. Direct GIF links work without search.
 | `VITE_API_URL` | Optional HTTP API origin. Defaults to the WebSocket relay's host over HTTP(S). |
 | `VITE_RELAY_PUBKEY` | Board identity, used for promotion mentions and zaps. |
 | `VITE_PUBLIC_RELAYS` | Comma-separated relays for profiles, quoted notes, mentions and zaps. |
-| `VITE_ENABLE_NOSTR_CONNECT` | Enable held-back signer UI and remote-session restoration; defaults to `false`. |
+| `VITE_ENABLE_NOSTR_CONNECT` | Enable signer UI and remote-session restoration in ordinary builds; defaults to `false`. |
 | `VITE_ENABLE_DISCUSSIONS` | Enable discussion reading; defaults to `false`. |
 | `VITE_ENABLE_PROFILES` | Enable author profile screens; defaults to `false`. |
 | `VITE_ENABLE_REPLY_PUBLICATION` | Enable replies when discussions and signer support are also enabled; defaults to `false`. |
@@ -355,14 +361,14 @@ cannot cancel them. An unavailable backend does not block an explicitly
 confirmed restart when no send attempt is recorded.
 Invoice status and payment attempt recovery use the same protections in both
 paths. Global **Wallet** is independent of promotion. Inside the form, wallet
-connection lives in **Payment options**. Nostr signer controls and automatic
-remote-session restoration are disabled for the current release; confirmation
-DMs still accept a manually entered npub. The legacy
+connection lives in **Payment options**. Production enables Nostr signer controls
+and remote-session restoration through the versioned release profile;
+confirmation DMs also accept a manually entered npub. The legacy
 `#how-ranking-works` link opens contextual help; `/help` is the standalone guide.
 [WebLN](https://www.webln.guide/building-lightning-apps/webln-reference/webln.sendpayment)
 can pay the recipient invoices sequentially. The fallback exposes separate
-Lightning links, copies and QR codes. The current website prepares ordinary
-author invoices without a signer. Partial
+Lightning links, copies and QR codes. Without a signer, author support uses
+ordinary invoices. Partial
 payments remain in session storage for the current tab; retry skips confirmed
 parts. Manual author payment is explicitly unverified unless a receipt arrives.
 If browser storage is blocked or full, payments stay in memory when reopening
@@ -374,11 +380,12 @@ It never redirects the author's share without the payer's choice.
 
 ## Optional wallet and signer connections
 
-`VITE_ENABLE_NOSTR_CONNECT` defaults to `false`, keeping signer entry points,
-public-zap creation and remote-signer restoration out of this release. Set it to
-`true` only for signer development or a future release. The signer behavior below
-applies when that flag is enabled. Existing invoices and manual npub
-notifications work with either setting.
+`VITE_ENABLE_NOSTR_CONNECT` defaults to `false` for ordinary builds. Production
+Pages builds on `main` enable it through `production-features.json`, alongside
+discussions, profiles and replies. Other builds can set the flags explicitly.
+When signer support is disabled, entry points, public-zap creation and remote
+restoration are hidden. Existing invoices and manual npub notifications work
+with either setting.
 
 The header's Sign in offers a browser extension or Amber / remote signer, with
 manual bunker-link setup in a disclosure. Missing extension support is explicit.
