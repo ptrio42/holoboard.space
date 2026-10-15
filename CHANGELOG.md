@@ -34,6 +34,8 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Keep the visible reading position steady when earlier images, quotes and link
+  previews load. Keep sats, Boost and note actions together on one phone footer row.
 - Complete queued nostrcheck.me uploads before adding their final media metadata,
   and support Primal's deployed upload authorization encoding.
 - Keep invoice QR codes available in already-open tabs after automatic app updates.

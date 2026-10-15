@@ -443,6 +443,29 @@ test("large amounts wrap without losing the avatar or note options", async ({ co
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+for (const weight of [200, 987654321]) test(`keeps sats, Boost and note actions on one mobile row for weight ${weight}`, async ({ context, page }, info) => {
+    const row = await setup(context, page, { billboard: false, content: "A note with a stable footer.", ledger: { sats_paid: weight, weight } });
+    for (const width of [320, 390, 430, 1440]) {
+        await page.setViewportSize({ width, height: 844 });
+        await page.evaluate(() => document.fonts.ready);
+        // Read one layout atomically: mobile WebKit can reflow between separate
+        // protocol boundingBox calls immediately after a viewport width change.
+        const [author, ...bounds] = await row.evaluate(element => [".board-author", ".board-weight", ".note-boost", ".board-options"].map(selector => element.querySelector(selector)!.getBoundingClientRect().toJSON()));
+        for (const box of bounds) { expect(box!.width).toBeGreaterThanOrEqual(44); expect(box!.height).toBeGreaterThanOrEqual(44); }
+        const centers = bounds.map(box => box!.y + box!.height / 2);
+        expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(2);
+        expect(bounds[0]!.x + bounds[0]!.width).toBeLessThanOrEqual(bounds[1]!.x);
+        expect(bounds[1]!.x + bounds[1]!.width).toBeLessThanOrEqual(bounds[2]!.x);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        if (width < 640) {
+            expect(author.y + author.height).toBeLessThanOrEqual(bounds[0]!.y);
+        }
+        await row.screenshot({ path: info.outputPath(`note-footer-${weight}-${width}.png`) });
+    }
+    await row.locator(".board-weight").click();
+    await expect(page.getByRole("dialog", { name: "Ranking weight", exact: true })).toContainText(new Intl.NumberFormat("en-US").format(weight));
+});
+
 test("note images retain the full content width below the rank", async ({ context, page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route("https://example.com/banner.png", route => route.fulfill({ contentType: "image/webp", path: new URL("../src/assets/bg.webp", import.meta.url).pathname }));

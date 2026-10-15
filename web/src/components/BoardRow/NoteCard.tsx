@@ -85,7 +85,6 @@ export function NoteCard({ context, onReply, hints, showUnknownRank = true, even
     const fraction = typeof sats === "number" && typeof weight === "number" && sats > 0
         ? Math.max(0, Math.min(1, weight / sats)) : null;
     const displayedSats = expired ? sats : weight ?? sats;
-    const wideAmount = typeof displayedSats === "number" && satsLabel(displayedSats).length > 9;
     const hasWeightActions = typeof sats === "number" || expired || !!onPromote;
     const position = !expired && (!!rank || showUnknownRank) && <span className={`board-rank ${tier.text}`} aria-label={`Rank ${rank ?? "unavailable"}`}>
         <span className="board-rank__number" aria-hidden="true">{rank ?? "?"}</span>
@@ -105,7 +104,7 @@ export function NoteCard({ context, onReply, hints, showUnknownRank = true, even
                         <TextRenderer text={event.content} embedQuotes={false} previewLinks={false} />
                     </div> : undefined}
                     footer={(control, disclosure) => <>
-                        <footer className={`note-footer board-meta${wideAmount ? " board-meta--wide" : ""}${ENABLE_DISCUSSIONS ? " board-meta--discussion" : ""}`}>
+                        <footer className={`note-footer board-meta${ENABLE_DISCUSSIONS ? " board-meta--discussion" : ""}`}>
                             {!hasBillboard && control && <div className="board-reading">{control}</div>}
                             <div className="board-identity">
                                 <h2 className="min-w-0 font-normal">

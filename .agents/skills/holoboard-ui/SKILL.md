@@ -97,6 +97,13 @@ and unavailable states, width changes and local expansion. Check that fallback
 layouts reclaim unused space while preserving a single live preview and media
 playback. Use inert measurements without media sources so measurement does not
 start reads or image/video requests.
+For asynchronous scroll compensation, distinguish intermediate layout measurements
+from painted frames. A requestAnimationFrame callback can run before resize
+observers; layout-shift diagnostics alone may disagree with the final painted
+position. Check post-render offsets and, when those signals disagree, capture
+actual browser frames before changing the layout or accepting a fix.
+The [reading stability tests](../../../web/tests/readingStability.spec.ts) support
+`HOLOBOARD_CAPTURE_FEED_FRAMES=true` for Chromium compositor-frame checks.
 After changing text clipping or preview density, recheck automatic link placement
 with collapsed and expanded text. A shorter text block can make the same link
 fit beside media; expansion must preserve the live media and preview instances.

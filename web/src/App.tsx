@@ -9,6 +9,7 @@ import { ConnectionControls } from "./components/PromoteModal/ConnectionControls
 import { ENABLE_DISCUSSIONS, ENABLE_PROFILES } from "./config";
 import { discussionRoute, profileRoute } from "./lib/readingRoutes";
 import { useReadingPosition } from "./hooks/useReadingPosition";
+import { useReadingStability } from "./hooks/useReadingStability";
 
 const locationPath = () => window.location.pathname + window.location.search;
 const readingRoute = (path: string) => {
@@ -30,6 +31,7 @@ function App() {
     return () => window.removeEventListener("popstate", change);
   }, []);
   useReadingPosition(path, ENABLE_DISCUSSIONS || ENABLE_PROFILES);
+  useReadingStability(path);
   const boardName = boardPath?.split("?")[0];
   return <Fragment>
     <NDKHeadless />

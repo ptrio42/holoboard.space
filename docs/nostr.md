@@ -200,8 +200,15 @@ the anchor and below the surface allows alignment near document edges. The
 retained board restores the same event offset even when polling inserts earlier
 rows. If the event disappears, the saved scroll value is the fallback. Browser
 Back/Forward and explicit return links use the same restoration. During
-restoration, native scroll anchoring is disabled on the active surface to avoid
-competing adjustments; normal board scrolling keeps browser anchoring.
+restoration, `useReadingStability` yields to the saved navigation anchor. During
+ordinary scrolling it tracks one visible content block on the active board,
+discussion or profile surface. Surface resize and DOM observers compensate for
+earlier asynchronous layout changes, including media, quotes, link previews and
+graph updates. Intentional scrolling updates the baseline; pointer, click,
+keyboard and viewport changes yield before selecting a new anchor. Modal body
+locking pauses this adjustment. Both hooks disable native scroll anchoring only
+while they own the active surface, avoiding competing adjustments (see the
+[CSS Scroll Anchoring draft](https://drafts.csswg.org/css-scroll-anchoring/)).
 Keep the focus list's `flow-root` formatting context (or an equivalent layout
 that prevents parent/child margin collapse). The anchor spacer must contribute
 its full height; collapsed margins invalidate the restoration calculation.
@@ -228,9 +235,12 @@ focuses the parent, including on an earlier local page or in hidden ancestor
 context. Parents beyond the projection use an exact discussion link instead.
 The `Thread` action (accessible name `Open thread`) makes the selected note the
 reading focus without changing its protocol ancestry or promotion status.
-Graph updates preserve a visible reading
-anchor when that row remains rendered. Media resizing and browser scroll
-clamping are not covered by a universal no-jump guarantee.
+Graph updates share the continuous reading anchor instead of applying a second
+scroll correction. Preservation depends on the anchored content remaining
+rendered and enough document space for the requested offset. Removal of the
+anchor and browser scroll clamping are not covered by a universal no-jump
+guarantee. `web/tests/readingStability.spec.ts` holds earlier image, quote and
+link responses until after scrolling, then checks the visible note's offset.
 
 Replies use compact rows with continuous branch rails and a maximum four visual
 indentation levels. Exact parent links retain the full relationship when depth

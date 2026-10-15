@@ -372,6 +372,7 @@ body::after {
 /* Restoration spacers must apply immediately, including under reduced motion. */
 .reading-surface [data-board-note], .reading-surface [data-discussion-key] { transition-property: none; }
 .reading-surface[data-reading-restoring] { overflow-anchor: none; }
+.reading-surface[data-reading-stable] { overflow-anchor: none; }
 .discussion-replies { --branch-step: 12px; background: rgb(10 5 24 / 0.88); }
 .discussion-note { min-width: 0; }
 .discussion-note__header { display: flex; min-height: 44px; align-items: center; gap: 8px; }
@@ -481,8 +482,7 @@ body::after {
 .board-original { margin-top: 12px; border-top: 1px solid rgb(34 211 238 / 0.15); padding-top: 12px; }
 .board-original > p { margin-bottom: 12px; }
 .board-reading { grid-area: reading; display: flex; justify-content: flex-end; }
-.board-meta { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "identity weight options" "reading reading reading"; margin-top: 8px; padding-top: 6px; gap: 0 4px; }
-.board-meta--discussion { grid-template-areas: "identity identity options" "reading weight weight"; }
+.board-meta { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "identity identity" "weight options" "reading reading"; margin-top: 8px; padding-top: 6px; gap: 0 4px; }
 .board-meta--discussion .board-reading { justify-content: flex-start; }
 .board-identity {
     grid-area: identity;
@@ -499,15 +499,15 @@ body::after {
 .board-author:hover > span { color: var(--color-neon-pink); }
 .board-new { font-family: var(--font-pixel); font-size: 10px; color: var(--color-neon-gold); }
 .board-context { flex-basis: 100%; color: rgb(165 243 252 / 0.6); font-size: 12px; }
-.board-weight-actions { grid-area: weight; display: flex; justify-content: flex-end; flex-shrink: 0; align-items: center; gap: 4px; min-height: 44px; }
-.board-note-actions { grid-area: options; display: flex; align-items: center; gap: 4px; }
+.board-weight-actions { grid-area: weight; display: flex; min-width: 0; justify-content: flex-start; align-items: center; gap: 2px; min-height: 44px; }
+.board-note-actions { grid-area: options; display: flex; align-items: center; justify-self: end; gap: 2px; }
 .board-discussion svg { width: 18px; height: 18px; }
 .board-weight {
     position: relative;
     display: flex;
-    min-width: 98px;
+    min-width: 44px;
     min-height: 44px;
-    padding: 4px;
+    padding: 4px 2px;
     flex-direction: column;
     justify-content: center;
     align-items: center;
@@ -517,7 +517,7 @@ body::after {
     font-family: var(--font-pixel);
     font-size: 10px;
     line-height: 1.4;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
     color: var(--color-neon-gold);
     cursor: pointer;
 }
@@ -619,12 +619,12 @@ body::after {
 .note-menu__details > p + p { margin-top: 4px; }
 @container row (min-width: 640px) {
     .board-note { padding: 16px; }
-    .board-meta--discussion { grid-template-areas: "identity weight options" "reading reading reading"; }
-    .board-meta--discussion .board-reading { justify-content: flex-end; }
+    .board-meta { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "identity weight options" "reading reading reading"; }
+    .board-meta .board-reading { justify-content: flex-end; }
+    .board-weight-actions { justify-content: flex-end; gap: 4px; }
+    .board-note-actions { gap: 4px; }
     .board-meta--discussion .board-note-actions { margin-left: 12px; }
-}
-@container row (max-width: 330px) {
-    .board-meta--wide { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "identity options" "reading reading" "weight weight"; }
+    .board-weight { min-width: 98px; padding-inline: 4px; white-space: nowrap; }
 }
 .note-quote {
     margin: 0.75rem 0;
@@ -725,7 +725,6 @@ body::after {
 .note-composition--adaptive[data-text-emphasis="brief"] > .note-text { font-size: 20px; line-height: 1.5; }
 .note-composition--adaptive[data-text-emphasis="short"] > .note-text { font-size: 18px; line-height: 1.6; }
 .note-media-unavailable { display: inline-flex; align-items: center; min-height: 44px; overflow-wrap: anywhere; font-size: 12px; color: var(--color-neon-cyan); text-decoration: underline; }
-[data-reading-surface] { overflow-anchor: none; }
 @container content-card (max-width: 300px) {
     .note-composition--adaptive[data-text-emphasis="brief"] > .note-text { font-size: 18px; }
     .note-composition--adaptive[data-text-emphasis="short"] > .note-text { font-size: 16px; }

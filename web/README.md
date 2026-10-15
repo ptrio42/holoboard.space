@@ -561,6 +561,15 @@ a direction, then repeat the comparison with the implemented components. Include
 missing images, partial data, loading and empty states. Check keyboard focus and
 the first visible frame when entering a discussion or returning to the board.
 
+On phones, keep the author on its own footer line, followed by one action row:
+ranking weight and Boost on the left, discussion, reply and note options on the
+right. Preserve 44px hit areas and exact amounts in the ranking details. Desktop
+cards keep the author and controls together when their container is wide enough.
+Continuous reading stabilization preserves a visible content block when earlier
+media or previews arrive, separately from navigation restoration. Intentional
+layout changes and modal scroll ownership take precedence; see the
+[reading contract](../docs/nostr.md#discussion-screen).
+
 For inline expansion, place `more` at the text cutoff and `less` immediately
 after the expanded text, before media and footer controls. Expand quoted text
 independently. Keep existing media in place and omit expansion controls when
