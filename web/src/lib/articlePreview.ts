@@ -1,12 +1,18 @@
 import { Lexer, type MarkedToken, type Token } from "marked";
+import { mediaTokens, safeMediaSource, type NoteMediaItem } from "./noteMedia";
 import { parseContent } from "../utils/textProcessing/parseContent";
 import type { NoteTextToken, TextFormat } from "./noteTextTokens";
 import { firstPreviewLink } from "./linkPreview";
 
 /** NIP-23 Markdown previews use lexer data and React nodes, never generated HTML. */
-export function articlePreview(content: string) {
+export function articlePreview(content: string, tags: string[][] = []) {
     const words: NoteTextToken[] = [];
     const images = new Set<string>(), videos = new Set<string>();
+    const ordered: Pick<NoteMediaItem, "kind" | "src">[] = [];
+    const add = (kind: "image" | "video", src: string) => {
+        if (!ordered.some(item => item.src === src)) ordered.push({ kind, src });
+        (kind === "image" ? images : videos).add(src);
+    };
     let link: string | null = null;
     const text = (value: string, formats: readonly TextFormat[] = []) => {
         if (value) words.push(formats.length ? { kind: "formatted", value, formats } : { kind: "text", value });
@@ -19,10 +25,10 @@ export function articlePreview(content: string) {
     };
     const media = (href: string, image = false) => {
         const safe = target(href);
-        if (!safe) return false;
-        const token = parseContent(safe)[0];
-        if (token?.kind === "video") { videos.add(safe); return true; }
-        if (image || token?.kind === "image") { images.add(safe); return true; }
+        if (!safe || !safeMediaSource(safe)) return false;
+        const token = mediaTokens(safe, tags)[0];
+        if (token?.kind === "video") { add("video", safe); return true; }
+        if (image || token?.kind === "image") { add("image", safe); return true; }
         return false;
     };
     const label = (tokens: Token[] = []): string => tokens.map(token =>
@@ -52,6 +58,7 @@ export function articlePreview(content: string) {
                         if (part.kind === "text") text(part.value, formats);
                         else if (part.kind === "image" || part.kind === "video") media(part.src);
                         else if (part.kind === "link") {
+                            if (media(part.href)) continue;
                             if (target(part.href)) { words.push(part); link ??= firstPreviewLink(part.href); }
                             else text(part.href, formats);
                         } else words.push(part);
@@ -87,7 +94,7 @@ export function articlePreview(content: string) {
         }
     };
     try { blocks(Lexer.lex(content)); }
-    catch { return { words: [{ kind: "text" as const, value: content }], images: [], videos: [], link: null }; }
+    catch { return { words: [{ kind: "text" as const, value: content }], images: [], videos: [], media: [], link: null }; }
     // Removed attachments must not leave empty paragraphs in the excerpt.
     const compact: NoteTextToken[] = [];
     for (const token of words) {
@@ -99,5 +106,5 @@ export function articlePreview(content: string) {
     if (compact[0]?.kind === "text") compact[0].value = compact[0].value.trimStart();
     const last = compact.at(-1);
     if (last?.kind === "text") last.value = last.value.trimEnd();
-    return { words: compact, images: [...images], videos: [...videos], link };
+    return { words: compact, images: [...images], videos: [...videos], media: ordered, link };
 }

@@ -23,12 +23,12 @@ export type ContentToken =
 const TOKEN =
     /(https?:\/\/[^\s<>"']+)|((?:nostr:)?(?:npub1|nprofile1|note1|nevent1|naddr1)[023456789acdefghjklmnpqrstuvwxyz]{20,})/gi;
 
-const IMAGE_EXTENSION = /\.(png|jpe?g|gif|webp|avif)(\?[^\s]*)?$/i;
+const IMAGE_EXTENSION = /\.(png|jpe?g|gif|webp|avif)([?#][^\s]*)?$/i;
 
 // Deliberately short. These are the formats a browser plays natively without a
 // player library; anything else stays a link rather than an element that shows
 // a broken control.
-const VIDEO_EXTENSION = /\.(mp4|webm|mov|m4v)(\?[^\s]*)?$/i;
+const VIDEO_EXTENSION = /\.(mp4|webm|mov|m4v)([?#][^\s]*)?$/i;
 
 // A URL at the end of a sentence swallows the punctuation, which breaks the
 // extension test as surely as it breaks the link.

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { npubEncode } from "nostr-tools/nip19";
 import { articlePreview } from "./articlePreview";
 
@@ -13,6 +13,10 @@ describe("article previews", () => {
         expect(readable(body)).toContain("curl https://example.com/install.sh");
         expect(body.images).toEqual(["https://example.com/photo.png"]);
         expect(body.videos).toEqual(["https://example.com/play.mp4"]);
+        expect(body.media).toEqual([
+            { kind: "image", src: "https://example.com/photo.png" },
+            { kind: "video", src: "https://example.com/play.mp4" },
+        ]);
         expect(body.link).toBe("https://example.com/project");
         expect(body.words).toContainEqual({ kind: "formatted", value: "A bold idea", formats: ["strong"] });
     });
@@ -34,4 +38,24 @@ describe("article previews", () => {
         ]);
         expect(body.words).toContainEqual({ kind: "article-link", href: "https://example.com", label: "Project" });
     });
+});
+
+it("recognizes extensionless article media only with exact signed MIME metadata", () => {
+    const src = "https://media.example/file?sig=one";
+    const body = articlePreview(`[Clip](${src})\n\n![Portrait](https://media.example/portrait.png)`, [["imeta", `url ${src}`, "m video/mp4"]]);
+    expect(body.media).toEqual([{ kind: "video", src }, { kind: "image", src: "https://media.example/portrait.png" }]);
+    expect(body.link).toBeNull();
+});
+
+it("keeps ordinary HTTP and long article links while blocking mixed-content media", () => {
+    vi.stubGlobal("location", { protocol: "https:" });
+    try {
+        const href = "http://example.com/story";
+        const body = articlePreview(`[Read](${href})\n\n![Photo](http://media.example/photo.png)`);
+        expect(body.words).toContainEqual({ kind: "article-link", href, label: "Read" });
+        expect(body.link).toBe(href);
+        expect(body.media).toEqual([]);
+        const long = "https://example.com/" + "x".repeat(2050);
+        expect(articlePreview(`[Read](${long})`).words).toContainEqual({ kind: "article-link", href: long, label: "Read" });
+    } finally { vi.unstubAllGlobals(); }
 });

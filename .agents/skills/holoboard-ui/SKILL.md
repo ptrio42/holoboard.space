@@ -81,6 +81,13 @@ Inspect shared components before adding another rendering path:
   PixelPanel, NoteControls, StatusMessage and Modal. Inspect their current APIs
   and styles before introducing equivalents.
 
+Keep one complete selected media frame; do not measure gallery quality by how
+many cropped thumbnails fit. Test mixed orientation, mixed image/video, failures
+and exact source order. Keep frame geometry stable when selection changes and
+preserve selection and playback position through reader navigation. Use the
+shared gallery and viewer contracts in `web/README.md`; compact promotion
+previews retain their separate bounded thumbnail behavior.
+
 Keep text expansion local to its text block, media instances stable during
 expansion and independent quoted content independent. Preserve expanded state,
 focus and source-card alignment across navigation where those contracts exist.

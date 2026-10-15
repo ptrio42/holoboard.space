@@ -1,6 +1,8 @@
 import type { MouseEvent } from "react";
 import { expandedNoteTexts, readingPosition, rememberBoardPresentation, visibleReadingAnchor, type BoardNotePresentation, type ReadingPosition } from "./readingPosition";
 
+import { isMediaViewerEntry } from "./mediaViewerEntry";
+
 const positions = new Map<string, ReadingPosition>();
 
 /** Only intercept explicit local reading links; modified clicks keep browser behavior. */
@@ -25,7 +27,9 @@ export function navigateReading(event: MouseEvent<HTMLAnchorElement>, presentati
         path: location.pathname + location.search, presentation: rememberBoardPresentation(presentation),
         expanded: source.querySelector('[data-note-expanded]')?.getAttribute("data-note-expanded") === "true",
         expandedTexts: expandedNoteTexts(source) } : undefined;
-    window.history.pushState(origin ? { readingScroll: 0, readingOrigin: origin, readingAlign: true }
+    // Superseding a modal route consumes its temporary entry without traversal.
+    const write = isMediaViewerEntry(history.state) ? window.history.replaceState.bind(window.history) : window.history.pushState.bind(window.history);
+    write(origin ? { readingScroll: 0, readingOrigin: origin, readingAlign: true }
         : positions.get(target.pathname + target.search) ?? { readingScroll: 0 }, "", target.pathname + target.search);
     window.dispatchEvent(new PopStateEvent("popstate"));
 }

@@ -101,7 +101,10 @@ def make_plan(repo, output, profiles, changed, legacy=None, rollback=None, upstr
         build("readers", READERS)
     if "readers" in profiles:
         browser("readers-browser", ["tests/discussions.spec.ts", "tests/profiles.spec.ts",
-                "tests/readingPointers.spec.ts", "tests/notes.spec.ts", "tests/socketBudget.spec.ts"], READERS)
+                "tests/readingPointers.spec.ts", "tests/notes.spec.ts", "tests/media.spec.ts",
+                "tests/media-viewer.spec.ts", "tests/socketBudget.spec.ts"], READERS)
+        browser("media-editor-browser", ["tests/payments.spec.ts"], READERS,
+                ["--grep", "closing a preview image returns to the promotion editor"])
     if {"payments", "publication"} & set(profiles):
         build("enabled", ENABLED)
         browser("enabled-header", ["tests/header.spec.ts"], ENABLED)

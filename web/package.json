@@ -26,7 +26,8 @@
     "tailwindcss": "^4.1.18",
     "light-bolt11-decoder": "^3.2.0",
     "jsqr": "^1.4.0",
-    "marked": "18.1.0"
+    "marked": "18.1.0",
+    "yet-another-react-lightbox": "3.32.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

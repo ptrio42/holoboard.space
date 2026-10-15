@@ -601,9 +601,41 @@ text expansion. An inert thumbnail-free measurement determines the fit without
 duplicating requests or replacing the live card or media. Phones preserve the
 document order: text, media, then the link preview. Failed link-only previews
 release their empty desktop column.
-Galleries adapt to portrait proportions and open full images in the shared modal.
-Video uses matching signed [NIP-92 metadata](https://github.com/nostr-protocol/nips/blob/master/92.md)
-for preview images when available. Billboard animations occupy the text area in
+Note galleries show one complete image or video in source order, with a bounded
+thumbnail strip and explicit unavailable items. The first source determines a
+stable frame, capped at `min(55svh, 420px)` (`min(40svh, 280px)` in quotes).
+Multi-item galleries reserve at least a square before applying that cap, so an
+opening panorama cannot shrink later portraits. Unknown single sources start at
+4:3 until measured; unknown multi-item galleries start square. Selection changes
+do not resize the frame. Preserve exact URLs, including signatures and
+fragments, when matching signed
+[NIP-92 metadata](https://github.com/nostr-protocol/nips/blob/master/92.md).
+Validated dimensions, alternative text, MIME and video posters may supplement
+the source. Intrinsic dimensions replace inaccurate hints once the file loads.
+Extensionless media needs matching MIME metadata.
+
+The full-screen phone viewer uses pinned
+[Yet Another React Lightbox](https://yet-another-react-lightbox.com/)
+with Inline and Zoom inside the shared Modal. It owns swipe, pinch and double-tap
+zoom; the shared shell owns focus, Escape and scroll locking. Only the current
+slide is admitted, with no video elements in thumbnails. Back closes the viewer
+before leaving the reader. Holoboard navigation replaces an open viewer entry;
+closing on a route change never triggers a second history traversal. Route
+transitions must use `navigateReading` to consume this temporary entry; a foreign
+raw `pushState` cannot remove its predecessor from browser history. Cancel a
+pending lazy viewer when its originating route changes.
+
+Videos keep native controls and need explicit playback. Without a supplied
+poster, show a designed Play placeholder without extracting frames or downloading
+a whole file. Metadata loading begins when a player becomes visible. Pause when
+hidden, outside the viewport, on navigation, or when another player starts.
+Opening any viewer pauses registered players. A video viewer transfers the saved
+playback position without autoplay, including on return to a retained board.
+Media presentation stays in memory: at most 512 exact sources for 30 minutes,
+failures for 60 seconds, and 128 gallery selections for 30 minutes. It stores no
+identity or payment data. Retry and original-source actions remain available.
+Physical phone playback and pinch behavior still need device testing; WebKit
+emulation is separate evidence. Billboard animations occupy the text area in
 the same adaptive composition and share its media galleries. They keep a separate
 original-text disclosure in note options. Mentions retain nprofile relay hints
 inside animations as well as ordinary text. Direct discussion focuses and profile

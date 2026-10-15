@@ -1,7 +1,7 @@
 import { useMemo, useRef, type ReactNode } from "react";
 import { noteAttachments, quoteReference } from "../../lib/noteAttachments";
-import { parseContent, type ContentToken } from "../../utils/textProcessing/parseContent";
-import { videoPoster } from "../../lib/noteMedia";
+import { type ContentToken } from "../../utils/textProcessing/parseContent";
+import { mediaTokens, noteMediaItems } from "../../lib/noteMedia";
 import { noteTextTokens } from "../../lib/noteTextTokens";
 import { firstPreviewLink } from "../../lib/linkPreview";
 import { useNoteLinkPlacement } from "../../hooks/useNoteLinkPlacement";
@@ -21,7 +21,7 @@ export function NoteContent({ text, tags, ownId, adaptive = false, embedQuotes =
     // when the signed content and attachment references have not changed.
     const tagsKey = JSON.stringify(tags ?? []);
     const content = useMemo(() => {
-        const tokens = parseContent(text);
+        const tokens = mediaTokens(text, JSON.parse(tagsKey));
         const attachments = noteAttachments(text, JSON.parse(tagsKey) as string[][], ownId);
         const quotes = embedQuotes ? attachments.quotes : [];
         const quoteKeys = new Set(quotes.map(reference => reference.key));
@@ -31,11 +31,11 @@ export function NoteContent({ text, tags, ownId, adaptive = false, embedQuotes =
             return true;
         }));
         const length = words.reduce((count, token) => count + (token.kind === "text" ? token.value.length : token.kind === "link" ? Math.min(48, token.href.length) : 16), 0);
-        const images = [...new Set(tokens.flatMap(token => token.kind === "image" ? [token.src] : []))];
-        const videos = [...new Set(tokens.flatMap(token => token.kind === "video" ? [token.src] : []))];
-        const hasVisualMedia = !!(images.length || videos.length);
-        const hasLink = previewLinks && !!firstPreviewLink(text);
-        return { words: words as ContentToken[], length, images, videos, quotes, hasVisualMedia, hasLink, hasMedia: hasVisualMedia || hasLink || !!quotes.length };
+        const media = noteMediaItems(tokens, JSON.parse(tagsKey));
+        const hasVisualMedia = !!media.length;
+        const link = previewLinks ? firstPreviewLink(tokens.flatMap(token => token.kind === "link" ? [token.href] : []).join("\n")) : null;
+        const hasLink = !!link;
+        return { words: words as ContentToken[], length, media, quotes, link, hasVisualMedia, hasLink, hasMedia: hasVisualMedia || hasLink || !!quotes.length };
     }, [text, tagsKey, ownId, embedQuotes, previewLinks]);
     const emphasis = adaptive && content.length <= 100 ? "brief" : adaptive && (content.length <= 160 || !content.hasMedia && content.length <= 280) ? "short" : undefined;
     const complete = adaptive && (content.length <= 220 || !content.hasMedia && content.length <= 280);
@@ -45,13 +45,12 @@ export function NoteContent({ text, tags, ownId, adaptive = false, embedQuotes =
         {textPresentation ? <div className="note-composition-presentation">{textPresentation}</div> :
             <InlineNoteText tokens={content.words} complete={complete} initiallyExpanded={initiallyExpandedTexts.includes("main") || initiallyExpanded} />}
         {content.hasVisualMedia && <div className="note-composition-media">
-            <NoteMediaGallery images={content.images} />
-            {content.videos.map(src => <video key={src} className="note-content-video" src={src} poster={videoPoster(tags, src)} controls playsInline preload="metadata" data-note-block />)}
+            <NoteMediaGallery items={content.media} galleryKey={ownId} />
         </div>}
-        {content.hasLink && <NoteLinkPreview text={text} />}
+        {content.hasLink && <NoteLinkPreview text={text} url={content.link} />}
         {!!content.quotes.length && <div className="note-composition-quotes">
             {content.quotes.map(reference => <NoteQuote key={reference.key} reference={reference} adaptive
-                parentMedia={[...content.images, ...content.videos]} initiallyExpandedTexts={initiallyExpandedTexts} />)}
+                parentMedia={content.media.map(item => item.src)} initiallyExpandedTexts={initiallyExpandedTexts} />)}
         </div>}
     </div>;
 }

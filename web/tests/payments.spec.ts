@@ -1316,7 +1316,7 @@ test("closing a preview image returns to the promotion editor without preparing 
     await editor.getByRole("tab", { name: "Billboard", exact: true }).click();
     const opener = editor.getByRole("button", { name: "Open image 1 of 1", exact: true });
     await opener.click();
-    const viewer = page.getByRole("dialog", { name: "Image 1 of 1", exact: true });
+    const viewer = page.getByRole("dialog", { name: "Media 1 of 1", exact: true });
     await expect(viewer).toBeVisible();
     await page.keyboard.press("Tab");
     expect(await viewer.evaluate(element => element.contains(document.activeElement))).toBe(true);

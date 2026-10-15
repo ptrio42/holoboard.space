@@ -349,7 +349,7 @@ test.describe("read-only discussion", () => {
         const source = page.locator(`[data-board-note="${selected.id}"]`);
         await expect(source.getByText(quoted.content, { exact: true })).toBeVisible();
         await expect(source.getByText("Cached page preview", { exact: true })).toBeVisible();
-        await expect(source.locator(".note-gallery")).toHaveClass(/gallery-portraits/);
+        await expect.poll(() => source.locator(".note-gallery__image img").evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
         if (expanded) await source.getByRole("button", { name: "Show more note text", exact: true }).click();
         const placement = expanded ? "media" : "text";
         await expect(source.locator(".note-composition")).toHaveAttribute("data-link-placement", placement);
@@ -396,8 +396,8 @@ test.describe("read-only discussion", () => {
         const source = page.locator(`[data-board-note="${selected.id}"]`);
         const main = source.locator('[data-note-text="main"]');
         const quote = source.locator(`[data-note-text="quote:${quoted.id}"]`);
-        await expect(source.locator(".note-gallery")).toHaveClass(/gallery-portraits/);
-        await expect(source.locator(".note-gallery button")).toHaveCount(3);
+        await expect.poll(() => source.locator(".note-gallery__image img").evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+        await expect(source.locator(".note-gallery__thumbnail")).toHaveCount(4);
         await quote.getByRole("button", { name: "Show more quoted note text", exact: true }).click();
         if (billboard) await expect(source.locator(".board-original")).toHaveCount(0);
         else await expect(main).toHaveAttribute("data-note-expanded", "false");
@@ -526,6 +526,7 @@ test.describe("read-only discussion", () => {
         const selected = make("Many replies focus");
         await setup(context, page, { focus: selected, many: 55 });
         await page.goto(`/discussion/${selected.id}`);
+        await drain(page);
         await expect(page.getByRole("heading", { name: "55 found replies" })).toBeVisible();
         const replies = page.getByRole("region", { name: "Replies", exact: true });
         await expect(replies.locator("article")).toHaveCount(48);
@@ -558,6 +559,7 @@ test.describe("read-only discussion", () => {
         for (let i = 0; i < 53; i++) chain.push(make(`Deep message ${i + 1}`, [["e", selected.id, "", "root"], ["e", chain.at(-1)?.id ?? selected.id, "", "reply"]], 1700000500 + i));
         await setup(context, page, { focus: selected, events: chain });
         await page.goto(`/discussion/${selected.id}`);
+        await drain(page);
         const replies = page.getByRole("region", { name: "Replies", exact: true });
         await expect(replies.locator("article")).toHaveCount(48);
         await expect(row(page, chain[47])).toBeVisible();

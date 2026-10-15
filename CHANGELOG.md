@@ -8,6 +8,11 @@ record deployment, not announcement publication.
 
 ### Added
 
+- Show complete photos and videos in mixed galleries with thumbnails, a compact
+  counter and a full-screen phone viewer with swipe and image zoom. Preserve
+  playback position and reading context, pause hidden videos, and keep failed
+  attachments available for retry or opening their source.
+
 - Give promoted notes adaptive text and media layouts, larger short openings,
   full-frame portrait galleries and inline more/less controls for text and quotes.
   Reuse this presentation on profiles with rank, weight details and Boost.

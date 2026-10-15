@@ -135,8 +135,8 @@ for (const width of [320, 390, 1440]) test(`billboards share the adaptive quote 
     const presentation = row.locator(".note-composition-presentation");
     const media = row.locator(".note-composition-quotes");
     const gallery = media.locator(".note-gallery");
-    await expect(gallery).toHaveClass(/gallery-portraits/);
-    await expect(gallery.getByRole("button")).toHaveCount(3);
+    await expect(gallery).toHaveClass(/note-gallery--lead/);
+    await expect(gallery.locator(".note-gallery__thumbnail")).toHaveCount(3);
     const leadBounds = (await presentation.boundingBox())!, mediaBounds = (await media.boundingBox())!;
     expect(mediaBounds.y).toBeGreaterThanOrEqual(leadBounds.y + leadBounds.height);
     const image = await gallery.locator("img").first().elementHandle();
@@ -153,7 +153,7 @@ for (const width of [320, 390, 1440]) test(`billboards share the adaptive quote 
     await expect(row.locator(".board-original")).toHaveCount(0);
     expect(await image!.evaluate(element => element.isConnected)).toBe(true);
     await gallery.getByRole("button", { name: "Open image 1 of 3", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "Image 1 of 3", exact: true })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Media 1 of 3", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(gallery.getByRole("button", { name: "Open image 1 of 3", exact: true })).toBeFocused();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -576,9 +576,14 @@ test("link cards fit below text beside media and keep one instance across phone 
         await expect(async () => {
             const t = (await text.boundingBox())!, m = (await media.boundingBox())!, l = (await link.boundingBox())!;
             if (width >= 768) {
-                expect(l.x).toBeCloseTo(t.x, 0); expect(l.y).toBeGreaterThanOrEqual(t.y + t.height);
-                expect(l.y + l.height).toBeLessThanOrEqual(m.y + m.height + 1);
-                expect(m.x).toBeGreaterThan(l.x + l.width);
+                if (await composition.getAttribute("data-link-placement") === "text") {
+                    expect(l.x).toBeCloseTo(t.x, 0); expect(l.y).toBeGreaterThanOrEqual(t.y + t.height);
+                    expect(l.y + l.height).toBeLessThanOrEqual(m.y + m.height + 1);
+                    expect(m.x).toBeGreaterThan(l.x + l.width);
+                } else {
+                    // A complete landscape frame can be shorter than the text and link.
+                    expect(l.x).toBeCloseTo(m.x, 0); expect(l.y).toBeGreaterThanOrEqual(m.y + m.height);
+                }
             } else {
                 expect(m.y).toBeGreaterThanOrEqual(t.y + t.height);
                 expect(l.y).toBeGreaterThanOrEqual(m.y + m.height);
@@ -620,7 +625,7 @@ test("link placement follows late metadata and local text expansion without rest
 
 test("expanded long text moves its fitted link below media without replacing either", async ({ context, page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.route("https://example.com/photo.png", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450"><rect width="800" height="450" fill="#164e63"/></svg>' }));
+    await page.route("https://example.com/photo.png", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="900"><rect width="800" height="900" fill="#164e63"/></svg>' }));
     const preview = { requests: 0, title: "Project details", description: "A longer destination description that needs another line in the available column." };
     const row = await setup(context, page, { billboard: false, content: "A longer campaign paragraph with important details. ".repeat(40) + "\nhttps://example.com/project\nhttps://example.com/photo.png", preview });
     await expect(row.locator(".note-composition")).toHaveAttribute("data-link-placement", "text");
@@ -679,22 +684,23 @@ test("portrait galleries preserve complete frames and provide every available im
     const row = await setup(context, page, { billboard: false, content: "A gallery of portrait images.\n" + [1, 2, 3, 4].map(index => `https://example.com/photo-${index}.png`).join("\n") });
     const gallery = row.locator(".note-gallery");
     expect(await row.locator('[data-note-text="main"] .note-text-content').innerText()).toBe("A gallery of portrait images.");
-    await expect(gallery).toHaveClass(/gallery-portraits/);
-    await expect(gallery.getByRole("button")).toHaveCount(3);
-    for (const image of await gallery.locator("img").all()) {
-        await expect(image).toHaveCSS("object-fit", "contain");
-        const bounds = (await image.boundingBox())!;
-        expect(bounds.width / bounds.height).toBeCloseTo(0.75, 2);
-    }
-    const first = gallery.getByRole("button", { name: "Open image 1 of 3", exact: true });
+    await expect(gallery).toHaveClass(/note-gallery--lead/);
+    await expect(gallery.locator(".note-gallery__thumbnail")).toHaveCount(4);
+    const lead = gallery.locator(".note-gallery__image img");
+    await expect(lead).toHaveCSS("object-fit", "contain");
+    const first = gallery.getByRole("button", { name: "Open image 1 of 4", exact: true });
     await first.click();
-    const viewer = page.getByRole("dialog", { name: "Image 1 of 3", exact: true });
+    const viewer = page.locator(".note-media-viewer");
     await expect(viewer).toBeVisible();
-    await expect(viewer.locator(".note-image-viewer__image")).toHaveCSS("object-fit", "contain");
-    await viewer.getByRole("button", { name: "Next image", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "Image 2 of 3", exact: true })).toBeVisible();
+    await expect(viewer.locator(".yarl__slide_image")).toHaveCSS("object-fit", "contain");
+    await viewer.getByRole("button", { name: "Next media", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Media 2 of 4", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(first).toBeFocused();
+    await expect(gallery.getByRole("button", { name: "Open image 2 of 4", exact: true })).toBeFocused();
+    await gallery.getByRole("button", { name: "Select image 4 of 4", exact: true }).click();
+    await expect(gallery.getByText("Image unavailable", { exact: true })).toBeVisible();
+    await expect(gallery.getByRole("button", { name: "Retry image", exact: true })).toBeVisible();
+    await expect(gallery.locator(".note-gallery__thumbnail")).toHaveCount(4);
     await page.screenshot({ path: testInfo.outputPath("adaptive-gallery.png"), fullPage: true });
 });
 

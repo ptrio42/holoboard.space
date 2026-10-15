@@ -1,62 +1,163 @@
-import { useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { Modal } from "../ui/Modal";
+import { lazy, Suspense, useLayoutEffect, useRef, useState, type CSSProperties, type TouchEvent } from "react";
+import { knownMedia, rememberMedia, useMediaSelection } from "../../lib/mediaPresentation";
+import type { NoteMediaItem } from "../../lib/noteMedia";
 import { PixelButton } from "../ui/PixelButton";
+import { StatusMessage } from "../ui/StatusMessage";
+import { NoteVideo } from "./NoteVideo";
+import "./NoteMediaGallery.css";
 
-// Presentation only: preserve a loaded card's geometry during reader handoff.
-const imagePresentation = new Map<string, { ratio?: number; failed?: boolean; expires: number }>();
-function knownImage(src: string) {
-    const value = imagePresentation.get(src);
-    return value && value.expires > Date.now() ? value : undefined;
-}
-function rememberImage(src: string, ratio?: number) {
-    imagePresentation.delete(src);
-    if (imagePresentation.size >= 512) imagePresentation.delete(imagePresentation.keys().next().value!);
-    imagePresentation.set(src, ratio ? { ratio, expires: Date.now() + 1800000 } : { failed: true, expires: Date.now() + 60000 });
+const NoteMediaViewer = lazy(() => import("./NoteMediaViewer"));
+const EMPTY_IMAGES: string[] = [];
+
+interface NoteMediaGalleryProps {
+    images?: string[];
+    items?: readonly NoteMediaItem[];
+    quoted?: boolean;
+    galleryKey?: string;
 }
 
-export function NoteMediaGallery({ images, quoted = false }: { images: string[]; quoted?: boolean }) {
-    const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set(images.filter(src => knownImage(src)?.failed)));
-    const [ratios, setRatios] = useState<Record<string, number>>(() => Object.fromEntries(images.flatMap(src => {
-        const ratio = knownImage(src)?.ratio;
-        return ratio ? [[src, ratio]] : [];
-    })));
-    const [viewer, setViewer] = useState<{ images: string[]; index: number } | null>(null);
-    const [viewerFailed, setViewerFailed] = useState(false);
-    const opener = useRef<HTMLButtonElement>(null);
-    if (!images.length) return null;
-    const available = images.filter(src => !failed.has(src));
-    const visible = available.slice(0, 4);
-    const portraits = visible.length > 1 && visible.length <= 3 && visible.every(src => ratios[src] > 0 && ratios[src] <= 0.85);
-    const change = (step: number) => { setViewer(value => value && { ...value, index: (value.index + value.images.length + step) % value.images.length }); setViewerFailed(false); };
-    if (!visible.length) return <a className="note-media-unavailable" href={images[0]} target="_blank" rel="noopener noreferrer nofollow">Images unavailable. Open source ↗</a>;
+function dimensions(item: NoteMediaItem | undefined) {
+    if (!item) return undefined;
+    const observed = knownMedia(item.src);
+    const width = observed?.width ?? item.width;
+    const height = observed?.height ?? item.height;
+    return width && height && Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0 && width <= 100000 && height <= 100000
+        ? { width, height } : undefined;
+}
+
+/** One complete frame, with source order and selection preserved across readers. */
+export function NoteMediaGallery({ images = EMPTY_IMAGES, items, quoted = false, galleryKey }: NoteMediaGalleryProps) {
+    const media: readonly NoteMediaItem[] = items ?? images.map(src => ({ kind: "image", src }));
+    const identity = galleryKey ?? JSON.stringify(media.map(item => [item.kind, item.src]));
+    const [selected, select] = useMediaSelection(identity, media);
+    const [viewerOpen, setViewerOpen] = useState(false);
+    const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set(media.filter(item => knownMedia(item.src)?.failed).map(item => item.src)));
+    const [retries, setRetries] = useState<Record<string, number>>({});
+    const [observed, setObserved] = useState<Record<string, { width: number; height: number }>>({});
+    const opener = useRef<HTMLElement | null>(null);
+    const root = useRef<HTMLDivElement>(null);
+    const touch = useRef<{ x: number; y: number } | null>(null);
+    const suppressOpenUntil = useRef(0);
+    useLayoutEffect(() => {
+        if (viewerOpen) opener.current = root.current?.querySelector<HTMLElement>(".note-gallery__image, .note-gallery__expand") ?? root.current;
+    }, [viewerOpen, selected, failed]);
+    useLayoutEffect(() => {
+        if (!viewerOpen) return;
+        const openingURL = window.location.href;
+        // Navigation can finish before the viewer's lazy module and history owner load.
+        const cancelPendingViewer = () => { if (window.location.href !== openingURL) setViewerOpen(false); };
+        window.addEventListener("popstate", cancelPendingViewer);
+        return () => window.removeEventListener("popstate", cancelPendingViewer);
+    }, [viewerOpen]);
+    if (!media.length) return null;
+
+    const index = Math.max(0, media.findIndex(item => item.src === selected));
+    const item = media[index];
+    const firstDimensions = observed[media[0].src] ?? dimensions(media[0]);
+    const firstRatio = firstDimensions ? firstDimensions.width / firstDimensions.height : media.length > 1 ? 1 : 4 / 3;
+    // A wide first slide must leave enough room for later portraits and controls.
+    const frameStyle = { "--gallery-ratio": media.length > 1 ? Math.min(1, firstRatio) : firstRatio } as CSSProperties;
+    const start = Math.max(0, Math.min(index - 3, media.length - 7));
+    const thumbnails = media.slice(start, start + 7);
+    const unavailable = failed.has(item.src) || knownMedia(item.src)?.failed;
+
+    const change = (step: number) => select(media[(index + step + media.length) % media.length].src);
+    const loaded = (src: string, width: number, height: number) => {
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
+        rememberMedia(src, { width, height, failed: false });
+        setObserved(current => current[src]?.width === width && current[src]?.height === height ? current : { ...current, [src]: { width, height } });
+        setFailed(current => {
+            if (!current.has(src)) return current;
+            const next = new Set(current);
+            next.delete(src);
+            return next;
+        });
+    };
+    const fail = (src: string) => {
+        rememberMedia(src, { failed: true });
+        setFailed(current => new Set(current).add(src));
+    };
+    const retry = () => {
+        rememberMedia(item.src, { failed: false });
+        setFailed(current => {
+            const next = new Set(current);
+            next.delete(item.src);
+            return next;
+        });
+        setRetries(current => ({ ...current, [item.src]: (current[item.src] ?? 0) + 1 }));
+    };
+    const open = (button: HTMLElement) => {
+        if (Date.now() < suppressOpenUntil.current) return;
+        opener.current = button;
+        const video = root.current?.querySelector("video");
+        if (video) {
+            video.pause();
+            if (video.readyState >= 1 && Number.isFinite(video.currentTime)) rememberMedia(item.src, { time: video.currentTime });
+        }
+        setViewerOpen(true);
+    };
+    const closeViewer = () => {
+        setViewerOpen(false);
+        setFailed(current => new Set([...current].filter(src => knownMedia(src)?.failed !== false)));
+    };
+    const touchStart = (event: TouchEvent) => {
+        touch.current = event.touches.length === 1 ? { x: event.touches[0].clientX, y: event.touches[0].clientY } : null;
+    };
+    const touchEnd = (event: TouchEvent) => {
+        const origin = touch.current;
+        touch.current = null;
+        if (!origin || !event.changedTouches.length) return;
+        const dx = event.changedTouches[0].clientX - origin.x;
+        const dy = event.changedTouches[0].clientY - origin.y;
+        if (Math.abs(dx) < 40 || Math.abs(dx) <= Math.abs(dy) * 1.3) return;
+        suppressOpenUntil.current = Date.now() + 600;
+        if (media.length > 1) change(dx < 0 ? 1 : -1);
+    };
+
     return <>
-        <div className={`note-gallery gallery-${visible.length}${quoted ? " note-gallery--quoted" : ""}${portraits ? " gallery-portraits" : ""}`}
-            style={portraits ? { gridTemplateColumns: visible.map(src => `${ratios[src]}fr`).join(" ") } : undefined}
-            aria-label={`${available.length} ${available.length === 1 ? "image" : "images"}${quoted ? " in quoted note" : " in note"}`} data-note-block>
-            {visible.map((src, index) => <button key={src} type="button" className="note-gallery-image focus-pixel"
-                style={portraits ? { aspectRatio: ratios[src] } : undefined} aria-label={`Open image ${index + 1} of ${available.length}`}
-                onClick={event => { opener.current = event.currentTarget; setViewerFailed(false); setViewer({ images: available, index }); }}>
-                <img src={src} alt="Image from the note" loading="lazy" decoding="async" onLoad={event => {
-                    const image = event.currentTarget;
-                    const ratio = image.naturalWidth / image.naturalHeight;
-                    rememberImage(src, ratio);
-                    setRatios(current => ({ ...current, [src]: ratio }));
-                }} onError={() => { rememberImage(src); setFailed(current => new Set(current).add(src)); }} />
-                {index === visible.length - 1 && available.length > visible.length && <span className="note-gallery-more">+{available.length - visible.length}</span>}
-            </button>)}
-        </div>
-        {viewer && createPortal(<Modal isOpen onClose={() => setViewer(null)} title={`Image ${viewer.index + 1} of ${viewer.images.length}`}
-            scrollBody panelClassName="note-image-viewer" returnFocusRef={opener}>
-            <div onKeyDown={event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); change(event.key === "ArrowLeft" ? -1 : 1); } }}>
-                {viewerFailed ? <p role="status">Image unavailable. Open its source below.</p> : <img className="note-image-viewer__image"
-                    src={viewer.images[viewer.index]} alt="Full image from the original note" onError={() => setViewerFailed(true)} />}
-                <div className="note-image-viewer__navigation">
-                    {viewer.images.length > 1 && <PixelButton variant="ghost" size="sm" onClick={() => change(-1)} aria-label="Previous image">Previous</PixelButton>}
-                    <a className="note-action" href={viewer.images[viewer.index]} target="_blank" rel="noopener noreferrer nofollow">Open source ↗</a>
-                    {viewer.images.length > 1 && <PixelButton variant="ghost" size="sm" onClick={() => change(1)} aria-label="Next image">Next</PixelButton>}
-                </div>
+        <div ref={root} tabIndex={-1} className={`note-gallery note-gallery--lead${quoted ? " note-gallery--quoted" : ""}`}
+            aria-label={`${media.length} media ${quoted ? "in quoted note" : "in note"}`} data-note-block data-media-index={index}>
+            <div className="note-gallery__lead" style={frameStyle}>
+                {item.kind === "image" ? unavailable ?
+                    <div className="note-gallery__unavailable"><StatusMessage compact>Image unavailable</StatusMessage></div> :
+                    <button type="button" className="note-gallery-image note-gallery__image focus-pixel"
+                        aria-label={`Open image ${index + 1} of ${media.length}`} onClick={event => open(event.currentTarget)}
+                        onTouchStart={touchStart} onTouchMove={event => { if (event.touches.length !== 1) touch.current = null; }}
+                        onTouchEnd={touchEnd} onTouchCancel={() => { touch.current = null; }}>
+                        <img key={`${item.src}:${retries[item.src] ?? 0}`} src={item.src} alt={item.alt ?? "Image from the note"} loading="lazy" decoding="async"
+                            onLoad={event => loaded(item.src, event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)} onError={() => fail(item.src)} />
+                    </button> :
+                    <NoteVideo key={item.src} item={item} active={!viewerOpen} onDimensions={(width, height) => loaded(item.src, width, height)} />}
             </div>
-        </Modal>, document.body)}
+            {item.kind === "image" && unavailable && <div className="note-gallery__recovery">
+                <a className="note-media-unavailable" href={item.src} target="_blank" rel="noopener noreferrer nofollow">Open source ↗</a>
+                <PixelButton variant="ghost" size="sm" onClick={retry}>Retry image</PixelButton>
+            </div>}
+            {(media.length > 1 || item.kind === "video") && <div className="note-gallery__toolbar">
+                {media.length > 1 && <>
+                    <PixelButton variant="ghost" size="sm" className="note-gallery__arrow" onClick={() => change(-1)} aria-label="Previous media"><span aria-hidden="true">◀</span></PixelButton>
+                    <span className="note-gallery__counter" role="status" aria-label={`${item.kind === "image" ? "Image" : "Video"} ${index + 1} of ${media.length}`}>{index + 1} / {media.length}</span>
+                    <PixelButton variant="ghost" size="sm" className="note-gallery__arrow" onClick={() => change(1)} aria-label="Next media"><span aria-hidden="true">▶</span></PixelButton>
+                </>}
+                {item.kind === "video" && <PixelButton variant="ghost" size="sm" className="note-gallery__expand" onClick={event => open(event.currentTarget)} aria-label={`Open video ${index + 1} of ${media.length}`}>Expand</PixelButton>}
+            </div>}
+            {media.length > 1 && <div className="note-gallery__thumbnails" role="group" aria-label="Choose media">
+                {thumbnails.map((thumbnail, offset) => {
+                    const number = start + offset;
+                    const broken = failed.has(thumbnail.src) || knownMedia(thumbnail.src)?.failed;
+                    const preview = thumbnail.kind === "image" ? thumbnail.src : thumbnail.poster;
+                    return <button key={thumbnail.src} type="button" className="note-gallery__thumbnail focus-pixel" aria-pressed={number === index}
+                        ref={node => { if (node && number === index && node.parentElement) node.parentElement.scrollLeft = node.offsetLeft - (node.parentElement.clientWidth - node.clientWidth) / 2; }}
+                        aria-label={`Select ${thumbnail.kind} ${number + 1} of ${media.length}${broken ? ", unavailable" : ""}`} onClick={() => select(thumbnail.src)}>
+                        {preview && !broken && <img src={preview} alt="" loading="lazy" decoding="async" onError={event => { event.currentTarget.hidden = true; }} />}
+                        {thumbnail.kind === "video" && <span className="note-gallery__play" aria-hidden="true">▶</span>}
+                        <span className="note-gallery__thumbnail-number" aria-hidden="true">{broken ? "! " : ""}{number + 1}</span>
+                    </button>;
+                })}
+            </div>}
+        </div>
+        {viewerOpen && <Suspense fallback={<div className="note-gallery-viewer-loading"><StatusMessage loading compact>Opening media</StatusMessage></div>}>
+            <NoteMediaViewer items={media} index={index} onIndex={next => { if (media[next]) select(media[next].src); }} onClose={closeViewer} openerRef={opener} />
+        </Suspense>}
     </>;
 }

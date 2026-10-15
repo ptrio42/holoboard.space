@@ -4,8 +4,7 @@ import { readNostr } from "../../lib/nostrReads";
 import { newerEvent, nostrCache } from "../../lib/nostrCache";
 import { ndk } from "../../lib/ndk";
 import { type NoteQuoteReference } from "../../lib/noteAttachments";
-import { parseContent } from "../../utils/textProcessing/parseContent";
-import { videoPoster } from "../../lib/noteMedia";
+import { mediaTokens, noteMediaItems, mediaItemsFromSources } from "../../lib/noteMedia";
 import { noteTextTokens } from "../../lib/noteTextTokens";
 import { articlePreview } from "../../lib/articlePreview";
 import { firstPreviewLink } from "../../lib/linkPreview";
@@ -97,15 +96,16 @@ function QuotePreview({ request, href, adaptive, initiallyExpanded, initiallyExp
 
 function QuoteContent({ event, adaptive, initiallyExpanded, parentMedia }: { event: NDKEvent; adaptive: boolean; initiallyExpanded: boolean; parentMedia: readonly string[] }) {
     const body = useMemo(() => {
-        if (event.kind === 30023) return articlePreview(event.content);
-        const tokens = parseContent(event.content);
+        if (event.kind === 30023) return articlePreview(event.content, event.tags);
+        const tokens = mediaTokens(event.content, event.tags);
         return { words: noteTextTokens(tokens.filter(token => token.kind !== "image" && token.kind !== "video")),
             images: [...new Set(tokens.flatMap(token => token.kind === "image" ? [token.src] : []))],
-            videos: [...new Set(tokens.flatMap(token => token.kind === "video" ? [token.src] : []))], link: firstPreviewLink(event.content) };
-    }, [event.kind, event.content]);
+            videos: [...new Set(tokens.flatMap(token => token.kind === "video" ? [token.src] : []))],
+            media: noteMediaItems(tokens, event.tags), link: firstPreviewLink(tokens.flatMap(token => token.kind === "link" ? [token.href] : []).join("\n")) };
+    }, [event.kind, event.content, event.tags]);
     const images = body.images.filter(src => !parentMedia.includes(src));
-    const videos = body.videos.filter(src => !parentMedia.includes(src));
-    const visual = !!(images.length || adaptive && videos.length);
+    const items = mediaItemsFromSources(body.media, event.tags).filter(item => !parentMedia.includes(item.src));
+    const visual = adaptive ? !!items.length : !!images.length;
     const length = body.words.reduce((count, token) => count + (token.kind === "text" || token.kind === "formatted" ? token.value.length : 32), 0);
     const root = useRef<HTMLDivElement>(null);
     useNoteLinkPlacement(root, adaptive && visual && !!body.link, event.id);
@@ -113,9 +113,7 @@ function QuoteContent({ event, adaptive, initiallyExpanded, parentMedia }: { eve
         <InlineNoteText tokens={body.words} className="note-quote__excerpt" complete={length <= 160} quoted
             initiallyExpanded={initiallyExpanded} textKey={`quote:${event.id}`} />
         {visual && <div className="note-quote-media">
-            {adaptive ? <NoteMediaGallery images={images} quoted /> : <QuoteMedia images={images} />}
-            {adaptive && videos.map(src => <video key={src} className="note-content-video" src={src}
-                poster={videoPoster(event.tags, src)} controls playsInline preload="metadata" data-note-block />)}
+            {adaptive ? <NoteMediaGallery items={items} galleryKey={event.id} quoted /> : <QuoteMedia images={images} />}
         </div>}
         {body.link && <NoteLinkPreview text={event.content} url={body.link} compact />}
     </div>;
