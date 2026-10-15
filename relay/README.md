@@ -201,6 +201,12 @@ GOMAXPROCS=2 go test -race -p 1 -count=1 -timeout=8m ./... fiatjaf.com/nostr/...
 CGO_ENABLED=0 go build -trimpath -o /tmp/holoboard-relay .
 ```
 
+When updating an older checkout, inspect any remaining `third_party/go-nostr`
+or `third_party/khatru` directories. Earlier ignore rules could hide source
+files there, so a clean Git status does not prove they are absent. Archive
+leftovers outside the checkout before testing; Go can include them in `./...`
+after their old module files have been removed.
+
 The pinned `fiatjaf.com/nostr` module includes Khatru. Local patches preserve
 joined shutdown, strict validation, honest query outcomes and resource limits.
 See the [snapshot rationale](third_party/nostr/WHY.md) and
