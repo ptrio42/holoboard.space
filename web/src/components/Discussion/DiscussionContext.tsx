@@ -29,9 +29,10 @@ export function DiscussionContext({ node, parent, parentEvent, onParent, parentH
             {parent?.event && <a href={discussionHref(parent.event.id, parent.event.pubkey, window.location.pathname + window.location.search, parentHints)}
                 onClick={event => { if (!onParent) return navigateReading(event); if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onParent(); }}
                 className="discussion-parent focus-pixel"
+                title={compact ? `Replying to ${parentName}${parentPreview ? `: ${parentPreview}` : ""}` : undefined}
                 aria-label={`Go to parent note by ${parentName}`}>
                 <span className="flex min-w-0 items-center gap-2"><svg aria-hidden="true" className="shrink-0 text-cyan-400/60" width="10" height="10" viewBox="0 0 10 10" fill="currentColor" shapeRendering="crispEdges"><path d="M0 0h2v4h4V2h2v2h2v2H8v2H6V6H0V0Z" /></svg>
-                    <span className="truncate">Replying to <span className="text-cyan-200">{parentName}</span></span>
+                    <span className="truncate"><span className={compact ? "sr-only" : undefined}>Replying to </span><span className="text-cyan-200">{parentName}</span></span>
                 </span>
                 {parentPreview && <span data-parent-preview className="mt-0.5 line-clamp-1 break-all pl-[18px] text-cyan-100/55">{parentPreview}</span>}
             </a>}

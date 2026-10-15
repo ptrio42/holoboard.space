@@ -539,7 +539,7 @@ and editor panel explanations use a readable body size. The modal scrolls its
 body independently of the action footer, including on small phone screens.
 Promotion actions and short labels share a 10px pixel style; panel headings use
 12px. Board notes and focused notes use a 16px monospace base size; compact
-discussion comments use 14px. Promotion
+discussion comments use the same 16px body size. Promotion
 previews and payment totals use 14px, helper text uses 12px, and editable values
 use 16px. Connection controls use the same action style in the app header and
 promotion panels.
@@ -643,7 +643,11 @@ promotions reuse the adaptive note card, including local text expansion, bounded
 quote and destination previews, rank, current weight, total paid and Boost.
 Profile cards and direct focuses show the original signed note. Board-origin
 focuses preserve the source card's geometry, campaign appearance and expansion.
-Comments keep a lighter row with 14px text. Reply actions use the shared speech bubble,
+Comments keep a lighter row with 16px text. Author and exact parent navigation
+share a header; nested parent excerpts stay on one secondary line. Branch
+disclosures use a stepped chevron and count beside the footer actions.
+Earlier context starts collapsed, remembers explicit expansion and opens
+automatically when navigating to an exact ancestor. Reply actions use the shared speech bubble,
 and comment timestamps open their thread. The Replies count is compact; a short
 coverage status keeps read limits and source explanations behind Source details.
 Phone branch steps are 8px, capped at
@@ -660,7 +664,9 @@ identity section above notes on phones. Optional banners remain bounded within
 that section, NIP-05 appears near the name, and a separately labelled Lightning
 address has a copy action. Missing fields leave no reserved space. A NIP-05
 check confirms the domain-to-key mapping; checking, unavailable and key-mismatch
-states remain distinct. Full keys and source diagnostics live in Profile details,
+states remain distinct, with a compact retry action beside unavailable checks.
+Full keys, public-key copying, external profile links and source diagnostics
+live in Profile details. Routine campaign scan counts live in Promotion details,
 while partial data and recovery remain visible. Mark simulated verification
 explicitly in prototypes and repeat reviews with the implemented components.
 

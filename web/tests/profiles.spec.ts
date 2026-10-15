@@ -144,6 +144,33 @@ test.describe("read-only profiles", () => {
         await expect(identity.getByText("Clipboard unavailable. Select the address to copy it.", { exact: true })).toBeVisible();
         expect(fixture.publications).toEqual([]); expect(fixture.errors).toEqual([]);
     });
+    test("keeps mobile profile notes in view with verification recovery and secondary tools", async ({ context, page }) => {
+        const metadata = make(JSON.stringify({ name: "fixture", about: "Building small open source tools for Nostr. Learn more about the project and share your ideas.", banner: "https://images.example.com/banner.png", picture: "https://images.example.com/avatar.png", nip05: "claimed@example.com", lud16: "author@pay.example.com" }), [], 1700000200, 0);
+        const fixture = await setup(context, page, { metadata, nip05: "unavailable" });
+        await page.goto(url); await settled(page);
+        const identity = page.getByRole("region", { name: "Author profile", exact: true });
+        await expect(identity.locator('[data-nip05-state="unavailable"]')).toBeVisible();
+        await expect(identity.getByRole("button", { name: "Copy npub", exact: true })).toHaveCount(0);
+        for (const width of [320, 390, 1280]) {
+            await page.setViewportSize({ width, height: 844 });
+            await page.evaluate(() => { window.scrollTo(0, 0); return document.fonts.ready; });
+            const retry = identity.getByRole("button", { name: "Retry address check", exact: true });
+            const bounds = (await retry.boundingBox())!;
+            expect(bounds.width).toBeGreaterThanOrEqual(44); expect(bounds.height).toBeGreaterThanOrEqual(44);
+            const note = (await page.locator("[data-profile-note]").first().boundingBox())!;
+            expect(note.y).toBeLessThan(764);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+            await page.screenshot({ path: test.info().outputPath(`profile-compact-${width}.png`), fullPage: true });
+        }
+        await identity.getByText("Profile details", { exact: true }).click();
+        await expect(identity.getByRole("button", { name: "Copy npub", exact: true })).toBeVisible();
+        await expect(identity.getByRole("link", { name: "Open elsewhere", exact: true })).toBeVisible();
+        const details = page.getByText("Promotion details", { exact: true });
+        await expect(page.getByText(/campaigns checked\./)).not.toBeVisible();
+        await details.click();
+        await expect(page.getByText(/campaigns checked\./)).toBeVisible();
+        expect(fixture.publications).toEqual([]); expect(fixture.errors).toEqual([]);
+    });
     for (const outcome of ["mismatch", "unavailable", "redirect"] as const) test(`keeps NIP-05 ${outcome} distinct from verified metadata`, async ({ context, page, browserName }) => {
         test.skip(outcome === "redirect" && browserName === "webkit", "Playwright WebKit cannot fulfill intercepted requests with redirect statuses; unit and Chromium checks cover redirects.");
         const options: Options = { nip05: outcome }; const fixture = await setup(context, page, options);
@@ -198,6 +225,7 @@ test.describe("read-only profiles", () => {
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await page.screenshot({ path: `/private/tmp/holoboard-profile-${test.info().project.name}.png`, fullPage: true });
         await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined }));
+        await page.getByText("Profile details", { exact: true }).click();
         await page.getByRole("button", { name: "Copy npub", exact: true }).click();
         await expect(page.getByText("Clipboard is unavailable. Select the public key below to copy it.", { exact: true })).toBeVisible();
         await expect(page.getByLabel("Nostr public key", { exact: true })).toBeVisible();

@@ -341,6 +341,7 @@ test.describe("explicit reply publication", () => {
         if (pointer.type === "nevent") expect(pointer.data.relays?.length).toBeGreaterThan(0);
         await expect(page.getByRole("article", { name: "Discussion focus" })).toContainText("A reply to the original promoted note");
         await expect(page.getByRole("article", { name: "Discussion focus" }).getByText("Promoted", { exact: true })).toHaveCount(0);
+        await page.getByRole("region", { name: "Ancestor context" }).getByRole("button", { name: /Earlier context/ }).click();
         await expect(page.getByRole("region", { name: "Ancestor context" })).toContainText(root.content);
         expect(state.errors).toEqual([]);
     });

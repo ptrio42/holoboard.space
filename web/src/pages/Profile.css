@@ -17,10 +17,11 @@
 .profile-nip05-address svg { flex: none; margin-top: 4px; }
 .profile-nip05.is-verified .profile-nip05-address { color: var(--color-neon-cyan); }
 .profile-nip05:is(.is-mismatch, .is-invalid) .profile-nip05-address { color: var(--color-neon-pink); }
-.profile-nip05-status { display: block; font-size: 12px; margin-top: 4px; color: #9eb6c2; }
+.profile-nip05-feedback { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.profile-nip05-status { min-width: 0; font-size: 12px; color: #9eb6c2; }
 .profile-nip05.is-checking .profile-nip05-status { color: var(--color-neon-cyan); font-family: var(--font-pixel); font-size: 10px; line-height: 1.8; }
 .profile-nip05:is(.is-mismatch, .is-invalid) .profile-nip05-status { color: #f6a9d1; }
-.profile-nip05-retry { min-height: 44px; font-size: 10px; }
+.profile-nip05-retry { margin-left: auto; }
 .profile-about { font-size: 16px; line-height: 1.65; color: #d2edf2; margin-top: 18px; }
 .profile-about:empty { display: none; }
 .profile-about p { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -59,18 +60,19 @@
 @media (max-width: 767px) {
     .profile-page-context { margin-bottom: 16px; }
     .profile-composition { display: block; }
-    .profile-identity { border-right: 0; border-bottom: 2px solid #22d3ee2b; padding: 0 0 20px; margin-bottom: 24px; }
+    .profile-identity { border-right: 0; border-bottom: 2px solid #22d3ee2b; padding: 0 0 12px; margin-bottom: 16px; }
+    .profile-banner { height: 96px; }
     .profile-person { flex-direction: row; align-items: start; gap: 16px; }
     .profile-avatar > :first-child { width: 64px !important; height: 64px !important; }
     .profile-identity.has-banner .profile-person { padding-inline: 12px; }
     .profile-identity.has-banner .profile-name-group { padding-top: 32px; }
     .profile-name { font-size: 14px; line-height: 1.8; }
     .profile-nip05 { font-size: 13px; margin-top: 4px; }
-    .profile-about { margin-top: 16px; }
+    .profile-about { margin-top: 12px; }
     .profile-lightning { margin-top: 14px; padding-top: 10px; }
     .profile-tools { gap: 0 20px; }
     .profile-promoted-note { padding: 16px; }
-    .profile-list-subtitle { margin-bottom: 20px; }
+    .profile-list-subtitle { margin-bottom: 12px; }
     .profile-note-list { gap: 20px; }
     .profile-list-heading h3 { font-size: 11px; }
 }

@@ -218,7 +218,9 @@ or media can still change its height during a read.
 Explicit branch collapse, local pages and context expansion survive reloads through
 session storage for at most eight discussions, separately from payment and
 identity storage. New and late-parent branches open automatically unless an
-ancestor was explicitly collapsed. Each resolved reply names its actual parent
+ancestor was explicitly collapsed. Earlier ancestor context starts collapsed
+behind a counted disclosure. Selecting an ancestor through a parent link opens
+it automatically and focuses the exact note. Each resolved reply names its actual parent
 author. Direct replies to the reading focus omit its repeated text preview;
 nested replies retain a one-line cached preview with shortened references and
 media labels. Selecting that context reveals and
@@ -235,9 +237,10 @@ indentation levels. Exact parent links retain the full relationship when depth
 exceeds that display cap. The reading focus keeps its notched frame; promoted
 replies use a thin gold marker and inline label without changing ordering.
 The reply column and direct-URL focus are at most 768 CSS pixels wide; a
-board-origin focus retains the board width. Branch collapse sits beside
-the author beside a compact avatar; body text aligns with the pseudonym. Body
-expansion, navigation and secondary timestamps share a subdued footer. Controls keep
+board-origin focus retains the board width. Compact rows place the author and
+parent navigation beside each other in one header. Branch collapse uses a
+stepped chevron and count in the subdued footer beside body expansion,
+navigation and secondary timestamps. Controls keep
 44-pixel hit heights. Local page changes focus and scroll to the reply section,
 and a page starting inside a branch names that continuation and keeps its parent
 link available.

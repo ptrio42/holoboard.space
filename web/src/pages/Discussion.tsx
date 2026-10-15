@@ -147,9 +147,11 @@ export default function Discussion({ focusId, author, hints, from }: { focusId: 
             {!snapshot && !error && !handoff && <StatusMessage loading>Opening discussion...</StatusMessage>}
             {snapshot && projection && <>
                 {projection.ancestors.length > 0 && <section aria-label="Ancestor context" className="mx-auto mb-5 max-w-3xl">
-                    <h3 className="mb-3 font-pixel text-[10px] text-cyan-100/75">Earlier context</h3>
-                    {projection.ancestors.length > 8 && <button type="button" className="note-action mb-3 inline-flex min-h-11 items-center" aria-expanded={reading.context} onClick={() => setReading(value => ({ ...value, context: !value.context }))}>{reading.context ? "Less context" : `Show earlier context (${projection.ancestors.length - 8})`}</button>}
-                    <ul className="space-y-3">{(reading.context ? projection.ancestors : projection.ancestors.slice(-8)).map(row => note(row))}</ul>
+                    <h3><button type="button" className="note-action inline-flex min-h-11 items-center gap-3" aria-expanded={reading.context} aria-controls="discussion-ancestors" onClick={() => setReading(value => ({ ...value, context: !value.context }))}>
+                        <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="currentColor" shapeRendering="crispEdges"><path d={reading.context ? "M0 2h2v2h2v2h2V4h2V2h2v4H8v2H6v2H4V8H2V6H0z" : "M2 0h4v2h2v2h2v2H8v2H6v2H2V8h2V6h2V4H4V2H2z"} /></svg>
+                        Earlier context <span>({projection.ancestors.length})</span>
+                    </button></h3>
+                    <ul id="discussion-ancestors" hidden={!reading.context} className="space-y-3">{reading.context && projection.ancestors.map(row => note(row))}</ul>
                 </section>}
             </>}
             {(boardNote || (snapshot && projection)) && <ul className="mb-6 flow-root">{boardNote && handoff

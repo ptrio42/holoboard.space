@@ -379,7 +379,13 @@ body::after {
 .discussion-note__header > button { flex-shrink: 0; }
 .discussion-note__content { padding-left: 30px; }
 .discussion-note .note-body { font-size: 16px; line-height: 1.7; }
-.discussion-note-compact .note-body { font-size: 14px; }
+.discussion-note-compact .discussion-note__header { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 12px; }
+.discussion-note-compact .discussion-note__header.has-parent { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); }
+.discussion-note-compact .discussion-note__header > a { grid-column: 1; grid-row: 1; }
+.discussion-note-compact .discussion-note__header .discussion-context { display: contents; }
+.discussion-note-compact .discussion-parent { grid-column: 2; grid-row: 1; margin-bottom: 0; }
+.discussion-note-compact .discussion-context-status { grid-column: 1 / -1; }
+.discussion-note-compact .discussion-note__content { padding-left: 0; }
 .discussion-sources[open] { flex-basis: 100%; }
 .discussion-note-compact {
     position: relative;
@@ -410,6 +416,8 @@ body::after {
 }
 .discussion-parent:hover { color: var(--color-neon-cyan); }
 .discussion-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; margin-top: 4px; }
+.discussion-branch { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 44px; min-height: 44px; }
+.discussion-branch svg { flex: none; }
 .discussion-time { margin-left: auto; font-size: 11px; line-height: 1.5; white-space: nowrap; color: rgb(165 243 252 / 0.5); }
 .discussion-actions .note-action { color: rgb(165 243 252 / 0.65); }
 .discussion-actions .note-action:hover { color: var(--color-neon-cyan); }

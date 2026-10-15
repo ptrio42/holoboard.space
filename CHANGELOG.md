@@ -71,6 +71,8 @@ record deployment, not announcement publication.
 
 ### Changed
 
+- Make phone profiles more compact with verification recovery beside its status
+  and secondary identity tools in Profile details.
 - Make Reply a wider desktop and full-screen mobile editor with previews, emoji,
   GIF links and optional GIF search, explicit file uploads, and saved attachment
   descriptions. Preserve separate signing and public delivery.
@@ -79,8 +81,10 @@ record deployment, not announcement publication.
 - Keep link previews compact with two-line titles and descriptions and readable
   pixel hostname labels. Use smaller destination previews inside quotes, shorter
   desktop text previews and compact quote loading states.
-- Make discussions easier to scan with smaller comment text, speech-bubble reply
-  controls, a compact reply count and collapsible source explanations.
+- Make discussions easier to scan with a shared author and parent header,
+  readable 16px comment text, speech-bubble reply controls, clearer branch
+  disclosures, a compact reply count and collapsible source explanations.
+  Collapse earlier context until requested and open it when navigating to a parent.
 - Use the wordmark's pink pixel H consistently in the mobile header, favicon
   and app icons. Add a small H to invoice and connection QRs when readability
   checks pass, retaining plain codes for dense or unverified candidates.

@@ -126,6 +126,29 @@ test.describe("read-only discussion", () => {
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await page.getByRole("region", { name: "Replies", exact: true }).screenshot({ path: testInfo.outputPath("deep-phone-branches.png") });
     });
+    test("collapses earlier context until requested and reveals the exact ancestor on parent navigation", async ({ context, page }) => {
+        const fixture = await setup(context, page);
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.goto(`/discussion/${focus.id}`);
+        const ancestors = page.getByRole("region", { name: "Ancestor context", exact: true });
+        const toggle = ancestors.getByRole("button", { name: /Earlier context/ });
+        const card = page.getByRole("article", { name: "Discussion focus", exact: true });
+        await expect(toggle).toHaveAttribute("aria-expanded", "false");
+        await expect(row(page, root)).not.toBeVisible();
+        const bounds = (await card.boundingBox())!;
+        expect(bounds.y).toBeLessThan(400); expect(bounds.y + bounds.height).toBeLessThan(844);
+        await toggle.click();
+        await expect(row(page, root)).toBeVisible();
+        await page.reload();
+        await expect(toggle).toHaveAttribute("aria-expanded", "true");
+        await expect(row(page, root)).toBeVisible();
+        await toggle.click();
+        await expect(row(page, root)).not.toBeVisible();
+        await card.getByRole("link", { name: /Go to parent note by/ }).click();
+        await expect(toggle).toHaveAttribute("aria-expanded", "true");
+        await expect(row(page, root)).toBeFocused();
+        expect(fixture.publications).toEqual([]);
+    });
     test("keeps unresolved context visible and its specific warning accessible", async ({ context, page }) => {
         const selected = make("Missing parent focus", [["e", "d".repeat(64), "", "reply"]]);
         await setup(context, page, { focus: selected });
@@ -166,7 +189,15 @@ test.describe("read-only discussion", () => {
         await page.setViewportSize({ width: 320, height: 800 });
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         const controls = await row(page, nested).locator(".discussion-actions a, .discussion-parent, header a").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect()));
+        expect(controls.length).toBe(4);
         expect(controls.every(bounds => bounds.height >= 44 && bounds.right <= 320)).toBe(true);
+        const collapse = row(page, reply).getByRole("button", { name: "Hide replies", exact: true });
+        const collapseBounds = (await collapse.boundingBox())!;
+        expect(collapseBounds.width).toBeGreaterThanOrEqual(44); expect(collapseBounds.height).toBeGreaterThanOrEqual(44);
+        await collapse.click();
+        await expect(row(page, nested)).toHaveCount(0);
+        await row(page, reply).getByRole("button", { name: "Show replies (1)", exact: true }).click();
+        await expect(row(page, nested)).toBeVisible();
         expect(fixture.publications).toEqual([]);
     });
     test("keeps the original middle focus, unpaid parents and promotion badges separate", async ({ context, page }) => {
@@ -181,6 +212,7 @@ test.describe("read-only discussion", () => {
         await link.click();
         await expect(page.getByRole("article", { name: "Discussion focus" })).toContainText(focus.content);
         await drain(page);
+        await page.getByRole("region", { name: "Ancestor context" }).getByRole("button", { name: /Earlier context/ }).click();
         await expect(page.getByRole("region", { name: "Ancestor context" })).toContainText(root.content);
         await expect(row(page, child)).toContainText(child.content);
         await expect(row(page, child).locator(".discussion-promotion")).toHaveCount(0);
@@ -250,7 +282,7 @@ test.describe("read-only discussion", () => {
         await sameGeometry();
         await expect.poll(fixture.hasDelivery).toBe(true);
         fixture.deliver();
-        await expect(page.getByRole("region", { name: "Ancestor context" })).toContainText(root.content);
+        await expect(page.getByRole("region", { name: "Ancestor context" }).getByRole("button", { name: "Earlier context (1)", exact: true })).toHaveAttribute("aria-expanded", "false");
         await sameGeometry();
         const frames = await page.evaluate(() => (window as unknown as { readingFrames: typeof original[] }).readingFrames);
         await test.info().attach("reading-position", { contentType: "application/json", body: JSON.stringify({ original, frames }) });
@@ -442,7 +474,7 @@ test.describe("read-only discussion", () => {
         await page.evaluate(id => { const node = document.querySelector(`[data-discussion-key="event:${id}"]`)!; window.scrollBy(0, node.getBoundingClientRect().top - 20); }, focus.id);
         const before = (await row(page, focus).boundingBox())!.y;
         fixture.deliver();
-        await expect(page.getByRole("region", { name: "Ancestor context" })).toContainText(root.content);
+        await expect(page.getByRole("region", { name: "Ancestor context" }).getByRole("button", { name: "Earlier context (1)", exact: true })).toHaveAttribute("aria-expanded", "false");
         await expect.poll(async () => Math.abs((await row(page, focus).boundingBox())!.y - before)).toBeLessThan(3);
     });
     test("moves an unresolved branch into place without losing expansion", async ({ context, page }) => {
@@ -532,13 +564,19 @@ test.describe("read-only discussion", () => {
         await expect(replies.locator("article")).toHaveCount(48);
         await page.evaluate(() => document.fonts.ready);
         const first = replies.locator("article").first();
-        // A 14px text line plus the author, parent and footer's 44px targets.
-        await expect(first.locator(".note-text")).toHaveCSS("font-size", "14px");
-        expect((await first.boundingBox())!.height).toBeLessThan(190);
+        // Parent navigation shares the author's header instead of adding a row.
+        await expect(first.locator(".note-text")).toHaveCSS("font-size", "16px");
+        expect((await first.boundingBox())!.height).toBeLessThan(140);
         await expect(first.locator("[data-parent-preview]")).toHaveCount(0);
         await expect(replies.getByText("Thread", { exact: true })).toHaveCount(0);
         await expect(page.getByText("Oldest first within each branch.", { exact: true })).toHaveCount(0);
-        const hitAreas = await first.locator(".discussion-actions a, .discussion-actions button, .discussion-parent").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
+        const authorBounds = (await first.locator("header > a").boundingBox())!;
+        const parentBounds = (await first.locator(".discussion-parent").boundingBox())!;
+        expect(parentBounds.x).toBeGreaterThanOrEqual(authorBounds.x + authorBounds.width);
+        expect(Math.abs(authorBounds.y - parentBounds.y)).toBeLessThan(1);
+        const controls = first.locator(".discussion-actions a, .discussion-actions button, .discussion-parent, header > a");
+        await expect(controls).toHaveCount(4);
+        const hitAreas = await controls.evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
         expect(hitAreas.every(height => height >= 44)).toBe(true);
         const rails = await replies.locator("[data-discussion-key]").evaluateAll(nodes => nodes.slice(0, 2).map(node => {
             const line = node.querySelector("[data-branch-rail]")!.getBoundingClientRect();
@@ -590,6 +628,7 @@ test.describe("read-only discussion", () => {
         await expect(focusCard).toContainText(response.content);
         await expect(focusCard.locator(".board-rank, .board-weight-actions")).toHaveCount(0);
         await expect(focusCard.getByRole("button", { name: "Boost", exact: true })).toHaveCount(0);
+        await page.getByRole("region", { name: "Ancestor context" }).getByRole("button", { name: /Earlier context/ }).click();
         await expect(page.getByRole("region", { name: "Ancestor context" })).toContainText(focus.content);
     });
     test("exposes a timeout as partial and retries without dropping found replies", async ({ context, page }) => {
