@@ -1,0 +1,4 @@
+interface:
+  display_name: "Holoboard promotion"
+  short_description: "Nostr posts, release series and promo videos"
+  default_prompt: "Use $holoboard-promotion to prepare or review a Holoboard Nostr post, release series or promotional video for the current brief."
