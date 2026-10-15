@@ -115,7 +115,7 @@ export function NoteMediaGallery({ images = EMPTY_IMAGES, items, quoted = false,
     };
 
     return <>
-        <div ref={root} tabIndex={-1} className={`note-gallery note-gallery--lead${quoted ? " note-gallery--quoted" : ""}`}
+        <div ref={root} tabIndex={-1} className={`note-gallery note-gallery--lead${media.length > 1 ? " note-gallery--multiple" : ""}${quoted ? " note-gallery--quoted" : ""}`}
             aria-label={`${media.length} media ${quoted ? "in quoted note" : "in note"}`} data-note-block data-media-index={index}>
             <div className="note-gallery__lead" style={frameStyle}>
                 {item.kind === "image" ? unavailable ?
@@ -128,18 +128,20 @@ export function NoteMediaGallery({ images = EMPTY_IMAGES, items, quoted = false,
                             onLoad={event => loaded(item.src, event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)} onError={() => fail(item.src)} />
                     </button> :
                     <NoteVideo key={item.src} item={item} active={!viewerOpen} onDimensions={(width, height) => loaded(item.src, width, height)} />}
+                {(media.length > 1 || item.kind === "video") && <div className="note-gallery__toolbar">
+                    {media.length > 1 && <>
+                        <PixelButton variant="ghost" size="sm" className="note-gallery__arrow" onClick={() => change(-1)} aria-label="Previous media"><span aria-hidden="true">◀</span></PixelButton>
+                        <span className="note-gallery__counter" role="status" aria-label={`${item.kind === "image" ? "Image" : "Video"} ${index + 1} of ${media.length}`}>{index + 1} / {media.length}</span>
+                        <PixelButton variant="ghost" size="sm" className="note-gallery__arrow" onClick={() => change(1)} aria-label="Next media"><span aria-hidden="true">▶</span></PixelButton>
+                    </>}
+                    {item.kind === "video" && <PixelButton variant="ghost" size="sm" className="note-gallery__expand" onClick={event => open(event.currentTarget)} aria-label={`Open video ${index + 1} of ${media.length}`} title="Expand video">
+                        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" shapeRendering="crispEdges"><path d="M0 0h6v2H2v4H0zM10 0h6v6h-2V2h-4zM0 10h2v4h4v2H0zM14 10h2v6h-6v-2h4z" /></svg>
+                    </PixelButton>}
+                </div>}
             </div>
             {item.kind === "image" && unavailable && <div className="note-gallery__recovery">
                 <a className="note-media-unavailable" href={item.src} target="_blank" rel="noopener noreferrer nofollow">Open source ↗</a>
                 <PixelButton variant="ghost" size="sm" onClick={retry}>Retry image</PixelButton>
-            </div>}
-            {(media.length > 1 || item.kind === "video") && <div className="note-gallery__toolbar">
-                {media.length > 1 && <>
-                    <PixelButton variant="ghost" size="sm" className="note-gallery__arrow" onClick={() => change(-1)} aria-label="Previous media"><span aria-hidden="true">◀</span></PixelButton>
-                    <span className="note-gallery__counter" role="status" aria-label={`${item.kind === "image" ? "Image" : "Video"} ${index + 1} of ${media.length}`}>{index + 1} / {media.length}</span>
-                    <PixelButton variant="ghost" size="sm" className="note-gallery__arrow" onClick={() => change(1)} aria-label="Next media"><span aria-hidden="true">▶</span></PixelButton>
-                </>}
-                {item.kind === "video" && <PixelButton variant="ghost" size="sm" className="note-gallery__expand" onClick={event => open(event.currentTarget)} aria-label={`Open video ${index + 1} of ${media.length}`}>Expand</PixelButton>}
             </div>}
             {media.length > 1 && <div className="note-gallery__thumbnails" role="group" aria-label="Choose media">
                 {thumbnails.map((thumbnail, offset) => {

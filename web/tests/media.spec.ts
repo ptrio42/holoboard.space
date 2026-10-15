@@ -72,7 +72,18 @@ for (const width of [320, 390, 430, 1440]) test(`mixed media preserve source ord
     }))).toBe(true);
     const initial = (await gallery.locator(".note-gallery__lead").boundingBox())!;
     expect(initial.height).toBeGreaterThan(188);
-    expect(initial.height).toBeLessThanOrEqual(420);
+    expect(initial.height).toBeLessThanOrEqual(460);
+    const navigation = await gallery.locator(".note-gallery__toolbar").boundingBox();
+    expect(navigation!.y).toBeGreaterThanOrEqual(initial.y);
+    expect(navigation!.y + navigation!.height).toBeLessThanOrEqual(initial.y + initial.height);
+    const thumbnails = (await gallery.locator(".note-gallery__thumbnails").boundingBox())!;
+    expect(thumbnails.y).toBeGreaterThanOrEqual(initial.y + initial.height);
+    const navigationControls = gallery.locator(".note-gallery__toolbar button");
+    await expect(navigationControls).toHaveCount(2);
+    expect(await navigationControls.evaluateAll(nodes => nodes.every(node => {
+        const bounds = node.getBoundingClientRect();
+        return bounds.width >= 44 && bounds.height >= 44;
+    }))).toBe(true);
     await page.screenshot({ path: info.outputPath(`mixed-gallery-${width}.png`), fullPage: true });
     for (let index = 0; index < sources.length; index++) {
         await expect.poll(() => gallery.evaluate(element => {
@@ -90,6 +101,25 @@ for (const width of [320, 390, 430, 1440]) test(`mixed media preserve source ord
         if (index < sources.length - 1) await gallery.getByRole("button", { name: "Next media", exact: true }).click();
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+for (const poster of ["none", "provided", "broken"] as const) test(`video keeps a visible paused preview behind Play with ${poster} poster`, async ({ context, page }, info) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const { gallery } = await setup(context, page, { content: `A video preview.\n${video}`,
+        tags: poster === "none" ? [] : [["imeta", `url ${video}`, `image ${source(poster === "broken" ? "broken.png" : "portrait.png")}`]] });
+    const player = gallery.locator("video");
+    await player.scrollIntoViewIfNeeded();
+    await expect.poll(() => player.evaluate(node => (node as HTMLVideoElement).readyState)).toBeGreaterThanOrEqual(poster === "provided" ? 1 : 2);
+    if (poster === "provided") await expect(gallery.locator(".note-video-poster-probe")).toHaveJSProperty("naturalWidth", 400);
+    const play = gallery.getByRole("button", { name: "Play video", exact: true });
+    await expect(play).toBeVisible();
+    await expect(play).toHaveCSS("background-image", "none");
+    await expect(play).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(player).toHaveJSProperty("paused", true);
+    await gallery.screenshot({ path: info.outputPath(`video-preview-${poster}.png`) });
+    await play.click();
+    await expect(player).toHaveJSProperty("paused", false);
+    await expect(play).toHaveCount(0);
 });
 
 test("single panoramas use their complete shallow frame at phone and desktop widths", async ({ context, page }, info) => {
@@ -112,7 +142,7 @@ test("a panorama-first gallery reserves a stable readable frame for portraits an
     await page.setViewportSize({ width: 390, height: 844 });
     const { gallery } = await setup(context, page, { content: [panorama, portrait, video].join("\n"), tags: [["imeta", `url ${panorama}`, "dim 1600x200"]] });
     const first = (await gallery.locator(".note-gallery__lead").boundingBox())!;
-    expect(first.height).toBeCloseTo(Math.min(first.width, 420), 0);
+    expect(first.height).toBeCloseTo(Math.min(first.width, 460), 0);
     expect(first.height).toBeGreaterThan(188);
     await gallery.getByRole("button", { name: "Select image 2 of 3", exact: true }).click();
     await expect(gallery.locator(".note-gallery__image img")).toHaveJSProperty("naturalWidth", 400);
@@ -131,19 +161,19 @@ test("intrinsic dimensions replace incorrect signed hints and persist through di
     const { row, gallery } = await setup(context, page, { content: `A portrait with an incorrect size hint.\n${portrait}\n${panorama}`,
         tags: [["imeta", `url ${portrait}`, "dim 1600x200"]], tail: true });
     await expect(gallery.locator(".note-gallery__image img")).toHaveJSProperty("naturalWidth", 400);
-    await expect.poll(() => gallery.locator(".note-gallery__lead").evaluate(node => node.getBoundingClientRect().height)).toBeCloseTo(420, 0);
+    await expect.poll(() => gallery.locator(".note-gallery__lead").evaluate(node => node.getBoundingClientRect().height)).toBeCloseTo(460, 0);
     await gallery.getByRole("button", { name: "Select image 2 of 2", exact: true }).click();
     await expect(gallery.locator(".note-gallery__image img")).toHaveAttribute("src", panorama);
-    expect((await gallery.locator(".note-gallery__lead").boundingBox())!.height).toBeCloseTo(420, 0);
+    expect((await gallery.locator(".note-gallery__lead").boundingBox())!.height).toBeCloseTo(460, 0);
     await row.getByRole("link", { name: "Discussion", exact: true }).click();
     const focus = page.getByRole("article", { name: "Discussion focus" });
     await expect(focus.locator(".note-gallery")).toHaveAttribute("data-media-index", "1");
     await expect(focus.locator(".note-gallery__image img")).toHaveAttribute("src", panorama);
-    expect((await focus.locator(".note-gallery__lead").boundingBox())!.height).toBeCloseTo(420, 0);
+    expect((await focus.locator(".note-gallery__lead").boundingBox())!.height).toBeCloseTo(460, 0);
     await page.screenshot({ path: info.outputPath("intrinsic-dimensions-discussion.png"), fullPage: true });
     await page.getByRole("link", { name: "Back to board", exact: true }).click();
     await expect(gallery).toHaveAttribute("data-media-index", "1");
-    expect((await gallery.locator(".note-gallery__lead").boundingBox())!.height).toBeCloseTo(420, 0);
+    expect((await gallery.locator(".note-gallery__lead").boundingBox())!.height).toBeCloseTo(460, 0);
 });
 
 test("navigation cancels a viewer while its lazy module is still loading", async ({ context, page }) => {

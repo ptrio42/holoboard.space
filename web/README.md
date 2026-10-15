@@ -612,7 +612,10 @@ document order: text, media, then the link preview. Failed link-only previews
 release their empty desktop column.
 Note galleries show one complete image or video in source order, with a bounded
 thumbnail strip and explicit unavailable items. The first source determines a
-stable frame, capped at `min(55svh, 420px)` (`min(40svh, 280px)` in quotes).
+stable frame, capped at `min(55svh, 420px)` for a single item and
+`min(60svh, 460px)` for multiple items (`min(40svh, 280px)` in quotes).
+Arrows and the counter sit over the main frame; the bounded thumbnail strip
+stays below it. Keep overlay controls clear of native video playback controls.
 Multi-item galleries reserve at least a square before applying that cap, so an
 opening panorama cannot shrink later portraits. Unknown single sources start at
 4:3 until measured; unknown multi-item galleries start square. Selection changes
@@ -634,9 +637,14 @@ transitions must use `navigateReading` to consume this temporary entry; a foreig
 raw `pushState` cannot remove its predecessor from browser history. Cancel a
 pending lazy viewer when its originating route changes.
 
-Videos keep native controls and need explicit playback. Without a supplied
-poster, show a designed Play placeholder without extracting frames or downloading
-a whole file. Metadata loading begins when a player becomes visible. Pause when
+Videos keep native controls and need explicit playback. Show the Play icon over
+the supplied poster or a paused native video frame. Without a usable poster,
+a visible player seeks briefly into the clip to reveal its first frame, while
+preserving a saved playback position. Metadata loading begins when a player
+becomes visible. Native
+[`preload="metadata"`](https://html.spec.whatwg.org/multipage/media.html#attr-media-preload)
+is a browser hint; decoding a frame can require additional media data. Do not add
+background thumbnail players or extract frame images into a canvas cache. Pause when
 hidden, outside the viewport, on navigation, or when another player starts.
 Opening any viewer pauses registered players. A video viewer transfers the saved
 playback position without autoplay, including on return to a retained board.

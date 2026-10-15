@@ -34,6 +34,8 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Keep video previews visible beneath Play and move gallery arrows and counts
+  onto the main image, with thumbnails below and more room for the selected media.
 - Keep the visible reading position steady when earlier images, quotes and link
   previews load. Keep sats, Boost and note actions together on one phone footer row.
 - Complete queued nostrcheck.me uploads before adding their final media metadata,
