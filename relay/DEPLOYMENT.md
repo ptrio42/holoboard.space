@@ -177,8 +177,11 @@ Check that campaigns contain the existing board notes and waiting updates return
 JSON. Link preview must return JSON from the preview handler; an unavailable
 preview for a particular website can be valid, but a missing route is not.
 Verify WebSocket connectivity and the unchanged public relay key. Publish the
-frontend only after these checks pass. Keep `VITE_ENABLE_NOSTR_CONNECT=false`
-for this release and use production HTTP and WebSocket origins in Pages.
+frontend only after these checks pass. Review `web/production-features.json`
+against the accepted feature scope before pushing: Pages builds on `main` use
+that profile. Ordinary builds keep their disabled defaults. Use production
+HTTP and WebSocket origins in Pages and keep unresolved device or payment checks
+explicit; preparing a profile does not close those release gates.
 
 After pushing the production branch, confirm that the successful Pages deployment
 belongs to the intended release SHA. Check that the production site serves its

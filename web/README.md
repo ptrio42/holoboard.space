@@ -220,6 +220,17 @@ is separate from this implementation. Direct GIF links work without search.
 
 These settings are included at build time. Rebuild to change a deployed website.
 
+Cloudflare Pages builds on `main` take the four discussion, profile, signer and
+reply flags from [production-features.json](production-features.json). This
+versioned release profile overrides those four build-environment values; local
+builds and other branches retain their explicit environment flags and disabled
+defaults. Review the release gates before changing the production profile.
+Pages provides the build and branch markers described in its
+[build configuration reference](https://developers.cloudflare.com/pages/configuration/build-configuration/).
+Production HTML includes a `holoboard-revision` meta tag with the Pages commit
+SHA, or the local Git HEAD for ordinary builds. Verify this tag after a push
+before recording a release as deployed. It identifies source, not a passed gate.
+
 For production updates, follow the [Fly and Cloudflare deployment
 instructions](../relay/DEPLOYMENT.md#updating-the-existing-deployment).
 

@@ -2,10 +2,35 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import { execFileSync } from 'node:child_process'
+import productionFeatures from './production-features.json'
+
+function revision() {
+  const supplied = process.env.CF_PAGES_COMMIT_SHA?.trim()
+  if (supplied && /^[a-f0-9]{40}$/i.test(supplied)) return supplied
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+  } catch {
+    return undefined
+  }
+}
 
 // https://vite.dev/config/
 export default defineConfig({
+  // Keep ordinary builds opt-in; pin the production Pages branch in Git.
+  define: process.env.CF_PAGES === '1' && process.env.CF_PAGES_BRANCH === 'main'
+    ? Object.fromEntries(Object.entries(productionFeatures)
+        .map(([name, value]) => [`import.meta.env.${name}`, JSON.stringify(value)]))
+    : undefined,
   plugins: [
+    {
+      name: 'holoboard-build-revision',
+      apply: 'build',
+      transformIndexHtml() {
+        const commit = revision()
+        return commit ? [{ tag: 'meta', attrs: { name: 'holoboard-revision', content: commit }, injectTo: 'head' }] : []
+      },
+    },
     react(),
     tailwindcss(),
     VitePWA({
