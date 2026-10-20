@@ -29,8 +29,8 @@ record deployment, not announcement publication.
 - Bring the logo, sections and actions into one desktop header with a neon rail
   and gold section marker. Keep phone controls compact, shorten Add to board to
   Add, and place waiting-room sorting beside navigation in a keyboard-accessible
-  menu. Simplify desktop sorting, tighten footer spacing and keep touch controls
-  steady with safe-area spacing.
+  menu. Simplify desktop sorting with a separate help icon, tighten footer
+  spacing and keep touch controls steady with safe-area spacing.
 - Close header sign-in and wallet setup automatically after a successful
   connection. Keep connected accounts compact with an avatar and show their
   name in the account menu.

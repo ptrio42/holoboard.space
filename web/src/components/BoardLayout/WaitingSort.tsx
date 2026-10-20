@@ -23,10 +23,14 @@ export function WaitingSort({ view, onChoose, onHelp }: {
     };
     return <div role="group" aria-label="Waiting room sort" className="board-sort">
         <div className="board-sort__options">
-            <span className="board-sort__label">Sort</span>
             {options.map(option => <button key={option.view} type="button" className="focus-pixel" aria-pressed={view === option.view}
                 onClick={() => onChoose(option.view)}>{option.label}</button>)}
-            <button type="button" className="focus-pixel" aria-label="How sorting works" onClick={onHelp}>?</button>
+            <button type="button" className="board-sort__help focus-pixel" aria-label="How sorting works" title="How sorting works" onClick={onHelp}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" shapeRendering="crispEdges" aria-hidden="true">
+                    <path fillRule="evenodd" d="M8 2h8v2h4v4h2v8h-2v4h-4v2H8v-2H4v-4H2V8h2V4h4V2Zm0 2v2H6v2H4v8h2v2h2v2h8v-2h2v-2h2V8h-2V6h-2V4H8Z" />
+                    <path d="M8 7h7v2h2v4h-4v2h-2v-4h4V9H8V7Zm3 10h2v2h-2Z" />
+                </svg>
+            </button>
         </div>
         <button ref={trigger} type="button" className="board-sort__trigger focus-pixel" aria-label={`Sort waiting room: ${label}`}
             aria-haspopup="menu" aria-expanded={!!anchor} aria-controls={menuId}

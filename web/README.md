@@ -763,8 +763,9 @@ with the page and shares the feed's width.
 
 Keep the main action as the header's only strongly framed control, with 8px of
 clearance above the desktop rail. Waiting-room sorting uses quiet Rank, New and
-Hot buttons from 768px; phones show the current
-choice in a menu beside the sections. Both presentations retain the same sort
+Hot buttons from 768px, without a Sort label. A separate stepped question-mark
+icon opens sorting help without looking like another selected mode. Phones show
+the current choice in a menu beside the sections. Both presentations retain the same sort
 and URL, with ranking help available in context. Keep header targets at least
 44px, pixel labels at least 10px, and footer links compact enough for a 320px
 viewport. These layout rules do not change the note cards or payment flow.

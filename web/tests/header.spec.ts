@@ -150,6 +150,12 @@ test("phone sorting preserves its choice, keyboard focus and contextual help", a
     await expect(page.getByRole("button", { name: "New", exact: true })).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: "Hot", exact: true }).click();
     await expect(page).toHaveURL(/\/waiting\?view=hot$/);
+    const sortingHelp = page.getByRole("button", { name: "How sorting works", exact: true });
+    await sortingHelp.focus();
+    await sortingHelp.press("Enter");
+    await expect(page.getByRole("heading", { name: "How ranking works", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(sortingHelp).toBeFocused();
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.getByRole("button", { name: "Sort waiting room: Hot", exact: true })).toBeVisible();
     await page.reload();
