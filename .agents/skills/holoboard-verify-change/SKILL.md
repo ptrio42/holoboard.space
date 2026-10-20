@@ -135,12 +135,19 @@ inferring coverage from progress output. A nonzero
 command or changed source snapshot stops execution and preserves the report;
 remaining stages are unperformed. A protected checkout changing during a run
 may reflect concurrent work. Inspect it and preserve it rather than reverting it.
+Report command results separately from source-preservation failures. If unrelated
+concurrent edits trip a guard after a command succeeds, retain that command's
+evidence and determine which changes actually need rechecking. An interrupted
+run establishes only its completed cases; report the remaining cases as unperformed.
 
 Investigate a failure before retrying. Check feature flags, checkout, port,
 fixture lifecycle and local contention before changing product behavior or
 loosening limits. Use `--only <stage-name>` to rerun selected stages after a
 justified correction; this creates a separate report and does not mark omitted
 stages passed. Recheck affected acceptance after integrating another branch.
+Distinguish application failures from resource or artifact-write failures. If
+diagnostic capture changes during a retry, preserve the test assertions and
+record the reduced diagnostics.
 
 Complete additional authorized checks that the diff or release contract needs,
 such as production-configuration builds, resource fixtures or controlled live

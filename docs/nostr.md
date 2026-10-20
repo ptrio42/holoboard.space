@@ -447,11 +447,11 @@ cache, and evicted bodies remain explicit placeholders.
 
 ### Header account entry
 
-The header's primary framed action is Promote, or Add to board when post creation
-is enabled; phones shorten the latter to Add while keeping its accessible name.
-Wallet and the optional account entry use quiet 44-pixel controls.
-Sign in and the connected avatar require Nostr connection support or email
-accounts. `VITE_ENABLE_NOSTR_CONNECT` keeps its independent restoration gate.
+The header's primary framed action and main editor are named Add to board
+independently of post creation availability. Phones shorten the action to Add
+while retaining its full accessible name. Wallet and the optional account entry
+use quiet 44-pixel controls. Sign in and the connected avatar require
+`VITE_ENABLE_NOSTR_CONNECT`, which also gates automatic signer restoration.
 Connected account metadata comes from the same verified profile reader used by
 bylines, with Account and a generated avatar as fallbacks. Connected accounts
 show only the avatar at every width, with their name in the menu and accessible

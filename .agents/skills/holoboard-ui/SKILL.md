@@ -25,6 +25,10 @@ feature checkpoint in an isolated checkout and record that base for integration.
 Avoid modifying the other checkout. Read the relevant contracts in
 [docs/nostr.md](../../../docs/nostr.md) when touching reading, account, navigation
 or payment surfaces. Preserve their state and feature gates during visual work.
+Treat approved action names and feature availability as separate decisions.
+Check the maintained product contract before making copy conditional on a flag,
+and verify visible and accessible names in both flag states when changing that
+relationship.
 
 ## Decide what deserves space
 
