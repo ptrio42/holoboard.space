@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { checkWebContainerContext } from "./check-container-context.mjs";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -13,6 +14,7 @@ import { generateSecretKey, getPublicKey, verifyEvent } from "nostr-tools";
 // Nginx also joins a preview bridge; browser guards restrict it to loopback.
 // Never load a checkout's .env or mount an existing ledger.
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+await checkWebContainerContext();
 const directory = await mkdtemp(join(tmpdir(), "holoboard-release-smoke-"));
 const project = `holoboard-smoke-${Date.now()}-${process.pid}`;
 const flags = ["NOSTR_CONNECT", "DISCUSSIONS", "PROFILES", "REPLY_PUBLICATION"];

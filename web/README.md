@@ -62,6 +62,10 @@ npm run build
 ```
 
 The build checks TypeScript and creates the production website in `dist/`.
+
+Run `node web/scripts/check-container-context.mjs` from the repository root to
+check image COPY paths and install/build inputs without starting Docker. The
+container smoke test runs this check before contacting the engine.
 The development server does not check types. Production builds also generate
 the web app manifest and service worker. Preview the production build to test
 installation and offline startup, because the service worker is disabled in
