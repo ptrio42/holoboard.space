@@ -8,11 +8,10 @@ See the [changelog](CHANGELOG.md) for user-facing updates.
 
 The opt-in **Add to board** editor also creates text posts, links with descriptions
 and quotes. It can publish without an account, with an optional saved author key,
-or through an existing signer or an isolated email account service. New posts
-become public after the board payment is confirmed, including when the browser
-has closed. See the [editor guide](web/README.md#add-to-board) and
-[email account hosting](accounts/README.md). These additions are off in the
-current production release.
+or through an existing Nostr signer. New posts become public after the board
+payment is confirmed, including when the browser has closed. See the
+[editor guide](web/README.md#add-to-board). Post creation is off in the current
+production release.
 
 ## How the board works
 

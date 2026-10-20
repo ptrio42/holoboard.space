@@ -3,7 +3,7 @@ import { bytesToHex, hexToBytes } from "nostr-tools/utils";
 import type { BunkerSigner, BunkerPointer } from "nostr-tools/nip46";
 import type { AbstractSimplePool } from "nostr-tools/abstract-pool";
 import type { NWCClient } from "@getalby/sdk/nwc";
-import { ENABLE_NOSTR_CONNECT, ENABLE_REPLY_PUBLICATION, ENABLE_POST_CREATION, ENABLE_EMAIL_ACCOUNTS, PUBLIC_RELAYS } from "../config";
+import { ENABLE_NOSTR_CONNECT, ENABLE_REPLY_PUBLICATION, ENABLE_POST_CREATION, PUBLIC_RELAYS } from "../config";
 import { PaymentRejected, withTimeout, type PaymentWallet } from "./walletPayment";
 import { attachWalletAccount, clearWalletAccount, refreshWalletAccount } from "./walletAccount";
 import { lookupWalletPayment } from "./walletLookup";
@@ -17,7 +17,7 @@ export interface ConnectedSigner {
 type ConnectionStatus = "disconnected" | "connecting" | "connected";
 export interface Connections {
     walletStatus: ConnectionStatus; walletName: string; walletError: string; walletCanRetry: boolean;
-    signerStatus: ConnectionStatus; signerPubkey: string; signerKind: "extension" | "remote" | "keycast" | null;
+    signerStatus: ConnectionStatus; signerPubkey: string; signerKind: "extension" | "remote" | null;
     signerError: string; signerLink: string; signerAuthUrl: string;
     signerCanPost: boolean;
     signerCanReply: boolean;
@@ -78,7 +78,6 @@ export function getPaymentWallet(): PaymentWallet | undefined {
     return browser ? { id: "webln", kind: "webln", enable: () => browser.enable(), sendPayment: (invoice) => withTimeout(browser.sendPayment(invoice), 60000, "The wallet did not respond. Check its payment history before retrying.") } : undefined;
 }
 export function getConnectedSigner(): ConnectedSigner | undefined { return signer; }
-export const getSignerGeneration = () => signerGeneration;
 
 export async function connectWallet(input: string) {
     disconnectWallet();
@@ -294,41 +293,16 @@ export function disconnectSigner() {
     const previous = remote; remote = undefined; signer = undefined;
     void previous?.close(); signerPool?.destroy(); signerPool = undefined;
     remember(SIGNER_KEY, null);
-    remember("holoboard-keycast-session", null);
     update({ signerStatus: "disconnected", signerPubkey: "", signerKind: null, signerError: "", signerLink: "", signerAuthUrl: "", signerCanPost: false, signerCanReply: false, signerCanUpload: false });
 }
 export function restoreConnections() {
     if (restored) return; restored = true;
     const wallet = read(WALLET_KEY), savedSigner = read(SIGNER_KEY);
     if (wallet) void connectWallet(wallet);
-    if (ENABLE_EMAIL_ACCOUNTS && read("holoboard-keycast-session")) {
-        void import("./keycast").then(module => module.restoreKeycastAccount());
-        return;
-    }
     if (!ENABLE_NOSTR_CONNECT || !savedSigner) return;
     try {
         const saved = JSON.parse(savedSigner) as RemoteSession | { kind: "extension"; pubkey: string };
         if (saved.kind === "remote" && HEX.test(saved.clientKey) && HEX.test(saved.pubkey)) void connectRemote(undefined, saved);
         // Extensions ask for account access only after a user gesture.
     } catch { remember(SIGNER_KEY, null); }
-}
-
-/** Custodial accounts use the same exact-event validation as existing signers. */
-export async function connectKeycastSigner(candidate: ConnectedSigner, expectedPubkey?: string) {
-    disconnectSigner();
-    const generation = signerGeneration;
-    const controller = new AbortController(); signerAbort = controller;
-    update({ signerStatus: "connecting", signerKind: "keycast" });
-    try {
-        const pubkey = await waitForSigner(candidate.getPublicKey(), controller.signal, 20000, "The account service did not respond.");
-        if (generation !== signerGeneration) return;
-        if (expectedPubkey && pubkey !== expectedPubkey) throw new Error("The account changed. Sign in again.");
-        signer = bindSigner(candidate, pubkey);
-        update({ signerStatus: "connected", signerKind: "keycast", signerPubkey: pubkey, signerCanPost: ENABLE_POST_CREATION, signerCanReply: ENABLE_REPLY_PUBLICATION, signerCanUpload: false });
-        return pubkey;
-    } catch (failure) {
-        if (generation !== signerGeneration) return;
-        update({ signerStatus: "disconnected", signerKind: null, signerError: failure instanceof Error ? failure.message : "Could not connect your account." });
-        throw failure;
-    }
 }

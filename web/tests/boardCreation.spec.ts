@@ -1,7 +1,5 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent, type Event } from "nostr-tools/pure";
+import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent, type Event, type EventTemplate } from "nostr-tools/pure";
 import { neventEncode, noteEncode } from "nostr-tools/nip19";
 import { matchFilter } from "nostr-tools/filter";
 import { walletInvoice } from "./helpers/walletFixture";
@@ -12,45 +10,30 @@ const original = finalizeEvent({ kind: 1, created_at: 1700000000, tags: [], cont
 const accountKey = generateSecretKey(), accountPubkey = getPublicKey(accountKey);
 const boardHash = "b".repeat(64);
 
-async function completeAccountPopup(popup: Page) {
-    const completed = popup.waitForEvent("close", { timeout: 20000 });
-    await popup.getByRole("button", { name: "Complete verified sign-in" }).click();
-    await completed;
+async function installExtension(context: BrowserContext, page: Page, getPubkey = async () => accountPubkey) {
+    await page.exposeFunction("boardFixturePublicKey", getPubkey);
+    await page.exposeFunction("boardFixtureSignEvent", (template: EventTemplate) => finalizeEvent(template, accountKey));
+    await context.addInitScript(() => {
+        const fixture = window as unknown as {
+            boardFixturePublicKey(): Promise<string>;
+            boardFixtureSignEvent(template: EventTemplate): Promise<Event>;
+        };
+        Object.assign(window, { nostr: {
+            getPublicKey: () => fixture.boardFixturePublicKey(),
+            signEvent: (template: EventTemplate) => fixture.boardFixtureSignEvent(template),
+        } });
+    });
 }
 
 async function setup(context: BrowserContext, page: Page) {
     const origin = new URL(test.info().project.use.baseURL!).origin;
-    const state = { requests: [] as Record<string, unknown>[], signed: undefined as Event | undefined, paid: false, frames: [] as string[], errors: [] as string[], links: [] as string[], tokenRequests: 0, revoked: false, challenge: "", wrongState: false, pauseBoard: false, releaseBoard: undefined as (() => void) | undefined };
+    const state = { requests: [] as Record<string, unknown>[], signed: undefined as Event | undefined, paid: false, frames: [] as string[], errors: [] as string[], links: [] as string[], pauseBoard: false, releaseBoard: undefined as (() => void) | undefined };
     page.on("pageerror", error => state.errors.push(error.message));
     await context.route("**/*", async route => {
         const url = new URL(route.request().url());
         if (url.origin === origin) return route.continue();
         const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type, Authorization" };
         if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
-        if (url.origin === "http://127.0.0.1:3100") {
-            if (url.pathname === "/api/oauth/authorize") {
-                state.challenge = url.searchParams.get("code_challenge")!;
-                expect(url.searchParams.get("scope")).toBe("policy:holoboard");
-                const destination = new URL(url.searchParams.get("redirect_uri")!);
-                destination.searchParams.set("state", state.wrongState ? "wrong-state" : url.searchParams.get("state")!); destination.searchParams.set("code", "fixture-code");
-                return route.fulfill({ contentType: "text/html", body: `<html><body><h1>Email account fixture</h1><button onclick='location.href=${JSON.stringify(destination.href)}'>Complete verified sign-in</button></body></html>` });
-            }
-            if (url.pathname === "/api/oauth/token") {
-                state.tokenRequests++;
-                const body = route.request().postDataJSON();
-                expect(body.code).toBe("fixture-code");
-                expect(createHash("sha256").update(body.code_verifier).digest("base64url")).toBe(state.challenge);
-                return route.fulfill({ headers, json: { access_token: "fixture-token", bunker_url: `bunker://${"a".repeat(64)}?relay=wss://example.invalid`, expires_in: 3600 } });
-            }
-            if (url.pathname === "/api/nostr") {
-                const body = route.request().postDataJSON();
-                expect(route.request().headers().authorization).toBe("Bearer fixture-token");
-                return route.fulfill({ headers, json: { result: body.method === "get_public_key" ? accountPubkey : finalizeEvent(body.params[0], accountKey) } });
-            }
-            if (url.pathname === "/holoboard-session.html") return route.fulfill({ contentType: "text/html", body: readFileSync(new URL("../../accounts/holoboard-session.html", import.meta.url), "utf8").replace('const allowedOrigins = ["http://127.0.0.1:4173"];', `const allowedOrigins = ${JSON.stringify([origin])};`) });
-            if (url.pathname === "/api/user/sessions/revoke") { state.revoked = true; expect(route.request().postDataJSON().bunker_pubkey).toBe("a".repeat(64)); return route.fulfill({ headers, json: { success: true } }); }
-            if (url.pathname === "/api/auth/logout") return route.fulfill({ headers, json: { success: true } });
-        }
         if (url.origin !== "http://127.0.0.1:3334") return route.abort();
         const body = route.request().method() === "POST" ? route.request().postDataJSON() : {};
         let data: unknown = {};
@@ -161,52 +144,6 @@ test("an arbitrary URL containing a note ID remains a new link post", async ({ c
     expect(state.links).toEqual([url]);
 });
 
-test("email OAuth preserves text and payment choices, signs exact content and revokes the session", async ({ context, page }) => {
-    test.skip(process.env.VITE_ENABLE_EMAIL_ACCOUNTS !== "true");
-    const state = await setup(context, page);
-    await page.getByRole("textbox", { name: "Text or link" }).fill("A post from an email account");
-    await page.getByRole("button", { name: "Custom", exact: true }).click();
-    await page.getByRole("textbox", { name: "Custom total in sats" }).fill("333");
-    await page.getByRole("button", { name: "Sign in / create account" }).click();
-    const popupPromise = page.waitForEvent("popup");
-    await page.getByRole("button", { name: "Sign in with email", exact: true }).click();
-    const popup = await popupPromise;
-    const callbackReads: string[] = [];
-    popup.on("request", request => callbackReads.push(new URL(request.url()).pathname));
-    await completeAccountPopup(popup);
-    expect(callbackReads.some(path => path === "/src/App.tsx" || path.startsWith("/api/board"))).toBe(false);
-    await expect(page.getByText("Author: Your account", { exact: true })).toBeVisible();
-    expect(state.tokenRequests).toBe(1);
-    await expect(page.getByRole("textbox", { name: "Custom total in sats" })).toHaveValue("333");
-    await expect(page.getByRole("textbox", { name: "Text or link" })).toHaveValue("A post from an email account");
-    await page.getByRole("button", { name: "Review post", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Add to board 333 sats", exact: true })).toBeEnabled();
-    expect(state.signed?.pubkey).toBe(accountPubkey);
-    expect(state.signed?.tags.some(tag => tag[0] === "l")).toBe(false);
-    const logoutPopupPromise = page.waitForEvent("popup");
-    await page.getByRole("button", { name: "Sign out and revoke session" }).click();
-    const logout = await logoutPopupPromise;
-    await logout.getByRole("button", { name: "Revoke Holoboard session and sign out" }).click();
-    await expect(page.getByText("Author: Anonymous", { exact: true })).toBeVisible();
-    expect(state.revoked).toBe(true); expect(state.errors).toEqual([]);
-});
-
-test("rejects an OAuth callback with a mismatched state before token exchange", async ({ context, page }) => {
-    test.skip(process.env.VITE_ENABLE_EMAIL_ACCOUNTS !== "true");
-    const state = await setup(context, page); state.wrongState = true;
-    await page.getByRole("textbox", { name: "Text or link" }).fill("Keep this draft after failed login");
-    await page.getByRole("button", { name: "Sign in / create account" }).click();
-    const opening = page.waitForEvent("popup");
-    await page.getByRole("button", { name: "Sign in with email", exact: true }).click();
-    const popup = await opening;
-    await popup.getByRole("button", { name: "Complete verified sign-in" }).click();
-    await expect(popup.getByRole("status")).toContainText("Return to Holoboard");
-    await popup.close();
-    await expect(page.getByRole("alert")).toContainText("closed or expired");
-    expect(state.tokenRequests).toBe(0);
-    await expect(page.getByRole("textbox", { name: "Text or link" })).toHaveValue("Keep this draft after failed login");
-});
-
 test("the general action opens blank and resumes an original only after selection", async ({ context, page }) => {
     const state = await setup(context, page);
     await page.getByRole("textbox", { name: "Text or link" }).fill(noteEncode(original.id));
@@ -225,22 +162,50 @@ test("the general action opens blank and resumes an original only after selectio
     expect(state.frames).toEqual([]);
 });
 
-test("late email sign-in preserves already prepared guest invoices", async ({ context, page }) => {
-    test.skip(process.env.VITE_ENABLE_EMAIL_ACCOUNTS !== "true");
+test("Nostr sign-in preserves text and payment choices and can post anonymously", async ({ context, page }) => {
+    test.skip(process.env.VITE_ENABLE_NOSTR_CONNECT !== "true");
+    await installExtension(context, page);
+    const state = await setup(context, page);
+    await page.getByRole("textbox", { name: "Text or link" }).fill("A post from an existing Nostr account");
+    await page.getByRole("button", { name: "Custom", exact: true }).click();
+    await page.getByRole("textbox", { name: "Custom total in sats" }).fill("333");
+    await page.getByRole("button", { name: "Sign in with Nostr", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Sign in with email", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Create account", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Browser extension", exact: true }).click();
+    await expect(page.getByText("Author: Your account", { exact: true })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Custom total in sats" })).toHaveValue("333");
+    await expect(page.getByRole("textbox", { name: "Text or link" })).toHaveValue("A post from an existing Nostr account");
+    await page.getByRole("button", { name: "Review post", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Add to board 333 sats", exact: true })).toBeEnabled();
+    expect(state.signed?.pubkey).toBe(accountPubkey);
+    expect(state.signed?.tags.some(tag => tag[0] === "l")).toBe(false);
+    await page.getByRole("checkbox", { name: "Post anonymously", exact: true }).check();
+    await expect(page.getByText("Author: Anonymous", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Review post", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Add to board 333 sats", exact: true })).toBeEnabled();
+    expect(state.signed?.pubkey).not.toBe(accountPubkey);
+    expect(state.signed?.tags).toContainEqual(["l", "anonymous", "space.holoboard.attribution"]);
+    expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+test("late Nostr sign-in preserves already prepared guest invoices", async ({ context, page }) => {
+    test.skip(process.env.VITE_ENABLE_NOSTR_CONNECT !== "true");
+    let approve!: () => void;
+    await installExtension(context, page, () => new Promise<string>(resolve => { approve = () => resolve(accountPubkey); }));
     const state = await setup(context, page);
     await page.getByRole("textbox", { name: "Text or link" }).fill("Keep this guest invoice immutable");
     await page.getByRole("button", { name: "Review post", exact: true }).click();
     await expect(page.getByRole("button", { name: "Add to board 210 sats", exact: true })).toBeEnabled();
-    await page.getByRole("button", { name: "Sign in / create account" }).click();
-    const opening = page.waitForEvent("popup");
-    await page.getByRole("button", { name: "Sign in with email", exact: true }).click();
-    const popup = await opening;
-    await popup.getByRole("button", { name: "Complete verified sign-in" }).waitFor();
-    await page.getByRole("button", { name: "Add to board 210 sats", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+    await page.getByRole("button", { name: "Sign in with Nostr", exact: true }).click();
+    await page.getByRole("button", { name: "Browser extension", exact: true }).click();
+    await expect.poll(() => typeof approve).toBe("function");
+    try {
+        await page.getByRole("button", { name: "Add to board 210 sats", exact: true }).click();
+        await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+    } finally { approve(); }
     const guest = state.requests[0].event as Event;
-    await completeAccountPopup(popup);
-    await expect.poll(() => state.tokenRequests).toBe(1);
+    await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("holoboard-signer") ?? "null")?.pubkey)).toBe(accountPubkey);
     await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
     expect(guest.pubkey).not.toBe(accountPubkey);
     state.paid = true;
@@ -250,53 +215,27 @@ test("late email sign-in preserves already prepared guest invoices", async ({ co
     await expect(page.getByRole("button", { name: "Add to board 210 sats", exact: true })).toBeDisabled();
     expect(state.requests).toHaveLength(1);
     expect(state.requests[0].event).toEqual(guest);
+    expect(state.errors).toEqual([]);
 });
 
-test("late email login cannot replace a more recently selected signer", async ({ context, page }) => {
-    test.skip(process.env.VITE_ENABLE_EMAIL_ACCOUNTS !== "true" || process.env.VITE_ENABLE_NOSTR_CONNECT !== "true");
-    const extensionPubkey = getPublicKey(generateSecretKey());
-    await context.addInitScript(pubkey => {
-        Object.assign(window, { nostr: { getPublicKey: async () => pubkey, signEvent: async () => { throw new Error("This check must not sign or publish."); } } });
-    }, extensionPubkey);
-    const state = await setup(context, page);
-    await page.getByRole("textbox", { name: "Text or link" }).fill("Keep the newly selected author");
-    await page.getByRole("button", { name: "Sign in / create account" }).click();
-    const opening = page.waitForEvent("popup");
-    await page.getByRole("button", { name: "Sign in with email", exact: true }).click();
-    const popup = await opening;
-    await popup.getByRole("button", { name: "Complete verified sign-in" }).waitFor();
-    await page.getByRole("button", { name: "Browser extension", exact: true }).click();
-    await expect(page.getByText("Connected extension:", { exact: false })).toBeVisible();
-    await completeAccountPopup(popup);
-    await expect(page.getByRole("alert")).toContainText("Your account changed");
-    expect(state.tokenRequests).toBe(0);
-    const saved = await page.evaluate(() => ({ extension: JSON.parse(sessionStorage.getItem("holoboard-signer")!), keycast: sessionStorage.getItem("holoboard-keycast-session") }));
-    expect(saved.extension.pubkey).toBe(extensionPubkey);
-    expect(saved.keycast).toBeNull();
-    expect(state.frames).toEqual([]);
-});
-
-test("email sign-in during invoice preparation keeps the frozen guest post", async ({ context, page }) => {
-    test.skip(process.env.VITE_ENABLE_EMAIL_ACCOUNTS !== "true");
+test("Nostr sign-in during invoice preparation keeps the frozen guest post", async ({ context, page }) => {
+    test.skip(process.env.VITE_ENABLE_NOSTR_CONNECT !== "true");
+    let approve!: () => void;
+    await installExtension(context, page, () => new Promise<string>(resolve => { approve = () => resolve(accountPubkey); }));
     const state = await setup(context, page);
     await page.getByRole("textbox", { name: "Text or link" }).fill("Keep this post while the invoice is prepared");
     await page.getByRole("button", { name: "Review post", exact: true }).click();
     await expect(page.getByRole("button", { name: "Add to board 210 sats", exact: true })).toBeEnabled();
-    await page.getByRole("button", { name: "Sign in / create account" }).click();
-    const opening = page.waitForEvent("popup");
-    await page.getByRole("button", { name: "Sign in with email", exact: true }).click();
-    const popup = await opening;
-    await popup.getByRole("button", { name: "Complete verified sign-in" }).waitFor();
+    await page.getByRole("button", { name: "Sign in with Nostr", exact: true }).click();
+    await page.getByRole("button", { name: "Browser extension", exact: true }).click();
+    await expect.poll(() => typeof approve).toBe("function");
     state.pauseBoard = true;
     await page.getByRole("button", { name: "Add to board 210 sats", exact: true }).click();
     await expect.poll(() => typeof state.releaseBoard).toBe("function");
     const guest = state.requests[0].event as Event;
     try {
-        await completeAccountPopup(popup);
-        // The account RPC has its own 20-second deadline. Its connected state
-        // establishes readiness before checking storage and releasing payment.
-        await expect(page.getByRole("button", { name: "Sign out and revoke session" })).toBeVisible({ timeout: 20000 });
-        await expect.poll(() => page.evaluate(() => sessionStorage.getItem("holoboard-keycast-session"))).not.toBeNull();
+        approve();
+        await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("holoboard-signer") ?? "null")?.pubkey)).toBe(accountPubkey);
     } finally { state.releaseBoard!(); }
     await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
     expect(state.requests).toHaveLength(1);

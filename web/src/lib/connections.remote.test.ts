@@ -4,7 +4,7 @@ import type { BunkerPointer } from "nostr-tools/nip46";
 import { connectRemote, disconnectSigner, getConnectedSigner, getConnections } from "./connections";
 
 const fixtures = vi.hoisted(() => ({ replyEnabled: false, clients: [] as Record<string, unknown>[], pools: [] as Record<string, unknown>[], fromURI: vi.fn(), request: vi.fn(), sign: vi.fn(), account: "", pointer: { pubkey: "a".repeat(64), relays: ["wss://relay.example.com"], secret: "one-time-secret" } }));
-vi.mock("../config", () => ({ ENABLE_NOSTR_CONNECT: true, ENABLE_EMAIL_ACCOUNTS: false, ENABLE_POST_CREATION: false, get ENABLE_REPLY_PUBLICATION() { return fixtures.replyEnabled; }, PUBLIC_RELAYS: ["wss://relay.example.com"], RELAY_URL: "wss://relay.example.com" }));
+vi.mock("../config", () => ({ ENABLE_NOSTR_CONNECT: true, ENABLE_POST_CREATION: false, get ENABLE_REPLY_PUBLICATION() { return fixtures.replyEnabled; }, PUBLIC_RELAYS: ["wss://relay.example.com"], RELAY_URL: "wss://relay.example.com" }));
 vi.mock("nostr-tools/abstract-pool", () => ({ AbstractSimplePool: class {
     constructor(options: Record<string, unknown>) { fixtures.pools.push({ ...options, destroy: vi.fn() }); Object.assign(this, fixtures.pools.at(-1)); }
 } }));

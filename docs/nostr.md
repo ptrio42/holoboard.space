@@ -572,8 +572,15 @@ its own NIP-32 attribution label in `space.holoboard.attribution`. **Anonymous**
 shown consistently while preserving the actual pubkey. No payment-side flag
 changes authorship. The label gives no guarantee about metadata, payment privacy
 or external clients. Normal author support retains separate missing-address and
-unavailable-profile states. Email accounts use the separately hosted
-[Keycast service](../accounts/README.md), with exact-event signature validation.
+unavailable-profile states. Existing Nostr signers retain exact-event signature
+validation. Creating posts and recovering issued invoices do not require an
+account service.
+
+Email/password accounts are deferred to a separate change. The intended direction
+is Holoboard-owned forms and established authentication components in the Go
+backend. Account recovery must retain the same author key; database and encryption
+key backups must support restoring that identity after a server failure. This
+release does not implement custodial accounts.
 
 ## Publication
 

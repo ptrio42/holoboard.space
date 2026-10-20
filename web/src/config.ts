@@ -87,6 +87,3 @@ export const ENABLE_REPLY_PUBLICATION = ENABLE_DISCUSSIONS && ENABLE_NOSTR_CONNE
 
 /** New paid root posts and custodial accounts have independent release gates. */
 export const ENABLE_POST_CREATION = import.meta.env.VITE_ENABLE_POST_CREATION === "true";
-export const ENABLE_EMAIL_ACCOUNTS = import.meta.env.VITE_ENABLE_EMAIL_ACCOUNTS === "true";
-export const KEYCAST_URL = trimmed(import.meta.env.VITE_KEYCAST_URL, "").replace(/\/+$/, "");
-export const KEYCAST_CLIENT_ID = trimmed(import.meta.env.VITE_KEYCAST_CLIENT_ID, "holoboard");

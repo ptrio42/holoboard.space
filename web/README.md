@@ -577,17 +577,18 @@ their own content, ID and payment attempts. Settlement commits the board entry
 and a durable root publication job on the backend. External relay delivery has
 its own status; it can continue after the payment result or browser closure.
 
-Email accounts have an independent `VITE_ENABLE_EMAIL_ACCOUNTS` flag and use the
-[self-hosted Keycast service](../accounts/README.md). Sign-in preserves the live
-editor and payment choices. The current Pages production configuration keeps
-both new features off. Backend `ENABLE_POST_CREATION=false` blocks new admission
-while preserving settlement, retries and recovery for already issued invoices.
+Existing Nostr accounts connect through browser extensions, Amber or remote
+signers when `VITE_ENABLE_NOSTR_CONNECT=true`. Sign-in preserves the live editor
+and payment choices. Guest posts work without a signer or account service.
+Email/password accounts are deferred separately. The current Pages production
+configuration keeps post creation off. Backend `ENABLE_POST_CREATION=false` blocks
+new admission while preserving settlement, retries and recovery for already issued
+invoices.
 
-Browser acceptance uses local intercepted accounts, invoices and relays:
+Browser acceptance uses local extension signers, invoices and relays:
 
 ```bash
-VITE_ENABLE_POST_CREATION=true VITE_ENABLE_EMAIL_ACCOUNTS=true \
-VITE_KEYCAST_URL=http://127.0.0.1:3100 CI=1 \
+VITE_ENABLE_POST_CREATION=true VITE_ENABLE_NOSTR_CONNECT=true CI=1 \
 npm run test:e2e -- tests/boardCreation.spec.ts --workers=1
 ```
 

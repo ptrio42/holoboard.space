@@ -1,5 +1,4 @@
 import { Fragment, useEffect, useState } from "react";
-import AccountCallback from "./pages/AccountCallback";
 import Billboard from "./pages/Billboard";
 import Expired from "./pages/Expired";
 import Discussion from "./pages/Discussion";
@@ -37,7 +36,6 @@ function App() {
   useReadingPosition(path, true);
   useReadingStability(path);
   const boardName = boardPath?.split("?")[0];
-  if (window.location.pathname === "/account/callback") return <AccountCallback />;
   return <WaitingRoomLocation.Provider value={waitingPath}><Fragment>
     <NDKHeadless />
     {/* Retain the board's rows, disclosures and position while reading. */}

@@ -1,5 +1,5 @@
 import { useId, useRef, useState, type Ref } from "react";
-import { ENABLE_NOSTR_CONNECT, ENABLE_PROFILES, ENABLE_EMAIL_ACCOUNTS } from "../../config";
+import { ENABLE_NOSTR_CONNECT, ENABLE_PROFILES } from "../../config";
 import { useConnections } from "../../hooks/useConnections";
 import { useProfileValue } from "../../hooks/useProfile";
 import { shortNpub } from "../../lib/nostr";
@@ -58,7 +58,6 @@ export function ConnectionControls({ className = "mx-auto max-w-5xl justify-end 
     const walletRef = useRef<HTMLButtonElement>(null);
     const accountRef = useRef<HTMLButtonElement>(null);
     const disconnectAccount = () => {
-        if (connections.signerKind === "keycast") { setSection("signer"); return; }
         disconnectSigner();
         requestAnimationFrame(() => accountRef.current?.focus({ preventScroll: true }));
     };
@@ -71,9 +70,9 @@ export function ConnectionControls({ className = "mx-auto max-w-5xl justify-end 
                 {connections.walletStatus !== "disconnected" && <span className={`header-tool__status${connections.walletStatus === "connecting" ? " is-connecting" : ""}`} aria-hidden="true" />}
             </button>
             <span id={walletStatusId} className="sr-only">Wallet {connections.walletStatus}</span>
-            {(ENABLE_NOSTR_CONNECT || ENABLE_EMAIL_ACCOUNTS) && (connections.signerStatus === "connected"
+            {ENABLE_NOSTR_CONNECT && (connections.signerStatus === "connected"
                 ? <ConnectedAccount key={connections.signerPubkey} pubkey={connections.signerPubkey} buttonRef={accountRef} onSettings={() => setSection("signer")} onDisconnect={disconnectAccount} />
-                : <button ref={accountRef} type="button" className="header-tool" aria-label="Sign in" title={ENABLE_EMAIL_ACCOUNTS ? "Sign in" : "Connect your Nostr account"}
+                : <button ref={accountRef} type="button" className="header-tool" aria-label="Sign in" title="Connect your Nostr account"
                     aria-describedby={connections.signerStatus === "connecting" ? signerStatusId : undefined}
                     aria-haspopup="dialog" onClick={() => setSection("signin")}>
                     <AccountIcon /><span className="header-tool__label">Sign in</span>

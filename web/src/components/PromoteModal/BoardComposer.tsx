@@ -6,7 +6,7 @@ import { fetchNotePreview } from "../../lib/promote";
 import { getConnectedSigner } from "../../lib/connections";
 import { verifiedNostrEvent } from "../../lib/verifyNostrEvent";
 import { useConnections } from "../../hooks/useConnections";
-import { ENABLE_EMAIL_ACCOUNTS, ENABLE_NOSTR_CONNECT } from "../../config";
+import { ENABLE_NOSTR_CONNECT } from "../../config";
 import { NoteContent } from "../TextRenderer/NoteContent";
 import { PixelButton } from "../ui/PixelButton";
 import { CopyButton } from "../ui/CopyButton";
@@ -93,7 +93,7 @@ export function BoardComposer({ onSource, children }: { onSource: (source: Board
             <div className="flex flex-wrap items-center gap-3">
                 <span className="text-xs text-cyan-100/70">Author: {guestMode ? "Anonymous" : "Your account"}</span>
                 {!!account && <label className="flex min-h-11 items-center gap-2 text-xs"><input type="checkbox" checked={anonymous} disabled={busy} onChange={event => { generation.current++; setAnonymous(event.target.checked); setReviewed(undefined); }} />Post anonymously</label>}
-                {(ENABLE_EMAIL_ACCOUNTS || ENABLE_NOSTR_CONNECT) && <button className="promotion-action focus-pixel min-h-11" disabled={busy} onClick={() => setShowAccount(!showAccount)}>{account ? "Account settings" : "Sign in / create account"}</button>}
+                {ENABLE_NOSTR_CONNECT && <button className="promotion-action focus-pixel min-h-11" disabled={busy} onClick={() => setShowAccount(!showAccount)}>{account ? "Account settings" : "Sign in with Nostr"}</button>}
             </div>
             {showAccount && <ConnectionSettings section="signer" purpose="account" embedded disabled={busy} />}
             {guestMode && <p className="text-xs text-cyan-100/65">No account required. This post uses its own author key. Its payment goes to visibility.</p>}

@@ -8,7 +8,6 @@ New paid root posts are opt-in with `ENABLE_POST_CREATION=true`. The browser
 supplies a signed private snapshot; invoice settlement admits it to the board
 and queues durable external publication. Keep this publisher enabled through UI
 rollback. See the [private-post API](API.md#private-posts-awaiting-payment).
-Email/password key custody runs in a [separate Keycast service](../accounts/README.md).
 
 ## Run locally
 

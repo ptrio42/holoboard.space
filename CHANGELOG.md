@@ -9,8 +9,8 @@ record deployment, not announcement publication.
 ### Added
 
 - Add an opt-in Add to board editor for text, links, quotes and existing posts,
-  with live previews, optional guest author-key export and email accounts through
-  an isolated Keycast service. New posts publish after board payment, with durable
+  with live previews, optional guest author-key export and existing Nostr signers.
+  New posts publish after board payment, with durable
   delivery and invoice recovery even after the browser closes.
 - Add an optional discovery fund: a local Codex curator finds worthwhile posts
   across topics, gives them seven days in Waiting room New and can reward authors
