@@ -28,9 +28,38 @@ For protocol or library changes, inspect the installed dependency implementation
 and authoritative specifications. Local mocks establish fixture behavior, not
 physical Amber compatibility or delivery through independent public clients.
 
+## Choose checks from the delta
+
+Identify the last verified revision and what changed since it. Reuse its evidence
+for unchanged behavior; a merge, local commit or branch switch alone does not
+require repeating the full matrix. Check the integrated result where dependencies
+or conflict resolutions can change behavior.
+
+| Change | Usual acceptance scope |
+| --- | --- |
+| Documentation or nonfunctional copy | Review the diff and references; check wrapping only when visible text changes. |
+| Isolated CSS or component layout | Inspect the affected widths and a few relevant browser cases. Run changed TypeScript lint when applicable and one build when compilation or CSS generation needs checking. |
+| Shared note or reader layout | Check representative media/text combinations, the changed placement cases and affected reader handoffs. Use the browser engines needed for those risks. |
+| Account, wallet, payment or durable state | Run regressions for the changed transitions and relevant anonymous-payment, recovery or rollback contracts. |
+| Shared protocol library, dependencies or build configuration | Broaden to affected unit suites, builds and browser contracts. |
+| Release verification or an integration with unknown coverage | Use the broader matrix, identifying the gaps it closes. |
+
+Choose tests by behavior, not only by touched directory. A test that already
+iterates through phone and desktop widths does not automatically need every
+device project. Include WebKit for touch, focus or Safari-specific behavior;
+use multiple engines when the change can behave differently between them.
+Do not rerun backend checks for a frontend-only delta.
+
+For a sizable browser selection, inspect `playwright test --list` or prior report
+counts before execution. Explain the reason for a long run before starting it.
+Escalate from targeted checks when they expose a concrete concern, coverage is
+unknown, or the change crosses a high-risk contract. Routine visual edits do not
+need a full suite merely because the suite exists.
+
 ## Select checks
 
-Use the runner in `scripts/verify_change.py`. Profiles are additive:
+Use the runner in `scripts/verify_change.py` to inspect the available plan.
+Profiles are additive and describe broad candidate checks:
 
 | Profile | Local checks |
 | --- | --- |
@@ -44,8 +73,12 @@ Choose profiles from the diff and affected contracts. Shared note presentation
 usually needs `readers`; promotion or payment state needs `payments`; changes to
 signing, publishing or retry receipts need `publication`. Include `backend` for
 Go, API or retained-module changes. Combine profiles for shared dependencies and
-integrated visual checkpoints. Review whether additional checks are necessary;
-the runner's profiles are a starting matrix, not an exhaustive dependency graph.
+integrated visual checkpoints. Select stages with `--only` instead of executing
+every profile stage by default. When a stage still includes unrelated behavior,
+run a narrower Playwright file/name/project selection directly, retaining the
+runner's explicit mock URLs, feature flags, fresh port and one worker. Preserve
+reports and source checks. Review whether additional checks are necessary;
+the profiles are a starting matrix, not an exhaustive dependency graph.
 
 ```bash
 python3 <skill-dir>/scripts/verify_change.py --repo <checkout> \
