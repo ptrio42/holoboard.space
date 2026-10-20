@@ -1,0 +1,480 @@
+{
+  "donorRevision": "d17d09b486058d2b77c10d0339b6280f9daaf4fd",
+  "modules": [
+    {
+      "module": ".source/adapted/web/src/components/Composer/NoteEditor.tsx",
+      "ownership": "shared-source",
+      "destination": "react/editor/NoteEditor.tsx",
+      "sha256": "b5a4ddc00b542c6836ff41557acd94ba4e33a27bd57622c5e97d95009f5ac375"
+    },
+    {
+      "module": ".source/adapted/web/src/components/TextRenderer/InlineNoteText.tsx",
+      "ownership": "shared-source",
+      "destination": "react/content/InlineNoteText.tsx",
+      "sha256": "658a25dccb899bfdb667b869dd4c325842e512732de065cfc08c60fd75c08c13"
+    },
+    {
+      "module": ".source/adapted/web/src/components/TextRenderer/NostrMention.tsx",
+      "ownership": "shared-source",
+      "destination": "react/content/NostrMention.tsx",
+      "sha256": "4b787b0311c2ffecfc734a4bb8eba2a7e5125ed12c92b0e999dd924468c853a1"
+    },
+    {
+      "module": ".source/adapted/web/src/components/TextRenderer/NoteContent.tsx",
+      "ownership": "shared-source",
+      "destination": "react/content/NoteContent.tsx",
+      "sha256": "d4465ab67df4877f7c8952d0746d15288d0e8197b9d143520656442d96e9f0ca"
+    },
+    {
+      "module": ".source/adapted/web/src/components/TextRenderer/NoteLinkPreview.tsx",
+      "ownership": "explicit-port",
+      "destination": "react/capabilities.tsx",
+      "sha256": "091316bd8665f458d878a20a558ac45ca095a71a2449043aacfc8b75af34bdf0"
+    },
+    {
+      "module": ".source/adapted/web/src/components/TextRenderer/NoteMediaGallery.css",
+      "ownership": "shared-source",
+      "destination": "react/content/NoteMediaGallery.css",
+      "sha256": "96f6eae98f36556deb6991ff0028a6988cba995b6707a3dd2cf2580565447243"
+    },
+    {
+      "module": ".source/adapted/web/src/components/TextRenderer/NoteMediaGallery.tsx",
+      "ownership": "shared-source",
+      "destination": "react/content/NoteMediaGallery.tsx",
+      "sha256": "7358680454b3eecc84e1831b88d30ad232789dad5c1d8f5bd040c1844b00511b"
+    },
+    {
+      "module": ".source/adapted/web/src/components/TextRenderer/NoteMediaViewer.css",
+      "ownership": "shared-source",
+      "destination": "react/content/NoteMediaViewer.css",
+      "sha256": "6bf1ab680f4af1d81ac58c5ea2a84b2718a5790743ef078d762bcf069cce25c1"
+    },
+    {
+      "module": ".source/adapted/web/src/components/TextRenderer/NoteMediaViewer.tsx",
+      "ownership": "shared-source",
+      "destination": "react/content/NoteMediaViewer.tsx",
+      "sha256": "5148b653acc75ae7c36ee794c31cb99d06a4d4ed030dfc746677e9bc9bb222c2"
+    },
+    {
+      "module": ".source/adapted/web/src/components/TextRenderer/NoteQuote.tsx",
+      "ownership": "explicit-port",
+      "destination": "react/capabilities.tsx",
+      "sha256": "d8533fc20b388a75b93ec3e6096668a89f6b21d58bc79f2521f7175b49409dcb"
+    },
+    {
+      "module": ".source/adapted/web/src/components/TextRenderer/NoteVideo.css",
+      "ownership": "shared-source",
+      "destination": "react/content/NoteVideo.css",
+      "sha256": "df776e523b607d15197bf75c90b2bbb8f7cf2d828ecf6ed17e25e413024fe585"
+    },
+    {
+      "module": ".source/adapted/web/src/components/TextRenderer/NoteVideo.tsx",
+      "ownership": "shared-source",
+      "destination": "react/content/NoteVideo.tsx",
+      "sha256": "b6abb9262b92cc979c3a03f4e79072b89acfb83fc0c326f398659c02c156fef4"
+    },
+    {
+      "module": ".source/adapted/web/src/components/ui/Modal.tsx",
+      "ownership": "shared-source",
+      "destination": "react/primitives/Modal.tsx",
+      "sha256": "1cb290c8276b0561ca568a4d9f5d272fb65ef6efe0ab7cf740f942c5a2f06896"
+    },
+    {
+      "module": ".source/adapted/web/src/components/ui/ModalPopoverHost.ts",
+      "ownership": "shared-source",
+      "destination": "react/primitives/ModalPopoverHost.ts",
+      "sha256": "926d638dc42dd84f9c1e72ee21a2a3e85bc72b6c585e7ad8899042c1225894a4"
+    },
+    {
+      "module": ".source/adapted/web/src/components/ui/PixelButton.tsx",
+      "ownership": "shared-source",
+      "destination": "react/primitives/PixelButton.tsx",
+      "sha256": "b2254eed88486c768e698d28f1ee959a20f766f10dce45c8ba97023a92608b88"
+    },
+    {
+      "module": ".source/adapted/web/src/components/ui/ProfileLink.tsx",
+      "ownership": "explicit-port",
+      "destination": "react/capabilities.tsx",
+      "sha256": "b8e909b154e6324c1ba84674ce99d8dbe65d8d3213876b3ba406ba93258196af"
+    },
+    {
+      "module": ".source/adapted/web/src/components/ui/Spinner.tsx",
+      "ownership": "shared-source",
+      "destination": "react/primitives/Spinner.tsx",
+      "sha256": "28735306247106f9249fa0dd5db50102402faef84f63505817004f188b96d781"
+    },
+    {
+      "module": ".source/adapted/web/src/components/ui/StatusMessage.tsx",
+      "ownership": "shared-source",
+      "destination": "react/primitives/StatusMessage.tsx",
+      "sha256": "a97bd1c167d6ab3a5f4cfcb66c79cea1d6c4b0e56224c30a61434ed4465fde83"
+    },
+    {
+      "module": ".source/adapted/web/src/config.ts",
+      "ownership": "explicit-port",
+      "destination": null,
+      "sha256": "7beb89eadd28d27e22819f5e5372113c2e933cc3eef353068dfedcd42782b070"
+    },
+    {
+      "module": ".source/adapted/web/src/hooks/useMediaViewerHistory.ts",
+      "ownership": "explicit-port",
+      "destination": "react/capabilities.tsx",
+      "sha256": "3edb1c4c324f195126c432a0ee116cbee25ae9fad0b543c6190a5ce1858af489"
+    },
+    {
+      "module": ".source/adapted/web/src/hooks/useNoteLinkPlacement.ts",
+      "ownership": "shared-source",
+      "destination": "react/content/useNoteLinkPlacement.ts",
+      "sha256": "d1396f9ad3df1b98355e59705a889c2ac7f8cd5eb18f535466a447d6a37aac82"
+    },
+    {
+      "module": ".source/adapted/web/src/hooks/useNoteVideo.ts",
+      "ownership": "shared-source",
+      "destination": "react/content/useNoteVideo.ts",
+      "sha256": "2d919d81d310ed91fd05329bff41bbc48fafc6f19a5e41aee44ea787112d1279"
+    },
+    {
+      "module": ".source/adapted/web/src/hooks/useProfile.ts",
+      "ownership": "explicit-port",
+      "destination": "react/capabilities.tsx",
+      "sha256": "6f7447a4191b3e572ea4fb0704f4aabe58a29e3ed5cdac84be64c9ca47d22955"
+    },
+    {
+      "module": ".source/adapted/web/src/lib/composerMedia.ts",
+      "ownership": "shared-source",
+      "destination": "core/content/composerMedia.ts",
+      "sha256": "b4c210ddd5ae27e5c362de67f1b60ca631eae36ab75a53c847d8e27ef72287ee"
+    },
+    {
+      "module": ".source/adapted/web/src/lib/connections.ts",
+      "ownership": "explicit-port",
+      "destination": "react/ClientProvider.tsx",
+      "sha256": "1e69a16e04d984ed2edfc5a1c1963012436da374749e9c2a8ea9b6531b2aa968"
+    },
+    {
+      "module": ".source/adapted/web/src/lib/linkPreview.ts",
+      "ownership": "explicit-port",
+      "destination": "core/content/previewLink.ts",
+      "sha256": "524f8793405a47dddd7b65b4f7f15183653264813cc3140ad564ed0b28220a8d"
+    },
+    {
+      "module": ".source/adapted/web/src/lib/mediaPresentation.ts",
+      "ownership": "shared-source",
+      "destination": "react/content/mediaPresentation.ts",
+      "sha256": "b8534e5c609afb472341d4de12c64ce1666bbd64ad073829500e8e520f74806a"
+    },
+    {
+      "module": ".source/adapted/web/src/lib/nostr.ts",
+      "ownership": "explicit-port",
+      "destination": "core/content/nostr.ts",
+      "sha256": "c41c4424843bf63fcf798914edfafdb377c3c30a704abf81f6e4903e5d70a347"
+    },
+    {
+      "module": ".source/adapted/web/src/lib/nostrCache.ts",
+      "ownership": "shared-source",
+      "destination": "core/storage/nostrCache.ts",
+      "sha256": "03ce222e8d1779fb5094e2e970016f57ae50b1c6bae7498218599a1bbb8d0c6d"
+    },
+    {
+      "module": ".source/adapted/web/src/lib/nostrPointers.ts",
+      "ownership": "shared-source",
+      "destination": "core/content/nostrPointers.ts",
+      "sha256": "a5e1a8bf77c3a1f3222c49249cb0f7a6952622249564d5929d2b4fa36492ea9e"
+    },
+    {
+      "module": ".source/adapted/web/src/lib/nostrTransport.ts",
+      "ownership": "shared-source",
+      "destination": "core/transport/nostrTransport.ts",
+      "sha256": "01f4293528224ec7d1a1ad8103e1faa392faec817ad7309f24fd7af64ef88913"
+    },
+    {
+      "module": ".source/adapted/web/src/lib/noteAttachments.ts",
+      "ownership": "shared-source",
+      "destination": "core/content/noteAttachments.ts",
+      "sha256": "47612c47416f70431f9489cd4ede1bb962ca132ec604f5746806cd8370d2df56"
+    },
+    {
+      "module": ".source/adapted/web/src/lib/noteMedia.ts",
+      "ownership": "shared-source",
+      "destination": "core/content/noteMedia.ts",
+      "sha256": "bae2036aa2f3181ca80fd18be8fa576e21f515d8ff557c9f4d3441e4892acf06"
+    },
+    {
+      "module": ".source/adapted/web/src/lib/noteTextTokens.ts",
+      "ownership": "shared-source",
+      "destination": "core/content/noteTextTokens.ts",
+      "sha256": "f6636c63337f257fdecc9e6ebc6c58981e03c9215c9cd810dc733a572abdf8e0"
+    },
+    {
+      "module": ".source/adapted/web/src/lib/publicOutbox.ts",
+      "ownership": "shared-source",
+      "destination": "core/storage/publicOutbox.ts",
+      "sha256": "79402da08d27cd2ce8bf3ab14e37f48fd9973bcb889a7fffa14f4744f1c3fb20"
+    },
+    {
+      "module": ".source/adapted/web/src/lib/publicationStore.ts",
+      "ownership": "shared-source",
+      "destination": "core/storage/publicationStore.ts",
+      "sha256": "c81aa70cbc70e406f99daff02cfae1c7fe68c65dad4bece2c0fddb60c14b4591"
+    },
+    {
+      "module": ".source/adapted/web/src/lib/relayPolicy.ts",
+      "ownership": "explicit-port",
+      "destination": "core/transport/relayUrl.ts",
+      "sha256": "6b9b50cd354d908149f48a3c4ed040a6d70815d14b1f12f3e8df2215766a3e09"
+    },
+    {
+      "module": ".source/adapted/web/src/lib/replyPreparation.ts",
+      "ownership": "shared-source",
+      "destination": "core/threads/replyPreparation.ts",
+      "sha256": "0b82ecd3679aad065dfce0e9400a37107d520055e7336c4a42243ebc3dea4591"
+    },
+    {
+      "module": ".source/adapted/web/src/lib/threadGraph.ts",
+      "ownership": "shared-source",
+      "destination": "core/threads/threadGraph.ts",
+      "sha256": "90bf5ee693d359e566354c535ccc171ee5974144aa1c4e2038ff039a75982237"
+    },
+    {
+      "module": ".source/adapted/web/src/lib/threadRelations.ts",
+      "ownership": "shared-source",
+      "destination": "core/threads/threadRelations.ts",
+      "sha256": "f1c641959eb71292bc33adea0af2d2524afc4f94a90a693072416fffcafe7edb"
+    },
+    {
+      "module": ".source/adapted/web/src/lib/verifyNostrEvent.ts",
+      "ownership": "shared-source",
+      "destination": "core/events/verifyNostrEvent.ts",
+      "sha256": "3c4ebc3fa77af57814245633c8acdc75f30760d4811e0f886a9ce576d911f20d"
+    },
+    {
+      "module": ".source/adapted/web/src/utils/textProcessing/parseContent.ts",
+      "ownership": "shared-source",
+      "destination": "core/content/parseContent.ts",
+      "sha256": "9e0c32b3dca7715440bc2963167909815de4f8e9cbe3f93df73e1a11294f0725"
+    },
+    {
+      "module": "index.html",
+      "ownership": "consumer-only",
+      "destination": null,
+      "sha256": "8e9134e79d2cd60fcab6e48622d12a1052f66a941490a3ba903d30316bbde4f3"
+    },
+    {
+      "module": "src/PublicComposer.tsx",
+      "ownership": "consumer-only",
+      "destination": null,
+      "sha256": "47d283d293980b7a5d1a191ff12329607e4206481a1dfc98f96ac5c9e8f45a87"
+    },
+    {
+      "module": "src/adapters/capabilities.tsx",
+      "ownership": "explicit-port",
+      "destination": null,
+      "sha256": "ca0b398e873a52a32d22264ab7a41969391faf286688c7f4804aee61493f687f"
+    },
+    {
+      "module": "src/adapters/config.ts",
+      "ownership": "explicit-port",
+      "destination": null,
+      "sha256": "fcae05f570567e491d664bc1a07ec4fba20888dd6a285a4fe15733b2d474e6da"
+    },
+    {
+      "module": "src/adapters/connections.ts",
+      "ownership": "explicit-port",
+      "destination": null,
+      "sha256": "78e3027537fc4d9a081cd0eb9d2bee6c4a39c75b529aaba3f8d7158984dc821d"
+    },
+    {
+      "module": "src/adapters/media.ts",
+      "ownership": "explicit-port",
+      "destination": null,
+      "sha256": "01da41d2e00a1be3e2438be9049e6d351f7cb43a931a105a4587293bf26c4088"
+    },
+    {
+      "module": "src/adapters/navigation.ts",
+      "ownership": "explicit-port",
+      "destination": null,
+      "sha256": "415e5c9dd968af76d7275d8c39f677656e37a3b2eed7a766374a44eb3c8d4fb5"
+    },
+    {
+      "module": "src/adapters/nip19.ts",
+      "ownership": "explicit-port",
+      "destination": null,
+      "sha256": "60fb6c4f7e33e839f79e4c59d64d38f92e326f30c4a52925017c0417ba194763"
+    },
+    {
+      "module": "src/adapters/storage.ts",
+      "ownership": "explicit-port",
+      "destination": null,
+      "sha256": "f5e65fbaaa311f34fdd1b061a9b33c5bdada9beb46db54a54a9bcb0ca13c7a78"
+    },
+    {
+      "module": "src/fixture-runtime.ts",
+      "ownership": "consumer-only",
+      "destination": null,
+      "sha256": "ebe2726a41add9bde7d95518cd4078dba4bf1195eb1ea7b6702356ac4a89005a"
+    },
+    {
+      "module": "src/host/ClientHost.tsx",
+      "ownership": "consumer-only",
+      "destination": null,
+      "sha256": "b7b8edd2627e0f693dbafc65659722da51ec5fee57031df64d0dba19a2e839de"
+    },
+    {
+      "module": "src/host/context.ts",
+      "ownership": "shared-source",
+      "destination": "react/ClientProvider.tsx",
+      "sha256": "b98676b09d965a61db64f49a3bb451d7f0aa9296c654e6b10eebc7873da31b99"
+    },
+    {
+      "module": "src/host/holoboard.css",
+      "ownership": "consumer-only",
+      "destination": null,
+      "sha256": "f7838527c738e88f734d81637cf1c87097cb6c14c9e093a3bf869565bb13da65"
+    },
+    {
+      "module": "src/host/nest-rel.css",
+      "ownership": "consumer-only",
+      "destination": null,
+      "sha256": "bc1e95455aa8d9595074d3eeeb5f32b60b24c1297d503126d475157de012c8aa"
+    },
+    {
+      "module": "src/main.tsx",
+      "ownership": "consumer-only",
+      "destination": null,
+      "sha256": "dc5b9de9776b210195cbb2cf3aa761351b3b8cfc4319bd95da851a0c1dbe75a6"
+    },
+    {
+      "module": "src/policy.ts",
+      "ownership": "consumer-only",
+      "destination": null,
+      "sha256": "06873221a4504a831d21cd6250e81832dbfc2e9efc6210a7fc6d1aa0f4771f09"
+    },
+    {
+      "module": "src/public-scope.ts",
+      "ownership": "shared-source",
+      "destination": "core/storage/publicScope.ts",
+      "sha256": "6250827f7abb68e89b8feb585de131d2212f61c0d69f804c956c7b592d944d64"
+    },
+    {
+      "module": "src/publication-flow.ts",
+      "ownership": "shared-source",
+      "destination": "core/publication/publicationFlow.ts",
+      "sha256": "b916e2987f38eef695ee43c86014ffa44795be525714ad2e35cc2b8af7efc6ed"
+    },
+    {
+      "module": "src/publication-policy.ts",
+      "ownership": "shared-source",
+      "destination": "core/publication/publicationPolicy.ts",
+      "sha256": "ae4ea00aea2a659c5735323083e0f0c3ff412d8cfa960689a5bdc871b9cf82af"
+    },
+    {
+      "module": "src/transport-auth.ts",
+      "ownership": "shared-source",
+      "destination": "core/transport/transportAuth.ts",
+      "sha256": "866ea6acaf5a688bba7c041c549c0d7525140bacde21d84517c51c5aa6abafff"
+    },
+    {
+      "module": "src/transport.ts",
+      "ownership": "shared-source",
+      "destination": "core/transport/contentTransport.ts",
+      "sha256": "c10ee9d30d8cdd47a7a17fa2c99b00528dfe0ebdfc0ea1babf35b89bac015171"
+    }
+  ],
+  "sourceMapping": {
+    "lib/threadRelations.ts": "core/threads/threadRelations.ts",
+    "lib/threadGraph.ts": "core/threads/threadGraph.ts",
+    "lib/replyPreparation.ts": "core/threads/replyPreparation.ts",
+    "lib/verifyNostrEvent.ts": "core/events/verifyNostrEvent.ts",
+    "lib/nostrCache.ts": "core/storage/nostrCache.ts",
+    "lib/publicOutbox.ts": "core/storage/publicOutbox.ts",
+    "lib/publicationStore.ts": "core/storage/publicationStore.ts",
+    "lib/nostrTransport.ts": "core/transport/nostrTransport.ts",
+    "lib/composerMedia.ts": "core/content/composerMedia.ts",
+    "lib/noteAttachments.ts": "core/content/noteAttachments.ts",
+    "lib/noteMedia.ts": "core/content/noteMedia.ts",
+    "lib/noteTextTokens.ts": "core/content/noteTextTokens.ts",
+    "lib/nostrPointers.ts": "core/content/nostrPointers.ts",
+    "utils/textProcessing/parseContent.ts": "core/content/parseContent.ts",
+    "components/Composer/NoteEditor.tsx": "react/editor/NoteEditor.tsx",
+    "components/TextRenderer/InlineNoteText.tsx": "react/content/InlineNoteText.tsx",
+    "components/TextRenderer/NostrMention.tsx": "react/content/NostrMention.tsx",
+    "components/TextRenderer/NoteContent.tsx": "react/content/NoteContent.tsx",
+    "components/TextRenderer/NoteMediaGallery.tsx": "react/content/NoteMediaGallery.tsx",
+    "components/TextRenderer/NoteMediaViewer.tsx": "react/content/NoteMediaViewer.tsx",
+    "components/TextRenderer/NoteVideo.tsx": "react/content/NoteVideo.tsx",
+    "components/ui/Modal.tsx": "react/primitives/Modal.tsx",
+    "components/ui/PixelButton.tsx": "react/primitives/PixelButton.tsx",
+    "components/ui/Spinner.tsx": "react/primitives/Spinner.tsx",
+    "components/ui/StatusMessage.tsx": "react/primitives/StatusMessage.tsx",
+    "components/ui/ModalPopoverHost.ts": "react/primitives/ModalPopoverHost.ts",
+    "hooks/useNoteLinkPlacement.ts": "react/content/useNoteLinkPlacement.ts",
+    "hooks/useNoteVideo.ts": "react/content/useNoteVideo.ts",
+    "lib/mediaPresentation.ts": "react/content/mediaPresentation.ts"
+  },
+  "experimentRevision": "b1088b748561185052cb7b591c39453c479ebd13",
+  "testSources": [
+    {
+      "path": "web/src/lib/threadRelations.test.ts",
+      "sha256": "dc150604576375c29a7357a8915ca98351088eff8b147876a20202bc78803514"
+    },
+    {
+      "path": "web/src/lib/threadGraph.test.ts",
+      "sha256": "38d08c6c3687673fecee895be0b4a9ddbf78450c638fb062f7c204e05a71263d"
+    },
+    {
+      "path": "web/src/lib/replyPreparation.test.ts",
+      "sha256": "b35747e202c32ffccc56b1f330391b110e21c1c94431f7750fe81619e75a64ef"
+    },
+    {
+      "path": "web/src/lib/publicOutbox.test.ts",
+      "sha256": "afcba6e11037d08352a846185bea1fe13ff707121689230958bba3a96afb5867"
+    },
+    {
+      "path": "web/src/lib/nostrTransport.test.ts",
+      "sha256": "5db18e07124479a92acfa8f589fbcf663a807482408b0b8b3058aa857a568910"
+    },
+    {
+      "path": "web/src/lib/composerMedia.test.ts",
+      "sha256": "2add3ef64141f170590e00e2289744f4e30d825e3fdd38979310e0c41900a314"
+    },
+    {
+      "path": "web/src/lib/publicationStore.test.ts",
+      "sha256": "3ea135b39fc61bedb26aba85d4a3ffc5aba19d0acba4e82142b98a8bed1db65f"
+    },
+    {
+      "path": "web/src/lib/noteAttachments.test.ts",
+      "sha256": "a4e678de1aa47b80631ecff8eb0d6fc7625fde537ef4541c976236884ea8ede0"
+    },
+    {
+      "path": "web/src/lib/noteMedia.test.ts",
+      "sha256": "8070fb4abcb86b6dd8e4558a61a2eb6dd3cdb5127c81122701279560f5ef4ead"
+    },
+    {
+      "path": "web/src/lib/mediaPresentation.test.ts",
+      "sha256": "a6388e0a0e33fb21cc95758793e3068d9a7cbdbe3f531b7377e84de9298cd59d"
+    },
+    {
+      "path": "web/src/utils/textProcessing/parseContent.test.ts",
+      "sha256": "3777114375777169b78e4e8363fd78ab34e3cdcaefbde8c17ac0d68e379763ef"
+    }
+  ],
+  "adaptations": [
+    "Per-instance transport, cache, storage, media uploader and publication factories replace application globals.",
+    "Host capability ports preserve original optional profile, quote, link-preview and navigation behavior.",
+    "NIP-19 helpers use the existing nostr-tools implementation without a full NDK runtime dependency.",
+    "Final synchronous publication authorization receives independently owned deeply frozen snapshots.",
+    "Explicit relay policy supports production wss and configured local ws destinations instead of fixture-only admission.",
+    "Original tests retain their assertions with explicit fixture bindings; prototype-only default exports and loopback configuration checks follow the exported production contracts.",
+    "Author channels separate bounded user AUTH approval from connection and EVENT acknowledgement deadlines; legacy anonymous publication deadlines remain unchanged.",
+    "Selected index.css component rules become scoped defaults with a local base layer; the Holoboard global stylesheet remains its consumer-owned product theme."
+  ],
+  "styleSources": [
+    {
+      "path": "web/src/index.css",
+      "sha256": "2cca9ef6cade04081a2a9687e3e7b407a396561f9259f21e00b34d704b1cb656",
+      "ownership": "consumer-theme with selected component rules adapted into scoped defaults",
+      "destination": "src/styles.css",
+      "scope": "No global reset, font asset, board animation, branding or product theme is included."
+    }
+  ]
+}

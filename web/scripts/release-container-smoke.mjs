@@ -66,7 +66,7 @@ try {
     const override = {
         services: {
             relay: { build: { context: join(root, "relay") }, restart: "no" },
-            web: { build: { context: join(root, "web"), args: { VITE_PUBLIC_RELAYS: relay } },
+            web: { build: { context: root, dockerfile: "web/Dockerfile", args: { VITE_PUBLIC_RELAYS: relay } },
                 networks: ["default", "preview"], restart: "no" },
         },
         networks: { default: { internal: true }, preview: {} },

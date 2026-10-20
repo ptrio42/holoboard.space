@@ -6,6 +6,8 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+- Share the maintained note editor, renderer and Nostr client primitives with independently configured clients while preserving anonymous payments and existing publication receipts.
+
 ## 2026-10-15
 
 ### Added

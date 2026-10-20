@@ -24,7 +24,8 @@ services:
 
   web:
     build:
-      context: ./web
+      context: .
+      dockerfile: web/Dockerfile
       args:
         VITE_RELAY_URL: ${VITE_RELAY_URL:-ws://localhost:8080/relay}
         VITE_RELAY_PUBKEY: ${VITE_RELAY_PUBKEY:-}

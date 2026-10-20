@@ -17,6 +17,8 @@ function revision() {
 
 // https://vite.dev/config/
 export default defineConfig({
+  // Linked package development must share the application React dispatcher.
+  resolve: { dedupe: ['react', 'react-dom'] },
   // Keep ordinary builds opt-in; pin the production Pages branch in Git.
   define: process.env.CF_PAGES === '1' && process.env.CF_PAGES_BRANCH === 'main'
     ? Object.fromEntries(Object.entries(productionFeatures)

@@ -1,10 +1,1 @@
-.note-video { position: relative; width: 100%; height: 100%; min-width: 0; background: #080c19; }
-.note-video .note-content-video { display: block; width: 100%; height: 100%; max-height: none; margin: 0; object-fit: contain; }
-.note-video-start, .note-video-failure { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 12px; background: radial-gradient(ellipse at center, #143241, #080c19); color: #a5f3fc; font: 10px/1.6 var(--font-pixel, monospace); }
-.note-video-start { cursor: pointer; border: 0; background: transparent; }
-.note-video-start__label { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px; background: rgb(3 5 12 / .8); }
-.note-video-start:disabled { cursor: default; }
-.note-video-failure { flex-wrap: wrap; padding: 12px; }
-.note-video-failure > span { flex-basis: 100%; text-align: center; }
-.note-video-failure .note-action { min-height: 44px; display: inline-flex; align-items: center; }
-.note-video-poster-probe { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+/* Component styles are maintained in @ptrio42/nostr-client/styles.css. */

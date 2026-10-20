@@ -1,0 +1,17 @@
+**
+!web/
+!web/**
+!packages/
+!packages/nostr-client/
+!packages/nostr-client/**
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+**/.npmrc
+**/*.pem
+**/*.key
+**/*.log
+**/.DS_Store
+**/test-results
+**/playwright-report

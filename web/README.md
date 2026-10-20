@@ -9,9 +9,17 @@ and billboard rules.
 Run from `web/` with Node.js and npm installed:
 
 ```bash
-npm install
+npm ci --legacy-peer-deps
 npm run dev
 ```
+
+The install hook installs the pinned shared client build tools from
+`../packages/nostr-client`; dev, test and build compile that package first.
+Keep both directories in the checkout. If lifecycle scripts are disabled, run
+`npm ci --prefix ../packages/nostr-client --legacy-peer-deps --ignore-scripts`
+explicitly before building. The shared editor, renderer and protocol helpers are
+maintained in [the package](../packages/nostr-client/README.md); the web adapters
+retain Holoboard's provider settings, navigation and global connection ownership.
 
 Defaults connect to the live Holoboard relay. To use your own relay, copy
 [.env.example](.env.example) to `.env.local` and edit its settings.
