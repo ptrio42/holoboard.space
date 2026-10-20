@@ -230,7 +230,9 @@ test.describe("read-only discussion", () => {
         await page.screenshot({ path: `/private/tmp/holoboard-discussion-screen-${test.info().project.name}.png`, fullPage: true });
         await page.getByRole("link", { name: "Back to board" }).click();
         await expect(page).toHaveURL(/\/waiting\?view=hot$/);
-        await expect(page.getByRole("button", { name: "Hot", exact: true })).toHaveAttribute("aria-pressed", "true");
+        if (await page.getByRole("button", { name: /^Sort waiting room:/ }).isVisible()) {
+            await expect(page.getByRole("button", { name: "Sort waiting room: Hot", exact: true })).toBeVisible();
+        } else await expect(page.getByRole("button", { name: "Hot", exact: true })).toHaveAttribute("aria-pressed", "true");
         await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(boardScroll);
         await page.goBack();
         await expect(row(page, paid)).toBeVisible();

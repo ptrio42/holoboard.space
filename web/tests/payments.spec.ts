@@ -1384,12 +1384,13 @@ test("header account disconnect preserves its independent payment wallet", async
     await wallet.click();
     await page.getByLabel("NWC connection link").fill(walletUri);
     await page.getByRole("button", { name: "Connect wallet", exact: true }).click();
-    await expect(page.getByText("Connected: Test NWC wallet.", { exact: false })).toBeVisible();
-    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(wallet).toBeFocused();
+    await expect(wallet).toHaveAccessibleDescription("Wallet connected");
     await connections.getByRole("button", { name: "Sign in", exact: true }).click();
     await page.getByRole("dialog", { name: "Sign in", exact: true }).getByRole("button", { name: "Browser extension", exact: true }).click();
-    await expect(page.getByText("Connected extension:", { exact: false })).toBeVisible();
-    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(connections.getByRole("button", { name: "Account: Account", exact: true })).toBeFocused();
     await connections.getByRole("button", { name: "Account: Account", exact: true }).click();
     await page.getByRole("menuitem", { name: "Disconnect", exact: true }).click();
     await expect(connections.getByRole("button", { name: "Sign in", exact: true })).toBeFocused();

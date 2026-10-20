@@ -1,8 +1,10 @@
 import { ENABLE_POST_CREATION } from "../../config";
-import type { ReactNode } from "react";
+import { useContext, type ReactNode } from "react";
 import holoboardMark from "../../assets/holoboard-mark.svg";
 import { ConnectionControls } from "../PromoteModal/ConnectionControls";
 import { PixelButton } from "../ui/PixelButton";
+import { WaitingRoomLocation } from "./BoardNavigation";
+import { navigateBoard } from "../../lib/discussionNavigation";
 
 type BoardSection = "board" | "waiting" | "expired";
 const sections: { id: BoardSection; href: string; label: string }[] = [
@@ -10,33 +12,43 @@ const sections: { id: BoardSection; href: string; label: string }[] = [
     { id: "waiting", href: "/waiting", label: "Waiting room" },
 ];
 
-export function BoardLayout({ section, onPromote, headerContent, children, newWaitingCount = 0 }: {
+export function BoardLayout({ section, onPromote, sectionControls, headerContent, children, newWaitingCount = 0 }: {
     section: BoardSection | "discussion" | "profile";
     onPromote: () => void;
+    sectionControls?: ReactNode;
     headerContent?: ReactNode;
     children: ReactNode;
     newWaitingCount?: number;
 }) {
-    return <div className="mx-auto min-h-dvh w-full max-w-5xl px-4 pt-4 pb-20 sm:px-6 md:pt-6">
+    const waitingHref = useContext(WaitingRoomLocation);
+    return <div className="board-shell mx-auto min-h-dvh w-full max-w-5xl">
         <a href={section === "profile" ? "#profile" : section === "discussion" ? "#discussion" : "#board"} className="skip-link pixel-frame focus-pixel border-2 border-neon-gold bg-void px-4 py-2 font-pixel text-[10px] text-neon-gold">Skip to notes</a>
-        <header className="mb-4 md:mb-6">
-            <div className="grid grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 md:grid-cols-[minmax(0,1fr)_auto_auto] md:gap-x-5 md:gap-y-3">
-                <h1 className="min-w-0 font-pixel text-2xl leading-tight tracking-widest text-neon-pink [text-shadow:0_0_18px_rgba(236,72,153,0.55)]">
-                    <a href="/" title="Holoboard home" className="focus-pixel inline-flex min-h-11 min-w-11 items-center">
+        <header className="board-header">
+            <div className="board-header__bar">
+                <h1 className="board-header__brand font-pixel text-2xl leading-tight tracking-widest text-neon-pink">
+                    <a href="/" title="Holoboard home" onClick={navigateBoard} className="focus-pixel inline-flex min-h-11 min-w-11 items-center">
                         <img src={holoboardMark} width={24} height={24} alt="" aria-hidden="true" className="md:hidden" /><span className="sr-only md:not-sr-only">HOLOBOARD</span>
                     </a>
                 </h1>
-                <PixelButton variant="accent" aria-label={ENABLE_POST_CREATION ? "Add to board" : "Promote a note"} className="justify-self-center [&>span]:min-h-[38px] [&>span]:px-4 [&>span]:py-0 [&>span]:text-[10px]" onClick={onPromote}>
-                    {ENABLE_POST_CREATION ? "Add to board" : "Promote"}
-                </PixelButton>
-                <ConnectionControls className="justify-self-end justify-end" />
-                <nav aria-label="Board sections" className="col-span-3 flex justify-start gap-x-6 font-pixel text-[10px] text-cyan-200/80">
-                    {sections.map(({ id, href, label }) => <a key={id} href={href} aria-current={section === id ? "page" : undefined} className={`focus-pixel relative inline-flex min-h-11 items-center justify-center gap-2 border-b-2 ${section === id ? "border-neon-gold text-neon-gold" : "border-transparent hover:text-neon-cyan"}`}>{label}{id === "waiting" && newWaitingCount > 0 && <span className="waiting-new-badge" aria-label={`${newWaitingCount} new ${newWaitingCount === 1 ? "note" : "notes"} since your last visit`}>{newWaitingCount > 99 ? "99+" : newWaitingCount}</span>}</a>)}
+                <div className="board-header__actions">
+                    <PixelButton variant="accent" aria-label={ENABLE_POST_CREATION ? "Add to board" : "Promote a note"} className="board-header__add" onClick={event => {
+                        // Touch Safari does not focus buttons before the modal captures its opener.
+                        event.currentTarget.focus({ preventScroll: true });
+                        onPromote();
+                    }}>
+                        {ENABLE_POST_CREATION ? <><span className="md:hidden" aria-hidden="true">Add</span><span className="hidden md:inline" aria-hidden="true">Add to board</span></> : "Promote"}
+                    </PixelButton>
+                    <ConnectionControls className="justify-end" />
+                </div>
+                <nav aria-label="Board sections" className="board-header__sections">
+                    {sections.map(({ id, href, label }) => <a key={id} href={id === "waiting" ? waitingHref : href} onClick={navigateBoard} aria-current={section === id ? "page" : undefined} className="focus-pixel">{label}{id === "waiting" && newWaitingCount > 0 && <span className="waiting-new-badge" aria-label={`${newWaitingCount} new ${newWaitingCount === 1 ? "note" : "notes"} since your last visit`}>{newWaitingCount > 99 ? "99+" : newWaitingCount}</span>}</a>)}
                 </nav>
+                {sectionControls && <div className="board-header__section-controls">{sectionControls}</div>}
+                <span className="board-header__rail" aria-hidden="true" />
             </div>
             {headerContent}
         </header>
         {children}
-        <footer className="mt-12 border-t-2 border-cyan-400/15 pt-6 text-center text-xs text-cyan-100/50"><div className="flex flex-wrap justify-center gap-6"><a href="/expired" aria-current={section === "expired" ? "page" : undefined} className={`promotion-action focus-pixel inline-flex min-h-11 items-center${section === "expired" ? " text-neon-gold" : ""}`}>Expired notes</a><a href="/help" className="promotion-action focus-pixel inline-flex min-h-11 items-center">Help</a><a href="https://github.com/ptrio42/holoboard.space" target="_blank" rel="noopener noreferrer" className="promotion-action focus-pixel inline-flex min-h-11 items-center">GitHub</a></div><p>Only paid visibility affects rank. Each payment loses half its weight every 30 days.</p></footer>
+        <footer className="board-footer"><div className="board-footer__links"><a href="/expired" onClick={navigateBoard} aria-current={section === "expired" ? "page" : undefined} className={`promotion-action focus-pixel inline-flex min-h-11 items-center${section === "expired" ? " text-neon-gold" : ""}`}>Expired notes</a><a href="/help" onClick={navigateBoard} className="promotion-action focus-pixel inline-flex min-h-11 items-center">Help</a><a href="https://github.com/ptrio42/holoboard.space" target="_blank" rel="noopener noreferrer" className="promotion-action focus-pixel inline-flex min-h-11 items-center">GitHub</a></div><p>Only paid visibility affects rank. Each payment loses half its weight every 30 days.</p></footer>
     </div>;
 }

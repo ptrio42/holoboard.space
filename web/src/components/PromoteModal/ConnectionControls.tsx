@@ -28,7 +28,6 @@ function ConnectedAccount({ pubkey, buttonRef, onSettings, onDisconnect }: { pub
             aria-haspopup="menu" aria-controls={menuId} aria-expanded={!!anchor}
             onClick={event => setAnchor(anchor ? null : event.currentTarget)}>
             <Avatar pubkey={pubkey} src={profile?.picture} name={name} size={24} />
-            <span className="header-tool__label">{name}</span>
         </button>
         {anchor && <NotePopover id={menuId} anchor={anchor} title="Account" menu onClose={close}>
             <div className="header-account-summary">
@@ -47,7 +46,13 @@ function ConnectedAccount({ pubkey, buttonRef, onSettings, onDisconnect }: { pub
 /** Connections belong to the client and can also be opened inside a payment. */
 export function ConnectionControls({ className = "mx-auto max-w-5xl justify-end px-4 py-2 sm:px-6" }: { className?: string }) {
     const connections = useConnections();
-    const [section, setSection] = useState<"wallet" | "signer" | null>(null);
+    const [section, setSection] = useState<"wallet" | "wallet-connect" | "signer" | "signin" | null>(null);
+    // Connection success closes setup; explicitly opened connected panels stay open.
+    if ((section === "signin" && connections.signerStatus === "connected")
+        || (section === "wallet-connect" && connections.walletStatus === "connected")) setSection(null);
+    else if (section === "wallet" && connections.walletStatus !== "connected") setSection("wallet-connect");
+    else if (section === "signer" && connections.signerStatus !== "connected") setSection("signin");
+    const panelSection = section === "signin" ? "signer" : section === "wallet-connect" ? "wallet" : section;
     const walletStatusId = useId();
     const signerStatusId = useId();
     const walletRef = useRef<HTMLButtonElement>(null);
@@ -61,7 +66,7 @@ export function ConnectionControls({ className = "mx-auto max-w-5xl justify-end 
         <nav aria-label="Connections" className={`header-tools ${className}`}>
             <button ref={walletRef} type="button" className="header-tool" aria-label="Wallet" aria-describedby={walletStatusId}
                 title={connections.walletStatus === "connected" ? "Wallet connected" : connections.walletStatus === "connecting" ? "Wallet connecting" : "Wallet"}
-                aria-haspopup="dialog" onClick={() => setSection("wallet")}>
+                aria-haspopup="dialog" onClick={() => setSection(connections.walletStatus === "connected" ? "wallet" : "wallet-connect")}>
                 <WalletIcon />
                 {connections.walletStatus !== "disconnected" && <span className={`header-tool__status${connections.walletStatus === "connecting" ? " is-connecting" : ""}`} aria-hidden="true" />}
             </button>
@@ -70,14 +75,14 @@ export function ConnectionControls({ className = "mx-auto max-w-5xl justify-end 
                 ? <ConnectedAccount key={connections.signerPubkey} pubkey={connections.signerPubkey} buttonRef={accountRef} onSettings={() => setSection("signer")} onDisconnect={disconnectAccount} />
                 : <button ref={accountRef} type="button" className="header-tool" aria-label="Sign in" title={ENABLE_EMAIL_ACCOUNTS ? "Sign in" : "Connect your Nostr account"}
                     aria-describedby={connections.signerStatus === "connecting" ? signerStatusId : undefined}
-                    aria-haspopup="dialog" onClick={() => setSection("signer")}>
+                    aria-haspopup="dialog" onClick={() => setSection("signin")}>
                     <AccountIcon /><span className="header-tool__label">Sign in</span>
                     {connections.signerStatus === "connecting" && <><span className="header-tool__status is-connecting" aria-hidden="true" /><span id={signerStatusId} className="sr-only">Connection in progress</span></>}
                 </button>)}
         </nav>
-        {section && <Modal isOpen onClose={() => setSection(null)} title={section === "wallet" ? connections.walletStatus === "connected" ? "Wallet" : "Connect wallet" : connections.signerStatus === "connected" ? "Nostr account" : "Sign in"}
-            returnFocusRef={section === "signer" ? accountRef : walletRef} scrollBody panelClassName="promotion-typography max-w-xl">
-            <ConnectionSettings section={section} purpose={section === "signer" ? "account" : "zap"} embedded />
+        {panelSection && <Modal isOpen onClose={() => setSection(null)} title={panelSection === "wallet" ? connections.walletStatus === "connected" ? "Wallet" : "Connect wallet" : connections.signerStatus === "connected" ? "Nostr account" : "Sign in"}
+            returnFocusRef={panelSection === "signer" ? accountRef : walletRef} scrollBody panelClassName="promotion-typography max-w-xl">
+            <ConnectionSettings section={panelSection} purpose={panelSection === "signer" ? "account" : "zap"} embedded />
         </Modal>}
     </>;
 }

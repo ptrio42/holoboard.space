@@ -396,13 +396,18 @@ with either setting.
 The header's Sign in offers a browser extension or Amber / remote signer, with
 manual bunker-link setup in a disclosure. Missing extension support is explicit.
 During remote pairing, opening the signer is the primary action; copying and
-cancelling stay above the optional QR code.
+cancelling stay above the optional QR code. Successful header sign-in closes
+the panel and returns focus to the connected avatar. Pending approval and errors
+stay visible. Connected accounts use only the avatar at every screen width;
+the account name and connection settings remain in its menu.
 Account sign-in, reply signing and public-zap setup share the same connection
 session, while their explanations follow the action the user is taking.
 
 Invoice links, copying and QR codes stay available without connecting anything.
 The wallet connection form accepts a masked NWC link through its Connect wallet
 action or Enter. Setup help expands on demand; connecting never sends a payment.
+Successful header wallet connection closes setup and returns focus to the wallet
+icon. Opening an already connected wallet keeps its panel available.
 The payer's [NWC connection](https://github.com/nostr-protocol/nips/blob/master/47.md)
 uses the [Alby SDK](https://github.com/getAlby/js-sdk) and is separate from the
 relay's receiving wallet. Use an application-specific mainnet connection with
@@ -746,6 +751,35 @@ specific relationship warnings without changing or inferring graph relations.
 Primary section navigation contains TOP 21 and Waiting room. Expired notes remain
 available in the footer beside Help and GitHub, with a current-page indication
 inside the archive.
+
+The board header reads as a neon sign above the feed: the pink wordmark has a
+soft glow, and a quiet cyan rail with a stepped end joins the navigation. The
+current section marks its part of the rail in gold. From 1024px, brand, sections
+and actions share one row. Smaller screens use two rows; below 768px, the H,
+wallet and account icons accompany a compact Add button when post creation is
+enabled. Its accessible name remains Add to board. With post creation disabled,
+the action remains Promote. Full labels return from 768px. The header scrolls
+with the page and shares the feed's width.
+
+Keep the main action as the header's only strongly framed control, with 8px of
+clearance above the desktop rail. Waiting-room sorting uses quiet Rank, New and
+Hot buttons from 768px, without a Sort label. A separate stepped question-mark
+icon opens sorting help without looking like another selected mode. Phones show
+the current choice in a menu beside the sections. Both presentations retain the same sort
+and URL, with ranking help available in context. Keep header targets at least
+44px, pixel labels at least 10px, and footer links compact enough for a 320px
+viewport. These layout rules do not change the note cards or payment flow.
+Honor safe-area insets around the board shell. Touch header controls use a
+pressed state without the desktop hover lift, while keeping browser zoom and
+system navigation gestures available.
+
+Board section links navigate inside the client while keeping real URLs and
+modified-click behavior. TOP 21 and the current waiting-room view retain public
+list data, loaded pages and expanded text for this app session, then refresh on
+return. History restores the visible note and scroll position without requiring
+an account. The waiting-room link retains its last sort; reloading restores the
+sort from the URL and starts with the first page. Payment records keep their
+existing storage and explicit resume flow.
 
 Opt-in profiles place an author column beside notes on desktop and a compact
 identity section above notes on phones. Optional banners remain bounded within

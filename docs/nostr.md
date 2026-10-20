@@ -267,6 +267,14 @@ stay in the verified read cache. Public presentation snapshots are bounded to
 appearance, never protocol relationships or campaign admission. Direct URLs and
 missing snapshots use the ordinary discussion focus.
 
+Board section links use the same history navigation, including when reader
+features are disabled. The two public lists retain their most recent campaign
+snapshot, page count and text disclosures in memory and refresh when remounted.
+The waiting-room URL remains the source of sort selection, including explicit
+New links and browser history. Leaving and returning starts a new waiting-room
+visit; changing its sort keeps the current visit baseline. These list snapshots
+do not contain account credentials, payment drafts or invoice records.
+
 `useReadingPosition` owns history restoration across board, discussion and
 profile views. It applies before paint, then observes delayed content for at most
 35 seconds, stopping on user interaction or navigation. Bounded spacing above
@@ -439,18 +447,25 @@ cache, and evicted bodies remain explicit placeholders.
 
 ### Header account entry
 
-Promote is the header's primary framed action. Wallet and the optional account
-entry use quiet 44-pixel controls. `VITE_ENABLE_NOSTR_CONNECT` gates Sign in and
-the connected avatar; its false default also preserves disabled restoration.
+The header's primary framed action is Promote, or Add to board when post creation
+is enabled; phones shorten the latter to Add while keeping its accessible name.
+Wallet and the optional account entry use quiet 44-pixel controls.
+Sign in and the connected avatar require Nostr connection support or email
+accounts. `VITE_ENABLE_NOSTR_CONNECT` keeps its independent restoration gate.
 Connected account metadata comes from the same verified profile reader used by
-bylines, with Account and a generated avatar as fallbacks. Desktop names truncate;
-phones retain only the avatar or a stepped arrow entering a doorway for Sign in.
+bylines, with Account and a generated avatar as fallbacks. Connected accounts
+show only the avatar at every width, with their name in the menu and accessible
+trigger label. Phones use a stepped arrow entering a doorway for Sign in.
 Account connection details and disconnect are available through an anchored
 keyboard-accessible menu. Its
 Your profile action additionally requires `VITE_ENABLE_PROFILES` and preserves
 local reader return paths. Disconnecting the account leaves the payment wallet
 connected. Closing connection settings restores focus to the current account
-trigger, including after Sign in becomes an avatar.
+trigger, including after Sign in becomes an avatar. Successful header sign-in
+automatically closes its panel; pending approval and connection errors keep it
+open. Header NWC setup also closes after success and returns focus to the wallet
+icon. Explicitly opened connected account settings and wallet panels stay open;
+disconnecting there starts setup again, which closes after a successful reconnect.
 
 ## Resource limits
 

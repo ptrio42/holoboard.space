@@ -24,7 +24,7 @@ export function NotePopover({ id, anchor, title, menu = false, children, onClose
         if (!panel) return;
         const place = () => {
             const bounds = anchor.getBoundingClientRect();
-            if (!anchor.isConnected || bounds.bottom < 0 || bounds.top > innerHeight) {
+            if (!anchor.isConnected || anchor.getClientRects().length === 0 || bounds.bottom < 0 || bounds.top > innerHeight) {
                 closeRef.current(false);
                 return;
             }
@@ -36,7 +36,11 @@ export function NotePopover({ id, anchor, title, menu = false, children, onClose
             panel.style.top = `${Math.max(12, Math.min(top, innerHeight - height - 12)) - (origin?.top ?? 0)}px`;
         };
         place();
-        panel.querySelector<HTMLElement>(menu ? '[role="menuitem"]' : "button")?.focus({ preventScroll: true });
+        const menuItems = '[role="menuitem"], [role="menuitemradio"]';
+        const initial = menu
+            ? panel.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]') ?? panel.querySelector<HTMLElement>(menuItems)
+            : panel.querySelector<HTMLElement>("button");
+        initial?.focus({ preventScroll: true });
         const outside = (event: Event) => {
             const target = event.target as Node;
             if (!panel.contains(target) && !anchor.contains(target)) closeRef.current(false);
@@ -56,7 +60,7 @@ export function NotePopover({ id, anchor, title, menu = false, children, onClose
                 closeRef.current();
             } else if (menu && ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
                 event.preventDefault();
-                const items = [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+                const items = [...panel.querySelectorAll<HTMLElement>(menuItems)];
                 const index = items.indexOf(document.activeElement as HTMLElement);
                 const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1
                     : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;

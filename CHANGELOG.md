@@ -24,6 +24,20 @@ record deployment, not announcement publication.
   placement or payment. Human approval defaults on; an explicit toggle permits
   automatic future selections while preserving the waiting queue and payment recovery.
 
+### Changed
+
+- Bring the logo, sections and actions into one desktop header with a neon rail
+  and gold section marker. Keep phone controls compact, shorten Add to board to
+  Add, and place waiting-room sorting beside navigation in a keyboard-accessible
+  menu. Simplify desktop sorting with a separate help icon, tighten footer
+  spacing and keep touch controls steady with safe-area spacing.
+- Close header sign-in and wallet setup automatically after a successful
+  connection. Keep connected accounts compact with an avatar and show their
+  name in the account menu.
+- Switch board sections without reloading the page, retaining reading position,
+  expanded text, waiting-room sorting and loaded pages through navigation and
+  browser Back/Forward. Keep direct links and native new-tab behavior.
+
 ## 2026-10-15
 
 ### Added
