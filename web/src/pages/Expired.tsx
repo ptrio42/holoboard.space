@@ -50,7 +50,7 @@ export default function Expired() {
 
     return <BoardLayout newWaitingCount={updates.count} section="expired" onPromote={() => { setSelected(null); setOpen(true); }}
         headerContent={<p className="mt-4 text-center text-sm leading-relaxed text-cyan-100/60 md:text-left">Promotion has faded to zero. Promote a note again to return it to the board.</p>}>
-        <main id="board" tabIndex={-1} aria-busy={loading}>
+        <main id="board" tabIndex={-1} aria-label="Expired notes" aria-busy={loading}>
             {error && <div role="alert" className="mb-5 space-y-3 border-2 border-neon-pink/40 p-4 text-xs text-neon-pink">
                 <p>{error}</p>
                 <PixelButton size="sm" variant="ghost" onClick={() => void load(retryCursor.current)}>Try again</PixelButton>

@@ -11,6 +11,7 @@ import { ENABLE_DISCUSSIONS, ENABLE_PROFILES } from "./config";
 import { discussionRoute, profileRoute } from "./lib/readingRoutes";
 import { useReadingPosition } from "./hooks/useReadingPosition";
 import { useReadingStability } from "./hooks/useReadingStability";
+import { WaitingRoomLocation } from "./components/BoardLayout/BoardNavigation";
 
 const locationPath = () => window.location.pathname + window.location.search;
 const readingRoute = (path: string) => {
@@ -22,30 +23,32 @@ function App() {
   const [path, setPath] = useState(locationPath);
   const route = readingRoute(path);
   const [boardPath, setBoardPath] = useState<string | null>(() => route ? null : path);
+  const [waitingPath, setWaitingPath] = useState(() => window.location.pathname === "/waiting" ? path : "/waiting");
   useEffect(() => {
     const change = () => {
       const next = locationPath();
       if (!readingRoute(next)) setBoardPath(next);
+      if (window.location.pathname === "/waiting") setWaitingPath(next);
       setPath(next);
     };
     window.addEventListener("popstate", change);
     return () => window.removeEventListener("popstate", change);
   }, []);
-  useReadingPosition(path, ENABLE_DISCUSSIONS || ENABLE_PROFILES);
+  useReadingPosition(path, true);
   useReadingStability(path);
   const boardName = boardPath?.split("?")[0];
   if (window.location.pathname === "/account/callback") return <AccountCallback />;
-  return <Fragment>
+  return <WaitingRoomLocation.Provider value={waitingPath}><Fragment>
     <NDKHeadless />
     {/* Retain the board's rows, disclosures and position while reading. */}
-    {boardPath && <div hidden={!!route} data-reading-surface className="reading-surface">
+    {boardPath && <div key={boardName} hidden={!!route} data-reading-surface className="reading-surface">
       {boardName === "/help" && <ConnectionControls />}
-      {boardName === "/help" ? <Help /> : boardName === "/expired" ? <Expired /> : <Billboard pathname={boardName} />}
+      {boardName === "/help" ? <Help /> : boardName === "/expired" ? <Expired /> : <Billboard pathname={boardName} search={new URL(boardPath, window.location.origin).search} />}
     </div>}
     {route && <div data-reading-surface className="reading-surface">
       {route.type === "discussion" ? <Discussion key={route.value.focusId} {...route.value} /> : <Profile key={route.value.pubkey} {...route.value} />}
     </div>}
-  </Fragment>;
+  </Fragment></WaitingRoomLocation.Provider>;
 }
 
 export default App;

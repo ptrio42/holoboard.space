@@ -8,6 +8,8 @@ import { decode } from "nostr-tools/nip19";
 test.use({ serviceWorkers: "block", reducedMotion: "reduce" });
 const signerEnabled = process.env.VITE_ENABLE_NOSTR_CONNECT === "true";
 const profilesEnabled = process.env.VITE_ENABLE_PROFILES === "true";
+const postCreationEnabled = process.env.VITE_ENABLE_POST_CREATION === "true";
+const accountEnabled = signerEnabled || process.env.VITE_ENABLE_EMAIL_ACCOUNTS === "true";
 const authorKey = generateSecretKey(), accountKey = generateSecretKey();
 const accountPubkey = getPublicKey(accountKey);
 const note = finalizeEvent({ kind: 1, created_at: 1700000000, tags: [], content: "An open board for ideas worth discovering. Support a note to give it more visibility." }, authorKey);
@@ -51,12 +53,21 @@ async function checkHeader(page: Page) {
     // Mobile WebKit applies responsive styles asynchronously after a resize.
     await expect(async () => {
         const viewportWidth = await page.evaluate(() => innerWidth);
-        const boxes = await page.locator("header").first().locator('h1 a, button[aria-label="Promote a note"], .header-tool').evaluateAll(nodes => nodes.map(node => {
+        const controls = page.locator("header").first().locator('h1 a, .board-header__add, .header-tool');
+        await expect(controls).toHaveCount(accountEnabled ? 4 : 3);
+        const boxes = await controls.evaluateAll(nodes => nodes.map(node => {
             const { x, y, width, height, right } = node.getBoundingClientRect(); return { x, y, width, height, right };
         }));
         expect(boxes.every(box => box.width >= 44 && box.height >= 44 && box.x >= 0 && box.right <= viewportWidth)).toBe(true);
         expect(Math.max(...boxes.map(box => box.y)) - Math.min(...boxes.map(box => box.y))).toBeLessThan(4);
         for (let i = 1; i < boxes.length; i++) expect(boxes[i].x, JSON.stringify({ viewportWidth, boxes })).toBeGreaterThanOrEqual(boxes[i - 1].right);
+        const sections = (await page.getByRole("navigation", { name: "Board sections" }).boundingBox())!;
+        expect(sections.height).toBeGreaterThanOrEqual(44);
+        if (viewportWidth >= 1024) {
+            expect(Math.abs(sections.y - boxes[0].y)).toBeLessThan(1);
+            expect(sections.x).toBeGreaterThanOrEqual(boxes[0].right);
+            expect(sections.x + sections.width).toBeLessThanOrEqual(boxes[1].x);
+        } else expect(sections.y).toBeGreaterThanOrEqual(boxes[0].y + boxes[0].height);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     }).toPass({ timeout: 3000 });
 }
@@ -65,15 +76,96 @@ test("header keeps promotion primary and wallet available without signing in", a
     const state = await setup(context, page);
     await checkHeader(page);
     const connections = page.getByRole("navigation", { name: "Connections", exact: true });
-    await expect(connections.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(signerEnabled ? 1 : 0);
+    await expect(connections.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(accountEnabled ? 1 : 0);
     await page.locator("header").first().screenshot({ path: testInfo.outputPath("header-signed-out.png") });
     const wallet = connections.getByRole("button", { name: "Wallet", exact: true });
     await wallet.click();
     await expect(page.getByRole("dialog", { name: "Connect wallet", exact: true })).toContainText("Invoice / QR payments also work without connecting.");
     await page.keyboard.press("Escape");
     await expect(wallet).toBeFocused();
-    for (const width of [768, 320]) { await page.setViewportSize({ width, height: 800 }); await checkHeader(page); }
+    for (const width of [1440, 1024, 1023, 768, 767, 390, 320]) {
+        await page.setViewportSize({ width, height: 800 });
+        await checkHeader(page);
+        const action = page.locator(".board-header__add");
+        await expect(action).toHaveAccessibleName(postCreationEnabled ? "Add to board" : "Promote a note");
+        const visibleLabel = await action.evaluate(button => (button as HTMLElement).innerText);
+        expect(visibleLabel.trim()).toBe(postCreationEnabled ? width < 768 ? "ADD" : "ADD TO BOARD" : "PROMOTE");
+        const links = page.locator(".board-footer__links > a");
+        await expect(links).toHaveCount(3);
+        const tops = await links.evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().top));
+        expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(1);
+        await page.screenshot({ path: testInfo.outputPath(`board-header-${width}px.png`) });
+    }
     await page.locator("header").first().screenshot({ path: testInfo.outputPath("header-320px.png") });
+    expect(state.writes).toEqual([]); expect(state.publicFrames).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+test("phone sorting preserves its choice, keyboard focus and contextual help", async ({ context, page }, testInfo) => {
+    const state = await setup(context, page);
+    await page.setViewportSize({ width: 320, height: 740 });
+    await page.goto("/waiting");
+    const trigger = page.getByRole("button", { name: "Sort waiting room: Rank", exact: true });
+    await expect(trigger).toBeVisible();
+    await checkHeader(page);
+    const sections = (await page.getByRole("navigation", { name: "Board sections" }).boundingBox())!;
+    const bounds = (await trigger.boundingBox())!;
+    expect(bounds.width).toBeGreaterThanOrEqual(44);
+    expect(bounds.height).toBeGreaterThanOrEqual(44);
+    expect(bounds.x).toBeGreaterThanOrEqual(sections.x + sections.width);
+    expect(Math.abs(bounds.y - sections.y)).toBeLessThan(1);
+    await trigger.click();
+    const menu = page.getByRole("menu", { name: "Waiting room sort", exact: true });
+    await expect(menu.getByRole("menuitemradio")).toHaveCount(3);
+    await expect(menu.getByRole("menuitemradio", { name: "Rank", exact: true })).toBeFocused();
+    await page.screenshot({ path: testInfo.outputPath("sort-menu-320px.png") });
+    await page.keyboard.press("ArrowDown");
+    await expect(menu.getByRole("menuitemradio", { name: "New", exact: true })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/waiting\?view=new$/);
+    const selected = page.getByRole("button", { name: "Sort waiting room: New", exact: true });
+    await expect(selected).toBeFocused();
+    await expect(menu).toHaveCount(0);
+    await selected.click();
+    await expect(menu.getByRole("menuitemradio", { name: "New", exact: true })).toHaveAttribute("aria-checked", "true");
+    await expect(menu.getByRole("menuitemradio", { name: "New", exact: true })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(selected).toBeFocused();
+    await selected.click();
+    await page.keyboard.press("End");
+    await expect(menu.getByRole("menuitem", { name: "How sorting works", exact: true })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(menu).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "How ranking works", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(selected).toBeFocused();
+    await selected.click();
+    await page.setViewportSize({ width: 768, height: 900 });
+    await expect(menu).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "New", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Hot", exact: true }).click();
+    await expect(page).toHaveURL(/\/waiting\?view=hot$/);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.getByRole("button", { name: "Sort waiting room: Hot", exact: true })).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Sort waiting room: Hot", exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("waiting-header-390px.png") });
+    expect(state.writes).toEqual([]); expect(state.publicFrames).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+test("touch promotion returns to the same position without a hover jump", async ({ context, page }, testInfo) => {
+    test.skip(!testInfo.project.use.isMobile);
+    const state = await setup(context, page);
+    const action = page.locator(".board-header__add");
+    const before = (await action.boundingBox())!;
+    await action.tap();
+    await expect(page.getByRole("dialog", { name: postCreationEnabled ? "Add to board" : "Promote a note", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(action).toBeFocused();
+    await expect(async () => {
+        const after = (await action.boundingBox())!;
+        expect(after.y).toBe(before.y);
+        expect(after.height).toBe(before.height);
+    }).toPass();
     expect(state.writes).toEqual([]); expect(state.publicFrames).toEqual([]); expect(state.errors).toEqual([]);
 });
 

@@ -33,3 +33,17 @@ export function navigateReading(event: MouseEvent<HTMLAnchorElement>, presentati
         : positions.get(target.pathname + target.search) ?? { readingScroll: 0 }, "", target.pathname + target.search);
     window.dispatchEvent(new PopStateEvent("popstate"));
 }
+
+/** Board tabs reuse reader history while preserving modified clicks and real URLs. */
+export function navigateBoard(event: MouseEvent<HTMLAnchorElement>) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    const target = new URL(event.currentTarget.href);
+    if (target.origin !== window.location.origin) return;
+    if (target.pathname + target.search === window.location.pathname + window.location.search) {
+        event.preventDefault();
+        window.scrollTo({ top: 0, behavior: "instant" });
+        return;
+    }
+    navigateReading(event);
+    requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-reading-surface]:not([hidden]) main')?.focus({ preventScroll: true }));
+}

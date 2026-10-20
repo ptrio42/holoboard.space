@@ -55,6 +55,94 @@ async function resumePage(page: Page) {
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
 }
 
+async function chooseSort(page: Page, name: "New" | "Hot") {
+    const trigger = page.getByRole("button", { name: /^Sort waiting room:/ });
+    if (await trigger.isVisible()) {
+        await trigger.click();
+        await page.getByRole("menuitemradio", { name, exact: true }).click();
+    } else await page.getByRole("button", { name, exact: true }).click();
+}
+
+test("board tabs retain reading, sorting and loaded pages without reloading the document", async ({ context, page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockBoard(context, page, "An original paragraph worth reading in full. ".repeat(140));
+    const documents: string[] = [];
+    page.on("request", request => { if (request.isNavigationRequest() && request.frame() === page.mainFrame()) documents.push(request.url()); });
+    await page.goto("/");
+    await page.evaluate(() => { Reflect.set(window, "boardNavigationProbe", "same document"); });
+    const topNote = page.getByRole("article").first();
+    await topNote.getByRole("button", { name: /Show more/ }).click();
+    await page.evaluate(async () => { await document.fonts.ready; window.scrollTo({ top: 300, behavior: "instant" }); });
+    await expect.poll(() => page.evaluate(() => scrollY)).toBe(300);
+    const sections = page.getByRole("navigation", { name: "Board sections", exact: true });
+    // Activate a tab without scrolling its offscreen header into view first.
+    await sections.getByRole("link", { name: /^Waiting room/ }).evaluate(element => (element as HTMLAnchorElement).click());
+    await expect(page).toHaveURL(/\/waiting$/);
+    await expect(page.getByRole("article")).toHaveCount(21);
+    await expect(page.getByRole("main", { name: "Waiting room", exact: true })).toBeFocused();
+    await chooseSort(page, "Hot");
+    await expect(page).toHaveURL(/\/waiting\?view=hot$/);
+    await page.getByRole("button", { name: "Load more", exact: true }).click();
+    await expect(page.getByRole("article")).toHaveCount(25);
+    await page.evaluate(() => window.scrollTo({ top: 700, behavior: "instant" }));
+    await expect.poll(() => page.evaluate(() => scrollY)).toBe(700);
+    await sections.getByRole("link", { name: "TOP 21", exact: true }).evaluate(element => (element as HTMLAnchorElement).click());
+    await expect(page).toHaveURL(/\/$/);
+    await expect(topNote.getByRole("button", { name: /Show less/ })).toBeVisible();
+    await expect.poll(() => page.evaluate(() => scrollY)).toBe(300);
+    await expect(sections.getByRole("link", { name: /^Waiting room/ })).toHaveAttribute("href", "/waiting?view=hot");
+    await sections.getByRole("link", { name: /^Waiting room/ }).evaluate(element => (element as HTMLAnchorElement).click());
+    await expect(page).toHaveURL(/\/waiting\?view=hot$/);
+    await expect(page.getByRole("article")).toHaveCount(25);
+    await expect.poll(() => page.evaluate(() => scrollY)).toBe(700);
+    expect(await page.evaluate(() => Reflect.get(window, "boardNavigationProbe"))).toBe("same document");
+    expect(documents).toHaveLength(1);
+});
+
+test("board history restores the waiting view and direct reload keeps its URL sort", async ({ context, page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockBoard(context, page);
+    await page.goto("/waiting?view=hot");
+    await expect(page.getByRole("article")).toHaveCount(21);
+    await page.evaluate(async () => { await document.fonts.ready; window.scrollTo({ top: 700, behavior: "instant" }); });
+    await expect.poll(() => page.evaluate(() => scrollY)).toBe(700);
+    await page.getByRole("navigation", { name: "Board sections" }).getByRole("link", { name: "TOP 21", exact: true }).evaluate(element => (element as HTMLAnchorElement).click());
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.getByRole("article")).toHaveCount(1);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/waiting\?view=hot$/);
+    await expect.poll(() => page.evaluate(() => scrollY)).toBe(700);
+    await page.goForward();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.getByRole("article")).toHaveCount(1);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/waiting\?view=hot$/);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("button", { name: "Sort waiting room: Hot", exact: true })).toBeVisible();
+    await expect(page.getByRole("article")).toHaveCount(21);
+});
+
+test("board links keep native new-tab behavior and same-tab selection avoids extra history", async ({ context, page }, testInfo) => {
+    test.skip(!!testInfo.project.use.isMobile);
+    await mockBoard(context, page);
+    await page.goto("/");
+    await expect(page.getByRole("article")).toHaveCount(1);
+    const before = await page.evaluate(() => history.length);
+    await page.getByRole("navigation", { name: "Board sections" }).getByRole("link", { name: "TOP 21", exact: true }).click();
+    expect(await page.evaluate(() => history.length)).toBe(before);
+    const opened = context.waitForEvent("page");
+    await page.getByRole("navigation", { name: "Board sections" }).getByRole("link", { name: /^Waiting room/ }).click({ modifiers: ["ControlOrMeta"] });
+    const tab = await opened;
+    await expect(tab).toHaveURL(/\/waiting$/);
+    await expect(tab.getByRole("article")).toHaveCount(21);
+    await expect(page).toHaveURL(/\/$/);
+    await tab.close();
+    await page.getByRole("link", { name: "Help", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Holoboard help", exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "Back to board" }).click();
+    await expect(page.getByRole("article")).toHaveCount(1);
+});
+
 test("waiting-room badge counts all new notes and keeps marks throughout the visit", async ({ context, page }) => {
     const state = await mockBoard(context, page);
     await page.goto("/");
@@ -74,9 +162,9 @@ test("waiting-room badge counts all new notes and keeps marks throughout the vis
     await expect.poll(() => page.evaluate(key => localStorage.getItem(key), visitKey)).toBe("2001000");
     await page.getByRole("button", { name: "Load more", exact: true }).click();
     await expect(page.getByLabel("New since your last visit", { exact: true })).toHaveCount(25);
-    await page.getByRole("button", { name: "New", exact: true }).click();
+    await chooseSort(page, "New");
     await expect(page.getByLabel("New since your last visit", { exact: true })).toHaveCount(21);
-    await page.getByRole("button", { name: "Hot", exact: true }).click();
+    await chooseSort(page, "Hot");
     await expect(page.getByLabel("25 new notes since your last visit", { exact: true })).toBeVisible();
     await page.getByRole("navigation", { name: "Board sections" }).getByRole("link", { name: "TOP 21", exact: true }).click();
     await page.waitForURL("**/", { waitUntil: "domcontentloaded" });
@@ -134,7 +222,7 @@ test("blocked storage keeps a checkpoint while navigating within a waiting-room 
     state.checkpoint = 2001000; state.updates = [state.notes[0].id];
     await resumePage(page);
     await expect(page.getByLabel("New since your last visit", { exact: true })).toHaveCount(1);
-    await page.getByRole("button", { name: "New", exact: true }).click();
+    await chooseSort(page, "New");
     await expect(page.getByLabel("New since your last visit", { exact: true })).toHaveCount(1);
 });
 
