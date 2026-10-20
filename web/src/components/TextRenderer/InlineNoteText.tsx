@@ -9,7 +9,10 @@ function inlineToken(token: NoteTextToken, key: number): ReactNode {
     if (token.kind === "image" || token.kind === "video") return null;
     if (token.kind === "link" || token.kind === "article-link") {
         const label = token.kind === "article-link" ? token.label : linkLabel(token.href);
-        return <a key={key} href={token.href} target="_blank" rel="noopener noreferrer nofollow">{label.length > 48 ? `${label.slice(0, 45)}...` : label}</a>;
+        return <a key={key} href={token.href} target="_blank" rel="noopener noreferrer nofollow"
+            className={token.kind === "link" ? "note-text-link" : undefined} title={token.href}>
+            {token.kind === "article-link" && label.length > 48 ? `${label.slice(0, 45)}...` : label}
+        </a>;
     }
     if (token.kind === "formatted") return token.value;
     try {
