@@ -68,6 +68,16 @@ an existing preview or inherit application credentials from the parent process.
 Vite may load existing checkout environment files; mock URLs and feature flags
 are explicitly overridden. Do not copy real-wallet environment files into test checkouts.
 
+For release preparation or changes to `web/vite.config.ts` or the production
+feature profile, add `--pages-production` with a frontend profile. The extra
+`build-pages-production` stage simulates Pages on `main`, supplies all four
+ordinary feature flags as false, and lets `web/production-features.json` override
+them. It checks the generated HTML revision and whether the compiled Reply
+chunk matches the profile, recording both in `report.json`. It uses loopback
+mock URLs and makes no deployment. This build does not establish runtime
+behavior of every flag or validate deployed origins; retain the relevant
+browser suites and post-deployment checks. Ordinary invocations omit the stage.
+
 For payment/PWA changes or release preparation, provide appropriate prebuilt
 mock-backend baselines. `--legacy-dist <path>` adds the old-invoice update check;
 `--rollback-dist <path>` adds reader update and code rollback, using the runner's

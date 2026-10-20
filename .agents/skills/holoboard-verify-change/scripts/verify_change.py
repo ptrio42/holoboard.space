@@ -3,6 +3,7 @@
 
 import argparse
 import hashlib
+from html.parser import HTMLParser
 import json
 import os
 from pathlib import Path
@@ -70,7 +71,7 @@ def available_port(requested=None):
         return listener.getsockname()[1]
 
 
-def make_plan(repo, output, profiles, changed, legacy=None, rollback=None, upstream=None):
+def make_plan(repo, output, profiles, changed, legacy=None, rollback=None, upstream=None, pages_production=False):
     steps = []
 
     def add(name, command, cwd="web", env=None, browser=False):
@@ -97,6 +98,16 @@ def make_plan(repo, output, profiles, changed, legacy=None, rollback=None, upstr
         browser("default-browser", ["tests/discussions.spec.ts", "tests/profiles.spec.ts",
                 "tests/replyPublication.spec.ts", "tests/payments.spec.ts", "tests/header.spec.ts"], OFF,
                 ["--grep", "entry points|dedicated routes|anonymous split invoices|header keeps promotion|release UI hides all signer actions"])
+    if pages_production:
+        profile = json.loads((repo / "web/production-features.json").read_text())
+        if not isinstance(profile, dict) or set(profile) != set(FLAGS) or any(
+                value not in ("true", "false") for value in profile.values()):
+            raise ValueError("The Pages profile must define the four feature flags as true/false strings")
+        revision = git(repo, "rev-parse", "HEAD").decode().strip()
+        build("pages-production", OFF | {"CF_PAGES": "1", "CF_PAGES_BRANCH": "main",
+                                        "CF_PAGES_COMMIT_SHA": revision})
+        steps[-1]["command"].append("--manifest")
+        steps[-1]["pages_profile"] = {"revision": revision, "flags": profile}
     if "readers" in profiles or rollback:
         build("readers", READERS)
     if "readers" in profiles:
@@ -136,6 +147,32 @@ def make_plan(repo, output, profiles, changed, legacy=None, rollback=None, upstr
     return steps
 
 
+def pages_build_evidence(directory, expected):
+    class RevisionMeta(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.revisions = []
+
+        def handle_starttag(self, tag, attrs):
+            attributes = dict(attrs)
+            if tag == "meta" and attributes.get("name") == "holoboard-revision":
+                self.revisions.append(attributes.get("content"))
+
+    parser = RevisionMeta()
+    parser.feed((directory / "index.html").read_text())
+    if parser.revisions != [expected["revision"]]:
+        raise ValueError("The Pages HTML revision does not match the checked source")
+    manifest = json.loads((directory / ".vite/manifest.json").read_text())
+    reply = manifest.get("src/components/Discussion/ReplyComposer.tsx")
+    included = bool(reply and reply.get("isDynamicEntry") and (directory / reply["file"]).is_file())
+    flags = expected["flags"]
+    enabled = all(flags[name] == "true" for name in (
+        "VITE_ENABLE_DISCUSSIONS", "VITE_ENABLE_NOSTR_CONNECT", "VITE_ENABLE_REPLY_PUBLICATION"))
+    if included != enabled:
+        raise ValueError("The compiled Reply chunk does not match the Pages production profile")
+    return {"revision": parser.revisions[0], "reply_chunk_present": included}
+
+
 def run_command(command, cwd, env, log):
     with log.open("w") as stream:
         process = subprocess.Popen(command, cwd=cwd, env=environment(env),
@@ -168,6 +205,9 @@ def execute(repo, output, report, guards, port=None, runner=run_command):
             log = output / (step["name"] + ".log")
             code = runner(step["command"], repo / step["cwd"], step["env"], log)
             step.update(returncode=code, log=log.name, status="passed" if code == 0 else "failed")
+            if "pages_profile" in step and code == 0:
+                step["build_evidence"] = pages_build_evidence(
+                    output / "builds/pages-production", step["pages_profile"])
             if step["browser"] and code == 0:
                 result = json.loads((output / (step["name"] + ".json")).read_text())
                 stats = result.get("stats") if isinstance(result, dict) else None
@@ -207,6 +247,8 @@ def main(argv=None):
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     parser.add_argument("--profile", choices=PROFILES, action="append", required=True)
     parser.add_argument("--base", help="Comparison ref for committed changes; dirty work is always included")
+    parser.add_argument("--pages-production", action="store_true",
+                        help="Also build the main-branch Pages profile with mock URLs and check its revision/Reply chunk")
     parser.add_argument("--run", action="store_true", help="Execute the plan; otherwise only save and print it")
     parser.add_argument("--out", type=Path, help="Fresh empty directory outside protected checkouts")
     parser.add_argument("--only", action="append", help="Execute only named stages; omitted stages are reported separately")
@@ -227,6 +269,8 @@ def main(argv=None):
                 if not value.is_dir() or name.endswith("dist") and not (value / "index.html").is_file():
                     raise ValueError(f"Invalid {name.replace('_', '-')} input")
                 setattr(args, name, value)
+        if args.pages_production and not set(args.profile) - {"backend"}:
+            raise ValueError("Use --pages-production with a frontend profile")
         if args.nostr_upstream and "backend" not in args.profile:
             raise ValueError("Use --nostr-upstream with the backend profile")
         if args.port is not None and not 1024 <= args.port <= 65535:
@@ -239,7 +283,8 @@ def main(argv=None):
         output.mkdir(parents=True, exist_ok=True)
         guards = {path: snapshot(path) for path in protected}
         changed = changed_paths(repo, args.base)
-        steps = make_plan(repo, output, set(args.profile), changed, args.legacy_dist, args.rollback_dist, args.nostr_upstream)
+        steps = make_plan(repo, output, set(args.profile), changed, args.legacy_dist, args.rollback_dist,
+                          args.nostr_upstream, pages_production=args.pages_production)
         omitted = []
         if args.only:
             unknown = set(args.only) - {step["name"] for step in steps}
@@ -250,17 +295,21 @@ def main(argv=None):
         report = {"scope": "local automated checks; not release approval", "status": "planned",
                   "revision": git(repo, "rev-parse", "HEAD").decode().strip(),
                   "base": args.base, "comparison": "base...HEAD plus dirty work" if args.base else "dirty work only",
-                  "profiles": sorted(set(args.profile)), "changed_paths": changed, "steps": steps,
+                  "profiles": sorted(set(args.profile)), "pages_production": args.pages_production,
+                  "changed_paths": changed, "steps": steps,
                   "omitted_stages": omitted, "source_preserved": True,
                   "inputs": {name: str(value) for name, value in {
                       "legacy_dist": args.legacy_dist, "rollback_dist": args.rollback_dist,
                       "nostr_upstream": args.nostr_upstream}.items() if value},
                   "not_performed": [name for name, selected in {
+                      "Cloudflare Pages production build": args.pages_production,
                       "legacy-invoice PWA update": args.legacy_dist,
                       "reader PWA update and code rollback": args.rollback_dist,
                       "retained-module provenance": args.nostr_upstream}.items() if not selected]}
+        if args.pages_production:
+            report["limitations"] = ["Pages build uses loopback mock URLs; compiled Reply presence and revision do not establish deployed origins, runtime feature behavior or device compatibility"]
         if "publication" in args.profile:
-            report["limitations"] = ["Signers and public deliveries use fixtures; physical signers and independent public delivery are unverified"]
+            report.setdefault("limitations", []).append("Signers and public deliveries use fixtures; physical signers and independent public delivery are unverified")
         if "backend" in args.profile:
             report.setdefault("limitations", []).append("Container behavior and real DM/payment/account-publication interoperability are unverified")
         (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
