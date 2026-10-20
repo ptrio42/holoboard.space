@@ -453,14 +453,19 @@ Wallet and the optional account entry use quiet 44-pixel controls.
 Sign in and the connected avatar require Nostr connection support or email
 accounts. `VITE_ENABLE_NOSTR_CONNECT` keeps its independent restoration gate.
 Connected account metadata comes from the same verified profile reader used by
-bylines, with Account and a generated avatar as fallbacks. Desktop names truncate;
-phones retain only the avatar or a stepped arrow entering a doorway for Sign in.
+bylines, with Account and a generated avatar as fallbacks. Connected accounts
+show only the avatar at every width, with their name in the menu and accessible
+trigger label. Phones use a stepped arrow entering a doorway for Sign in.
 Account connection details and disconnect are available through an anchored
 keyboard-accessible menu. Its
 Your profile action additionally requires `VITE_ENABLE_PROFILES` and preserves
 local reader return paths. Disconnecting the account leaves the payment wallet
 connected. Closing connection settings restores focus to the current account
-trigger, including after Sign in becomes an avatar.
+trigger, including after Sign in becomes an avatar. Successful header sign-in
+automatically closes its panel; pending approval and connection errors keep it
+open. Header NWC setup also closes after success and returns focus to the wallet
+icon. Explicitly opened connected account settings and wallet panels stay open;
+disconnecting there starts setup again, which closes after a successful reconnect.
 
 ## Resource limits
 

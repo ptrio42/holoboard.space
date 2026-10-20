@@ -396,13 +396,18 @@ with either setting.
 The header's Sign in offers a browser extension or Amber / remote signer, with
 manual bunker-link setup in a disclosure. Missing extension support is explicit.
 During remote pairing, opening the signer is the primary action; copying and
-cancelling stay above the optional QR code.
+cancelling stay above the optional QR code. Successful header sign-in closes
+the panel and returns focus to the connected avatar. Pending approval and errors
+stay visible. Connected accounts use only the avatar at every screen width;
+the account name and connection settings remain in its menu.
 Account sign-in, reply signing and public-zap setup share the same connection
 session, while their explanations follow the action the user is taking.
 
 Invoice links, copying and QR codes stay available without connecting anything.
 The wallet connection form accepts a masked NWC link through its Connect wallet
 action or Enter. Setup help expands on demand; connecting never sends a payment.
+Successful header wallet connection closes setup and returns focus to the wallet
+icon. Opening an already connected wallet keeps its panel available.
 The payer's [NWC connection](https://github.com/nostr-protocol/nips/blob/master/47.md)
 uses the [Alby SDK](https://github.com/getAlby/js-sdk) and is separate from the
 relay's receiving wallet. Use an application-specific mainnet connection with
@@ -757,8 +762,8 @@ the action remains Promote. Full labels return from 768px. The header scrolls
 with the page and shares the feed's width.
 
 Keep the main action as the header's only strongly framed control, with 8px of
-clearance above the desktop rail. Waiting-room
-sorting uses quiet Rank, New and Hot buttons from 768px; phones show the current
+clearance above the desktop rail. Waiting-room sorting uses quiet Rank, New and
+Hot buttons from 768px; phones show the current
 choice in a menu beside the sections. Both presentations retain the same sort
 and URL, with ranking help available in context. Keep header targets at least
 44px, pixel labels at least 10px, and footer links compact enough for a 320px

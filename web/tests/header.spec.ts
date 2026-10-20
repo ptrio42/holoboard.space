@@ -226,6 +226,34 @@ test("sign in presents account methods without payment copy and explains missing
     expect(state.writes).toEqual([]); expect(state.publicFrames).toEqual([]); expect(state.errors).toEqual([]);
 });
 
+test("sign-in stays open for approval and errors, then closes after a successful retry", async ({ context, page }) => {
+    test.skip(!signerEnabled);
+    const state = await setup(context, page);
+    await page.evaluate(pubkey => {
+        Object.assign(window, { nostr: {
+            getPublicKey: () => new Promise<string>((resolve, reject) => {
+                Object.assign(window, {
+                    approveHeaderSignIn: () => resolve(pubkey),
+                    declineHeaderSignIn: () => reject(new Error("Connection declined")),
+                });
+            }),
+            signEvent: async () => { throw new Error("This check must not sign events."); },
+        } });
+    }, accountPubkey);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Sign in", exact: true });
+    await dialog.getByRole("button", { name: "Browser extension", exact: true }).click();
+    await expect(dialog.getByRole("status")).toContainText("Waiting for approval");
+    await page.evaluate(() => (window as unknown as { declineHeaderSignIn: () => void }).declineHeaderSignIn());
+    await expect(dialog.getByRole("alert")).toHaveText("Connection declined");
+    await dialog.getByRole("button", { name: "Browser extension", exact: true }).click();
+    await expect(dialog.getByRole("status")).toContainText("Waiting for approval");
+    await page.evaluate(() => (window as unknown as { approveHeaderSignIn: () => void }).approveHeaderSignIn());
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Account: starlight", exact: true })).toBeFocused();
+    expect(state.writes).toEqual([]); expect(state.publicFrames).toEqual([]); expect(state.errors).toEqual([]);
+});
+
 for (const longName of [false, true]) test(`account menu preserves focus and optional profile navigation (${longName ? "long name and missing picture" : "profile"})`, async ({ context, page }, testInfo) => {
     test.skip(!signerEnabled);
     const name = longName ? "starlight with a very long public display name" : "starlight";
@@ -233,15 +261,17 @@ for (const longName of [false, true]) test(`account menu preserves focus and opt
     const connections = page.getByRole("navigation", { name: "Connections", exact: true });
     await connections.getByRole("button", { name: "Sign in", exact: true }).click();
     await page.getByRole("dialog", { name: "Sign in", exact: true }).getByRole("button", { name: "Browser extension", exact: true }).click();
-    await expect(page.getByText("Connected extension:", { exact: false })).toBeVisible();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     const account = connections.getByRole("button", { name: `Account: ${name}`, exact: true });
     await expect(account).toBeAttached();
-    await page.keyboard.press("Escape");
     await expect(account).toBeFocused();
+    await expect(account.locator(".header-tool__label")).toHaveCount(0);
+    expect((await account.boundingBox())!.width).toBe(44);
     await checkHeader(page);
     await page.locator("header").first().screenshot({ path: testInfo.outputPath("header-connected.png") });
     await account.click();
     const menu = page.getByRole("menu", { name: "Account", exact: true });
+    await expect(page.locator(".header-account-summary")).toContainText(name);
     await expect(menu.getByRole("menuitem", { name: "Your profile", exact: true })).toHaveCount(profilesEnabled ? 1 : 0);
     await page.screenshot({ path: testInfo.outputPath("account-menu.png") });
     await page.keyboard.press("End");

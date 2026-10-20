@@ -31,6 +31,9 @@ record deployment, not announcement publication.
   Add, and place waiting-room sorting beside navigation in a keyboard-accessible
   menu. Simplify desktop sorting, tighten footer spacing and keep touch controls
   steady with safe-area spacing.
+- Close header sign-in and wallet setup automatically after a successful
+  connection. Keep connected accounts compact with an avatar and show their
+  name in the account menu.
 - Switch board sections without reloading the page, retaining reading position,
   expanded text, waiting-room sorting and loaded pages through navigation and
   browser Back/Forward. Keep direct links and native new-tab behavior.

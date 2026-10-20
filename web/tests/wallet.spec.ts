@@ -117,6 +117,11 @@ async function setup(context: BrowserContext, page: Page, options: { restoredPro
     await page.getByLabel("NWC connection link").fill(uri);
     if (options.submitWithEnter) await page.getByLabel("NWC connection link").press("Enter");
     else await page.getByRole("button", { name: "Connect wallet", exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    const wallet = page.getByRole("navigation", { name: "Connections" }).getByRole("button", { name: "Wallet", exact: true });
+    await expect(wallet).toBeFocused();
+    await expect(wallet).toHaveAccessibleDescription("Wallet connected");
+    await wallet.click();
     await expect(page.getByText("Connected: Fixture wallet.", { exact: false })).toBeVisible();
     return { state, sentInvoice, dialog: page.getByRole("dialog") };
 }
@@ -169,6 +174,22 @@ test("wallet connection keeps setup help optional and accepts Enter without send
     expect(state.methods).not.toContain("make_invoice");
     expect(state.charges).toBe(0);
     expect(state.attempts).toBe(0);
+    expect(state.errors).toEqual([]);
+});
+
+test("wallet setup closes after reconnecting from an open connected panel", async ({ context, page }) => {
+    const { state, dialog } = await setup(context, page);
+    await dialog.getByRole("button", { name: "Disconnect wallet", exact: true }).click();
+    await expect(dialog).toHaveAccessibleName("Connect wallet");
+    await dialog.getByLabel("NWC connection link").fill(uri);
+    await dialog.getByRole("button", { name: "Connect wallet", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    const wallet = page.getByRole("navigation", { name: "Connections" }).getByRole("button", { name: "Wallet", exact: true });
+    await expect(wallet).toBeFocused();
+    await expect(wallet).toHaveAccessibleDescription("Wallet connected");
+    expect(state.methods.filter(method => method === "get_info")).toHaveLength(2);
+    expect(state.methods).not.toContain("pay_invoice");
+    expect(state.charges).toBe(0);
     expect(state.errors).toEqual([]);
 });
 
