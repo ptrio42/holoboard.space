@@ -756,7 +756,8 @@ enabled. Its accessible name remains Add to board. With post creation disabled,
 the action remains Promote. Full labels return from 768px. The header scrolls
 with the page and shares the feed's width.
 
-Keep the main action as the header's only strongly framed control. Waiting-room
+Keep the main action as the header's only strongly framed control, with 8px of
+clearance above the desktop rail. Waiting-room
 sorting uses quiet Rank, New and Hot buttons from 768px; phones show the current
 choice in a menu beside the sections. Both presentations retain the same sort
 and URL, with ranking help available in context. Keep header targets at least

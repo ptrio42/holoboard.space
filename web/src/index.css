@@ -297,8 +297,10 @@ body::after {
 }
 @media (min-width: 1024px) {
     .board-header { margin-bottom: 20px; }
-    .board-header__bar { grid-template-areas: "brand sections actions" "rail rail rail" "controls controls controls"; column-gap: 24px; }
+    .board-header__bar { grid-template-areas: "brand sections actions" "rail rail rail" "controls controls controls"; align-items: start; column-gap: 24px; }
     .board-header__sections { margin-top: 0; }
+    /* The rail shares the 2px section underline, leaving 8px below the 44px action. */
+    .board-header__sections > a { min-height: 54px; padding-bottom: 10px; }
     .board-header__section-controls { justify-self: start; }
 }
 @media (hover: none) {
