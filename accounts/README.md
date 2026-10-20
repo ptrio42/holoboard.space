@@ -29,6 +29,8 @@ or connect a signer, and the service worker excludes it from SPA navigation.
 3. Create a separate encryption key with `openssl rand -base64 32` in a private
    mode-600 file and set `KEYCAST_MASTER_KEY_FILE`. Back up the database and this
    key together using the chosen hosting environment's secret management.
+   Compose mounts it at `/app/master.key`, the fixed path used by the pinned
+   file key manager, which does not read `MASTER_KEY_PATH` when loading the key.
 4. Build sequentially with `docker compose --env-file /private/path/accounts.env
    -f accounts/compose.yml build keycast`. Start only `postgres redis`, then use
    `run --rm migrate` for the **new dedicated database**. Upgrading existing data

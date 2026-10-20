@@ -32,7 +32,7 @@ services:
       DATABASE_URL: postgres://keycast:${KEYCAST_DB_PASSWORD:?Set an isolated database password}@postgres:5432/keycast
       REDIS_URL: redis://redis:6379
       KMS_PROVIDER: file
-      MASTER_KEY_PATH: /run/secrets/keycast-master
+      MASTER_KEY_PATH: /app/master.key
       BUNKER_RELAYS: ${KEYCAST_BUNKER_RELAYS:?Set explicit signer relays}
       ALLOWED_ORIGINS: ${KEYCAST_ALLOWED_ORIGINS:?Set the exact Holoboard and Keycast origins}
       ALLOWED_TENANT_DOMAINS: ${KEYCAST_TENANT_DOMAINS:?Set explicit account-service hostnames}
@@ -48,7 +48,7 @@ services:
       WEB_BUILD_DIR: /app/web
       PORT: "3000"
     ports: ["127.0.0.1:${KEYCAST_PORT:-3100}:3000"]
-    volumes: ["${KEYCAST_MASTER_KEY_FILE:?Set the encryption-key file}:/run/secrets/keycast-master:ro"]
+    volumes: ["${KEYCAST_MASTER_KEY_FILE:?Set the encryption-key file}:/app/master.key:ro"]
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }

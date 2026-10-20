@@ -601,10 +601,10 @@ test("link cards fit below text beside media and keep one instance across phone 
             if (width >= 768) {
                 if (await composition.getAttribute("data-link-placement") === "text") {
                     expect(l.x).toBeCloseTo(t.x, 0); expect(l.y).toBeGreaterThanOrEqual(t.y + t.height);
-                    expect(l.y + l.height).toBeLessThanOrEqual(m.y + m.height + 1);
+                    expect(l.y).toBeCloseTo(t.y + t.height + 12, 0);
                     expect(m.x).toBeGreaterThan(l.x + l.width);
                 } else {
-                    // A complete landscape frame can be shorter than the text and link.
+                    // Expanded text can make placement below media shorter overall.
                     expect(l.x).toBeCloseTo(m.x, 0); expect(l.y).toBeGreaterThanOrEqual(m.y + m.height);
                 }
             } else {
@@ -792,4 +792,86 @@ test("article previews keep unsafe markup inert and ordinary quotes literal", as
     await expect(quote.locator('a[href^="javascript:"]')).toHaveCount(0);
     expect(await page.evaluate(() => "injected" in window)).toBe(false);
     await expect(row.locator(".note-quote").last().locator(".note-quote__excerpt")).toContainText("### Literal heading and **literal emphasis**.");
+});
+
+test("wide media keeps its link under text when that makes the complete card shorter", async ({ context, page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.route("https://example.com/*.png", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300"><rect width="1200" height="300" fill="#164e63"/></svg>' }));
+    const preview = { requests: 0, title: "Useful destination", description: "The complete project details.", image_url: "https://example.com/thumbnail.png" };
+    const row = await setup(context, page, { billboard: false, content: "A useful introduction with enough words to extend below this very wide picture. ".repeat(3) + "https://example.com/project\nhttps://example.com/panorama.png", preview });
+    const composition = row.locator(".note-composition"), text = row.locator('[data-note-text="main"]');
+    const media = row.locator(".note-composition-media"), link = row.locator(".note-link-preview");
+    await expect(media.locator("img")).toHaveJSProperty("naturalWidth", 1200);
+    for (const width of [1440, 768, 1440]) {
+        await page.setViewportSize({ width, height: 1000 });
+        await expect(composition).toHaveAttribute("data-link-placement", "text");
+        await expect(async () => {
+            const t = (await text.boundingBox())!, m = (await media.boundingBox())!, l = (await link.boundingBox())!;
+            expect(t.height + l.height + 12).toBeGreaterThan(m.height);
+            expect(l.x).toBeCloseTo(t.x, 0);
+            expect((await composition.boundingBox())!.height).toBeLessThan(m.height + 132 + 80);
+        }).toPass();
+    }
+    expect(preview.requests).toBe(1);
+});
+
+test("column widths follow the first media frame while preserving selection and readable text", async ({ context, page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.route("https://example.com/*.png", route => route.fulfill({ contentType: "image/svg+xml", body: route.request().url().endsWith("second.png")
+        ? '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="500"><rect width="1600" height="500" fill="#164e63"/></svg>'
+        : '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="1000"><rect width="600" height="1000" fill="#164e63"/></svg>' }));
+    const row = await setup(context, page, { billboard: false, content: "A short introduction. https://example.com/portrait.png https://example.com/second.png", tags: [["imeta", "url https://example.com/portrait.png", "dim 600x1000"]] });
+    const composition = row.locator(".note-composition"), gallery = row.locator(".note-gallery");
+    await expect(gallery.locator(".note-gallery__lead img")).toHaveJSProperty("naturalWidth", 600);
+    expect((await gallery.boundingBox())!.width).toBeLessThan((await composition.boundingBox())!.width * .4);
+    const frame = await gallery.locator(".note-gallery__lead").elementHandle();
+    const before = await frame!.boundingBox();
+    await gallery.getByRole("button", { name: "Select image 2 of 2", exact: true }).click();
+    await expect(gallery.locator(".note-gallery__lead img")).toHaveJSProperty("naturalWidth", 1600);
+    expect(await frame!.boundingBox()).toEqual(before);
+    for (const width of [768, 390, 360, 1440]) {
+        await page.setViewportSize({ width, height: 1000 });
+        await expect(gallery).toHaveAttribute("data-media-index", "1");
+        expect(await frame!.evaluate(node => node.isConnected)).toBe(true);
+        await expect(async () => {
+            const text = (await row.locator('[data-note-text="main"]').boundingBox())!;
+            expect(text.width).toBeGreaterThanOrEqual(width >= 768 ? 300 : 290);
+            if (width === 768) expect((await gallery.boundingBox())!.width).toBeGreaterThanOrEqual(300);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        }).toPass();
+    }
+    expect(await frame!.boundingBox()).toEqual(before);
+});
+
+test("long destination labels stay on one bounded line with their exact href and full text intact", async ({ context, page }) => {
+    const href = "https://github.com/coracle-social/nips/blob/68229740b123456789/very-long-document.md?source=board#section";
+    const row = await setup(context, page, { billboard: false, content: `Read the detailed proposal here: ${href}` });
+    const link = row.locator('[data-note-text="main"] a');
+    await expect(link).toHaveCount(1);
+    await expect(link).toHaveAttribute("href", href);
+    await expect(link).toHaveAttribute("title", href);
+    await expect(link).toContainText("very-long-document.md");
+    for (const width of [360, 390, 768, 1440]) {
+        await page.setViewportSize({ width, height: 1000 });
+        await expect(async () => {
+            const metrics = await link.evaluate(node => ({ width: node.getBoundingClientRect().width, height: node.getBoundingClientRect().height, line: parseFloat(getComputedStyle(node).lineHeight), textWidth: node.closest(".note-text")!.getBoundingClientRect().width }));
+            expect(metrics.height).toBeLessThanOrEqual(metrics.line + 1);
+            expect(metrics.width).toBeLessThanOrEqual(metrics.textWidth);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        }).toPass();
+    }
+});
+
+test("a quoted destination keeps its own column proportions beside a portrait promotion", async ({ context, page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.route("https://example.com/portrait.png", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="1000"><rect width="600" height="1000" fill="#164e63"/></svg>' }));
+    const quoted = makeNote("Read the source. https://example.com/project", [], quoteKey);
+    const row = await setup(context, page, { billboard: false, content: "A portrait promotion. https://example.com/portrait.png", tags: [["q", quoted.id]], availableQuotes: [quoted], preview: { requests: 0, title: "Source details" } });
+    const destination = row.locator(".note-quote .note-link-preview"), quote = row.locator(".note-quote-layout");
+    await expect(destination).toHaveCount(1);
+    await expect(destination).toBeVisible();
+    await expect(async () => {
+        expect((await destination.boundingBox())!.width).toBeCloseTo((await quote.boundingBox())!.width * .45, 0);
+        expect((await row.locator(".note-composition-media").boundingBox())!.width).toBeLessThan((await row.locator(".note-composition").boundingBox())!.width * .4);
+    }).toPass();
 });

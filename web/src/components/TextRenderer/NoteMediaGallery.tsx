@@ -56,7 +56,8 @@ export function NoteMediaGallery({ images = EMPTY_IMAGES, items, quoted = false,
     const firstDimensions = observed[media[0].src] ?? dimensions(media[0]);
     const firstRatio = firstDimensions ? firstDimensions.width / firstDimensions.height : media.length > 1 ? 1 : 4 / 3;
     // A wide first slide must leave enough room for later portraits and controls.
-    const frameStyle = { "--gallery-ratio": media.length > 1 ? Math.min(1, firstRatio) : firstRatio } as CSSProperties;
+    const frameRatio = media.length > 1 ? Math.min(1, firstRatio) : firstRatio;
+    const frameStyle = { "--gallery-ratio": frameRatio } as CSSProperties;
     const start = Math.max(0, Math.min(index - 3, media.length - 7));
     const thumbnails = media.slice(start, start + 7);
     const unavailable = failed.has(item.src) || knownMedia(item.src)?.failed;
@@ -116,7 +117,7 @@ export function NoteMediaGallery({ images = EMPTY_IMAGES, items, quoted = false,
 
     return <>
         <div ref={root} tabIndex={-1} className={`note-gallery note-gallery--lead${media.length > 1 ? " note-gallery--multiple" : ""}${quoted ? " note-gallery--quoted" : ""}`}
-            aria-label={`${media.length} media ${quoted ? "in quoted note" : "in note"}`} data-note-block data-media-index={index}>
+            aria-label={`${media.length} media ${quoted ? "in quoted note" : "in note"}`} data-note-block data-media-index={index} data-media-shape={frameRatio < .85 ? "portrait" : "landscape"}>
             <div className="note-gallery__lead" style={frameStyle}>
                 {item.kind === "image" ? unavailable ?
                     <div className="note-gallery__unavailable"><StatusMessage compact>Image unavailable</StatusMessage></div> :

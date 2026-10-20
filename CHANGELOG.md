@@ -54,6 +54,8 @@ record deployment, not announcement publication.
 
 ### Changed
 
+- Fit note columns to their media and text, place destination previews where they
+  keep the complete card shorter, and bound long link labels on phones.
 - Share adaptive note layouts across the board, discussions and profiles, with
   full-width text, readable mixed-media quotes and compact destination previews.
 - Make phone discussions and profiles more compact, with clearer branch guides,

@@ -41,7 +41,7 @@ export function NoteContent({ text, tags, ownId, adaptive = false, embedQuotes =
     const complete = adaptive && (content.length <= 220 || !content.hasMedia && content.length <= 280);
     const root = useRef<HTMLDivElement>(null);
     useNoteLinkPlacement(root, adaptive && content.hasVisualMedia && content.hasLink, JSON.stringify([text, tags, !!textPresentation]));
-    return <div ref={root} className={`note-composition${adaptive ? " note-composition--adaptive" : ""}${content.hasMedia ? "" : " note-composition--text"}${content.hasVisualMedia ? " note-composition--media" : ""}`} data-text-emphasis={emphasis} data-text-complete={complete || !!textPresentation || undefined}>
+    return <div ref={root} className={`note-composition${adaptive ? " note-composition--adaptive" : ""}${content.hasMedia ? "" : " note-composition--text"}${content.hasVisualMedia ? " note-composition--media" : ""}`} data-long-text={content.length > 280 || undefined} data-text-emphasis={emphasis} data-text-complete={complete || !!textPresentation || undefined}>
         {textPresentation ? <div className="note-composition-presentation">{textPresentation}</div> :
             <InlineNoteText tokens={content.words} complete={complete} initiallyExpanded={initiallyExpandedTexts.includes("main") || initiallyExpanded} />}
         {content.hasVisualMedia && <div className="note-composition-media">
