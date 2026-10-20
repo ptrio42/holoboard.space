@@ -52,23 +52,29 @@ async function setup(context: BrowserContext, page: Page, name = "starlight", br
 async function checkHeader(page: Page) {
     // Mobile WebKit applies responsive styles asynchronously after a resize.
     await expect(async () => {
-        const viewportWidth = await page.evaluate(() => innerWidth);
-        const controls = page.locator("header").first().locator('h1 a, .board-header__add, .header-tool');
-        await expect(controls).toHaveCount(accountEnabled ? 4 : 3);
-        const boxes = await controls.evaluateAll(nodes => nodes.map(node => {
-            const { x, y, width, height, right } = node.getBoundingClientRect(); return { x, y, width, height, right };
-        }));
+        const { viewportWidth, boxes, sections, fits } = await page.locator("header").first().evaluate(header => {
+            const rect = (element: Element) => {
+                const { x, y, width, height, right } = element.getBoundingClientRect();
+                return { x, y, width, height, right };
+            };
+            return {
+                viewportWidth: innerWidth,
+                boxes: [...header.querySelectorAll('h1 a, .board-header__add, .header-tool')].map(rect),
+                sections: rect(header.querySelector('nav[aria-label="Board sections"]')!),
+                fits: document.documentElement.scrollWidth <= innerWidth,
+            };
+        });
+        expect(boxes).toHaveLength(accountEnabled ? 4 : 3);
         expect(boxes.every(box => box.width >= 44 && box.height >= 44 && box.x >= 0 && box.right <= viewportWidth)).toBe(true);
         expect(Math.max(...boxes.map(box => box.y)) - Math.min(...boxes.map(box => box.y))).toBeLessThan(4);
         for (let i = 1; i < boxes.length; i++) expect(boxes[i].x, JSON.stringify({ viewportWidth, boxes })).toBeGreaterThanOrEqual(boxes[i - 1].right);
-        const sections = (await page.getByRole("navigation", { name: "Board sections" }).boundingBox())!;
         expect(sections.height).toBeGreaterThanOrEqual(44);
         if (viewportWidth >= 1024) {
             expect(Math.abs(sections.y - boxes[0].y)).toBeLessThan(1);
             expect(sections.x).toBeGreaterThanOrEqual(boxes[0].right);
             expect(sections.x + sections.width).toBeLessThanOrEqual(boxes[1].x);
         } else expect(sections.y).toBeGreaterThanOrEqual(boxes[0].y + boxes[0].height);
-        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        expect(fits).toBe(true);
     }).toPass({ timeout: 3000 });
 }
 
