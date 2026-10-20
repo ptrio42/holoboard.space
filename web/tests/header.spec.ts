@@ -8,7 +8,6 @@ import { decode } from "nostr-tools/nip19";
 test.use({ serviceWorkers: "block", reducedMotion: "reduce" });
 const signerEnabled = process.env.VITE_ENABLE_NOSTR_CONNECT === "true";
 const profilesEnabled = process.env.VITE_ENABLE_PROFILES === "true";
-const postCreationEnabled = process.env.VITE_ENABLE_POST_CREATION === "true";
 const accountEnabled = signerEnabled || process.env.VITE_ENABLE_EMAIL_ACCOUNTS === "true";
 const authorKey = generateSecretKey(), accountKey = generateSecretKey();
 const accountPubkey = getPublicKey(accountKey);
@@ -93,9 +92,9 @@ test("header keeps promotion primary and wallet available without signing in", a
         await page.setViewportSize({ width, height: 800 });
         await checkHeader(page);
         const action = page.locator(".board-header__add");
-        await expect(action).toHaveAccessibleName(postCreationEnabled ? "Add to board" : "Promote a note");
+        await expect(action).toHaveAccessibleName("Add to board");
         const visibleLabel = await action.evaluate(button => (button as HTMLElement).innerText);
-        expect(visibleLabel.trim()).toBe(postCreationEnabled ? width < 768 ? "ADD" : "ADD TO BOARD" : "PROMOTE");
+        expect(visibleLabel.trim()).toBe(width < 768 ? "ADD" : "ADD TO BOARD");
         const links = page.locator(".board-footer__links > a");
         await expect(links).toHaveCount(3);
         const tops = await links.evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().top));
@@ -170,7 +169,7 @@ test("touch promotion returns to the same position without a hover jump", async 
     const action = page.locator(".board-header__add");
     const before = (await action.boundingBox())!;
     await action.tap();
-    await expect(page.getByRole("dialog", { name: postCreationEnabled ? "Add to board" : "Promote a note", exact: true })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Add to board", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(action).toBeFocused();
     await expect(async () => {

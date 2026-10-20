@@ -1285,7 +1285,7 @@ test("promotion tabs keep the draft and payment action accessible", async ({ con
 test("note popovers in the Billboard preview preserve the editor and its keyboard focus", async ({ context, page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const state = await setup(context, page, { newCampaign: true });
-    const editor = page.getByRole("dialog", { name: "Promote a note", exact: true });
+    const editor = page.getByRole("dialog", { name: "Add to board", exact: true });
     await editor.getByRole("tab", { name: "Billboard", exact: true }).click();
     await editor.getByRole("button", { name: "Billboard / +100 sats", exact: true }).click();
     const preview = editor.getByRole("article");
@@ -1315,7 +1315,7 @@ test("closing a preview image returns to the promotion editor without preparing 
     await page.route("https://images.example/preview.png", route => route.fulfill({ contentType: "image/svg+xml",
         body: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800"><rect width="600" height="800" fill="#22d3ee"/></svg>' }));
     const state = await setup(context, page, { newCampaign: true, noteContent: "Original picture. https://images.example/preview.png" });
-    const editor = page.getByRole("dialog", { name: "Promote a note", exact: true });
+    const editor = page.getByRole("dialog", { name: "Add to board", exact: true });
     await editor.getByRole("tab", { name: "Billboard", exact: true }).click();
     const opener = editor.getByRole("button", { name: "Open image 1 of 1", exact: true });
     await opener.click();
@@ -2013,7 +2013,7 @@ test("new promotion opens a blank editor and Billboard explains note loading", a
     await prepareInvoices(page);
     const previous = await savedPayment(page);
     await page.getByRole("button", { name: "Close dialog", exact: true }).click();
-    await page.getByRole("button", { name: "Promote a note", exact: true }).click();
+    await page.getByRole("button", { name: "Add to board", exact: true }).click();
     await expect(page.getByRole("textbox", { name: "Note link", exact: true })).toHaveValue("");
     await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toHaveCount(0);
     await expect(page.getByText("Unfinished payments", { exact: true })).toBeVisible();
@@ -2064,7 +2064,7 @@ test("leaving a pending wallet response cannot affect payment for another note",
     await page.getByRole("button", { name: "Back to promotion", exact: true }).click();
     await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "Close dialog", exact: true }).click();
-    await page.getByRole("button", { name: "Promote a note", exact: true }).click();
+    await page.getByRole("button", { name: "Add to board", exact: true }).click();
     await page.getByRole("textbox", { name: "Note link", exact: true }).fill(otherNote.id);
     await expect(page.getByRole("button", { name: "Promote 210 sats", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "Promote 210 sats", exact: true }).click();
@@ -2145,7 +2145,7 @@ test("preparing another payment for the same note preserves the old invoices", a
     const current = await savedPayment(page);
     expect(current.author!.payment_hash).not.toBe(old.author!.payment_hash);
     await page.getByRole("button", { name: "Close dialog", exact: true }).click();
-    await page.getByRole("button", { name: "Promote a note", exact: true }).click();
+    await page.getByRole("button", { name: "Add to board", exact: true }).click();
     await page.getByText("Unfinished payments", { exact: true }).click();
     await expect(page.getByRole("button", { name: "Resume payment", exact: true })).toHaveCount(2);
     await page.getByText("Holoboard: 168 sats, verified.", { exact: false }).locator("..").getByRole("button", { name: "Resume payment", exact: true }).click();

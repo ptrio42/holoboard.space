@@ -1,4 +1,3 @@
-import { ENABLE_POST_CREATION } from "../../config";
 import { useContext, type ReactNode } from "react";
 import holoboardMark from "../../assets/holoboard-mark.svg";
 import { ConnectionControls } from "../PromoteModal/ConnectionControls";
@@ -31,12 +30,12 @@ export function BoardLayout({ section, onPromote, sectionControls, headerContent
                     </a>
                 </h1>
                 <div className="board-header__actions">
-                    <PixelButton variant="accent" aria-label={ENABLE_POST_CREATION ? "Add to board" : "Promote a note"} className="board-header__add" onClick={event => {
+                    <PixelButton variant="accent" aria-label="Add to board" className="board-header__add" onClick={event => {
                         // Touch Safari does not focus buttons before the modal captures its opener.
                         event.currentTarget.focus({ preventScroll: true });
                         onPromote();
                     }}>
-                        {ENABLE_POST_CREATION ? <><span className="md:hidden" aria-hidden="true">Add</span><span className="hidden md:inline" aria-hidden="true">Add to board</span></> : "Promote"}
+                        <span className="md:hidden" aria-hidden="true">Add</span><span className="hidden md:inline" aria-hidden="true">Add to board</span>
                     </PixelButton>
                     <ConnectionControls className="justify-end" />
                 </div>

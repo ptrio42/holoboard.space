@@ -23,7 +23,7 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
     const [presentation, setPresentation] = useState({ compact: !!initialReference && (currentWeight ?? 0) > 0 && !openSection, boost: !!initialReference && (currentWeight ?? 0) > 0, payment: false });
     return <Modal isOpen onClose={onClose} scrollBody footerRef={setFooterHost} navigationRef={setNavigationHost}
         compact={presentation.compact} mobileFullScreen={!presentation.compact}
-        title={presentation.payment ? "Promotion payment" : presentation.boost ? "Boost note" : ENABLE_POST_CREATION ? "Add to board" : "Promote a note"}
+        title={presentation.payment ? "Promotion payment" : presentation.boost ? "Boost note" : "Add to board"}
         panelClassName={`promotion-typography ${presentation.compact || presentation.payment ? "max-w-lg" : "max-w-3xl"}`}>
         {ENABLE_POST_CREATION && !initialReference ? <BoardComposer onSource={setSource}>{editor => <DirectPromote composition={source} composer={editor} rankingTargets={rankingTargets} onPaid={onPaid} onClose={onClose}
             initialSection={openSection} footerHost={footerHost} navigationHost={navigationHost} onPresentationChange={setPresentation} />}</BoardComposer> : (

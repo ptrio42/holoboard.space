@@ -546,8 +546,9 @@ that wallet. Real payments cost sats, so use a small explicit test budget.
 
 ## Add to board
 
-`VITE_ENABLE_POST_CREATION=true` enables a shared text/link field in the main
-promotion action. A standalone `note1`, `nevent1`, `nostr:` URI, raw 64-character
+The main action and editor are named **Add to board**, regardless of the creation
+flag. `VITE_ENABLE_POST_CREATION=true` enables a shared text/link field in that
+editor. A standalone `note1`, `nevent1`, `nostr:` URI, raw 64-character
 ID or exact `njump.me` note route selects the original. **Add a comment** switches
 to a new quote; removing the comment keeps that choice until **Use original**.
 Ordinary links, descriptions and text containing Nostr references create new
@@ -761,9 +762,9 @@ The board header reads as a neon sign above the feed: the pink wordmark has a
 soft glow, and a quiet cyan rail with a stepped end joins the navigation. The
 current section marks its part of the rail in gold. From 1024px, brand, sections
 and actions share one row. Smaller screens use two rows; below 768px, the H,
-wallet and account icons accompany a compact Add button when post creation is
-enabled. Its accessible name remains Add to board. With post creation disabled,
-the action remains Promote. Full labels return from 768px. The header scrolls
+wallet and account icons accompany a compact Add button. Its accessible name
+remains Add to board, including when post creation is disabled. The full action
+label returns from 768px. The header scrolls
 with the page and shares the feed's width.
 
 Keep the main action as the header's only strongly framed control, with 8px of

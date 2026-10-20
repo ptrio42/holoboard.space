@@ -336,7 +336,7 @@ test("expired notes retain their historical payment and promotion action", async
     await expect(sections.getByRole("link", { name: "TOP 21" })).toHaveAttribute("href", "/");
     await expect(sections.getByRole("link", { name: "Waiting room" })).toHaveAttribute("href", "/waiting");
     await expect(page.getByRole("navigation", { name: "Connections" })).toHaveCount(1);
-    await expect(page.getByRole("button", { name: "Promote a note", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add to board", exact: true })).toBeVisible();
     await expect(page.locator("footer").getByRole("link", { name: "Help" })).toBeVisible();
     await expect(row.getByRole("button", { name: "Promote again", exact: true })).toBeVisible();
     await expect(row.locator(".board-rank, .board-weight__track")).toHaveCount(0);

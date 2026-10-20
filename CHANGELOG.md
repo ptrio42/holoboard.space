@@ -27,7 +27,8 @@ record deployment, not announcement publication.
 ### Changed
 
 - Bring the logo, sections and actions into one desktop header with a neon rail
-  and gold section marker. Keep phone controls compact, shorten Add to board to
+  and gold section marker. Name the main action Add to board independently of
+  the creation flag. Keep phone controls compact, shorten Add to board to
   Add, and place waiting-room sorting beside navigation in a keyboard-accessible
   menu. Simplify desktop sorting with a separate help icon, tighten footer
   spacing and keep touch controls steady with safe-area spacing.
