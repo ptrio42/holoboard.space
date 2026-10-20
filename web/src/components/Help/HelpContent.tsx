@@ -37,7 +37,8 @@ export function HelpContent({ section = "" }: { section?: string }) {
             </dl>
             <p>The gold amount shows the sats still counting today. Its underline shows the remaining ranking weight. Open the amount to compare it with the total paid for visibility.</p>
             <code className="block overflow-x-auto border border-cyan-400/25 bg-void p-3 text-xs">score = sum of each payment x 0.5 ^ (its age / 30 days)</code>
-            <p>Top follows current weight. New follows the first promotion, so a boost does not reset its date. Hot follows visibility sats paid in the last 24 hours.</p>
+            <p>Top follows current weight. New combines first promotions and posts discovered by Holoboard. Boosts and later promotion of a discovered post do not reset its first appearance. Hot follows visibility sats paid in the last 24 hours.</p>
+            <p>Holoboard discoveries receive seven days in New without a paid rank. The agent can reward their authors from a separate discovery fund. Author rewards add no ranking weight. Posts remain eligible when their author cannot receive a zap.</p>
         </section>
         <section className="space-y-4" aria-labelledby="payments">
             <h2 id="payments" tabIndex={-1} className="promotion-section-title focus-pixel text-neon-pink">Payments and author support</h2>

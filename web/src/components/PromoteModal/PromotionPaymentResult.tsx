@@ -19,6 +19,7 @@ export function PromotionPaymentResult({ payment, actualRank, busy, onDone, onAn
                 <p className="text-cyan-100/80">Added {payment.added} sats to visibility.</p>
                 {actualRank !== null && <p className="text-xs text-cyan-100/60">{actualRank > 0 ? `Current position: #${actualRank}, ${actualRank <= 21 ? "main board" : "waiting room"}.` : "This note is currently inactive."}</p>}
             </div>
+            {payment.event && <p role="status" className="text-xs text-cyan-100/75">{payment.publication === "delivered" ? "Your post is on the board and accepted by its target relays." : payment.publication === "stopped" ? "External publication was stopped by the operator." : "Your post is on the board. Delivery to other apps is pending and continues after you close this page."}</p>}
             <dl className="space-y-3" aria-label="Payment summary">
                 <div className="flex flex-wrap justify-between gap-2" aria-label="Holoboard payment">
                     <dt className="promotion-label text-cyan-100">Holoboard</dt>

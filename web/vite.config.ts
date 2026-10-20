@@ -19,7 +19,7 @@ function revision() {
 export default defineConfig({
   // Keep ordinary builds opt-in; pin the production Pages branch in Git.
   define: process.env.CF_PAGES === '1' && process.env.CF_PAGES_BRANCH === 'main'
-    ? Object.fromEntries(Object.entries(productionFeatures)
+    ? Object.fromEntries(Object.entries({ VITE_ENABLE_POST_CREATION: "false", VITE_ENABLE_EMAIL_ACCOUNTS: "false", ...productionFeatures })
         .map(([name, value]) => [`import.meta.env.${name}`, JSON.stringify(value)]))
     : undefined,
   plugins: [

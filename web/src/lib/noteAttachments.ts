@@ -1,3 +1,4 @@
+import { boardReference } from "./boardComposer";
 import { nip19, type NDKFilter } from "@nostr-dev-kit/ndk";
 import { parseContent, type ContentToken } from "../utils/textProcessing/parseContent";
 import { parseNoteReference } from "./nostr";
@@ -29,7 +30,7 @@ export function quoteReference(value: string): NoteQuoteReference | null {
 }
 
 /** Advertising destinations are derived from signed content, never invented by the editor. */
-export function noteAttachments(content: string, tags: string[][] = [], ownId?: string) {
+export function noteAttachments(content: string, tags: string[][] = [], ownId?: string, strictReferences = false) {
     const links = new Set<string>();
     const quotes = new Map<string, NoteQuoteReference>();
     const addQuote = (reference: NoteQuoteReference | null) => {
@@ -43,7 +44,7 @@ export function noteAttachments(content: string, tags: string[][] = [], ownId?: 
     };
     for (const token of parseContent(content)) {
         if (token.kind === "link") {
-            const quote = quoteReference(token.href);
+            const quote = strictReferences && !boardReference(token.href) ? null : quoteReference(token.href);
             if (quote) addQuote(quote);
             else links.add(token.href);
         } else if (token.kind === "mention") addQuote(quoteReference(token.bech32));

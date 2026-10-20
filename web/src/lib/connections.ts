@@ -3,7 +3,7 @@ import { bytesToHex, hexToBytes } from "nostr-tools/utils";
 import type { BunkerSigner, BunkerPointer } from "nostr-tools/nip46";
 import type { AbstractSimplePool } from "nostr-tools/abstract-pool";
 import type { NWCClient } from "@getalby/sdk/nwc";
-import { ENABLE_NOSTR_CONNECT, ENABLE_REPLY_PUBLICATION, PUBLIC_RELAYS } from "../config";
+import { ENABLE_NOSTR_CONNECT, ENABLE_REPLY_PUBLICATION, ENABLE_POST_CREATION, ENABLE_EMAIL_ACCOUNTS, PUBLIC_RELAYS } from "../config";
 import { PaymentRejected, withTimeout, type PaymentWallet } from "./walletPayment";
 import { attachWalletAccount, clearWalletAccount, refreshWalletAccount } from "./walletAccount";
 import { lookupWalletPayment } from "./walletLookup";
@@ -17,8 +17,9 @@ export interface ConnectedSigner {
 type ConnectionStatus = "disconnected" | "connecting" | "connected";
 export interface Connections {
     walletStatus: ConnectionStatus; walletName: string; walletError: string; walletCanRetry: boolean;
-    signerStatus: ConnectionStatus; signerPubkey: string; signerKind: "extension" | "remote" | null;
+    signerStatus: ConnectionStatus; signerPubkey: string; signerKind: "extension" | "remote" | "keycast" | null;
     signerError: string; signerLink: string; signerAuthUrl: string;
+    signerCanPost: boolean;
     signerCanReply: boolean;
     signerCanUpload: boolean;
 }
@@ -26,6 +27,7 @@ let state: Connections = {
     walletStatus: "disconnected", walletName: "", walletError: "", walletCanRetry: false,
     signerStatus: "disconnected", signerPubkey: "", signerKind: null,
     signerError: "", signerLink: "", signerAuthUrl: "",
+    signerCanPost: false,
     signerCanReply: false,
     signerCanUpload: false,
 };
@@ -160,7 +162,7 @@ function bindSigner(candidate: ConnectedSigner, pubkey: string): ConnectedSigner
         getPublicKey: async () => { requireCurrent(); return pubkey; },
         signEvent: async (template) => {
             requireCurrent();
-            if (state.signerKind === "remote" && [1, 1111].includes(template.kind) && !state.signerCanReply) throw new Error("Reconnect your signer to approve reply permissions. Your draft is preserved.");
+            if (state.signerKind === "remote" && ((template.kind === 1 && !state.signerCanReply && !state.signerCanPost) || (template.kind === 1111 && !state.signerCanReply))) throw new Error("Reconnect your signer to approve reply permissions. Your draft is preserved.");
             if (state.signerKind === "remote" && [24242, 27235].includes(template.kind) && !state.signerCanUpload) throw new Error("Reconnect your signer to approve file upload permissions. Your draft is preserved.");
             if (pending) throw new Error("A signer request is already waiting for approval.");
             // nostr-tools 2.25.2 retains auth-request bookkeeping after replies.
@@ -206,10 +208,10 @@ export async function connectExtension() {
         if (generation !== signerGeneration) return;
         signer = bindSigner(candidate, pubkey);
         remember(SIGNER_KEY, JSON.stringify({ kind: "extension", pubkey }));
-        update({ signerStatus: "connected", signerPubkey: pubkey, signerCanReply: true, signerCanUpload: true });
+        update({ signerStatus: "connected", signerPubkey: pubkey, signerCanPost: true, signerCanReply: true, signerCanUpload: true });
     } catch (failure) { if (generation === signerGeneration) update({ signerStatus: "disconnected", signerError: failure instanceof Error ? failure.message : "The signer declined the connection." }); }
 }
-interface RemoteSession { kind: "remote"; clientKey: string; pointer: BunkerPointer; pubkey: string; replyPermissions?: boolean; mediaPermissions?: boolean }
+interface RemoteSession { kind: "remote"; clientKey: string; pointer: BunkerPointer; pubkey: string; replyPermissions?: boolean; mediaPermissions?: boolean; postPermissions?: boolean }
 function signerWebSocket(): typeof WebSocket {
     // nostr-tools queues CLOSE frames in a microtask while destroy() closes the socket immediately.
     // A closed socket already removes its subscriptions, so that cleanup frame is unnecessary.
@@ -220,7 +222,7 @@ function signerWebSocket(): typeof WebSocket {
         }
     };
 }
-async function finishRemote(candidate: BunkerSigner, clientKey: Uint8Array, generation: number, signal: AbortSignal, create: (pointer: BunkerPointer) => BunkerSigner, replyPermissions: boolean, mediaPermissions: boolean, expectedPubkey?: string) {
+async function finishRemote(candidate: BunkerSigner, clientKey: Uint8Array, generation: number, signal: AbortSignal, create: (pointer: BunkerPointer) => BunkerSigner, replyPermissions: boolean, mediaPermissions: boolean, postPermissions: boolean, expectedPubkey?: string) {
     const pubkey = await waitForSigner(candidate.getPublicKey(), signal, 20000, "The signer did not return an account. Try connecting again.");
     if (generation !== signerGeneration) { await candidate.close(); return; }
     if (expectedPubkey && expectedPubkey !== pubkey) throw new Error("The connected signer changed account. Connect again to choose the new account.");
@@ -241,9 +243,9 @@ async function finishRemote(candidate: BunkerSigner, clientKey: Uint8Array, gene
     } catch { /* Older signers may not implement switch_relays. Keep the approved relays. */ }
     if (generation !== signerGeneration) { await candidate.close(); return; }
     signer = bindSigner(candidate, pubkey); remote = candidate;
-    const session: RemoteSession = { kind: "remote", clientKey: bytesToHex(clientKey), pointer: { ...candidate.bp, secret: null }, pubkey, replyPermissions, mediaPermissions };
+    const session: RemoteSession = { kind: "remote", clientKey: bytesToHex(clientKey), pointer: { ...candidate.bp, secret: null }, pubkey, replyPermissions, mediaPermissions, postPermissions };
     remember(SIGNER_KEY, JSON.stringify(session));
-    update({ signerStatus: "connected", signerKind: "remote", signerPubkey: pubkey, signerLink: "", signerAuthUrl: "", signerCanReply: replyPermissions, signerCanUpload: mediaPermissions });
+    update({ signerStatus: "connected", signerKind: "remote", signerPubkey: pubkey, signerLink: "", signerAuthUrl: "", signerCanPost: postPermissions, signerCanReply: replyPermissions, signerCanUpload: mediaPermissions });
 }
 export async function connectRemote(input?: string, saved?: RemoteSession) {
     disconnectSigner();
@@ -259,7 +261,8 @@ export async function connectRemote(input?: string, saved?: RemoteSession) {
         const key = saved ? hexToBytes(saved.clientKey) : generateSecretKey();
         const replyPermissions = saved ? saved.replyPermissions === true : ENABLE_REPLY_PUBLICATION;
         const mediaPermissions = saved ? saved.mediaPermissions === true : ENABLE_REPLY_PUBLICATION;
-        const permissions = ["sign_event:9734", ...(replyPermissions ? ["sign_event:1", "sign_event:1111"] : []), ...(mediaPermissions ? ["sign_event:24242", "sign_event:27235"] : [])];
+        const postPermissions = saved ? saved.postPermissions === true : ENABLE_POST_CREATION;
+        const permissions = [...(postPermissions && !replyPermissions ? ["sign_event:1"] : []), "sign_event:9734", ...(replyPermissions ? ["sign_event:1", "sign_event:1111"] : []), ...(mediaPermissions ? ["sign_event:24242", "sign_event:27235"] : [])];
         const params = { pool, skipSwitchRelays: true, onauth: (url: string) => authUrl(url, generation) };
         if (input || saved) {
             if (input && !input.trim().startsWith("bunker://")) throw new Error("Paste a bunker:// connection string from your signer.");
@@ -277,7 +280,7 @@ export async function connectRemote(input?: string, saved?: RemoteSession) {
             try { candidate = await BunkerSigner.fromURI(key, uri, params, controller.signal); }
             finally { clearTimeout(timer); }
         }
-        await finishRemote(candidate, key, generation, controller.signal, pointer => BunkerSigner.fromBunker(key, pointer, params), replyPermissions, mediaPermissions, saved?.pubkey);
+        await finishRemote(candidate, key, generation, controller.signal, pointer => BunkerSigner.fromBunker(key, pointer, params), replyPermissions, mediaPermissions, postPermissions, saved?.pubkey);
     } catch {
         await candidate?.close();
         if (generation !== signerGeneration) return;
@@ -290,16 +293,40 @@ export function disconnectSigner() {
     const previous = remote; remote = undefined; signer = undefined;
     void previous?.close(); signerPool?.destroy(); signerPool = undefined;
     remember(SIGNER_KEY, null);
-    update({ signerStatus: "disconnected", signerPubkey: "", signerKind: null, signerError: "", signerLink: "", signerAuthUrl: "", signerCanReply: false, signerCanUpload: false });
+    remember("holoboard-keycast-session", null);
+    update({ signerStatus: "disconnected", signerPubkey: "", signerKind: null, signerError: "", signerLink: "", signerAuthUrl: "", signerCanPost: false, signerCanReply: false, signerCanUpload: false });
 }
 export function restoreConnections() {
     if (restored) return; restored = true;
     const wallet = read(WALLET_KEY), savedSigner = read(SIGNER_KEY);
     if (wallet) void connectWallet(wallet);
+    if (ENABLE_EMAIL_ACCOUNTS && read("holoboard-keycast-session")) {
+        void import("./keycast").then(module => module.restoreKeycastAccount());
+        return;
+    }
     if (!ENABLE_NOSTR_CONNECT || !savedSigner) return;
     try {
         const saved = JSON.parse(savedSigner) as RemoteSession | { kind: "extension"; pubkey: string };
         if (saved.kind === "remote" && HEX.test(saved.clientKey) && HEX.test(saved.pubkey)) void connectRemote(undefined, saved);
         // Extensions ask for account access only after a user gesture.
     } catch { remember(SIGNER_KEY, null); }
+}
+
+/** Custodial accounts use the same exact-event validation as existing signers. */
+export async function connectKeycastSigner(candidate: ConnectedSigner, expectedPubkey?: string) {
+    disconnectSigner();
+    const generation = signerGeneration;
+    const controller = new AbortController(); signerAbort = controller;
+    update({ signerStatus: "connecting", signerKind: "keycast" });
+    try {
+        const pubkey = await waitForSigner(candidate.getPublicKey(), controller.signal, 20000, "The account service did not respond.");
+        if (generation !== signerGeneration) return;
+        if (expectedPubkey && pubkey !== expectedPubkey) throw new Error("The account changed. Sign in again.");
+        signer = bindSigner(candidate, pubkey);
+        update({ signerStatus: "connected", signerKind: "keycast", signerPubkey: pubkey, signerCanPost: ENABLE_POST_CREATION, signerCanReply: ENABLE_REPLY_PUBLICATION, signerCanUpload: false });
+    } catch (failure) {
+        if (generation !== signerGeneration) return;
+        update({ signerStatus: "disconnected", signerError: failure instanceof Error ? failure.message : "Could not connect your account." });
+        throw failure;
+    }
 }

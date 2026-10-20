@@ -594,6 +594,7 @@ test("NIP-46 protocol pairing signs an author zap and restores after reload", as
     await expect(page.getByText("Connected remote signer:", { exact: false })).toBeVisible();
     await page.reload();
     await page.getByRole("button", { name: "Boost", exact: true }).first().click();
+    await expect(page.getByRole("region", { name: "Payment split" }).locator("details")).toBeVisible();
     await openSupport(page);
     await page.getByRole("checkbox", { name: "Send author support as a public zap", exact: false }).check();
     await prepareInvoices(page);
@@ -1871,6 +1872,9 @@ test("submitted NWC payment uses an indicator until confirmed without another ch
     await page.route("**/api/support/verify", (route) => allowVerification ? route.fallback() : route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Verification temporarily unavailable" }) }));
     await connectNwc(page); await prepareInvoices(page);
     await page.getByRole("button", { name: "Pay 210 sats", exact: true }).click();
+    await expect.poll(() => state.authorCharges).toBe(1);
+    await page.evaluate(() => window.dispatchEvent(new Event("pageshow")));
+    await expect.poll(async () => (await savedPayment(page)).promotionPaid).toBe(true);
     const progress = page.getByRole("status").filter({ hasText: "Verifying author support" });
     await expect(progress).toBeVisible();
     await expect(progress.locator(".sr-only")).toHaveText("Verifying author support");

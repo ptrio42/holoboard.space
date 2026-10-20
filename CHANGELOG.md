@@ -6,6 +6,24 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+### Added
+
+- Add an opt-in Add to board editor for text, links, quotes and existing posts,
+  with live previews, optional guest author-key export and email accounts through
+  an isolated Keycast service. New posts publish after board payment, with durable
+  delivery and invoice recovery even after the browser closes.
+- Add an optional discovery fund: a local Codex curator finds worthwhile posts
+  across topics, gives them seven days in Waiting room New and can reward authors
+  from a separately budgeted Lightning wallet. Discoveries remain unranked until
+  promoted; author rewards do not change paid ranking. Public-relay collection
+  also works without text-search support; review batches prioritize distinct
+  authors instead of favoring low event IDs or prolific accounts.
+- Show discovery reasons and separate reward statuses, keeping first appearance
+  unchanged when readers later promote a discovered post.
+- Review discoveries and proposed rewards in a private operator panel before
+  placement or payment. Human approval defaults on; an explicit toggle permits
+  automatic future selections while preserving the waiting queue and payment recovery.
+
 ## 2026-10-15
 
 ### Added

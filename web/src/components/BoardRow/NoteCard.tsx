@@ -9,15 +9,19 @@ import { noteAttachments } from "../../lib/noteAttachments";
 import { BillboardScreen } from "../BillboardScreen/BillboardScreen";
 import TextRenderer from "../TextRenderer/TextRenderer";
 import { NoteContent } from "../TextRenderer/NoteContent";
-import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
+import { NoteAuthor } from "../UserProfileInline/NoteAuthor";
 import { Expandable } from "../ui/Expandable";
 import { BoostIcon, NoteReplyButton } from "../ui/NoteControls";
 import { NotePopover } from "../ui/NotePopover";
 import { PixelButton } from "../ui/PixelButton";
 import { PixelPanel } from "../ui/PixelPanel";
+import { DiscoveryDetails } from "./DiscoveryDetails";
+import type { DiscoveryMetadata } from "../../lib/campaigns";
 
 export interface NoteCardProps {
     event: NDKEvent;
+    /** Invoice-only preview: do not expose the unpaid root through reading navigation. */
+    privatePreview?: boolean;
     context?: ReactNode;
     onReply?: () => void;
     hints?: string[];
@@ -33,6 +37,8 @@ export interface NoteCardProps {
     onPromote?: () => void;
     lastPaidAt?: number;
     firstPaidAt?: number;
+    firstVisibleAt?: number;
+    discovery?: DiscoveryMetadata;
     hotSats?: number;
     /** Undefined means the ledger has not answered, rather than zero paid. */
     sats?: number;
@@ -61,7 +67,7 @@ function paymentDate(value: number) {
     return <time dateTime={new Date(value * 1000).toISOString()}>{new Date(value * 1000).toLocaleDateString()}</time>;
 }
 
-export function NoteCard({ context, onReply, hints, showUnknownRank = true, event, readingFocus = false, initiallyExpanded = false, initiallyExpandedTexts, rank, sats, weight, expired = false, isNew = false, onPromote, lastPaidAt, firstPaidAt, hotSats, billboard, billboardPreviewSlide }: NoteCardProps) {
+export function NoteCard({ privatePreview = false, context, onReply, hints, showUnknownRank = true, event, readingFocus = false, initiallyExpanded = false, initiallyExpandedTexts, rank, sats, weight, expired = false, isNew = false, onPromote, lastPaidAt, firstPaidAt, firstVisibleAt, discovery, hotSats, billboard, billboardPreviewSlide }: NoteCardProps) {
     const tier = !expired && rank ? TIERS[rank - 1] ?? DEFAULT_TIER : DEFAULT_TIER;
     const rankLabel = rank ? TIERS[rank - 1]?.label : undefined;
     const eventHints = hints ?? [RELAY_URL];
@@ -85,8 +91,11 @@ export function NoteCard({ context, onReply, hints, showUnknownRank = true, even
     const fraction = typeof sats === "number" && typeof weight === "number" && sats > 0
         ? Math.max(0, Math.min(1, weight / sats)) : null;
     const displayedSats = expired ? sats : weight ?? sats;
+    const unrankedDiscovery = !!discovery && rank === undefined && sats === undefined;
+    const noteLabel = expired ? "Expired note" : unrankedDiscovery ? "Discovered note" : `Note at rank ${rank ?? "unavailable"}`;
+    const promotionLabel = expired ? "Promote again" : unrankedDiscovery ? "Promote" : "Boost";
     const hasWeightActions = typeof sats === "number" || expired || !!onPromote;
-    const position = !expired && (!!rank || showUnknownRank) && <span className={`board-rank ${tier.text}`} aria-label={`Rank ${rank ?? "unavailable"}`}>
+    const position = !expired && !unrankedDiscovery && (!!rank || showUnknownRank) && <span className={`board-rank ${tier.text}`} aria-label={`Rank ${rank ?? "unavailable"}`}>
         <span className="board-rank__number" aria-hidden="true">{rank ?? "?"}</span>
         {rankLabel && <span className="board-rank__label" aria-hidden="true">{rankLabel}</span>}
     </span>;
@@ -95,7 +104,8 @@ export function NoteCard({ context, onReply, hints, showUnknownRank = true, even
     return <div className="@container/row">
         <PixelPanel accent={tier.accent} glow={tier.glow}>
             <article aria-label={readingFocus ? "Discussion focus" : undefined} className="board-note board-note--adaptive" style={{ "--rank-accent": tier.accent } as CSSProperties}>
-                <Expandable unclamped initiallyExpanded={initiallyExpanded} label={expired ? "expired note" : `note at rank ${rank ?? "unavailable"}`}
+                {discovery && <DiscoveryDetails discovery={discovery} unranked={unrankedDiscovery} />}
+                <Expandable unclamped initiallyExpanded={initiallyExpanded} label={noteLabel.toLowerCase()}
                     visibleExpandLabel="Read" collapsedMaxHeight={260}
                     expandLabel={hasBillboard ? "Read original" : "Show more"}
                     collapseLabel={hasBillboard ? "Hide original" : "Show less"}
@@ -108,8 +118,8 @@ export function NoteCard({ context, onReply, hints, showUnknownRank = true, even
                             {!hasBillboard && control && <div className="board-reading">{control}</div>}
                             <div className="board-identity">
                                 <h2 className="min-w-0 font-normal">
-                                    <span className="sr-only">{expired ? "Expired note" : `Note at rank ${rank ?? "unavailable"}`}, posted by </span>
-                                    <UserProfileInline pubkey={event.pubkey} hints={hints} size="compact" />
+                                    <span className="sr-only">{noteLabel}, posted by </span>
+                                    <NoteAuthor event={event} hints={hints} size="compact" />
                                 </h2>
                                 {isNew && <span className="board-new" aria-label="New since your last visit">New</span>}
                                 {context !== undefined ? context : parent && <div className="board-context">
@@ -131,15 +141,15 @@ export function NoteCard({ context, onReply, hints, showUnknownRank = true, even
                                 </button>}
                                 {expired && typeof sats !== "number" && <span className="board-weight__state">Expired</span>}
                                 {onPromote && <span className="board-hint-wrap"><PixelButton size="sm" variant="ghost" onClick={onPromote}
-                                    className="note-boost" aria-label={expired ? "Promote again" : "Boost"}>
+                                    className="note-boost" aria-label={promotionLabel}>
                                     <BoostIcon />
-                                </PixelButton><span className="board-hint" aria-hidden="true">{expired ? "Promote again" : "Boost"}</span></span>}
+                                </PixelButton><span className="board-hint" aria-hidden="true">{promotionLabel}</span></span>}
                             </div>}
                             <div className="board-note-actions">
-                                {ENABLE_DISCUSSIONS && !readingFocus && <DiscussionLink compact id={event.id} author={event.pubkey} hints={eventHints} seed={event.rawEvent()}
-                                    presentation={{ rank, sats, weight, expired, isNew, lastPaidAt, firstPaidAt, hotSats, billboard, billboardPreviewSlide }} />}
+                                {!privatePreview && ENABLE_DISCUSSIONS && !readingFocus && <DiscussionLink compact id={event.id} author={event.pubkey} hints={eventHints} seed={event.rawEvent()}
+                                    presentation={{ rank, sats, weight, expired, isNew, lastPaidAt, firstPaidAt, firstVisibleAt, discovery, showUnknownRank, hotSats, billboard, billboardPreviewSlide }} />}
                                 {onReply && <NoteReplyButton onClick={onReply} />}
-                                <span className="board-hint-wrap" data-hint-dismissed={optionsHintDismissed || popup?.kind === "options" || undefined}
+                                {!privatePreview && <span className="board-hint-wrap" data-hint-dismissed={optionsHintDismissed || popup?.kind === "options" || undefined}
                                     onPointerLeave={event => { if (!event.currentTarget.querySelector(":focus-visible")) setOptionsHintDismissed(false); }}
                                     onBlur={() => setOptionsHintDismissed(false)}><button type="button" className="note-icon-control board-options"
                                     aria-label="Note options" aria-haspopup="menu" aria-controls={`${popupId}-options`} aria-expanded={popup?.kind === "options"}
@@ -147,7 +157,7 @@ export function NoteCard({ context, onReply, hints, showUnknownRank = true, even
                                     <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" shapeRendering="crispEdges">
                                         <path d="M9 2h3v3H9zM9 9h3v3H9zM9 16h3v3H9z" />
                                     </svg>
-                                </button><span className="board-hint" aria-hidden="true">Note options</span></span>
+                                </button><span className="board-hint" aria-hidden="true">Note options</span></span>}
                             </div>
                         </footer>
                         {popup?.kind === "options" && <NotePopover id={`${popupId}-options`} anchor={popup.anchor} title="Note options" menu onClose={closePopup}>
@@ -159,9 +169,10 @@ export function NoteCard({ context, onReply, hints, showUnknownRank = true, even
                                 <a role="menuitem" href={njumpUrl(event.id, "note", eventHints, event.pubkey)} target="_blank" rel="noopener noreferrer nofollow"
                                     onClick={() => closePopup()}>Open in njump</a>
                             </div>
-                            {(expired && !!lastPaidAt || !!firstPaidAt || typeof hotSats === "number") && <div className="note-menu__details">
+                            {(expired && !!lastPaidAt || !!firstPaidAt || !!firstVisibleAt || typeof hotSats === "number") && <div className="note-menu__details">
                                 {expired && typeof lastPaidAt === "number" && lastPaidAt > 0 && <p>Last payment: {paymentDate(lastPaidAt)}</p>}
                                 {typeof firstPaidAt === "number" && firstPaidAt > 0 && <p>First promoted: {paymentDate(firstPaidAt)}</p>}
+                                {typeof firstVisibleAt === "number" && firstVisibleAt > 0 && firstVisibleAt !== firstPaidAt && <p>First shown: {paymentDate(firstVisibleAt)}</p>}
                                 {typeof hotSats === "number" && <p>{satsLabel(hotSats)} for visibility in the last 24 hours</p>}
                             </div>}
                         </NotePopover>}

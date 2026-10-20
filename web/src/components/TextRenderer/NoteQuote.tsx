@@ -9,7 +9,7 @@ import { noteTextTokens } from "../../lib/noteTextTokens";
 import { articlePreview } from "../../lib/articlePreview";
 import { firstPreviewLink } from "../../lib/linkPreview";
 import { useNoteLinkPlacement } from "../../hooks/useNoteLinkPlacement";
-import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
+import { NoteAuthor } from "../UserProfileInline/NoteAuthor";
 import { InlineNoteText } from "./InlineNoteText";
 import { NoteMediaGallery } from "./NoteMediaGallery";
 import { NoteLinkPreview } from "./NoteLinkPreview";
@@ -79,7 +79,7 @@ function QuotePreview({ request, href, adaptive, initiallyExpanded, initiallyExp
     return (
         <div ref={container} className={`note-quote${adaptive ? " note-quote--adaptive" : ""}`} aria-label="Quoted note" data-note-block>
             <div className="note-quote-header">
-                {event && <UserProfileInline pubkey={event.pubkey} size="compact" />}
+                {event && <NoteAuthor event={event} size="compact" />}
                 {!event && <StatusMessage compact inline loading={!unavailable}>
                     {unavailable ? "Preview timed out" : slow ? "Still loading preview..." : "Loading preview..."}
                 </StatusMessage>}

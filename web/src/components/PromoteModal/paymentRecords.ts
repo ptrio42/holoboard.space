@@ -1,3 +1,4 @@
+import { verifiedNostrEvent } from "../../lib/verifyNostrEvent";
 import { isMockInvoice } from "../../lib/invoice";
 import { parseNoteReference } from "../../lib/nostr";
 import { listPaymentSessions, readPaymentSession, removePaymentSession, savePaymentSession } from "../../lib/paymentSession";
@@ -13,6 +14,7 @@ function parsePayment(value: string | null): PromotionPayment | null {
         const payment = JSON.parse(value ?? "null") as PromotionPayment;
         if (!payment?.board || typeof payment.board.invoice !== "string" || typeof payment.board.paymentHash !== "string" || typeof payment.note !== "string") return null;
         if (parseNoteReference(payment.note)?.id !== payment.board.noteId) return null;
+        if (payment.event && (!verifiedNostrEvent(payment.event) || payment.event.id !== payment.board.noteId || payment.event.kind !== 1)) return null;
         return payment;
     } catch { return null; }
 }
