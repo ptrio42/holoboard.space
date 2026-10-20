@@ -31,7 +31,11 @@ export function BoardLayout({ section, onPromote, sectionControls, headerContent
                     </a>
                 </h1>
                 <div className="board-header__actions">
-                    <PixelButton variant="accent" aria-label={ENABLE_POST_CREATION ? "Add to board" : "Promote a note"} className="board-header__add" onClick={onPromote}>
+                    <PixelButton variant="accent" aria-label={ENABLE_POST_CREATION ? "Add to board" : "Promote a note"} className="board-header__add" onClick={event => {
+                        // Touch Safari does not focus buttons before the modal captures its opener.
+                        event.currentTarget.focus({ preventScroll: true });
+                        onPromote();
+                    }}>
                         {ENABLE_POST_CREATION ? <><span className="md:hidden" aria-hidden="true">Add</span><span className="hidden md:inline" aria-hidden="true">Add to board</span></> : "Promote"}
                     </PixelButton>
                     <ConnectionControls className="justify-end" />
