@@ -1,11 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { NoteMediaItem } from "../../core/content/noteMedia";
 import { useMediaPresentation } from "./mediaPresentation";
 import { useNoteVideo } from "./useNoteVideo";
+import { useClient } from "../ClientProvider";
+import { admittedMediaItem, mediaAllowed } from "./mediaAdmission";
+import { MediaSourceLinks } from "./MediaSourceLinks";
 import "./NoteVideo.css";
-export function NoteVideo({ item, active = true, onDimensions }: {
-    item: NoteMediaItem; active?: boolean; onDimensions?: (width: number, height: number) => void;
-}) {
+interface Props { item: NoteMediaItem; active?: boolean; onDimensions?: (width: number, height: number) => void }
+export function NoteVideo(props: Props) {
+    const policy = useClient().policy;
+    const currentPolicy = useRef(policy);
+    currentPolicy.current = policy;
+    const item = admittedMediaItem(policy, props.item);
+    return item ? <AdmittedNoteVideo key={item.src} {...props} item={item} release={() => !mediaAllowed(currentPolicy.current, item.src)} /> : <MediaSourceLinks items={[props.item]} />;
+}
+function AdmittedNoteVideo({ item, active = true, onDimensions, release }: Props & { release: () => boolean }) {
     const { knownMedia, rememberMedia } = useMediaPresentation();
     const [admitted, setAdmitted] = useState(false);
     const [started, setStarted] = useState(false);
@@ -13,6 +22,14 @@ export function NoteVideo({ item, active = true, onDimensions }: {
     const [posterFailed, setPosterFailed] = useState(false);
     const { ref, visible } = useNoteVideo(item.src, active);
     if (active && visible && !admitted) setAdmitted(true);
+    useEffect(() => {
+        const video = ref.current;
+        return () => {
+            // Revocation unmounts this child and releases its previously admitted resources.
+            if (!video || !release()) return;
+            video.pause(); video.removeAttribute("src"); video.removeAttribute("poster"); video.load();
+        };
+    }, [ref]);
     useEffect(() => {
         const video = ref.current;
         if (!video || !active || !visible || item.poster && !posterFailed) return;

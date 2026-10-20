@@ -80,7 +80,9 @@ cyan tokens from the original components. A light host theme should override the
 relevant `--color-cyan-*` values on its `.nostr-client` scopes for readable contrast.
 `NoteEditor` accepts optional `textLabel`, `placeholder` and `toolbarLabel` props
 for root-note wording while preserving the original reply defaults. Media embedding checks the supplied media
-policy, including video posters. Denied media retains safe, explicit source
+policy, including video posters. Direct `NoteVideo` and `NoteMediaViewer` exports
+apply the same admission and URL checks. Policy changes remove denied resources
+from mounted views; viewer placeholders preserve the caller's original indices. Denied media retains safe, explicit source
 links, including image-only notes and tag-only attachments, without automatic
 media requests. An unavailable upload capability rejects file pick, paste and
 drop before creating object URLs or blocking review. Hosts retain their own CSP; this package does

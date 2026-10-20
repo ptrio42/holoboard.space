@@ -1,3 +1,4 @@
+import { mediaAllowed } from "../content/mediaAdmission";
 import { useEffect, useRef, useState } from "react";
 import { useClient } from "../ClientProvider";
 import { COMPOSER_ATTACHMENT_LIMIT, COMPOSER_FILE_LIMIT, type ComposerAttachment, type MediaServer } from "../../core/content/composerMedia";
@@ -187,7 +188,7 @@ export function NoteEditor({ text, attachments, onChange, onAttachmentsChange, o
             </div>
         </li>)}</ul>}
         {!!attachments.length && <ul className="composer-attachments" aria-label="Uploaded attachments">{attachments.map(item => <li key={item.url} className="composer-attachment">
-            <MediaThumbnail src={client.policy.mediaAllowed(item.url) ? item.url : ""} type={item.type} alt={item.alt || "Uploaded attachment"} />
+            <MediaThumbnail src={mediaAllowed(client.policy, item.url) ? item.url : ""} type={item.type} alt={item.alt || "Uploaded attachment"} />
             <div className="composer-attachment-info"><a href={item.url} target="_blank" rel="noopener noreferrer" className="text-neon-cyan">{new URL(item.url).pathname.split("/").at(-1)}</a>
                 <input type="text" className="composer-input focus-pixel" aria-label={`Description for ${item.url}`} placeholder="Image description (optional)" maxLength={1000} value={item.alt} disabled={disabled} onChange={event => onAttachmentsChange(attachments.map(value => value.url === item.url ? { ...value, alt: event.target.value } : value))} />
                 <button type="button" className="composer-remove focus-pixel" aria-label={`Remove attachment ${item.url}`} disabled={disabled} onClick={() => { const next = currentText.current.split(/\r?\n/).filter(line => line.trim() !== item.url).join("\n"); currentText.current = next; onChange(next); onAttachmentsChange(attachments.filter(value => value.url !== item.url)); }}>Remove attachment</button>

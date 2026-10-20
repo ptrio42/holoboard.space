@@ -466,7 +466,8 @@
     "Explicit relay policy supports production wss and configured local ws destinations instead of fixture-only admission.",
     "Original tests retain their assertions with explicit fixture bindings; prototype-only default exports and loopback configuration checks follow the exported production contracts.",
     "Author channels separate bounded user AUTH approval from connection and EVENT acknowledgement deadlines; legacy anonymous publication deadlines remain unchanged.",
-    "Selected index.css component rules become scoped defaults with a local base layer; the Holoboard global stylesheet remains its consumer-owned product theme."
+    "Selected index.css component rules become scoped defaults with a local base layer; the Holoboard global stylesheet remains its consumer-owned product theme.",
+    "Public video and viewer entrypoints enforce source and independent poster admission, react to policy revocation and retain safe source links without changing viewer indices."
   ],
   "styleSources": [
     {

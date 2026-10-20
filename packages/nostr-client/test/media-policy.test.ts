@@ -1,7 +1,7 @@
 import { expect, test, vi } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ClientProvider, NoteContent, NoteMediaGallery, createMediaPresentation, type ClientServices } from '../src/react/index';
+import { ClientProvider, NoteContent, NoteMediaGallery, NoteVideo, NoteMediaViewer, NoteEditor, createMediaPresentation, type ClientServices } from '../src/react/index';
 const unavailable = { available: false as const, reason: 'Unavailable in this host.' };
 function services(allowed: string[] = []): ClientServices {
   const reject = async () => { throw Error('Unavailable'); };
@@ -42,4 +42,38 @@ test('tag-only imeta media remains an explicit link without introducing automati
   const html = render(createElement(NoteContent, { text: 'An attachment.', tags: [['imeta', `url ${url}`, 'm image/png']], previewLinks: false }));
   expect(html).toContain(`href="${url}"`);
   expect(html).not.toMatch(/<(?:img|video|link)\b/);
+});
+
+test('direct public video denies its source, poster and hidden probe during SSR', () => {
+  const src = 'https://media.example/direct.mp4', poster = 'https://media.example/private-poster.png';
+  const html = render(createElement(NoteVideo, { item: { kind: 'video', src, poster } }));
+  expect(html).toContain(`href="${src}"`);
+  expect(html).not.toMatch(/<(?:img|video|link)\b/);
+  expect(html).not.toContain(poster);
+  const posterOnly = render(createElement(NoteVideo, { item: { kind: 'video', src, poster } }), [poster]);
+  expect(posterOnly).not.toMatch(/<(?:img|video|link)\b/);
+});
+test('direct public video admits the poster independently and rejects unsafe source syntax even under permissive policy', () => {
+  const src = 'https://media.example/direct.mp4', poster = 'https://media.example/private-poster.png';
+  const html = render(createElement(NoteVideo, { item: { kind: 'video', src, poster } }), [src]);
+  expect(html).toContain('<video');
+  expect(html).not.toContain(poster);
+  expect(html).not.toMatch(/<(?:img|link)\b/);
+  const unsafe = render(createElement(NoteVideo, { item: { kind: 'video', src: 'javascript:alert(1)', poster } }), ['javascript:alert(1)', poster]);
+  expect(unsafe).not.toContain('javascript:');
+  expect(unsafe).not.toMatch(/<(?:img|video|link)\b/);
+  const unsafePoster = render(createElement(NoteVideo, { item: { kind: 'video', src, poster: 'javascript:alert(1)' } }), [src, 'javascript:alert(1)']);
+  expect(unsafePoster).not.toContain('javascript:');
+});
+test('direct public viewer can render denied and unsafe items during SSR without browser globals or media requests', () => {
+  const src = 'https://media.example/direct.png';
+  const html = render(createElement(NoteMediaViewer, { items: [{ kind: 'image', src }, { kind: 'image', src: 'javascript:alert(1)' }], index: 0, onIndex: () => {}, onClose: () => {}, openerRef: { current: null } }));
+  expect(html).toContain(`href="${src}"`);
+  expect(html).not.toContain('javascript:');
+  expect(html).not.toMatch(/<(?:img|video|link)\b/);
+});
+test('denied uploaded editor thumbnails never emit an empty src', () => {
+  const html = render(createElement(NoteEditor, { text: 'Draft', attachments: [{ url: 'https://media.example/uploaded.png', type: 'image/png', alt: 'Uploaded image' }], onChange: () => {}, onAttachmentsChange: () => {}, onPendingChange: () => {}, onReview: () => {} }));
+  expect(html).not.toContain('src=""');
+  expect(html).not.toContain('<img');
 });

@@ -11,11 +11,15 @@ import { NoteVideo } from "./NoteVideo";
 import { useMediaViewerHistory } from "../capabilities";
 import { useMediaPresentation } from "./mediaPresentation";
 import type { NoteMediaItem } from "../../core/content/noteMedia";
+import { useClient } from "../ClientProvider";
+import { admittedMediaItem } from "./mediaAdmission";
+import { MediaSourceLinks, mediaSourceUrl } from "./MediaSourceLinks";
 import "./NoteMediaViewer.css";
 
 interface MediaVideoSlide { type: "note-video"; item: NoteMediaItem }
+interface UnavailableSlide { type: "note-unavailable"; item: NoteMediaItem }
 declare module "yet-another-react-lightbox" {
-    interface SlideTypes { "note-video": MediaVideoSlide }
+    interface SlideTypes { "note-video": MediaVideoSlide; "note-unavailable": UnavailableSlide }
 }
 const PLUGINS = [Inline, Zoom];
 const NO_TOOLBAR = { buttons: [] };
@@ -28,7 +32,14 @@ interface Props {
     openerRef: RefObject<HTMLElement | null>;
 }
 
-export default function NoteMediaViewer({ items, index, onIndex, onClose, openerRef }: Props) {
+export default function NoteMediaViewer(props: Props) {
+    // SSR must remain inert, including when every supplied item is denied.
+    useClient();
+    if (typeof document === "undefined") return <MediaSourceLinks items={props.items} />;
+    return <MountedMediaViewer {...props} />;
+}
+function MountedMediaViewer({ items, index, onIndex, onClose, openerRef }: Props) {
+    const policy = useClient().policy;
     const { knownMedia, rememberMedia } = useMediaPresentation();
     const close = useMediaViewerHistory(onClose, openerRef);
     const controller = useRef<ControllerRef>(null);
@@ -38,8 +49,11 @@ export default function NoteMediaViewer({ items, index, onIndex, onClose, opener
     const [reduceMotion, setReduceMotion] = useState(() => matchMedia("(prefers-reduced-motion: reduce)").matches);
     const current = items[index] ?? items[0];
     // Slide identity survives index changes and parent rerenders with equal items.
-    const itemKey = JSON.stringify(items);
-    const slides = useMemo<Slide[]>(() => (JSON.parse(itemKey) as NoteMediaItem[]).map(item => {
+    const admitted = items.map(item => admittedMediaItem(policy, item));
+    const sourceHref = current && mediaSourceUrl(current.src);
+    const itemKey = JSON.stringify(items.map((item, position) => admitted[position] ?? { ...item, denied: true }));
+    const slides = useMemo<Slide[]>(() => (JSON.parse(itemKey) as (NoteMediaItem & { denied?: boolean })[]).map(item => {
+        if (item.denied) return { type: "note-unavailable", item };
         if (item.kind === "video") return { type: "note-video", item };
         const known = knownMedia(item.src);
         return { type: "image", src: item.src, alt: item.alt ?? "Image from the note", width: known?.width ?? item.width, height: known?.height ?? item.height };
@@ -92,7 +106,7 @@ export default function NoteMediaViewer({ items, index, onIndex, onClose, opener
                         buttonPrev: () => null,
                         buttonNext: () => null,
                         buttonZoom: state => {
-                            const disabled = state.disabled || current.kind !== "image";
+                            const disabled = state.disabled || !admitted[index] || current.kind !== "image";
                             return <div className="note-media-viewer__zoom" aria-label="Image zoom">
                                 <PixelButton variant="ghost" size="sm" className="note-media-viewer__icon" aria-label="Zoom out" disabled={disabled || state.zoom <= state.minZoom} onClick={state.zoomOut}><svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="currentColor" shapeRendering="crispEdges"><path d="M1 6h12v2H1z" /></svg></PixelButton>
                                 <PixelButton variant="ghost" size="sm" className="note-media-viewer__icon" aria-label="Zoom in" disabled={disabled || state.zoom >= state.maxZoom} onClick={state.zoomIn}><svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="currentColor" shapeRendering="crispEdges"><path d="M6 1h2v5h5v2H8v5H6V8H1V6h5z" /></svg></PixelButton>
@@ -101,6 +115,7 @@ export default function NoteMediaViewer({ items, index, onIndex, onClose, opener
                         // Keep inactive slides inert even if the carousel preload changes.
                         slide: ({ slide, offset }) => {
                             if (offset !== 0) return <span aria-hidden="true" />;
+                            if (slide.type === "note-unavailable") return <MediaSourceLinks items={[slide.item]} />;
                             if (slide.type === "note-video") return <div className="note-media-viewer__video" {...stopNavigationEventsPropagation()}><NoteVideo key={slide.item.src} item={slide.item} active={offset === 0} /></div>;
                             if (!failed.has(slide.src)) return undefined;
                             return <div className="note-media-viewer__failure">
@@ -113,7 +128,7 @@ export default function NoteMediaViewer({ items, index, onIndex, onClose, opener
             </div>
             <div className="note-media-viewer__navigation">
                 <PixelButton variant="ghost" size="sm" className="note-media-viewer__icon" aria-label="Previous media" disabled={items.length < 2} onClick={() => controller.current?.prev()}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" shapeRendering="crispEdges"><path d="M6 2h2v2H6v2H4v1h10v2H4v1h2v2h2v2H6v-2H4v-2H2V9H0V7h2V6h2V4h2z" /></svg></PixelButton>
-                <PixelLink variant="ghost" size="sm" className="note-media-viewer__source" href={current.src} target="_blank" rel="noopener noreferrer nofollow">Open source ↗</PixelLink>
+                {sourceHref && <PixelLink variant="ghost" size="sm" className="note-media-viewer__source" href={sourceHref} target="_blank" rel="noopener noreferrer nofollow">Open source ↗</PixelLink>}
                 <PixelButton variant="ghost" size="sm" className="note-media-viewer__icon" aria-label="Next media" disabled={items.length < 2} onClick={() => controller.current?.next()}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" shapeRendering="crispEdges"><path d="M8 2h2v2h2v2h2v1h2v2h-2v1h-2v2h-2v2H8v-2h2v-2h2V9H2V7h10V6h-2V4H8z" /></svg></PixelButton>
             </div>
             <span className="sr-only" aria-live="polite">{current.kind === "image" && zoomLevel > 1 ? `Zoom ${Math.round(zoomLevel * 100)} percent` : ""}</span>

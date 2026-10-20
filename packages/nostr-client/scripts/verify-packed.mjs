@@ -36,26 +36,31 @@ try {
 } finally { await fs.rename(path.join(fixture, 'node_modules/react-hidden'), path.join(fixture, 'node_modules/react')); }
 await fs.writeFile(path.join(fixture, 'index.html'), '<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><div id="root"></div><script type="module" src="/main.tsx"></script>');
 await fs.writeFile(path.join(fixture, 'main.tsx'), `
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ClientProvider, NoteEditor, NoteContent, createMediaPresentation, type ClientServices } from '@ptrio42/nostr-client/react';
+import { ClientProvider, NoteEditor, NoteContent, NoteVideo, NoteMediaViewer, createMediaPresentation, type ClientServices } from '@ptrio42/nostr-client/react';
 import type { ComposerAttachment } from '@ptrio42/nostr-client/core';
 import '@ptrio42/nostr-client/styles.css';
 import './theme.css';
 const unavailable = { available: false as const, reason: 'Optional reads unavailable.' };
 const ownedImage = location.origin + '/sample.png';
 let mediaEnabled = false, policyGeneration = 0;
+let directAllowed = new Set<string>();
+const directVideo = location.origin + "/direct-video.mp4", directPoster = location.origin + "/direct-poster.png", directImage = location.origin + "/direct-image.png", directDenied = location.origin + "/direct-denied.png";
 const policyListeners = new Set<() => void>();
-Object.assign(window, { fixtureSetMedia(value: boolean) { mediaEnabled = value; policyGeneration++; policyListeners.forEach(listener => listener()); }, fixtureReviews: 0 });
+Object.assign(window, { fixtureSetMedia(value: boolean) { mediaEnabled = value; policyGeneration++; policyListeners.forEach(listener => listener()); }, fixtureSetDirectMedia(urls: string[]) { directAllowed = new Set(urls); policyGeneration++; policyListeners.forEach(listener => listener()); }, fixtureReviews: 0 });
 const reject = async () => { throw Error('Media unavailable.'); };
 const services: ClientServices = {
- policy: { get generation() { return policyGeneration; }, mediaAllowed: url => mediaEnabled && url === ownedImage, onChange: listener => { policyListeners.add(listener); return () => { policyListeners.delete(listener); }; } },
+ policy: { get generation() { return policyGeneration; }, mediaAllowed: url => mediaEnabled && url === ownedImage || directAllowed.has(url), onChange: listener => { policyListeners.add(listener); return () => { policyListeners.delete(listener); }; } },
  connections: { getConnectedSigner: () => null, getConnections: () => ({ signerCanUpload: false }), subscribeConnections: () => () => {} },
  media: { available: false, servers: [], mediaUrl: () => { throw Error('Media unavailable.'); }, uploadMedia: reject, attachmentTags: () => [], gifSearchAvailable: () => false, searchComposerGifs: reject },
  profile: unavailable, quote: unavailable, linkPreview: unavailable,
  navigation: { useMediaViewerHistory: onClose => onClose }, presentation: createMediaPresentation(),
 };
 function App() {
+ const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+ const opener = useRef<HTMLElement | null>(null);
+ Object.assign(window, { fixtureOpenViewer: setViewerIndex, fixtureViewerIndex: viewerIndex });
  const [text, setText] = useState('A public draft from the packed client.');
  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
  return <main className={location.search.includes('alternate') ? 'alternate' : 'default'}><h1>Independent host</h1><ClientProvider services={services}>
@@ -64,6 +69,8 @@ function App() {
   <section data-media-case="mixed"><NoteContent text={ownedImage + ' https://media.example/denied.mp4'} previewLinks={false} /></section>
   <section data-media-case="tag-only"><NoteContent text="Tagged attachment" tags={[["imeta", "url https://media.example/tag-only-image", "m image/png"]]} previewLinks={false} /></section>
   <NoteContent text={text} initiallyExpanded previewLinks={false} />
+  <section data-direct-video><NoteVideo item={{ kind: 'video', src: directVideo, poster: directPoster }} /></section>
+  {viewerIndex !== null && <NoteMediaViewer items={[{ kind: 'image', src: directDenied }, { kind: 'image', src: directImage }, { kind: 'image', src: 'javascript:alert(1)' }, { kind: 'video', src: directVideo, poster: directPoster }]} index={viewerIndex} onIndex={setViewerIndex} onClose={() => setViewerIndex(null)} openerRef={opener} />}
   <NoteEditor text={text} attachments={attachments} onChange={setText} onAttachmentsChange={setAttachments} onPendingChange={() => {}} onReview={() => { (window as any).fixtureReviews++; }} textLabel="Note text" placeholder="Write a note..." toolbarLabel="Add to note" />
  </ClientProvider><span className="hidden sm:inline" data-host-responsive>Host responsive label</span></main>;
 }
