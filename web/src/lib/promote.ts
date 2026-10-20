@@ -23,6 +23,7 @@ export interface PromoteInvoice {
 }
 
 export interface PromoteProgress {
+    publication?: "pending" | "delivered" | "stopped";
     /** Whether the invoice is still outstanding. */
     pending: boolean;
     settled: boolean;
@@ -74,6 +75,7 @@ export async function requestInvoice(
     appearance?: { billboard: BillboardConfig },
     contactPubkey?: string,
     authorShare?: number,
+    event?: NDKRawEvent,
 ): Promise<PromoteInvoice> {
     const response = await fetch(`${RELAY_HTTP}/api/promote`, {
         method: "POST",
@@ -81,6 +83,7 @@ export async function requestInvoice(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
             note,
+            ...(event ? { event } : {}),
             amount_sats: amountSats,
             ...(appearance ? { billboard: appearance.billboard } : {}),
             ...(contactPubkey ? { notify_pubkey: contactPubkey } : {}),
@@ -123,6 +126,7 @@ export async function checkProgress(
     if (!isObject(body)) throw new Error("the relay sent something unexpected");
 
     return {
+        publication: ["pending", "delivered", "stopped"].includes(String(body.publication)) ? body.publication as PromoteProgress["publication"] : undefined,
         pending: body.pending === true,
         settled: body.settled === true,
         feeConverted: isObject(body.receipt) && body.receipt.fee_converted === true,
@@ -133,6 +137,7 @@ export async function checkProgress(
 
 
 export interface NotePreview {
+    private?: boolean;
     authorShare: number;
     event: NDKRawEvent;
     active: boolean;
@@ -144,10 +149,10 @@ export interface NotePreview {
     images: string[];
 }
 
-export async function fetchNotePreview(note: string, signal?: AbortSignal): Promise<NotePreview> {
+export async function fetchNotePreview(note: string, signal?: AbortSignal, event?: NDKRawEvent): Promise<NotePreview> {
     const response = await fetch(`${RELAY_HTTP}/api/promote/preview`, {
         method: "POST", signal, headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note }),
+        body: JSON.stringify({ note, ...(event ? { event } : {}) }),
     });
     if (!response.ok) throw new Error(await readError(response));
     const body: unknown = await response.json();
@@ -160,6 +165,7 @@ export async function fetchNotePreview(note: string, signal?: AbortSignal): Prom
         throw new Error("The preview response was incomplete.");
     }
     return {
+        private: !!event && body.active !== true && body.sats_paid === 0,
         authorShare: typeof body.author_share === "number" ? body.author_share :
             body.active === true || (typeof body.sats_paid === "number" && body.sats_paid > 0) ? 0 : 20,
         event: body.event as unknown as NDKRawEvent, active: body.active === true,

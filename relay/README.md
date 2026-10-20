@@ -4,6 +4,12 @@ A Go relay built on [Khatru](https://pkg.go.dev/fiatjaf.com/nostr/khatru). It se
 Nostr notes (kind 1) and comments (kind 1111), processes promotions and computes
 the board ranking. See the [project README](../README.md) for product rules.
 
+New paid root posts are opt-in with `ENABLE_POST_CREATION=true`. The browser
+supplies a signed private snapshot; invoice settlement admits it to the board
+and queues durable external publication. Keep this publisher enabled through UI
+rollback. See the [private-post API](API.md#private-posts-awaiting-payment).
+Email/password key custody runs in a [separate Keycast service](../accounts/README.md).
+
 ## Run locally
 
 Use Go 1.27.1 or newer, matching the toolchain in [go.mod](go.mod). Run from
@@ -42,10 +48,35 @@ relay setup, use the [Docker guide](../docs/self-hosting.md).
 | `DEFAULT_PAYMENT_SATS` | Default invoice amount. Default: 1000. |
 | `INVOICE_CHECK_SECONDS` | Pending-invoice polling interval. Default: 60 seconds. |
 | `ADMIN_PUBKEY` / `ADMIN_TOKEN` | Optional operator access through DMs / HTTP. |
+| `CURATOR_MODE` | `disabled` (default), `dry_run`, or resuming an existing `active` discovery pilot. |
+| `CURATOR_TOKEN` | Separate curator API token, at least 32 characters. |
+| `CURATOR_REVIEW_TOKEN` | Scoped reviewer API token, at least 32 characters, different from agent and admin tokens. |
+| `CURATOR_REVIEW_REQUIRED` | Initial human-approval setting, default `true`; later reviewer changes persist. |
+| `CURATOR_NWC_URI` | Dedicated reward-wallet connection, separate from receiving `NWC_URI`. |
+| `CURATOR_RELAYS` | Read-only discovery sources; empty uses `FETCH_RELAYS`. |
+| `CURATOR_DAILY_REWARD_SATS` | Author-reward budget, 21 to 1000 sats; default 1000, excluding routing fees. |
+| `CURATOR_DAILY_DISCOVERIES` | Daily placement limit, 1 to 3; default 3. |
 
 For real invoices, configure a wallet backend. NWC is the recommended option;
 use a connection with invoice creation, invoice lookup and wallet-information
 permissions. LNbits and Zebedee adapters are also implemented. LND is not.
+
+The optional [discovery curator](../curator/README.md) uses a local Codex
+app-server authenticated through a ChatGPT subscription. The relay collects
+public candidates, validates editorial decisions and owns the reward journal.
+Seven UTC days with completed dry-run decisions and at least seven elapsed days
+are required before an explicit admin activation. The active pilot then lasts
+30 days. Configuration changes and restarts preserve that deadline.
+
+Discovery rewards use a separately funded NWC wallet with `get_info`,
+`pay_invoice` and `lookup_invoice`. Rewards are signed public zaps to the original
+author, not transfers to the promotion wallet. Pending and uncertain amounts
+reserve budget across midnight; fees are reported separately in the private
+reward journal. Configure any routing-fee or total-spend protection in the wallet
+itself: [core NIP-47](https://github.com/nostr-protocol/nips/blob/master/47.md#pay_invoice)
+does not provide a universal per-request fee-limit argument.
+Disabling the curator stops new selections and sends while retaining active
+placements, payment history and lookup-only recovery through the original wallet.
 
 Wallet notifications trigger settlement when available. Pending invoices are
 also checked at startup and at the configured polling interval, including those

@@ -28,9 +28,18 @@ func WaitingUpdatesHandler(storage *Storage) http.HandlerFunc {
 		}
 		ids := make([]string, 0)
 		if value != "" {
-			for _, entry := range storage.CampaignEntries(now) {
-				if entry.Rank > mainBoardSize && entry.firstPaidAtMillis > since && entry.firstPaidAtMillis <= now.UnixMilli() {
-					ids = append(ids, entry.ID)
+			paid := storage.CampaignEntries(now)
+			if r.URL.Query().Get("include_discoveries") == "true" {
+				for _, entry := range storage.DiscoveryWaitingEntries(paid, now) {
+					if entry.firstVisibleAtMillis > since && entry.firstVisibleAtMillis <= now.UnixMilli() {
+						ids = append(ids, entry.ID)
+					}
+				}
+			} else {
+				for _, entry := range paid {
+					if entry.Rank > mainBoardSize && entry.firstPaidAtMillis > since && entry.firstPaidAtMillis <= now.UnixMilli() {
+						ids = append(ids, entry.ID)
+					}
 				}
 			}
 		}

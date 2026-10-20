@@ -1,3 +1,5 @@
+import { ENABLE_EMAIL_ACCOUNTS, ENABLE_NOSTR_CONNECT } from "../../config";
+import { EmailAccount } from "./EmailAccount";
 import { useId, useState } from "react";
 import { useConnections } from "../../hooks/useConnections";
 import { connectExtension, connectRemote, connectWallet, disconnectSigner, disconnectWallet, hasExtensionSigner, retryWalletConnection } from "../../lib/connections";
@@ -74,7 +76,8 @@ export function ConnectionSettings({ disabled = false, section = "all", embedded
                 </>}
                 {connections.walletStatus !== "disconnected" && walletError}
             </section>}
-            {section !== "wallet" && <section className="space-y-3" aria-label={accountConnection ? "Nostr account" : "Nostr signer"}>
+            {section !== "wallet" && ENABLE_EMAIL_ACCOUNTS && <EmailAccount disabled={disabled} />}
+            {section !== "wallet" && ENABLE_NOSTR_CONNECT && connections.signerKind !== "keycast" && <section className="space-y-3" aria-label={accountConnection ? "Nostr account" : "Nostr signer"}>
                 {!accountConnection && <h3 className="promotion-section-title text-neon-cyan">{purpose === "reply" ? "Your account" : "Nostr signer"}</h3>}
                 {accountConnection ? connections.signerStatus === "disconnected" && <p className="text-cyan-100">Use your Nostr account on Holoboard.</p>
                     : <p>{purpose === "reply" ? "Sign in to send your reply." : "A signer is optional. It identifies a public zap to the author and does not pay invoices."}</p>}

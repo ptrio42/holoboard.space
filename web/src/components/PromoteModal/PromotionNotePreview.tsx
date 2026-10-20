@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import type { NotePreview } from "../../lib/promote";
 import { njumpUrl } from "../../lib/nostr";
 import { quoteImages, quotePreviewContent } from "../../lib/noteAttachments";
-import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
+import { NoteAuthor } from "../UserProfileInline/NoteAuthor";
 import { NoteLinkPreview } from "../TextRenderer/NoteLinkPreview";
 import { CompactNoteText } from "../TextRenderer/CompactNoteText";
 
@@ -27,7 +27,7 @@ export function PromotionNotePreview({ preview, compact, expanded, onToggle, chi
     const reading = <button type="button" className={`${ACTION} shrink-0`} aria-expanded={expanded} aria-label={expanded ? "Show less" : "Show full text"} onClick={onToggle}>
         {compact ? expanded ? "Less" : "Read" : expanded ? "Show less" : "Show full text"}
     </button>;
-    const opening = <a href={njumpUrl(preview.event.id, "note")} target="_blank" rel="noopener noreferrer" aria-label="Open note"
+    const opening = preview.private ? <span className="text-xs text-cyan-100/60">Unpublished</span> : <a href={njumpUrl(preview.event.id, "note")} target="_blank" rel="noopener noreferrer" aria-label="Open note"
         title={preview.active ? `Open note, #${preview.rank} in ${preview.rank <= 21 ? "main board" : "waiting room"}` : "Open note"}
         className={`${ACTION} shrink-0 gap-1 ${compact ? "min-w-11 justify-end" : ""}`}>
         {compact ? <><span>#{preview.rank}</span><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="currentColor" shapeRendering="crispEdges">
@@ -36,7 +36,7 @@ export function PromotionNotePreview({ preview, compact, expanded, onToggle, chi
     </a>;
     return <article className={compact ? "space-y-1" : "space-y-3"} aria-label="Original note">
         <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0"><UserProfileInline pubkey={preview.event.pubkey} size={compact ? "sm" : "md"} /></div>
+            <div className="min-w-0"><NoteAuthor event={preview.event} size={compact ? "sm" : "md"} /></div>
             {compact && <div className="flex shrink-0 items-center gap-2">{reading}{opening}</div>}
         </div>
         <div className="flex items-start gap-3">

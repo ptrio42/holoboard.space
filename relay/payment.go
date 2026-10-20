@@ -287,7 +287,7 @@ func (pm *PaymentMonitor) ProcessInvoicePayment(paymentHash string, amountSats i
 		return err
 	}
 	pm.announce(announced)
-	if quote != nil {
+	if pm.accountPublisher != nil && (quote != nil || invoice.PublishOriginal) {
 		pm.accountPublisher.Wake()
 	}
 	if pm.notify != nil && invoice.Contact != nil {

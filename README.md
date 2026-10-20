@@ -6,6 +6,14 @@ browse the board or promote a note.
 
 See the [changelog](CHANGELOG.md) for user-facing updates.
 
+The opt-in **Add to board** editor also creates text posts, links with descriptions
+and quotes. It can publish without an account, with an optional saved author key,
+or through an existing signer or an isolated email account service. New posts
+become public after the board payment is confirmed, including when the browser
+has closed. See the [editor guide](web/README.md#add-to-board) and
+[email account hosting](accounts/README.md). These additions are off in the
+current production release.
+
 ## How the board works
 
 Promotion payments determine rank. Each payment loses half its ranking weight
@@ -13,18 +21,28 @@ every 30 days, so recent payments count for more. The main board shows the top
 21 active notes. Other paid notes appear in the **Waiting room**:
 
 - **Top** follows the same ranking, starting at position 22.
-- **New** orders notes by their first paid promotion, without refreshing on a boost.
+- **New** combines first paid promotions and optional Holoboard discoveries,
+  without refreshing on a boost or on later promotion of a discovered note.
 - **Hot** orders notes by visibility sats paid in the last 24 hours.
 
 Notes move between the board and waiting room as ranks change. They move to
-**Expired** when their remaining weight rounds to zero sats. Unpaid notes do not
-enter either active view. The minimum visibility payment remains 1 sat.
+**Expired** when their remaining weight rounds to zero sats. The minimum
+visibility payment remains 1 sat.
+
+When the optional discovery fund is enabled, posts selected by Holoboard can
+also appear in Waiting room New for seven days without paid ranking weight.
+Author rewards come from a separate fund and do not count toward rank or Hot.
+Human approval defaults on, with a private queue of posts and proposed rewards.
+Operators can permit automatic future selections while keeping existing proposals
+subject to review.
+The agent searches across topics and languages, including less visible authors.
+See the [curator guide](curator/README.md) for the local Codex runner and limits.
 
 **Boost** adds another payment to an active note. **Expired** shows past
 promotions; **Promote again** brings one back after payment. A payment increases
 weight without guaranteeing a particular position.
 
-Waiting room shows a badge and marks notes first promoted since your previous
+Waiting room shows a badge and marks notes first shown since your previous
 visit. Boosts and older notes falling out of TOP 21 do not count as new. Visit
 history stays in this browser and is separate for each backend.
 

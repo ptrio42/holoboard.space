@@ -1,5 +1,8 @@
+import type { BoardComposition } from "./BoardComposer";
+import type { Event } from "nostr-tools/pure";
+import { isAnonymousPost } from "../../lib/boardComposer";
 import { queryNostr } from "../../lib/nostrTransport";
-import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { BillboardEditor } from "./BillboardEditor";
 import { initialBillboard, validBillboard, type BillboardConfig } from "../../lib/billboard";
@@ -34,7 +37,8 @@ const FIELD = "focus-pixel w-full border-2 border-cyan-400/40 bg-void px-3 py-2 
 
 type Panel = "compose" | "appearance" | "options" | "wallet" | "signer" | "help";
 
-export function DirectPromote({ initialReference = "", currentWeight, rankingTargets, onPaid, onClose, initialSection, footerHost, navigationHost, onPresentationChange }: {
+export function DirectPromote({ initialReference = "", currentWeight, rankingTargets, onPaid, onClose, initialSection, footerHost, navigationHost, onPresentationChange, draftEvent, composer, composition }: {
+    composition?: BoardComposition; draftEvent?: Event; composer?: ReactNode;
     initialReference?: string; currentWeight?: number; rankingTargets: RankingTarget[]; onPaid?: () => void;
     onClose: () => void; initialSection?: string; footerHost: HTMLDivElement | null; navigationHost: HTMLDivElement | null;
     onPresentationChange: (value: { compact: boolean; boost: boolean; payment: boolean }) => void;
@@ -57,6 +61,9 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         boardAttempt: attempts.get(savedPayment.board.paymentHash) ?? getWalletAttempt(savedPayment.board.paymentHash, savedPayment.boardAttempt),
         authorAttempt: savedPayment.author ? attempts.get(savedPayment.author.payment_hash) ?? getWalletAttempt(savedPayment.author.payment_hash, savedPayment.authorAttempt) : undefined,
     } : null, [savedPayment, attempts]);
+    const [selectedEvent, setSelectedEvent] = useState<Event | undefined>(() => draftEvent ?? recovered.current?.event);
+    const privatePost = !!selectedEvent && !payment?.promotionPaid;
+    const anonymous = !!selectedEvent && isAnonymousPost(selectedEvent);
     const [reference, setReference] = useState(() => recovered.current?.note ?? initialReference);
     const latestReference = useRef(reference);
     const [loadVersion, setLoadVersion] = useState(0);
@@ -81,6 +88,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     const [authorInvoiceError, setAuthorInvoiceError] = useState("");
     const [billboardEnabled, setBillboardEnabled] = useState(recovered.current?.draft?.billboardEnabled ?? false);
     const [config, setConfig] = useState<BillboardConfig>(() => recovered.current?.draft?.config ?? initialBillboard(""));
+    const creationSettings = useRef<{ config: BillboardConfig; billboardEnabled: boolean } | undefined>(undefined);
     const [notifyEnabled, setNotifyEnabled] = useState(recovered.current?.draft?.notifyEnabled ?? false);
     const [notifyPubkey, setNotifyPubkey] = useState(recovered.current?.draft?.notifyPubkey ?? "");
     const [publicZapSigner, setPublicZapSigner] = useState<ReturnType<typeof browserSigner>>();
@@ -98,7 +106,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         setAuthorShare(share); setAuthorInvoiceError("");
     };
     const existingCampaign = !!preview && (preview.active || preview.satsPaid > 0);
-    const campaignShare = !existingCampaign && endpoint?.reason_code === "no_address" ? 0 : preview?.authorShare ?? 20;
+    const campaignShare = anonymous ? 0 : !existingCampaign && endpoint?.reason_code === "no_address" ? 0 : preview?.authorShare ?? 20;
     const split = validAmount ? allocatePayment(amount, authorShare) : { promotion: 0, author: 0 };
     const fee = billboardEnabled ? preview?.billboardFeeSats ?? 0 : 0;
     const boost = preview?.active ?? (!!initialReference && parseNoteReference(reference)?.id === parseNoteReference(initialReference)?.id && (currentWeight ?? 0) > 0);
@@ -107,7 +115,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     // Consent belongs to the selected connection in this form and is never
     // restored from a saved invoice's publicZap flag after a refresh.
     const hasPublicZapConsent = () => ENABLE_NOSTR_CONNECT && !!publicZapSigner && publicZapSigner === browserSigner();
-    const usePublicZap = hasPublicZapConsent() && !!endpoint?.allows_nostr;
+    const usePublicZap = !privatePost && hasPublicZapConsent() && !!endpoint?.allows_nostr;
     const compact = boost && panel === "compose" && !payment;
     const finished = !!payment?.promotionPaid && (!payment.author || payment.tipStatus !== "pending");
     const hasTabs = !boost && !payment && (panel === "compose" || panel === "appearance" || panel === "options");
@@ -157,13 +165,14 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
             setActualRank(null); setRestartConfirm(false); setRecipient("board");
             setError(""); notified.current = false;
         }
-        setReference(next); setPreview(null); setEndpoint(null); setAuthorInvoiceError(""); setNoteExpanded(false);
+        setSelectedEvent(undefined); setReference(next); setPreview(null); setEndpoint(null); setAuthorInvoiceError(""); setNoteExpanded(false);
         setLoading(!!parseNoteReference(next));
     };
     const resumePayment = (saved: Payment) => {
         if (busy) return;
         if (payment) savePayment({ ...payment, editing: true });
         changeReference(saved.note);
+        setSelectedEvent(saved.event);
         const resumed = { ...saved, editing: false };
         savePayment(resumed); setPayment(resumed); setRecordsVersion((version) => version + 1);
         setLoadVersion((version) => version + 1); selectTab("compose"); setChangingReference(false);
@@ -171,15 +180,38 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         setRecipient(saved.promotionPaid && saved.author ? "author" : "board");
     };
 
+    const deferredComposition = useRef<BoardComposition | undefined>(undefined);
+    const applyComposition = useEffectEvent((source: BoardComposition) => {
+        // An account response can arrive after invoices are prepared. Keep
+        // their exact event and payment choices frozen until editing resumes.
+        if (payment || busy) { deferredComposition.current = source; return; }
+        deferredComposition.current = undefined;
+        const savedAmount = amountText, savedSelection = amountSelection;
+        if (source.post) creationSettings.current = { config, billboardEnabled };
+        else creationSettings.current = undefined;
+        changeReference(source.reference);
+        if (source.post) { setAmountText(savedAmount); setAmountSelection(savedSelection); }
+        setSelectedEvent(source.event);
+        setLoadVersion(version => version + 1);
+    });
+    useEffect(() => {
+        if (composition) applyComposition(composition);
+    }, [composition]);
+    useEffect(() => {
+        if (!payment && !busy && deferredComposition.current) applyComposition(deferredComposition.current);
+    }, [payment, busy]);
+
     useEffect(() => {
         if (!parseNoteReference(reference)) { setPreview(null); setEndpoint(null); setLoading(false); return; }
         const controller = new AbortController();
         const timer = window.setTimeout(() => {
             setLoading(true); setError(""); setEndpoint(null);
-            void fetchNotePreview(reference, controller.signal).then(async (loaded) => {
+            void fetchNotePreview(reference, controller.signal, selectedEvent).then(async (loaded) => {
                 if (controller.signal.aborted || loaded.event.id !== parseNoteReference(latestReference.current)?.id) return;
-                setPreview(loaded); setConfig(loaded.billboard ?? initialBillboard(loaded.event.content));
-                setBillboardEnabled(false); setAuthorShare(loaded.authorShare);
+                setPreview(loaded);
+                const creation = selectedEvent ? creationSettings.current : undefined;
+                setConfig(creation?.config.text ? creation.config : loaded.billboard ?? initialBillboard(loaded.event.content));
+                setBillboardEnabled(creation?.billboardEnabled ?? false); setAuthorShare(loaded.authorShare);
                 const saved = restorePayment(loaded.event.id);
                 if (saved) {
                     if (!saved.editing) setPayment(saved);
@@ -188,7 +220,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                 const restarted = restartedDraft.current;
                 if (!saved && restarted) { restoreDraft(restarted, loaded); restartedDraft.current = null; }
                 try {
-                    const author = await fetchAuthorEndpoint(reference, controller.signal);
+                    const author = await fetchAuthorEndpoint(reference, controller.signal, selectedEvent);
                     if (!controller.signal.aborted) {
                         setEndpoint(author);
                         if (!saved && !restarted && author.reason_code === "no_address" && !loaded.active && loaded.satsPaid === 0) setAuthorShare(0);
@@ -199,7 +231,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                 .finally(() => { if (!controller.signal.aborted) setLoading(false); });
         }, initialReference ? 0 : 350);
         return () => { controller.abort(); window.clearTimeout(timer); };
-    }, [reference, initialReference, loadVersion]);
+    }, [reference, initialReference, loadVersion, selectedEvent]);
     useEffect(() => () => abort.current?.abort(), []);
     useEffect(() => {
         if (!payment) return;
@@ -218,7 +250,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         return () => window.clearInterval(timer);
     }, [hasPayment]);
     useEffect(() => {
-        if (!boardInvoice || promotionPaid || isMockInvoice(boardInvoice.invoice)) return;
+        if (!boardInvoice || promotionPaid && (!payment?.event || payment.publication === "delivered" || payment.publication === "stopped") || isMockInvoice(boardInvoice.invoice)) return;
         const controller = new AbortController();
         const invoice = boardInvoice;
         let timer: number | undefined;
@@ -231,8 +263,8 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                 const progress = await checkProgress(invoice.paymentHash, invoice.noteId, controller.signal);
                 if (controller.signal.aborted) return;
                 if (progress.settled) {
-                    setPayment((current) => current?.board.paymentHash === invoice.paymentHash ? { ...current, promotionPaid: true, added: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted } : current);
-                    return;
+                    setPayment((current) => current?.board.paymentHash === invoice.paymentHash ? { ...current, promotionPaid: true, publication: progress.publication, added: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted } : current);
+                    if (!progress.publication || progress.publication !== "pending") return;
                 }
             } catch { /* A lost response does not prove that a payment failed. */ }
             finally { checking = false; }
@@ -243,7 +275,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         document.addEventListener("visibilitychange", resume);
         void tick();
         return () => { controller.abort(); window.clearTimeout(timer); window.removeEventListener("pageshow", resume); document.removeEventListener("visibilitychange", resume); };
-    }, [boardInvoice, promotionPaid]);
+    }, [boardInvoice, promotionPaid, payment?.event, payment?.publication]);
     useEffect(() => {
         if (!boardInvoice || !promotionPaid) return;
         const controller = new AbortController();
@@ -304,7 +336,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         const controller = new AbortController(); abort.current = controller;
         setLoading(true); setAuthorInvoiceError("");
         try {
-            const result = await fetchAuthorEndpoint(reference, controller.signal);
+            const result = await fetchAuthorEndpoint(reference, controller.signal, selectedEvent);
             if (!controller.signal.aborted && parseNoteReference(latestReference.current)?.id === noteId) setEndpoint(result);
         } catch {
             if (!controller.signal.aborted) setEndpoint({ available: false, author, reason_code: "unavailable", reason: "Could not reach the author's wallet. Choose visibility only or try again later.", min_sats: 1, max_sats: 0, allows_nostr: false });
@@ -322,16 +354,16 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
             let author: AuthorInvoice | undefined;
             if (split.author > 0 && endpoint) {
                 try {
-                    author = await requestAuthorInvoice(reference, split.author, endpoint, usePublicZap, preview.event.id, controller.signal);
+                    author = await requestAuthorInvoice(reference, split.author, endpoint, usePublicZap, preview.event.id, controller.signal, selectedEvent);
                 } catch (failure) {
                     if (!controller.signal.aborted) { setAuthorInvoiceError(describeFailure(failure)); selectTab("compose"); }
                     return;
                 }
             }
-            const board = await requestInvoice(reference, split.promotion, controller.signal, billboardEnabled ? { billboard: config } : undefined, contact ?? undefined, authorShare);
+            const board = await requestInvoice(reference, split.promotion, controller.signal, billboardEnabled ? { billboard: config } : undefined, contact ?? undefined, authorShare, selectedEvent);
             if (!controller.signal.aborted) {
                 notified.current = false; setActualRank(null);
-                const prepared: Payment = { note: reference, noteSummary: preview.event.content.replace(/\s+/g, " ").trim().slice(0, 160), board, author, tipStatus: "pending", promotionPaid: false, added: 0, authorShare, publicZap: usePublicZap, notificationRequested: contact !== null,
+                const prepared: Payment = { note: reference, event: selectedEvent, noteSummary: preview.event.content.replace(/\s+/g, " ").trim().slice(0, 160), board, author, tipStatus: "pending", promotionPaid: false, added: 0, authorShare, publicZap: usePublicZap, notificationRequested: contact !== null,
                     draft: { amount, amountSelection, authorShare, billboardEnabled, config, notifyEnabled, notifyPubkey } };
                 savePayment(prepared); setPayment(prepared); selectTab("compose");
                 const first = preferredWallet(); setWalletFirst(first); setMethod(first ? "wallet" : "invoice");
@@ -359,8 +391,8 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                     const progress = await checkProgress(pending.board.paymentHash, pending.board.noteId, controller.signal);
                     if (controller.signal.aborted) return;
                     if (progress.settled) {
-                        updateSavedPayment(pending.note, pending.board.paymentHash, { promotionPaid: true, added: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted });
-                        setPayment((latest) => latest?.board.paymentHash === pending.board.paymentHash ? { ...latest, promotionPaid: true, added: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted } : latest);
+                        updateSavedPayment(pending.note, pending.board.paymentHash, { promotionPaid: true, publication: progress.publication, added: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted });
+                        setPayment((latest) => latest?.board.paymentHash === pending.board.paymentHash ? { ...latest, promotionPaid: true, publication: progress.publication, added: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted } : latest);
                     } else if (canPayOrCheckInvoice(wallet, pending.board.expiresAt, pending.boardAttempt)) {
                         setWalletPart("board");
                         await payInvoiceSafely(wallet, pending.board.invoice, pending.board.paymentHash, pending.boardAttempt, (attempt) => saveAttempt("boardAttempt", attempt), pending.board.expiresAt);
@@ -390,8 +422,8 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         setBusy(true); setError("");
         const controller = new AbortController(); abort.current = controller;
         try {
-            const publicZap = !!payment.publicZap && hasPublicZapConsent() && endpoint.allows_nostr;
-            const author = await requestAuthorInvoice(payment.note, payment.author.amount_sats, endpoint, publicZap, payment.board.noteId, controller.signal);
+            const publicZap = (!payment.event || payment.promotionPaid) && !!payment.publicZap && hasPublicZapConsent() && endpoint.allows_nostr;
+            const author = await requestAuthorInvoice(payment.note, payment.author.amount_sats, endpoint, publicZap && (!payment.event || payment.promotionPaid), payment.board.noteId, controller.signal, payment.event);
             if (!controller.signal.aborted) setPayment((current) => current?.author?.payment_hash === payment.author?.payment_hash ? { ...current!, author, authorAttempt: undefined, publicZap } : current);
         } catch (failure) { if (!controller.signal.aborted) setError(describeFailure(failure)); }
         finally { if (!controller.signal.aborted) setBusy(false); }
@@ -404,7 +436,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
             const progress = await checkProgress(payment.board.paymentHash, payment.board.noteId, controller.signal);
             if (controller.signal.aborted) return;
             if (progress.settled) {
-                setPayment((current) => current?.board.paymentHash === payment.board.paymentHash ? { ...current, promotionPaid: true, added: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted } : current);
+                setPayment((current) => current?.board.paymentHash === payment.board.paymentHash ? { ...current, promotionPaid: true, publication: progress.publication, added: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted } : current);
                 return;
             }
             const attempt = getWalletAttempt(payment.board.paymentHash, payment.boardAttempt);
@@ -413,7 +445,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
             const appearance = payment.board.billboardFeeSats > 0 ? { billboard: draft?.config ?? config } : undefined;
             const contact = draft?.notifyEnabled ? parsePubkey(draft.notifyPubkey) ?? undefined : undefined;
             const visibility = payment.board.promotionSats ?? payment.board.amountSats - (payment.board.billboardFeeSats ?? 0);
-            const board = await requestInvoice(payment.note, visibility, controller.signal, appearance, contact, payment.authorShare);
+            const board = await requestInvoice(payment.note, visibility, controller.signal, appearance, contact, payment.authorShare, payment.event);
             if (!controller.signal.aborted) setPayment((current) => current?.board.paymentHash === payment.board.paymentHash ? { ...current, board, boardAttempt: undefined, notificationRequested: !!contact } : current);
         } catch (failure) { if (!controller.signal.aborted) setError(describeFailure(failure)); }
         finally { if (!controller.signal.aborted) setBusy(false); }
@@ -443,7 +475,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                     const progress = await checkProgress(payment.board.paymentHash, payment.board.noteId, controller.signal);
                     if (controller.signal.aborted) return;
                     if (progress.settled) {
-                        backToPromotion({ ...payment, promotionPaid: true, added: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted });
+                        backToPromotion({ ...payment, promotionPaid: true, publication: progress.publication, added: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted });
                         return;
                     }
                 } catch { /* Explicit no-payment confirmation allows abandoning an unattempted session offline. */ }
@@ -463,7 +495,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         } finally { if (!controller.signal.aborted) setBusy(false); }
     };
     const cannotPrepare = busy || loading || !preview || !validAmount || invalidTip || (billboardEnabled && !validBillboard(config, preview.event.content, preview.images));
-    const submissionLabel = busy ? "Preparing payments" : !validAmount ? "Enter amount" : `${boost ? "Boost" : "Promote"} ${amount+fee} sats`;
+    const submissionLabel = busy ? "Preparing payments" : !validAmount ? "Enter amount" : `${boost ? "Boost" : composer || selectedEvent ? "Add to board" : "Promote"} ${amount+fee} sats`;
     const splitWarning = split.author > 0 && (authorInvoiceError || (endpoint && invalidTip)) && <div className="space-y-2 border-l-2 border-neon-gold pl-3 text-xs text-neon-gold" aria-label="Author payment issue">
         <p role="alert">{authorInvoiceError ? `Could not prepare author support: ${authorInvoiceError}` : !endpoint?.available ? endpoint?.reason : `The author's wallet accepts ${endpoint.min_sats} to ${endpoint.max_sats} sats. Increase the amount or change the allocation.`}</p>
         <p>Visibility only: {amount} sats to Holoboard, 0 to the author{fee > 0 ? `, plus ${fee} sats for appearance` : ""}.</p>
@@ -493,10 +525,10 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         {panel !== "compose" && <h3 tabIndex={-1} className="promotion-section-title text-neon-pink">{panelHeading[panel]}</h3>}
         <div hidden={panel !== "appearance"}>
             {preview ? <BillboardEditor key={preview.event.id} preview={preview} config={config} onChange={setConfig} enabled={billboardEnabled} onEnabledChange={setBillboardEnabled} amount={split.promotion} /> : <div className="space-y-3 text-sm text-cyan-100/75">
-                <p>Billboard is a paid appearance for an existing note. Load a note to preview its text, available images and price.</p>
-                <label className="block space-y-2"><span className="promotion-label">Note link</span>
+                <p>Billboard is a paid appearance for a post. {composer ? "Prepare your post or load an original to preview its text, images and price." : "Load a note to preview its text, available images and price."}</p>
+                {!composer && <label className="block space-y-2"><span className="promotion-label">Note link</span>
                     <input aria-label="Note link" className={FIELD} value={reference} disabled={busy} placeholder="note1, nevent1, or a note link" spellCheck={false} onChange={(event) => changeReference(event.target.value)} />
-                </label>
+                </label>}
                 {loading && <StatusMessage compact loading>Loading note for Billboard...</StatusMessage>}
                 <p className="text-xs">Billboard can be chosen when starting a promotion period. Active notes keep their current appearance.</p>
             </div>}
@@ -508,7 +540,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                 <button type="button" className={actionClass} disabled={busy} onClick={() => openPanel("wallet")}>{browserWallet() ? "Payment wallet settings" : "Connect wallet to pay here"} &gt;</button>
             </section>
             {payment?.publicZap && signerAction}
-            {!payment && <section aria-label="Notifications" className="space-y-3 border-t border-cyan-400/20 pt-3">
+            {!payment && !anonymous && <section aria-label="Notifications" className="space-y-3 border-t border-cyan-400/20 pt-3">
                 <h4 className="promotion-label text-neon-cyan">Notifications <span className="text-cyan-100/50">/ optional</span></h4>
                 <label className="flex min-h-11 items-center gap-3"><input type="checkbox" checked={notifyEnabled} disabled={busy} onChange={(event) => { setNotifyEnabled(event.target.checked); setError(""); }} />Send me a confirmation DM</label>
                 {notifyEnabled && <><input aria-label="Npub for confirmation" className={FIELD} value={notifyPubkey} onChange={(event) => { setNotifyPubkey(event.target.value); setError(""); }} placeholder="npub1..." /><p>Reply YES to the confirmation DM to receive one expiry notification.</p></>}
@@ -545,25 +577,26 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         restartConfirm={restartConfirm} onRestartConfirm={setRestartConfirm} hasPublicZapConsent={hasPublicZapConsent()} authorCanReplace={!!endpoint?.available} footer={footer} /></>;
     return <>{navigation}<div className={boost ? "space-y-2" : "space-y-4"} aria-busy={loading || busy} {...tabPanelProps}>
         <UnfinishedPayments payments={pendingSessions} forNote={!!parseNoteReference(reference)} disabled={busy} persistent={paymentSessionIsPersistent()} onResume={resumePayment} />
-        {(!preview && !initialReference || changingReference) && <label className="block space-y-2">
+        {composer}
+        {!composer && (!preview && !initialReference || changingReference) && <label className="block space-y-2">
             <span className="promotion-label text-cyan-200/70">Note link</span>
             <input className={`${FIELD} min-h-11 text-base`} value={reference} placeholder="note1, nevent1, or a note link" spellCheck={false} disabled={busy}
                 onChange={(event) => changeReference(event.target.value)} />
         </label>}
         {loading && <StatusMessage compact loading>{preview ? "Checking author payment details..." : "Loading note and author payment details..."}</StatusMessage>}
         {preview && <PromotionNotePreview preview={preview} compact={boost} expanded={noteExpanded} onToggle={() => setNoteExpanded(!noteExpanded)}>
-            {(!initialReference || !boost || pendingSessions.length > 0) && <button type="button" className="promotion-action focus-pixel min-h-11" disabled={busy} onClick={() => setChangingReference(!changingReference)}>{changingReference ? "Done" : "Change note"}</button>}
+            {!composer && (!initialReference || !boost || pendingSessions.length > 0) && <button type="button" className="promotion-action focus-pixel min-h-11" disabled={busy} onClick={() => setChangingReference(!changingReference)}>{changingReference ? "Done" : "Change note"}</button>}
         </PromotionNotePreview>}
         {!boost && billboardEnabled && <p className="text-xs text-neon-gold">Billboard +{fee} sats, included in the total.</p>}
         <PromotionAmountPicker amount={amountText} validAmount={validAmount} currentWeight={knownWeight} max={10000000} appearanceFee={fee} targets={targets} disabled={busy}
             selection={amountSelection} onSelectionChange={setAmountSelection}
             totalForPromotion={(needed) => totalForPromotion(needed, authorShare)} onChange={setAmountText} />
-        <PromotionSplit author={preview?.event.pubkey} authorShare={authorShare} promotionSats={split.promotion} authorSats={split.author} disabled={busy} onChange={changeAuthorShare}>
+        <PromotionSplit author={preview?.event.pubkey} authorShare={authorShare} promotionSats={split.promotion} authorSats={split.author} disabled={busy || anonymous} onChange={changeAuthorShare}>
             <div className="flex flex-wrap items-center justify-between gap-x-3 text-cyan-100/75">
                 {authorShare !== campaignShare && <button type="button" className={actionClass} disabled={busy} onClick={() => changeAuthorShare(campaignShare)} aria-label={existingCampaign ? "Use campaign split" : "Use default split"}>
                     <span className="sm:hidden">Reset</span><span className="hidden sm:inline">{existingCampaign ? "Use campaign split" : "Use default split"}</span>
                 </button>}
-                {ENABLE_NOSTR_CONNECT && endpoint?.allows_nostr && authorShare > 0 && <details className="disclosure">
+                {!privatePost && ENABLE_NOSTR_CONNECT && endpoint?.allows_nostr && authorShare > 0 && <details className="disclosure">
                     <summary tabIndex={0} className={`${actionClass} cursor-pointer`}>Public author zap{usePublicZap ? " on" : ""}</summary>
                     <div className="space-y-2 text-sm">
                         {browserSigner() && <label className="flex min-h-11 items-center gap-3"><input type="checkbox" checked={usePublicZap} disabled={busy} onChange={(event) => setPublicZapSigner(event.target.checked ? browserSigner() : undefined)} />Send author support as a public zap (asks your Nostr signer)</label>}

@@ -18,7 +18,8 @@ export function saveWaitingVisit(value: number): void {
 }
 export interface WaitingUpdates { count: number; noteIds: string[]; checkedAt: number }
 export async function fetchWaitingUpdates(since: number | null, signal: AbortSignal): Promise<WaitingUpdates> {
-    const response = await fetch(`${SATS_ENDPOINT.replace(/\/+$/, "")}/waiting-updates${since === null ? "" : `?since=${since}`}`, { signal });
+    const query = since === null ? "?include_discoveries=true" : `?since=${since}&include_discoveries=true`;
+    const response = await fetch(`${SATS_ENDPOINT.replace(/\/+$/, "")}/waiting-updates${query}`, { signal });
     if (!response.ok) throw new Error("Could not check new waiting-room notes.");
     const data: unknown = await response.json();
     if (typeof data !== "object" || data === null || !("count" in data) || !Number.isSafeInteger(data.count) || Number(data.count) < 0 ||

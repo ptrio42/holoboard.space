@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -218,10 +219,56 @@ func main() {
 	authorSupport := NewAuthorSupport(storage, fetcher)
 	invoiceManager.authorSupport = authorSupport
 
+	curatorConfig, err := curatorConfigFromEnv(relayPubkey, fetchRelays)
+	if err != nil {
+		log.Fatalf("Invalid curator configuration: %v", err)
+	}
+	curator := NewCuratorService(storage, fetcher, curatorConfig)
+	var rewardWallet *NWCDiscoveryWallet
+	if uri := os.Getenv("CURATOR_NWC_URI"); uri != "" {
+		rewardWallet, err = NewNWCDiscoveryWallet(uri)
+		if err != nil {
+			log.Fatal("Invalid CURATOR_NWC_URI")
+		}
+		if receiving, ok := lnBackend.(*NWCBackend); ok {
+			receivingWallet := &NWCDiscoveryWallet{backend: receiving}
+			if rewardWallet.Identity() == receivingWallet.Identity() {
+				log.Fatal("CURATOR_NWC_URI must be separate from the receiving NWC connection")
+			}
+		}
+	}
+	curator.activationCheck = func() error {
+		if rewardWallet == nil {
+			return fmt.Errorf("configure a separate CURATOR_NWC_URI before activation")
+		}
+		if os.Getenv("RELAY_PRIVKEY") == "" {
+			return fmt.Errorf("activation requires a persistent RELAY_PRIVKEY")
+		}
+		if len(curatorConfig.Token) < 32 || curatorConfig.Token == os.Getenv("ADMIN_TOKEN") {
+			return fmt.Errorf("activation requires a separate CURATOR_TOKEN of at least 32 characters")
+		}
+		return nil
+	}
+	if storage.CuratorMode() == curatorActive {
+		if err := curator.activationCheck(); err != nil {
+			// A resumed pilot needs the same prerequisites as initial activation.
+			// Keep its journal available for recovery, while blocking new writes.
+			storage.mu.Lock()
+			storage.curatorUnavailable = true
+			storage.mu.Unlock()
+			curator.initErr = err
+			log.Print("Curator new selections and spending paused: incomplete activation configuration")
+		}
+	}
+
 	// Start payment watcher
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	accountPublisher.Start(ctx)
+	curator.Start(ctx)
+	if rewardWallet != nil {
+		NewDiscoveryRewards(storage, authorSupport, rewardWallet, relayPubkey, relayPrivkey, fetchRelays).Start(ctx)
+	}
 
 	if err := invoiceManager.StartPaymentWatcher(ctx); err != nil {
 		log.Fatalf("Failed to start payment watcher: %v", err)
@@ -373,6 +420,15 @@ func main() {
 	relay.Router().HandleFunc("/api/board", BoardHandler(storage))
 	relay.Router().HandleFunc("/api/board/campaigns", CampaignHandler(storage))
 	relay.Router().HandleFunc("/api/board/waiting-updates", WaitingUpdatesHandler(storage))
+	relay.Router().HandleFunc("/api/curator/candidates", curator.CandidatesHandler())
+	relay.Router().HandleFunc("/api/curator/decisions", curator.DecisionsHandler())
+	relay.Router().HandleFunc("/api/curator/status", curator.StatusHandler())
+	if curatorConfig.ReviewToken != "" {
+		relay.Router().HandleFunc("/api/admin/curator/review", curator.ReviewHandler())
+	}
+	if token := getEnv("ADMIN_TOKEN", ""); token != "" {
+		relay.Router().HandleFunc("/api/admin/curator", curator.AdminHandler(token))
+	}
 	relay.Router().HandleFunc("/api/link-preview", newLinkPreviews().Handler())
 	relay.Router().HandleFunc("/api/board/expired", ExpiredHandler(storage))
 	log.Printf("Board ledger served at /api/board")

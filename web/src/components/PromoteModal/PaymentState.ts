@@ -1,3 +1,4 @@
+import type { Event } from "nostr-tools/pure";
 import type { BillboardConfig } from "../../lib/billboard";
 import type { PromoteInvoice } from "../../lib/promote";
 import type { AuthorInvoice } from "../../lib/support";
@@ -26,6 +27,9 @@ export interface PromotionPayment {
     /** Returning to the editor keeps this session available for explicit resume. */
     editing?: boolean;
     noteSummary?: string;
+    /** Private signed root snapshot; never contains the guest secret key. */
+    event?: Event;
+    publication?: "pending" | "delivered" | "stopped";
 }
 
 export function restartBlocked(payment: PromotionPayment): string | null {

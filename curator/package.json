@@ -1,0 +1,17 @@
+{
+  "name": "holoboard-curator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "start": "node --experimental-strip-types src/cli.ts",
+    "review": "node --experimental-strip-types src/review.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "~5.9.3"
+  }
+}

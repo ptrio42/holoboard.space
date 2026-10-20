@@ -31,3 +31,13 @@ Thumbs.db
 /android/*.apk
 /android/*.aab
 /android/*.idsig
+
+# Local discovery curator dependencies and runtime state
+/curator/node_modules
+/curator/.state/
+
+# Private account-service configuration and secrets
+/accounts/.env
+/accounts/*.local
+/accounts/*.key
+/accounts/secrets.env

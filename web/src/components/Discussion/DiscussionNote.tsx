@@ -3,7 +3,7 @@ import type { Event } from "nostr-tools";
 import type { ThreadNode } from "../../lib/threadGraph";
 import { njumpUrl } from "../../lib/nostr";
 import { NoteContent } from "../TextRenderer/NoteContent";
-import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
+import { NoteAuthor } from "../UserProfileInline/NoteAuthor";
 import { NoteExternalLink, NoteReplyButton } from "../ui/NoteControls";
 import { DiscussionLink } from "../ui/DiscussionLink";
 import { PixelPanel } from "../ui/PixelPanel";
@@ -37,7 +37,7 @@ export function DiscussionNote({ node, event, parent, parentEvent, hints = [], p
     </footer>;
     const article = <article className={`discussion-note ${compact ? "discussion-note-compact" : "p-3 sm:p-5"} ${promoted ? "discussion-note-promoted" : ""}`} aria-label={focus ? "Discussion focus" : undefined}>
         <header className={`discussion-note__header${compact && parent?.event ? " has-parent" : ""}`}>
-            {node?.event ? <UserProfileInline pubkey={node.event.pubkey} hints={hints} size="compact" /> : <span className="font-pixel text-[10px] text-cyan-100">Missing context</span>}
+            {node?.event ? <NoteAuthor event={node.event} hints={hints} size="compact" /> : <span className="font-pixel text-[10px] text-cyan-100">Missing context</span>}
             {compact ? context : promoted && <span className="discussion-promotion">Promoted</span>}
         </header>
         <div className="discussion-note__content">

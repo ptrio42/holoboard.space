@@ -171,12 +171,12 @@ export function BillboardEditor({ preview, config, onChange, enabled, onEnabledC
                     className="promotion-action note-action min-h-11">{mobile ? "Use full width" : "Use phone width"}</button>
             </div>
             <div className={mobile ? "mx-auto w-full max-w-[360px]" : "w-full"}>
-                <ul><BoardRow event={event} rank={preview.rank || undefined} sats={preview.satsPaid + amount}
+                <ul><BoardRow event={event} privatePreview={preview.private} rank={preview.rank || undefined} sats={preview.satsPaid + amount}
                     weight={preview.weight + amount} billboard={selected}
                     billboardPreviewSlide={!locked && enabled && config.template === "slides" ? slideIndex : undefined} /></ul>
             </div>
             <p className="text-xs leading-relaxed text-cyan-100/50">
-                Preview shows appearance, not a guaranteed rank. Full note remains available in every Nostr client.
+                Preview shows appearance, not a guaranteed rank. {preview.private ? "Your post remains unpublished until the board payment is confirmed." : "Full note remains available in every Nostr client."}
             </p>
         </section>
     );

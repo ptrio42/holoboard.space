@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+# Keep this environment file private (0600), outside the checkout.
+set -a
+. "$HOME/.config/holoboard-curator/runner.env"
+set +a
+cd /absolute/path/to/holoboard/curator
+exec /absolute/path/to/node --experimental-strip-types src/cli.ts --watch

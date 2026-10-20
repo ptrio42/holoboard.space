@@ -32,7 +32,7 @@ describe("local waiting-room visit checkpoints", () => {
         const { fetchWaitingUpdates } = await import("./waitingUpdates");
         const signal = new AbortController().signal;
         expect(await fetchWaitingUpdates(5000, signal)).toEqual({ count: 25, noteIds: ids, checkedAt: 6000 });
-        expect(fetch.mock.calls[0][0]).toContain("?since=5000");
+        expect(fetch.mock.calls[0][0]).toContain("?since=5000&include_discoveries=true");
         await expect(fetchWaitingUpdates(5000, signal)).rejects.toThrow("Incomplete");
         await expect(fetchWaitingUpdates(5000, signal)).rejects.toThrow("Could not check");
     });

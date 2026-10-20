@@ -155,6 +155,16 @@ func CampaignHandler(storage *Storage) http.HandlerFunc {
 			selected = waitingEntries(all, view)
 		}
 		count := len(selected)
+		var mixed []CuratorFeedEntry
+		var waitingPosts *int
+		if r.URL.Query().Get("include_discoveries") == "true" {
+			mixed = storage.DiscoveryWaitingEntries(all, now)
+			waitingCount := len(mixed)
+			waitingPosts = &waitingCount
+			if view == "new" {
+				count = len(mixed)
+			}
+		}
 		start := (page - 1) * mainBoardSize
 		if start > count {
 			start = count
@@ -164,14 +174,19 @@ func CampaignHandler(storage *Storage) http.HandlerFunc {
 			end = count
 		}
 		w.Header().Set("Cache-Control", "no-store")
+		var responseEntries any = selected[min(start, len(selected)):min(end, len(selected))]
+		if mixed != nil && view == "new" {
+			responseEntries = mixed[start:end]
+		}
 		writeJSON(w, 200, struct {
-			Entries     []CampaignEntry `json:"entries"`
-			Targets     []LedgerEntry   `json:"targets"`
-			Total       int             `json:"total"`
-			ActivePosts int             `json:"active_posts"`
-			TotalSats   int64           `json:"total_sats"`
-			HasMore     bool            `json:"has_more"`
-			CheckedAt   int64           `json:"checked_at"`
-		}{selected[start:end], targets, count, len(all), total, end < count, now.UnixMilli()})
+			Entries      any           `json:"entries"`
+			Targets      []LedgerEntry `json:"targets"`
+			Total        int           `json:"total"`
+			ActivePosts  int           `json:"active_posts"`
+			TotalSats    int64         `json:"total_sats"`
+			HasMore      bool          `json:"has_more"`
+			CheckedAt    int64         `json:"checked_at"`
+			WaitingPosts *int          `json:"waiting_posts,omitempty"`
+		}{responseEntries, targets, count, len(all), total, end < count, now.UnixMilli(), waitingPosts})
 	}
 }

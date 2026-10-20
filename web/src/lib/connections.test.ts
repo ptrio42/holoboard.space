@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
-import { connectExtension, connectWallet, disconnectSigner, disconnectWallet, getConnectedSigner, getConnections, getPaymentWallet, validateNwcUri, validateRelay } from "./connections";
+import { connectKeycastSigner, getSignerGeneration, connectExtension, connectWallet, disconnectSigner, disconnectWallet, getConnectedSigner, getConnections, getPaymentWallet, validateNwcUri, validateRelay } from "./connections";
 import { PaymentRejected } from "./walletPayment";
 
 const mock = vi.hoisted(() => ({ info: vi.fn(), pay: vi.fn(), lookup: vi.fn(), close: vi.fn() }));
@@ -156,4 +156,23 @@ describe("signer account and event validation", () => {
         signEvent.mockResolvedValueOnce(finalizeEvent(template, other));
         await expect(getConnectedSigner()!.signEvent(template)).rejects.toThrow("account");
     });
+});
+
+it("does not finish a custodial signer binding after cancellation", async () => {
+    const key = generateSecretKey();
+    const before = getSignerGeneration();
+    let deliver!: (pubkey: string) => void;
+    const connecting = connectKeycastSigner({ getPublicKey: () => new Promise(resolve => { deliver = resolve; }), signEvent: async template => finalizeEvent(template, key) });
+    disconnectSigner();
+    await expect(connecting).resolves.toBeUndefined();
+    deliver(getPublicKey(key));
+    await Promise.resolve();
+    expect(getSignerGeneration()).toBeGreaterThan(before);
+    expect(getConnectedSigner()).toBeUndefined();
+});
+
+it("keeps other sign-in methods available after a custodial connection fails", async () => {
+    await expect(connectKeycastSigner({ getPublicKey: async () => "invalid", signEvent: async () => { throw new Error("Must not sign"); } })).rejects.toThrow("invalid public key");
+    expect(getConnections()).toMatchObject({ signerStatus: "disconnected", signerKind: null });
+    expect(getConnectedSigner()).toBeUndefined();
 });

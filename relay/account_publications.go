@@ -14,6 +14,8 @@ import (
 
 const promotionQuoteCopy = "Paid promotion on Holoboard. Zap this Holoboard post to boost the quoted note."
 
+func originalPublicationKey(noteID string) string { return "original:" + noteID }
+
 func quotePublicationKey(noteID string) string {
 	return "quote:" + noteID
 }
@@ -63,6 +65,7 @@ func cloneAccountPublication(publication *AccountPublication) *AccountPublicatio
 	clone := *publication
 	clone.Event = cloneNostrEvent(publication.Event)
 	clone.Targets = append([]string(nil), publication.Targets...)
+	clone.Recipients = append([]string(nil), publication.Recipients...)
 	clone.Delivered = append([]string(nil), publication.Delivered...)
 	return &clone
 }
@@ -114,9 +117,13 @@ type PendingAccountPublication struct {
 }
 
 func (s *Storage) QuotePublication(noteID string) (*AccountPublication, bool) {
+	return s.accountPublication(quotePublicationKey(noteID))
+}
+
+func (s *Storage) accountPublication(key string) (*AccountPublication, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	record, ok := s.accountPublications[quotePublicationKey(noteID)]
+	record, ok := s.accountPublications[key]
 	if !ok {
 		return nil, false
 	}
@@ -453,13 +460,37 @@ func (s *Storage) ExtendAccountPublicationTargets(key, eventID string, targets [
 		return fmt.Errorf("publication is no longer pending")
 	}
 	updated := cloneAccountPublication(record)
-	updated.Targets = dedupe(append(updated.Targets, targets...))
+	updated.Targets = safeRelayCandidates(append(updated.Targets, targets...))
+	// Root and quote share a bounded destination set. A late route must enqueue
+	// both events, even when one record had already reached all earlier targets.
+	var dependencyKey string
+	var dependency *AccountPublication
+	if record.Type == accountPublicationOriginal {
+		dependencyKey = quotePublicationKey(record.NoteID)
+	}
+	if record.Type == accountPublicationQuote {
+		dependencyKey = originalPublicationKey(record.NoteID)
+	}
+	if dependencyKey != "" {
+		dependency = s.accountPublications[dependencyKey]
+	}
+	if dependency != nil && !dependency.Cancelled {
+		updated.Targets = safeRelayCandidates(append(append([]string(nil), dependency.Targets...), updated.Targets...))
+	}
 	if len(updated.Targets) == len(record.Targets) {
 		return nil
 	}
 	s.accountPublications[key] = updated
+	if dependency != nil && !dependency.Cancelled {
+		other := cloneAccountPublication(dependency)
+		other.Targets = append([]string(nil), updated.Targets...)
+		s.accountPublications[dependencyKey] = other
+	}
 	if err := s.save(); err != nil {
 		s.accountPublications[key] = record
+		if dependency != nil {
+			s.accountPublications[dependencyKey] = dependency
+		}
 		return err
 	}
 	return nil
@@ -471,11 +502,28 @@ func (publisher *AccountPublisher) publishPending(ctx context.Context) int {
 
 	jobs := publisher.storage.PendingAccountPublications()
 	for _, job := range jobs {
+		current, exists := publisher.storage.accountPublication(job.Key)
+		if !exists || current.Cancelled {
+			continue
+		}
+		job.Record = current
 		if publisher.boardURL != "" && publisher.readRelays != nil && job.Record.Event.Kind != 5 {
 			routeCtx, stop := context.WithTimeout(ctx, 4*time.Second)
 			var destinations []string
+			if job.Record.Type == accountPublicationOriginal {
+				destinations = append(destinations, authorWriteRelays(routeCtx, job.Record.Event.PubKey.Hex(), publisher.targets)...)
+				for _, author := range job.Record.Recipients {
+					if len(destinations) >= maxLookupRelays {
+						break
+					}
+					destinations = append(destinations, publisher.readRelays(routeCtx, author, publisher.targets)...)
+				}
+			}
 			recipients := map[string]bool{}
 			for _, tag := range job.Record.Event.Tags {
+				if job.Record.Type == accountPublicationOriginal {
+					break
+				}
 				if len(tag) < 2 || tag[0] != "p" || !isHex64(tag[1]) || recipients[tag[1]] {
 					continue
 				}
@@ -486,14 +534,21 @@ func (publisher *AccountPublisher) publishPending(ctx context.Context) int {
 				destinations = append(destinations, publisher.readRelays(routeCtx, tag[1], publisher.targets)...)
 			}
 			stop()
+			if job.Record.Type == accountPublicationQuote {
+				if root, ok := publisher.storage.accountPublication(originalPublicationKey(job.Record.NoteID)); ok {
+					destinations = append(append([]string(nil), root.Targets...), destinations...)
+				}
+			}
 			destinations = safeRelayCandidates(destinations)
 			if err := publisher.storage.ExtendAccountPublicationTargets(job.Key, job.Record.Event.ID.Hex(), destinations); err != nil {
 				log.Printf("Could not persist publication routing: %v", err)
 				continue
 			}
-			job.Record.Targets = dedupe(append(job.Record.Targets, destinations...))
-			job.Pending = pendingRelayTargets(job.Record)
 		}
+		// Dependency delivery may have advanced this snapshot earlier in this
+		// drain. Never send an already accepted original from a stale job.
+		job.Record, _ = publisher.storage.accountPublication(job.Key)
+		job.Pending = pendingRelayTargets(job.Record)
 		type result struct {
 			relay string
 			err   error
@@ -504,6 +559,19 @@ func (publisher *AccountPublisher) publishPending(ctx context.Context) int {
 			workers.Add(1)
 			go func(relay string) {
 				defer workers.Done()
+				// A late routing destination has the same dependency as an initial
+				// destination. Persist root acceptance before sending its quote.
+				if job.Record.Type == accountPublicationQuote {
+					if err := publisher.deliverOriginal(ctx, job.Record.NoteID, relay); err != nil {
+						results <- result{relay: relay, err: err}
+						return
+					}
+				}
+				current, ok := publisher.storage.accountPublication(job.Key)
+				if !ok || current.Cancelled {
+					results <- result{relay: relay, err: fmt.Errorf("publication cancelled")}
+					return
+				}
 				results <- result{relay: relay, err: publisher.publish(ctx, relay, job.Record.Event)}
 			}(relay)
 		}
@@ -537,6 +605,32 @@ func (publisher *AccountPublisher) publishPending(ctx context.Context) int {
 		count += len(job.Pending)
 	}
 	return count
+}
+
+// Called while drainMu is held, including removal, so no original or quote
+// can start after operator removal has completed. Already accepted events remain
+// public; only the board-account quote can be deleted by this publisher.
+func (publisher *AccountPublisher) deliverOriginal(ctx context.Context, noteID, target string) error {
+	key := originalPublicationKey(noteID)
+	root, ok := publisher.storage.accountPublication(key)
+	if !ok {
+		return nil
+	} // Existing public notes have no private-root dependency.
+	if root.Cancelled || publisher.storage.IsRemoved(noteID) {
+		return fmt.Errorf("original publication cancelled")
+	}
+	for _, delivered := range root.Delivered {
+		if delivered == target {
+			return nil
+		}
+	}
+	if err := publisher.storage.ExtendAccountPublicationTargets(key, root.Event.ID.Hex(), []string{target}); err != nil {
+		return err
+	}
+	if err := publisher.publish(ctx, target, root.Event); err != nil {
+		return fmt.Errorf("original not accepted: %w", err)
+	}
+	return publisher.storage.MarkAccountPublicationDelivered(key, root.Event.ID.Hex(), []string{target})
 }
 
 func publishSignedEvent(ctx context.Context, relayURL string, event *nostr.Event, privkey string) error {

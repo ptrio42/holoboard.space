@@ -1,3 +1,4 @@
+import { ENABLE_POST_CREATION } from "../../config";
 import type { ReactNode } from "react";
 import holoboardMark from "../../assets/holoboard-mark.svg";
 import { ConnectionControls } from "../PromoteModal/ConnectionControls";
@@ -25,8 +26,8 @@ export function BoardLayout({ section, onPromote, headerContent, children, newWa
                         <img src={holoboardMark} width={24} height={24} alt="" aria-hidden="true" className="md:hidden" /><span className="sr-only md:not-sr-only">HOLOBOARD</span>
                     </a>
                 </h1>
-                <PixelButton variant="accent" aria-label="Promote a note" className="justify-self-center [&>span]:min-h-[38px] [&>span]:px-4 [&>span]:py-0 [&>span]:text-[10px]" onClick={onPromote}>
-                    Promote
+                <PixelButton variant="accent" aria-label={ENABLE_POST_CREATION ? "Add to board" : "Promote a note"} className="justify-self-center [&>span]:min-h-[38px] [&>span]:px-4 [&>span]:py-0 [&>span]:text-[10px]" onClick={onPromote}>
+                    {ENABLE_POST_CREATION ? "Add to board" : "Promote"}
                 </PixelButton>
                 <ConnectionControls className="justify-self-end justify-end" />
                 <nav aria-label="Board sections" className="col-span-3 flex justify-start gap-x-6 font-pixel text-[10px] text-cyan-200/80">

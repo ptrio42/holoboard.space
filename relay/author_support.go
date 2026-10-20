@@ -202,6 +202,9 @@ func (a *AuthorSupport) note(ctx context.Context, reference string) (*nostr.Even
 	if post, ok := a.storage.GetPost(id); ok {
 		return post.Event, nil
 	}
+	if discovery, ok := a.storage.GetDiscovery(id); ok {
+		return discovery.Event, nil
+	}
 	hints, author := noteHints(reference)
 	event, err := a.fetcher.FetchPostFrom(ctx, id, hints, author)
 	if err != nil {
@@ -319,13 +322,14 @@ func (a *AuthorSupport) Handler() http.HandlerFunc {
 		}
 		var req struct {
 			Note     string       `json:"note"`
+			Event    *nostr.Event `json:"event,omitempty"`
 			Amount   int64        `json:"amount_sats"`
 			Zap      *nostr.Event `json:"zap_request"`
 			Invoice  string       `json:"invoice"`
 			Preimage string       `json:"preimage"`
 			Receipt  *nostr.Event `json:"receipt"`
 		}
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384)).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, draftRequestLimit)).Decode(&req); err != nil {
 			writeError(w, 400, "invalid author payment request")
 			return
 		}
@@ -369,9 +373,34 @@ func (a *AuthorSupport) Handler() http.HandlerFunc {
 				return
 			}
 		}
-		note, err := a.note(ctx, req.Note)
+		var note *nostr.Event
+		var err error
+		if req.Event != nil {
+			err = validateDraftEvent(req.Event, req.Note)
+			note = req.Event
+			if err == nil && !draftAdmissionEnabled(a.storage, note) {
+				err = fmt.Errorf("new post creation is disabled")
+			}
+			if err == nil && a.storage.IsRemoved(note.ID.Hex()) {
+				err = fmt.Errorf("note was removed by the operator")
+			}
+			if err == nil && req.Zap != nil && !a.storage.HasPost(note.ID.Hex()) {
+				writeError(w, 400, "public zaps require a published board post")
+				return
+			}
+		} else {
+			note, err = a.note(ctx, req.Note)
+		}
 		if err != nil {
 			writeError(w, 400, "could not resolve that note")
+			return
+		}
+		if anonymousPost(note) {
+			if r.URL.Path == "/api/support" {
+				writeJSON(w, 200, authorEndpoint{Author: note.PubKey.Hex(), ReasonCode: "no_address", Reason: "Anonymous posts use visibility only."})
+			} else {
+				writeError(w, 400, "anonymous posts use visibility only")
+			}
 			return
 		}
 		hints, _ := noteHints(req.Note)

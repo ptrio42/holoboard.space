@@ -144,6 +144,8 @@ func (s *Storage) SettleInvoiceWithPublication(hash string, event *nostr.Event, 
 	original := s.posts[invoice.PostID]
 	quoteKey := quotePublicationKey(invoice.PostID)
 	originalPublication, hadPublication := s.accountPublications[quoteKey]
+	rootKey := originalPublicationKey(invoice.PostID)
+	originalRoot, hadRoot := s.accountPublications[rootKey]
 	now := time.Now()
 	post := &PromotedPost{PostID: invoice.PostID, Event: event}
 	active := original != nil && original.weight(now) > 0
@@ -206,7 +208,16 @@ func (s *Storage) SettleInvoiceWithPublication(hash string, event *nostr.Event, 
 	if original == nil && !hadPublication && quote != nil {
 		s.accountPublications[quoteKey] = newAccountPublication(accountPublicationQuote, invoice.PostID, quote, targets)
 	}
+	if invoice.PublishOriginal && !hadRoot {
+		s.accountPublications[rootKey] = newAccountPublication(accountPublicationOriginal, invoice.PostID, post.Event, targets)
+		s.accountPublications[rootKey].Recipients = append([]string(nil), invoice.QuoteAuthors...)
+	}
 	if err := s.save(); err != nil {
+		if hadRoot {
+			s.accountPublications[rootKey] = originalRoot
+		} else {
+			delete(s.accountPublications, rootKey)
+		}
 		if original == nil {
 			delete(s.posts, invoice.PostID)
 		} else {

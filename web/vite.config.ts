@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import productionFeatures from './production-features.json'
 
 function revision() {
@@ -19,7 +20,7 @@ function revision() {
 export default defineConfig({
   // Keep ordinary builds opt-in; pin the production Pages branch in Git.
   define: process.env.CF_PAGES === '1' && process.env.CF_PAGES_BRANCH === 'main'
-    ? Object.fromEntries(Object.entries(productionFeatures)
+    ? Object.fromEntries(Object.entries({ VITE_ENABLE_POST_CREATION: "false", VITE_ENABLE_EMAIL_ACCOUNTS: "false", ...productionFeatures })
         .map(([name, value]) => [`import.meta.env.${name}`, JSON.stringify(value)]))
     : undefined,
   plugins: [
@@ -76,6 +77,7 @@ export default defineConfig({
         globIgnores: ['og.png'],
         navigateFallbackDenylist: [
           /^\/api\//,
+          /^\/account\/callback(?:\.html)?(?:[/?]|$)/,
           /^\/relay(?:\/|$)/,
           /^\/\.well-known\//,
         ],
@@ -95,6 +97,10 @@ export default defineConfig({
   ],
   build: {
     rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        accountCallback: fileURLToPath(new URL("./account/callback.html", import.meta.url)),
+      },
       treeshake: {
         /*
          * None of the nostr packages declare `sideEffects: false`, so rollup

@@ -1,3 +1,4 @@
+import { NoteAuthor } from "../UserProfileInline/NoteAuthor";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Event } from "nostr-tools";
@@ -20,7 +21,6 @@ import { CopyButton } from "../ui/CopyButton";
 import { StatusMessage } from "../ui/StatusMessage";
 import { NoteEditor } from "../Composer/NoteEditor";
 import { NoteContent } from "../TextRenderer/NoteContent";
-import { UserProfileInline } from "../UserProfileInline/UserProfileInline";
 
 function sameParent(record: PublicationRecord, id: string) {
     const target = normalizeThreadRelations(record.event).parent.target;
@@ -164,7 +164,7 @@ export function ReplyComposer({ parent, graph, onClose }: { parent: Event; graph
         <div className="promotion-typography space-y-4 text-sm text-cyan-100">
             <section aria-label="Reply context" className="reply-context">
                 <span className="promotion-label text-cyan-100/50">Replying to</span>
-                <UserProfileInline pubkey={parent.pubkey} size="compact" />
+                <NoteAuthor event={parent} size="compact" />
                 <p className="reply-context-text">{parent.content.slice(0, 1024)}</p>
             </section>
             {record && !sameParent(record, parent.id) && <p className="break-all text-xs text-neon-gold">This saved reply targets a different note: {normalizeThreadRelations(record.event).parent.target?.value ?? "unresolved context"}. The original signed references are preserved.</p>}

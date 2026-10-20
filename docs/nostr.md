@@ -5,6 +5,80 @@ receipt discovery use a separate bounded read service. Public-relay results
 never change board ranking. Discussion and profile screens can build on these
 primitives without adding another relay pool.
 
+## Discovery fund
+
+The optional curator reads public kind 1 notes and kind 1111 comments across
+topics and languages, including small projects outside Bitcoin and Nostr.
+It combines rotating relay/time-window samples, multilingual
+[NIP-50 searches](https://github.com/nostr-protocol/nips/blob/master/50.md), public
+references and discovered authors' [NIP-65 write relays](https://github.com/nostr-protocol/nips/blob/master/65.md).
+Ordinary time-window reads run independently of text search, so sources that
+reject the search filter still contribute candidates. Coverage records search
+failures separately from successful ordinary reads.
+Reference retrieval can find older notes outside the seed stream windows.
+Discovered sources remain read-only and do not change the configured publication
+or payment-monitor destinations. The collector uses the existing shared socket
+and safe-address budgets.
+
+Each hourly collection has a 15-second deadline, at most four concurrent
+queries and twelve selected sources. Candidate storage is limited to 2000 entries
+and 8 MiB, with a 64 KiB limit per complete encoded event. Signatures are checked
+on owned values, including at admission. Coverage reports complete, failed,
+limited and timed-out source queries; it always represents a partial public
+sample. Low observed engagement is not proof of low network-wide reach or quality.
+Batch selection and author-outbox traversal visit distinct authors before taking
+additional notes from the same author. A per-slot seeded hash rotates candidates;
+low event IDs and leading proof-of-work zeroes do not receive priority. Issued
+batches remain stable on retry. This improves author coverage, not Sybil resistance
+or network-wide representativeness.
+
+A local Codex runner evaluates bounded batches through app-server with a ChatGPT
+subscription. The backend owns admission, signed originals, expiry and an
+independent durable reward journal. Model text cannot supply a payment address,
+invoice or wallet command. See the [curator guide](../curator/README.md) and
+[HTTP contract](../relay/API.md#operate-the-discovery-curator).
+
+Human review defaults on. In an active fund, selected originals and proposed
+reward amounts stay private until a separately authenticated reviewer approves
+them. Approval rechecks current policy and starts the seven-day placement;
+dry-run approval remains a private review result. The agent credential cannot
+approve proposals or disable review. Turning review off affects future picks
+and never releases its waiting queue. Turning it on blocks unapproved sends
+before their durable send claim; already attempted payments retain lookup-only
+recovery. Existing public placements are preserved when their unsent reward is
+held for review. The optional loopback operator panel keeps its scoped reviewer
+token server-side and provides per-item approval, rejection and the review toggle.
+
+An admitted discovery gets seven days in opted-in Waiting room New. Author
+rewards do not enter `PromotedPost.Payments`, totals, Hot or ranking. Later
+promotion uses the ordinary anonymous invoice flow and preserves the original
+discovery exposure for New and visit badges. Unpaid discoveries expire out of
+the active list while their history stays available. No quote or DM is published
+just for admission; an actual author zap can produce its provider's public receipt.
+
+The backend prepares a signed [NIP-57 request](https://github.com/nostr-protocol/nips/blob/master/57.md)
+for the original event and its author's verified payment profile. Invoice
+validation pins the exact amount, mainnet, expiry, request description hash,
+recipient and provider before attempting a send. Missing address or unsupported
+public zaps leaves the discovery visible with reward unavailable. Temporary
+preparation failures retain a bounded retry delay.
+
+The spending connection is separate from the receiving `LightningBackend`.
+The durable claim records the invoice, hash, recipient, provider and NWC key
+identity before `pay_invoice`. Unknown outcomes use lookup only, including
+after restart, pause, removal or pilot expiry. A different wallet connection
+cannot resolve that attempt. Matching proof from the original outgoing wallet
+confirms payment; an arbitrary public receipt is insufficient evidence that
+this backend spent funds. Explicit nonexecuting wallet refusals finish as failed;
+timeouts and ambiguous errors remain uncertain and keep their reservation.
+
+The principal budget includes today's confirmed rewards and all unresolved
+reservations, including earlier days. Routing fees are recorded separately.
+The [NIP-47 pay command](https://github.com/nostr-protocol/nips/blob/master/47.md#pay_invoice)
+does not define a universal per-request fee cap; use the wallet's own controls
+and a lightly funded dedicated wallet for a total spending boundary. Limits
+apply to public keys, not verified people, and do not eliminate Sybil attacks.
+
 ## Reading
 
 `web/src/lib/nostrTransport.ts` multiplexes subscriptions and explicit public
@@ -457,6 +531,34 @@ Reconnects retry discovery; none of these windows promise complete lifetime
 history. Current windows are 30 days for zaps, 24 hours for mentions and the
 existing DM watermark/lookback policy. Gift-wrap envelope lookback remains
 separate from the decoded DM command's age check.
+
+## Paid root posts
+
+The opt-in Add to board flow creates kind 1 roots with canonical `nostr:`
+references and distinct `q` tags for quotes. It never borrows reply ancestry from
+the quoted source. Source authors come from verified events, following
+[NIP-18](https://github.com/nostr-protocol/nips/blob/master/18.md#quote-reposts).
+A standalone source selects the original until the author explicitly adds a
+comment. The existing legacy reference parser remains available to API callers;
+the new shared field uses a stricter whole-input classifier.
+
+Private signed roots stay in invoice snapshots, outside public preview caches,
+read caches and the browser PublicOutbox. Board settlement atomically creates
+credit and the original publication record. The durable publisher shares the
+bounded destination set with the account quote and requires original acceptance
+before each quote send. Root routing uses the author's write relays and verified
+quote authors' read relays. Operator removal serializes with publisher sends and
+cancels remaining root/quote work. Already transmitted frames remain public.
+Disabling creation admission or the frontend does not disable settlement or the
+publisher; rollback must retain a backend understanding these records.
+
+Guest posts use fresh in-memory keys with optional NIP-19 export. The author signs
+its own NIP-32 attribution label in `space.holoboard.attribution`. **Anonymous** is
+shown consistently while preserving the actual pubkey. No payment-side flag
+changes authorship. The label gives no guarantee about metadata, payment privacy
+or external clients. Normal author support retains separate missing-address and
+unavailable-profile states. Email accounts use the separately hosted
+[Keycast service](../accounts/README.md), with exact-event signature validation.
 
 ## Publication
 

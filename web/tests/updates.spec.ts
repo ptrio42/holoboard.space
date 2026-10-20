@@ -83,7 +83,7 @@ test("waiting-room badge counts all new notes and keeps marks throughout the vis
     await expect(page.getByRole("link", { name: "TOP 21", exact: true })).toHaveAttribute("aria-current", "page");
     await expect(page.getByRole("article").first()).toBeVisible();
     await expect(page.getByLabel(/new notes since your last visit/)).toHaveCount(0);
-    await expect.poll(() => state.queries.at(-1)).toBe("?since=2001000");
+    await expect.poll(() => state.queries.at(-1)).toBe("?since=2001000&include_discoveries=true");
 });
 
 test("waiting-room badge stays compact for large counts on narrow screens", async ({ context, page }, testInfo) => {
@@ -130,7 +130,7 @@ test("blocked storage keeps a checkpoint while navigating within a waiting-room 
     await page.goto("/waiting");
     await expect(page.getByRole("article").first()).toBeVisible();
     // Wait for the in-memory baseline to reach an outgoing check, not just request start.
-    await expect.poll(async () => { await resumePage(page); return state.queries.at(-1); }).toBe("?since=2000000");
+    await expect.poll(async () => { await resumePage(page); return state.queries.at(-1); }).toBe("?since=2000000&include_discoveries=true");
     state.checkpoint = 2001000; state.updates = [state.notes[0].id];
     await resumePage(page);
     await expect(page.getByLabel("New since your last visit", { exact: true })).toHaveCount(1);

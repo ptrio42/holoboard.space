@@ -1,9 +1,11 @@
 import type { BillboardConfig } from "./billboard";
+import type { DiscoveryMetadata } from "./campaigns";
 
 export interface BoardNotePresentation {
     rank?: number; sats?: number; weight?: number; expired?: boolean; isNew?: boolean;
     firstPaidAt?: number; lastPaidAt?: number; hotSats?: number;
     billboard?: BillboardConfig; billboardPreviewSlide?: number;
+    discovery?: DiscoveryMetadata; firstVisibleAt?: number; showUnknownRank?: boolean;
 }
 export interface ReadingAnchor { id: string; top: number }
 export interface BoardReadingOrigin extends ReadingAnchor { path: string; presentation: number; expanded: boolean; expandedTexts?: string[] }

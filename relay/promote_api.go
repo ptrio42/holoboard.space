@@ -61,6 +61,7 @@ const (
 
 type promoteRequest struct {
 	Note         string           `json:"note"`
+	Event        *nostr.Event     `json:"event,omitempty"`
 	AuthorShare  *int             `json:"author_share,omitempty"`
 	AmountSats   int64            `json:"amount_sats"`
 	Billboard    *BillboardConfig `json:"billboard,omitempty"`
@@ -80,9 +81,10 @@ type promoteResponse struct {
 
 type promoteStatus struct {
 	// Pending reports an outstanding invoice; Settled requires a durable receipt.
-	Pending bool            `json:"pending"`
-	Settled bool            `json:"settled"`
-	Receipt *InvoiceReceipt `json:"receipt,omitempty"`
+	Publication string          `json:"publication,omitempty"`
+	Pending     bool            `json:"pending"`
+	Settled     bool            `json:"settled"`
+	Receipt     *InvoiceReceipt `json:"receipt,omitempty"`
 	// SatsPaid excludes appearance fees. Settled and Receipt identify this
 	// invoice's durable settlement, including appearance-only purchases.
 	SatsPaid int64  `json:"sats_paid"`
@@ -194,9 +196,29 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 		}
 
 		var req promoteRequest
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, draftRequestLimit)).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "body must be JSON with a note field")
 			return
+		}
+
+		if req.Event != nil {
+			if err := validateDraftEvent(req.Event, req.Note); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			if !draftAdmissionEnabled(storage, req.Event) {
+				writeError(w, http.StatusServiceUnavailable, "new post creation is disabled")
+				return
+			}
+			req.Note = req.Event.ID.Hex()
+			if anonymousPost(req.Event) && (req.AuthorShare == nil || *req.AuthorShare != 0 || req.NotifyPubkey != "") {
+				writeError(w, http.StatusBadRequest, "anonymous posts require author_share 0 and no account notifications")
+				return
+			}
+			if invoices.paymentMonitor == nil || invoices.paymentMonitor.accountPublisher == nil {
+				writeError(w, http.StatusServiceUnavailable, "new post publication is unavailable")
+				return
+			}
 		}
 
 		// Take the reference out of whatever was pasted. People copy the link
@@ -258,7 +280,7 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 		// Refuse to mint an invoice for a note nobody can find. This is the
 		// cheapest abuse guard there is, and it also stops somebody paying for
 		// a promotion that could never be fulfilled.
-		var event *nostr.Event
+		event := req.Event
 		active := false
 		if post, known := storage.GetPost(noteID); known {
 			event = post.Event
@@ -267,6 +289,13 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 		if storage.IsRemoved(noteID) {
 			writeError(w, http.StatusConflict, "this note was removed by the operator")
 			return
+		}
+		if event == nil {
+			if discovery, known := storage.GetDiscovery(noteID); known {
+				event = discovery.Event
+				hints = dedupe(append(hints, discovery.SourceRelays...))
+				author = discovery.Event.PubKey.Hex()
+			}
 		}
 		if req.Billboard != nil && active {
 			writeError(w, http.StatusConflict, "active notes can only be boosted with their existing appearance")
@@ -311,9 +340,20 @@ func PromoteHandler(storage *Storage, invoices *InvoiceManager, fetcher *PostFet
 		mintCtx, cancelMint := context.WithTimeout(r.Context(), promoteMintTimeout)
 		defer cancelMint()
 
+		var quoteAuthors []string
+		if req.Event != nil {
+			var err error
+			quoteAuthors, err = draftQuoteAuthors(mintCtx, storage, fetcher, req.Event)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
 		var invoice *Invoice
 		var err error
-		if req.Billboard != nil {
+		if req.Event != nil {
+			invoice, err = invoices.GenerateDraftInvoice(mintCtx, event, amount, req.Billboard, contact, req.AuthorShare, quoteAuthors)
+		} else if req.Billboard != nil {
 			invoice, err = invoices.GenerateBillboardInvoiceWithContact(mintCtx, noteID, amount, hints, author, req.Billboard, req.StyleOnly, event, contact, req.AuthorShare)
 		} else {
 			invoice, err = invoices.GeneratePromotionInvoiceWithContact(mintCtx, noteID, amount, hints, author, contact, "", event, req.AuthorShare)
@@ -388,6 +428,14 @@ func PromoteStatusHandler(storage *Storage, invoices *InvoiceManager) http.Handl
 			}
 		}
 
+		if root, exists := storage.accountPublication(originalPublicationKey(status.NoteID)); exists {
+			status.Publication = "pending"
+			if root.Cancelled {
+				status.Publication = "stopped"
+			} else if len(pendingRelayTargets(root)) == 0 {
+				status.Publication = "delivered"
+			}
+		}
 		writeJSON(w, http.StatusOK, status)
 	}
 }

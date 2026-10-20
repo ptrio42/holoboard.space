@@ -33,11 +33,23 @@ func PreviewHandler(storage *Storage, fetcher *PostFetcher, support ...*AuthorSu
 			return
 		}
 		var req struct {
-			Note string `json:"note"`
+			Note  string       `json:"note"`
+			Event *nostr.Event `json:"event,omitempty"`
 		}
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, draftRequestLimit)).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "body must contain a note reference")
 			return
+		}
+		if req.Event != nil {
+			if err := validateDraftEvent(req.Event, req.Note); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			if !draftAdmissionEnabled(storage, req.Event) {
+				writeError(w, http.StatusServiceUnavailable, "new post creation is disabled")
+				return
+			}
+			req.Note = req.Event.ID.Hex()
 		}
 		reference := req.Note
 		id := normalizeEventID(reference)
@@ -53,7 +65,7 @@ func PreviewHandler(storage *Storage, fetcher *PostFetcher, support ...*AuthorSu
 			writeError(w, http.StatusConflict, "this note was removed by the operator")
 			return
 		}
-		var event *nostr.Event
+		event := req.Event
 		var billboard *BillboardConfig
 		active := false
 		var sats, weight int64
@@ -73,6 +85,11 @@ func PreviewHandler(storage *Storage, fetcher *PostFetcher, support ...*AuthorSu
 					rank = entry.Rank
 					break
 				}
+			}
+		}
+		if event == nil {
+			if discovery, known := storage.GetDiscovery(id); known {
+				event = discovery.Event
 			}
 		}
 		if event == nil {
@@ -115,6 +132,9 @@ func PreviewHandler(storage *Storage, fetcher *PostFetcher, support ...*AuthorSu
 		if !storage.HasPost(id) && len(support) > 0 && support[0] != nil {
 			hints, _ := noteHints(reference)
 			share = support[0].campaignShare(r.Context(), event, share, hints)
+		}
+		if anonymousPost(event) {
+			share = 0
 		}
 		writeJSON(w, http.StatusOK, struct {
 			AuthorShare int              `json:"author_share"`

@@ -45,6 +45,11 @@ establish Nostr behavior or compatibility.
 
 ## Ground the message
 
+For the current audience, campaign direction and weekly time budget, read the
+[promotion plan](../../../docs/promotion-plan.md). Its editorial windows and
+working targets are planning choices, not measured results or publication
+authorization. Follow the current brief if it changes those choices.
+
 Read the relevant sections of the [project README](../../../README.md),
 [release notes](../../../CHANGELOG.md) and
 [product help](../../../web/src/components/Help/HelpContent.tsx). Check

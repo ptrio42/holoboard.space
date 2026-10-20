@@ -8,6 +8,16 @@ To run both parts together with Docker Compose, follow the
 Compose builds the non-root `standalone` image target. Fly builds the default
 `fly` target, which preserves `/root/data` and access to the existing volume.
 
+The optional Add to board release needs backend `ENABLE_POST_CREATION=true` and
+an independently reviewed [account service](../accounts/README.md) when email
+accounts are enabled. Deploy a compatible backend before enabling either frontend
+flag. A UI rollback may turn off fresh creation, but retain private invoice
+snapshots, `publish_original`, `quote_authors` and durable `original` publication
+records. Already issued invoices must still settle without browser credentials.
+Do not roll back to a backend that drops these records. Review the pinned Keycast
+configuration, recovery, real email delivery, export and revocation before
+production activation; the application has no formal upstream audit guarantee.
+
 ## What you need first
 
 - `flyctl`, and `fly auth login` on the account that will own the app

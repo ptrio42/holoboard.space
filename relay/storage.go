@@ -87,19 +87,22 @@ type PendingInvoice struct {
 	// is fetched again when the invoice settles, and by then the reference the
 	// person pasted is long gone; without these, a note findable before payment
 	// can be unfindable after it.
-	RelayHints   []string          `json:"relay_hints,omitempty"`
-	Author       string            `json:"author,omitempty"`
-	Billboard    *BillboardConfig  `json:"billboard,omitempty"`
-	BillboardFee int64             `json:"billboard_fee_sats,omitempty"`
-	StyleOnly    bool              `json:"style_only,omitempty"`
-	ActivityID   string            `json:"activity_id,omitempty"`
-	Event        *nostr.Event      `json:"event,omitempty"`
-	Contact      *PromotionContact `json:"contact,omitempty"`
-	SourceDMID   string            `json:"source_dm_id,omitempty"`
-	AuthorShare  *int              `json:"author_share,omitempty"`
+	RelayHints      []string          `json:"relay_hints,omitempty"`
+	Author          string            `json:"author,omitempty"`
+	Billboard       *BillboardConfig  `json:"billboard,omitempty"`
+	BillboardFee    int64             `json:"billboard_fee_sats,omitempty"`
+	StyleOnly       bool              `json:"style_only,omitempty"`
+	ActivityID      string            `json:"activity_id,omitempty"`
+	Event           *nostr.Event      `json:"event,omitempty"`
+	Contact         *PromotionContact `json:"contact,omitempty"`
+	SourceDMID      string            `json:"source_dm_id,omitempty"`
+	AuthorShare     *int              `json:"author_share,omitempty"`
+	QuoteAuthors    []string          `json:"quote_authors,omitempty"`
+	PublishOriginal bool              `json:"publish_original,omitempty"`
 }
 
 const (
+	accountPublicationOriginal = "original"
 	accountPublicationQuote    = "quote"
 	accountPublicationDeletion = "deletion"
 	accountPublicationReply    = "reply"
@@ -112,6 +115,7 @@ const (
 // yet. Cancelled quote records are retained as tombstones: without one, a note
 // removed and later restored would look new and receive a second quote.
 type AccountPublication struct {
+	Recipients []string     `json:"recipients,omitempty"`
 	Type       string       `json:"type"`
 	NoteID     string       `json:"note_id"`
 	Event      *nostr.Event `json:"event,omitempty"`
@@ -139,6 +143,8 @@ type Storage struct {
 	promotionRequesters map[string]string // promotional_reply_id -> command author pubkey
 	mentionWatermark    int64             // newest mention seen, so a restart does not skip the gap
 	dmWatermark         int64             // same, for DMs
+	curator             *curatorState
+	curatorUnavailable  bool
 	dataFile            string
 }
 
@@ -321,6 +327,13 @@ func (s *Storage) RemovePostWithDeletion(postID string, deletion *nostr.Event, t
 	wasRemoved := s.removed[postID]
 	s.removed[postID] = true
 
+	rootKey := originalPublicationKey(postID)
+	originalRoot, rootExists := s.accountPublications[rootKey]
+	if rootExists {
+		cancelled := cloneAccountPublication(originalRoot)
+		cancelled.Cancelled = true
+		s.accountPublications[rootKey] = cancelled
+	}
 	quoteKey := quotePublicationKey(postID)
 	originalQuote, quoteExists := s.accountPublications[quoteKey]
 	if !quoteExists {
@@ -365,6 +378,9 @@ func (s *Storage) RemovePostWithDeletion(postID string, deletion *nostr.Event, t
 			} else {
 				delete(s.accountPublications, deletionKey)
 			}
+		}
+		if rootExists {
+			s.accountPublications[rootKey] = originalRoot
 		}
 		return sats, fmt.Errorf("failed to save after removing post: %w", err)
 	}
@@ -680,6 +696,7 @@ func (s *Storage) save() error {
 		PromotionRequesters map[string]string                 `json:"promotion_requesters,omitempty"`
 		MentionWatermark    int64                             `json:"mention_watermark"`
 		DMWatermark         int64                             `json:"dm_watermark"`
+		Curator             *curatorState                     `json:"curator,omitempty"`
 	}{
 		Posts:               s.posts,
 		PendingInvoices:     s.pendingInvoices,
@@ -696,6 +713,7 @@ func (s *Storage) save() error {
 		PromotionRequesters: s.promotionRequesters,
 		MentionWatermark:    s.mentionWatermark,
 		DMWatermark:         s.dmWatermark,
+		Curator:             s.curator,
 	}
 
 	bytes, err := json.MarshalIndent(data, "", "  ")
@@ -735,6 +753,7 @@ func (s *Storage) load() error {
 		PromotionRequesters map[string]string                 `json:"promotion_requesters,omitempty"`
 		MentionWatermark    int64                             `json:"mention_watermark"`
 		DMWatermark         int64                             `json:"dm_watermark"`
+		Curator             *curatorState                     `json:"curator,omitempty"`
 	}
 
 	if err := json.Unmarshal(bytes, &data); err != nil {
@@ -804,6 +823,7 @@ func (s *Storage) load() error {
 
 	s.mentionWatermark = data.MentionWatermark
 	s.dmWatermark = data.DMWatermark
+	s.curator = data.Curator
 
 	return nil
 }

@@ -137,7 +137,7 @@ func (im *InvoiceManager) GeneratePromotionInvoiceWithContact(ctx context.Contex
 	if amountSats == 0 {
 		amountSats = im.defaultAmountSats
 	}
-	return im.generateInvoice(ctx, postID, amountSats, hints, author, nil, false, event, contact, sourceDMID, authorShare...)
+	return im.generateInvoice(ctx, postID, amountSats, hints, author, nil, false, event, contact, sourceDMID, false, authorShare...)
 }
 
 // GenerateBillboardInvoice reserves the style while minting. Only one live
@@ -147,6 +147,20 @@ func (im *InvoiceManager) GenerateBillboardInvoice(ctx context.Context, postID s
 }
 
 func (im *InvoiceManager) GenerateBillboardInvoiceWithContact(ctx context.Context, postID string, promotion int64, hints []string, author string, config *BillboardConfig, styleOnly bool, event *nostr.Event, contact *PromotionContact, authorShare ...*int) (*Invoice, error) {
+	return im.generateBillboardInvoice(ctx, postID, promotion, hints, author, config, styleOnly, event, contact, false, authorShare...)
+}
+
+type draftRoutingContextKey struct{}
+
+func (im *InvoiceManager) GenerateDraftInvoice(ctx context.Context, event *nostr.Event, amount int64, config *BillboardConfig, contact *PromotionContact, share *int, quoteAuthors []string) (*Invoice, error) {
+	ctx = context.WithValue(ctx, draftRoutingContextKey{}, append([]string(nil), quoteAuthors...))
+	if config != nil {
+		return im.generateBillboardInvoice(ctx, event.ID.Hex(), amount, nil, event.PubKey.Hex(), config, false, event, contact, true, share)
+	}
+	return im.generateInvoice(ctx, event.ID.Hex(), amount, nil, event.PubKey.Hex(), nil, false, event, contact, "", true, share)
+}
+
+func (im *InvoiceManager) generateBillboardInvoice(ctx context.Context, postID string, promotion int64, hints []string, author string, config *BillboardConfig, styleOnly bool, event *nostr.Event, contact *PromotionContact, publishOriginal bool, authorShare ...*int) (*Invoice, error) {
 	im.billboardMu.Lock()
 	defer im.billboardMu.Unlock()
 	if styleOnly || promotion <= 0 {
@@ -160,10 +174,10 @@ func (im *InvoiceManager) GenerateBillboardInvoiceWithContact(ctx context.Contex
 			return nil, fmt.Errorf("%w: a billboard invoice for this note is already waiting for payment", errBillboardConflict)
 		}
 	}
-	return im.generateInvoice(ctx, postID, promotion+billboardFeeSats, hints, author, config, styleOnly, event, contact, "", authorShare...)
+	return im.generateInvoice(ctx, postID, promotion+billboardFeeSats, hints, author, config, styleOnly, event, contact, "", publishOriginal, authorShare...)
 }
 
-func (im *InvoiceManager) generateInvoice(ctx context.Context, postID string, amountSats int64, hints []string, author string, config *BillboardConfig, styleOnly bool, event *nostr.Event, contact *PromotionContact, sourceDMID string, authorShare ...*int) (*Invoice, error) {
+func (im *InvoiceManager) generateInvoice(ctx context.Context, postID string, amountSats int64, hints []string, author string, config *BillboardConfig, styleOnly bool, event *nostr.Event, contact *PromotionContact, sourceDMID string, publishOriginal bool, authorShare ...*int) (*Invoice, error) {
 	memo := fmt.Sprintf("Promote Nostr post: %s", postID)
 	if config != nil {
 		memo = fmt.Sprintf("Holoboard: %d sats promotion + %d sats billboard: %s", amountSats-billboardFeeSats, billboardFeeSats, postID)
@@ -189,7 +203,10 @@ func (im *InvoiceManager) generateInvoice(ctx context.Context, postID string, am
 		PostID:      postID, Invoice: invoice.PaymentRequest, PaymentHash: invoice.PaymentHash,
 		AmountSats: invoice.AmountSats, CreatedAt: time.Now(), ExpiresAt: invoice.ExpiresAt,
 		RelayHints: hints, Author: author, Billboard: cloneBillboard(config), StyleOnly: styleOnly, Event: event,
-		Contact: contact, SourceDMID: sourceDMID,
+		Contact: contact, SourceDMID: sourceDMID, PublishOriginal: publishOriginal,
+	}
+	if publishOriginal {
+		pendingInvoice.QuoteAuthors, _ = ctx.Value(draftRoutingContextKey{}).([]string)
 	}
 	if config != nil {
 		pendingInvoice.BillboardFee = billboardFeeSats

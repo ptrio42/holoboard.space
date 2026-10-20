@@ -42,6 +42,12 @@ python3 ../.agents/skills/holoboard-verify-change/scripts/verify_change.py \
   --repo .. --profile readers --run
 ```
 
+For release preparation or production build-configuration changes, add
+`--pages-production` to include a build simulating Cloudflare Pages on `main`.
+It uses local mock endpoints and checks the source revision and compiled Reply
+chunk against the versioned feature profile, without deploying. Ordinary checks
+omit this extra build. See the skill for its scope and limitations.
+
 Use an explicit `--base <ref>` when verifying committed changes. Profile results
 cover local automated checks; see the linked release gates for device, production
 and interoperability checks. To check the runner itself, run its
@@ -532,6 +538,53 @@ that wallet. Real payments cost sats, so use a small explicit test budget.
    leave pending payments alone and retry only a confirmed failed attempt.
 6. Disconnect wallet and signer. Check that ordinary invoice links, copying
    and QR codes still work. Repeat the app-switching checks in the Android TWA.
+
+## Add to board
+
+`VITE_ENABLE_POST_CREATION=true` enables a shared text/link field in the main
+promotion action. A standalone `note1`, `nevent1`, `nostr:` URI, raw 64-character
+ID or exact `njump.me` note route selects the original. **Add a comment** switches
+to a new quote; removing the comment keeps that choice until **Use original**.
+Ordinary links, descriptions and text containing Nostr references create new
+posts. Arbitrary URLs containing a note identifier remain ordinary links.
+
+While writing, the editor loads the first ordinary link preview and first quote.
+A missing web preview leaves the post usable. Quoted sources must be verified
+before signing and invoicing. The signing payload canonicalizes Nostr references
+and includes distinct `q` tags; editor text and cursor remain unchanged. Payments,
+ranking, author support and discussion belong to the new quoted post, not its
+source. Billboard appearance uses the paid event's content.
+
+Signed-out authors create a guest post with a fresh in-memory key. **Save author
+key** optionally exports `nsec`; an unsaved key cannot be recovered after refresh
+or closing the editor. Signed invoice snapshots remain recoverable without it.
+Logged-in authors can explicitly choose **Post anonymously**. Guest posts label
+their own author **Anonymous** using signed NIP-32 tags in
+`space.holoboard.attribution`; public keys remain available in details. This
+self-report does not prove key freshness or anonymity from the operator or
+payment providers. Guest payments use 100% visibility and no account-bound
+notifications or public zap consent.
+
+**Review post** signs the exact post for the payment preview. It does not publish.
+The invoice stores that signed snapshot separately from the browser public
+outbox. Changing text prepares a different event while earlier invoices retain
+their own content, ID and payment attempts. Settlement commits the board entry
+and a durable root publication job on the backend. External relay delivery has
+its own status; it can continue after the payment result or browser closure.
+
+Email accounts have an independent `VITE_ENABLE_EMAIL_ACCOUNTS` flag and use the
+[self-hosted Keycast service](../accounts/README.md). Sign-in preserves the live
+editor and payment choices. The current Pages production configuration keeps
+both new features off. Backend `ENABLE_POST_CREATION=false` blocks new admission
+while preserving settlement, retries and recovery for already issued invoices.
+
+Browser acceptance uses local intercepted accounts, invoices and relays:
+
+```bash
+VITE_ENABLE_POST_CREATION=true VITE_ENABLE_EMAIL_ACCOUNTS=true \
+VITE_KEYCAST_URL=http://127.0.0.1:3100 CI=1 \
+npm run test:e2e -- tests/boardCreation.spec.ts --workers=1
+```
 
 ## Visual conventions
 

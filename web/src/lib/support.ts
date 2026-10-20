@@ -17,8 +17,8 @@ async function supportRequest(path: string, body: unknown, signal?: AbortSignal)
     if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "Author payment request failed.");
     return data;
 }
-export async function fetchAuthorEndpoint(note: string, signal?: AbortSignal): Promise<AuthorEndpoint> {
-    return await supportRequest("", { note }, signal) as unknown as AuthorEndpoint;
+export async function fetchAuthorEndpoint(note: string, signal?: AbortSignal, event?: Event): Promise<AuthorEndpoint> {
+    return await supportRequest("", { note, ...(event ? { event } : {}) }, signal) as unknown as AuthorEndpoint;
 }
 export function allocatePayment(total: number, authorShare: number): { promotion: number; author: number } {
     if (!Number.isSafeInteger(total) || total < 1 || !Number.isInteger(authorShare) || authorShare < 0 || authorShare > 99) throw new Error("Invalid payment allocation.");
@@ -30,7 +30,7 @@ export function totalForPromotion(promotion: number, authorShare: number): numbe
     while (total > 1 && allocatePayment(total-1, authorShare).promotion >= promotion) total--;
     return total;
 }
-export async function requestAuthorInvoice(note: string, amount: number, endpoint: AuthorEndpoint, publicZap: boolean, noteId: string, signal?: AbortSignal): Promise<AuthorInvoice> {
+export async function requestAuthorInvoice(note: string, amount: number, endpoint: AuthorEndpoint, publicZap: boolean, noteId: string, signal?: AbortSignal, event?: Event): Promise<AuthorInvoice> {
     let zap: Event | undefined;
     if (publicZap) {
         const signer = browserSigner();
@@ -39,7 +39,7 @@ export async function requestAuthorInvoice(note: string, amount: number, endpoin
         zap = await signer.signEvent(template);
         if (!verifyEvent(zap) || zap.kind !== template.kind || zap.content !== template.content || JSON.stringify(zap.tags) !== JSON.stringify(template.tags)) throw new Error("The signer changed the author payment request.");
     }
-    const invoice = await supportRequest("/invoice", { note, amount_sats: amount, ...(zap ? { zap_request: zap } : {}) }, signal);
+    const invoice = await supportRequest("/invoice", { note, ...(event ? { event } : {}), amount_sats: amount, ...(zap ? { zap_request: zap } : {}) }, signal);
     if (typeof invoice.invoice !== "string" || typeof invoice.payment_hash !== "string" || invoice.amount_sats !== amount || invoice.author !== endpoint.author) throw new Error("Incomplete author payment invoice.");
     return invoice as unknown as AuthorInvoice;
 }

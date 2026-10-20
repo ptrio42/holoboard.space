@@ -31,6 +31,47 @@ disconnect cancels the remaining lookups and closes their subscriptions and
 connections. When a reference carries neither relay hints nor an author, the
 note must be on a configured relay or in the board's existing storage and cache.
 
+## Private posts awaiting payment
+
+The opt-in creation flow adds an optional signed `event` to
+`POST /api/promote/preview`, `/api/promote`, `/api/support` and
+`/api/support/invoice`. `note` may be omitted with `event`; if supplied it must
+identify that exact event. Existing reference-only requests remain compatible.
+
+```json
+{"event": {"id":"...","pubkey":"...","kind":1,"created_at":0,"tags":[],"content":"...","sig":"..."}, "amount_sats":210, "author_share":0}
+```
+
+The example abbreviates cryptographic values; callers must provide a complete,
+valid signature and computed ID. Limits are 128 KiB per JSON request, 16 KiB of
+nonempty text, 256 tags and 32 distinct verified quotes. New root posts use kind 1
+and `q` tags rather than thread `e`/`E` tags. Quote authors are checked against
+verified source events before invoice preparation. Unsupported or mismatched
+snapshots return HTTP 400. `ENABLE_POST_CREATION=false` returns 503 for fresh
+admission but permits supplied snapshots belonging to existing invoice sessions.
+
+Private preview events do not enter the shared ID cache. An ID alone cannot
+retrieve an unpaid invoice snapshot through preview, board HTTP or Nostr reads.
+No public zap request for a new private post is forwarded to the author's wallet;
+ordinary private author-support invoices remain available. Missing profiles remain
+`unavailable`, distinct from a signed profile confirming `no_address`.
+
+Guest attribution is self-reported by the author's signed
+`["L","space.holoboard.attribution"]` and
+`["l","anonymous","space.holoboard.attribution"]` tags
+([NIP-32](https://github.com/nostr-protocol/nips/blob/master/32.md#self-reporting)).
+It requires explicit `author_share:0` and no account notification recipient.
+No payer boolean can rename another signed author. The label is application
+semantics, not proof of anonymity or key freshness.
+
+Invoice settlement atomically adds visibility and a durable original publication.
+The original must be accepted by each destination before that destination receives
+the Holoboard quote, including destinations added by later routing. Retry keeps
+the same IDs; duplicate settlements cannot add credit twice. Operator removal
+stops pending root and quote delivery. Already public originals cannot be erased
+by the Holoboard account. Status responses add optional `publication`:
+`pending`, `delivered` or `stopped`, independently of `settled`.
+
 ## Preview a page link
 
 `GET /api/link-preview?url=<encoded HTTP(S) URL>`
@@ -214,6 +255,31 @@ earliest available payment, or the last paid time if no history exists. New
 campaigns persist a separate first paid timestamp. Existing public quotes keep
 their original tags.
 
+### Include discoveries
+
+Append `include_discoveries=true` to opt into discovery metadata. For `view=new`,
+`entries` becomes a union of paid campaigns and unranked discoveries, ordered
+by `first_visible_at` (Unix seconds). A discovery's original first appearance
+is retained if someone later promotes it. Paid entries in TOP 21 remain outside
+the waiting room.
+
+An unranked entry has `entry_type: "discovery"`, `id`, the signed original
+`event`, `first_visible_at` and `discovery`. It omits `rank`, `weight`, `sats_paid`
+and other promotion ledger fields. The `discovery` object contains `reason`,
+`topic`, `language`, `expires_at` (Unix seconds), `reward_sats` and `reward_status`.
+Statuses are `pending`, `preparing`, `sending`, `uncertain`, `paid`, `failed` and
+`unavailable`. Only `paid` means the reward is confirmed. The amount is an author
+reward, never paid visibility. Private invoice and wallet data are not exposed.
+
+Paid entries in mixed New use `entry_type: "promotion"` and retain their existing
+ledger fields. They can carry historical `discovery` metadata. Unpaid discoveries
+leave active New after seven days; their history and reward journal are retained.
+
+Opted-in responses for any view add `waiting_posts`, counting the deduplicated
+union of paid waiting notes and active unranked discoveries. `active_posts` and
+`total_sats` remain paid-only. Without the opt-in parameter, existing response
+and sorting semantics are unchanged.
+
 ## Prepare direct author support
 
 `POST /api/support` with `{"note": "<note reference>"}` returns `available`,
@@ -316,3 +382,110 @@ do not affect this definition. Old notes dropping from TOP 21 are not new.
 Omitting `since` returns an empty result and the server checkpoint for an initial
 visit. Negative, malformed or future timestamps return HTTP 400. Responses use
 `Cache-Control: no-store`; no visit history is stored on the server.
+
+Append `include_discoveries=true` to count first discovery appearances as well.
+An originally discovered note does not become new again when it receives its
+first promotion. All cursor timestamps remain Unix milliseconds.
+
+## Operate the discovery curator
+
+These endpoints require `Authorization: Bearer <CURATOR_TOKEN>`, a dedicated
+token that cannot remove posts or change modes. They use `Cache-Control: no-store`.
+See the [runner guide](../curator/README.md) for configuration and scheduling.
+
+`GET /api/curator/candidates` returns `batch_id`, up to 50 `candidates`, `policy`,
+`recent_selections`, `mode`, `completed` and partial `collection` coverage.
+Selection visits distinct authors before taking additional notes from an author;
+a per-slot seeded hash rotates the sample without preferring low event IDs.
+Each candidate includes the complete signed `event`, `source_relays` and
+`first_seen_at` (RFC 3339). Batches are persisted snapshots, expire after 24 hours
+and are issued once per UTC twelve-hour slot. Repeated requests return the same
+batch; a completed batch returns an empty candidate list. Empty batches should
+be skipped without a model call.
+
+`POST /api/curator/decisions` accepts:
+
+```json
+{
+  "run_id": "<stable unique run ID>",
+  "batch_id": "<issued batch ID>",
+  "decisions": [{
+    "note_id": "<candidate event ID>",
+    "selected": true,
+    "reason": "An original practical account worth reading.",
+    "topic": "community",
+    "language": "en",
+    "confidence": 0.85,
+    "reward_sats": 100
+  }]
+}
+```
+
+The request contains 1 to 50 distinct candidates from that batch. Unknown JSON
+fields and unknown or duplicate candidate IDs are rejected. Selected entries
+need a reason of 1 to 280 characters, confidence between 0.7 and 1, a language,
+one advertised topic and a reward tier of 21, 100 or 500 sats. The server applies
+its own admission, history, topic and budget checks under the storage lock.
+
+The response contains `run_id`, `mode`, `published`, `proposed` and `rejected`
+(each rejection has `note_id` and `reason`). Dry-run results only fill `proposed`;
+they never create a public placement or invoice. Repeating the same run and
+payload returns its original result, including after pause or batch expiry.
+Conflicting replay returns 409. The pilot retains at most 512 permanent compact
+run records; reaching that capacity blocks new runs while preserving replay.
+When human review is enabled (the default), active-fund selections also fill
+`proposed` and wait in the private review queue. They are absent from public
+feeds and the wallet worker until approval.
+
+`GET /api/curator/status` returns the mode, dry-run start and completed-day count,
+pilot timestamps, spending eligibility, reserved principal sats, record counts,
+policy and partial collection outcomes. `recent_proposals` contains up to 21
+dry-run originals and editorial reasons for private review, without payment
+credentials or invoice records. Network coverage describes the selected public
+sources only; successful queries do not establish network-wide completeness.
+The status also reports `review_required` and `pending_reviews`.
+
+`GET /api/admin/curator/review?offset=0` uses **CURATOR_REVIEW_TOKEN**, a scoped
+reviewer credential different from both agent and general admin credentials.
+It returns `review_required`, `mode`, `spending_allowed`, daily limits,
+`pending_count`, `offset` and up to 21 `items`. Each item includes `note_id`,
+`review_id`, the complete signed `event`, reason, topic, language, confidence,
+`reward_sats`, creation/expiry timestamps, and `dry_run` and `published` flags.
+It excludes invoices, wallet identities and payment-attempt records.
+
+`POST /api/admin/curator/review` accepts one of:
+
+```json
+{"action":"set_review","review_required":true}
+```
+
+```json
+{"action":"approve","note_id":"<event ID>","review_id":"<proposal ID>","reward_sats":100}
+```
+
+```json
+{"action":"reject","note_id":"<event ID>","review_id":"<proposal ID>"}
+```
+
+Approval binds the exact proposal and amount, rechecks current eligibility and
+budgets, and atomically admits the original and its pending reward. Repeated
+identical approvals or rejections return the existing result; conflicting or
+expired decisions return 409. Dry-run approval only marks the private proposal
+reviewed, even if the fund has subsequently been activated. New proposals expire
+after seven days; active review records are bounded to 100 and retained for up
+to 30 days. Turning review off does not release queued proposals. Turning it on
+also gates unattempted automatic rewards; already started payments are still
+reconciled. The reviewer cannot activate the fund. Unknown fields are rejected.
+
+`POST /api/admin/curator` uses **ADMIN_TOKEN**, not CURATOR_TOKEN, and accepts
+`{"mode":"disabled"}`, `{"mode":"dry_run"}` or `{"mode":"active"}`.
+Initial activation requires seven distinct UTC days with completed nonempty
+dry-run decisions, at least seven elapsed days, a persistent relay identity,
+valid separate curator credentials and a configured reward-wallet connection.
+Activation establishes one durable 30-day pilot deadline. Pause, resume and
+restart do not extend it; an expired pilot cannot be reactivated through this API.
+
+Malformed requests return 400, invalid credentials 401, mode/policy/replay
+conflicts 409, expired batches 410, and initialization failure 503. Failed
+storage writes do not admit a discovery or start a payment. Mode changes stop
+new sends; they cannot cancel an already initiated wallet payment.
