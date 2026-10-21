@@ -4,7 +4,8 @@ Private TypeScript packages for an embeddable account handler and future service
 and client SDK. The server implements email registration, verification, login,
 fixed seven-day database sessions, logout and password recovery through Better
 Auth, plus optional encrypted stable author identities, bounded kind-1 signing
-and explicit password-confirmed key export. The runnable service and client
+and explicit password-confirmed key export. Custody installations include a
+durable encrypted mail outbox with an explicit delivery worker. The runnable service and client
 transport remain pending.
 See the [account contract](../docs/accounts-design.md).
 
@@ -24,8 +25,12 @@ npm run build
 ```
 
 Tests use temporary private SQLite files and captured mail, with serial Node test
-files to limit native hashing memory. Builds emit ESM and declarations to each
-package's `dist`. The server package also includes reviewed `migrations/0001.sql` and `0002.sql`, loaded
+files to limit native hashing memory. Recovery tests use real loopback HTTPS,
+separate cookie jars, an ephemeral OpenSSL certificate pinned by each client, and
+a separate Node process for persistence checks. They require `openssl` and local
+listen permission. They do not send external mail or establish native mobile
+compatibility. Builds emit ESM and declarations to each
+package's `dist`. The server package also includes reviewed migrations `0001.sql` through `0003.sql`, loaded
 relative to either source or emitted JavaScript.
 
 | Package | Responsibility | Runtime dependencies |
@@ -47,16 +52,50 @@ and backups separate from public caches. Drain requests before `close()`.
 
 The factory accepts `databasePath`, HTTPS origin `baseURL`, optional `basePath`
 (default `/v1/auth`), a random authentication `secret` of at least 32 characters,
-exact HTTPS `trustedOrigins`, fixed trusted `returnURLs`, and a private `mail`
-adapter. The mail adapter receives `{ kind, email, url, token }` and an AbortSignal;
-it must avoid logging message data and honor cancellation. External delivery runs
-in the background, with a five-second maximum deadline and eight retained provider
-slots even if an adapter ignores its signal. Provider errors, deadlines and full
-capacity never enter authentication responses or logs. `mailTimeoutMs` can shorten
-the deadline. This slice has no durable mail outbox: messages may be lost on process
-exit or when capacity is full, and acceptance does not promise delivery. The
-durable outbox must await local enqueue before acceptance while keeping external
-provider completion independent. Retry/outbox acceptance is pending.
+exact HTTPS `trustedOrigins`, fixed trusted `returnURLs`, and an optional private
+`mail` adapter. No external provider is configured by default. The adapter receives
+`{ kind, email, url, token, expiresAt }` and an AbortSignal; it must avoid logging
+message data or raw provider errors and honor cancellation. `mailTimeoutMs`
+defaults to 5000 and can shorten the provider deadline.
+
+Custody automatically enables the encrypted outbox. Authentication callbacks await
+local enqueue before returning, while external delivery only happens through
+`await server.mailOutbox.drain()`. Schedule this private worker regularly, including
+when no transport is configured so expired rows are removed. The worker processes
+at most 16 messages per call, one provider call at a time. An adapter that ignores
+cancellation retains that single slot until it settles. Stop accepting work and
+drain the worker before `server.close()`; close rejects while delivery is active.
+The library does not start a timer or expose a public mailbox endpoint.
+
+Each message has a unique immutable ID and a JWE payload containing its recipient,
+kind, token, URL and exact link expiry. Encryption reuses the independently supplied
+custody keyring with the distinct `account-mail` purpose and installation/message
+binding. Neither password changes nor recovery change encryption keys. Keep old
+keys until their queued messages and retained backups no longer need them. Plaintext
+is confined to bounded transient work; JavaScript cannot guarantee zeroization.
+
+`mailOutbox: { maxMessages, maxBytes }` optionally lowers or raises the default
+1024-message, 4 MiB ciphertext limits (maximum 10000 messages and 16 MiB). Individual
+plaintext messages are limited to 16 KiB. Failures retry with exponential backoff
+starting at one second, capped at one minute, for at most five attempts. Claims use
+persisted leases lasting the provider deadline plus one second; a crashed worker's
+lease must expire before retry. Delivery is at least once: a crash after provider
+acceptance and before local deletion can produce a duplicate. Invalid ciphertext
+and exhausted retries remain encrypted until link expiry, then are purged. This is
+a single-server/writer design, not a distributed delivery queue.
+
+`server.mailOutbox.status()` returns only private operator counts, byte totals,
+transport availability and a process-local enqueue-failure count. Per-message
+retry records contain fixed error codes, never provider text. Keep these diagnostics
+behind operator access, outside anonymous APIs. Queue saturation or local enqueue
+failure preserves eligibility-neutral `202 { accepted: true }` responses and
+increments that private failure count. Acceptance is neither proof of local queue
+commit nor a delivery guarantee. Operators must monitor failures; users can retry
+the generic verification or recovery request. Malformed requests still return 400.
+
+Without custody, the earlier auth-only compatibility mode remains bounded
+best-effort delivery with eight provider slots and no restart guarantee. Full account
+service integrations must configure custody and use its encrypted outbox.
 
 Mount only `server.handler(request, { peerAddress })`. Supply the peer from the
 transport socket, never forwarding headers. The handler validates its configured
@@ -210,9 +249,15 @@ The pinned source review covers `api/routes/session`, `password`, `sign-up`,
 adapter in Better Auth 1.7.12. Its raw better-sqlite3 adapter enables transactions;
 reset consumes its database verification record, updates credentials and revokes
 sessions within `runWithTransaction` when `revokeSessionsOnPasswordReset` is set.
+Reset identifiers use native `verification.storeIdentifier: "hashed"`; raw reset
+tokens are absent from verification rows. The pinned native adapter supplies the
+exact reset-record expiry for queued mail. Tests prove one concurrent reset winner
+and inject a SQLite credential-update failure to check rollback of token
+consumption, password update and all-session revocation, then reuse the same link
+successfully. Unknown framework errors are rethrown into the sanitized facade,
+preventing the router console fallback from printing private database errors.
 Email verification itself uses signed expiring JWTs and can be repeated without
-creating a session. Atomic reset under injected failure and concurrency remains
-separate acceptance. Native password change recreates a session, so it stays
+creating a session. Native password change recreates a session, so it stays
 unexposed until adapted to the all-sessions-revoked contract. The supported
 server-only `auth.api.verifyPassword` is not mounted. No internal npm file imports
 are used. See upstream [sessions](https://better-auth.com/docs/concepts/session-management)

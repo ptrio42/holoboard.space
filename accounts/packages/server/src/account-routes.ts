@@ -8,11 +8,14 @@ import type { RequestLimit } from "./limits.ts";
 import { createIdentityStore, createSerialExecutor, custodyInstallation } from "./identities.ts";
 import type { CustodyConfiguration, IdentityStore } from "./identities.ts";
 import { createIdentityRoutes } from "./identity-routes.ts";
+import { createMailOutbox } from "./mail-outbox.ts";
+import type { MailOutboxConfiguration } from "./mail-outbox.ts";
 import type { SigningPolicy } from "./policy.ts";
 
 export interface AccountServerConfiguration extends AuthConfiguration {
   databasePath: string;
   custody?: CustodyConfiguration;
+  mailOutbox?: MailOutboxConfiguration;
   signingPolicy?: SigningPolicy;
   explicitExportEnabled?: boolean;
   requestLimit?: RequestLimit;
@@ -83,7 +86,12 @@ export function createAccountServer(config: AccountServerConfiguration) {
     if (config.custody) identities = createIdentityStore(db, config.custody);
   } catch (error) { db.close(); throw error; }
   const serial = config.custody ? createSerialExecutor() : <T>(operation: () => Promise<T>) => operation();
-  const auth = createAuthentication(config, db);
+  let outbox: ReturnType<typeof createMailOutbox> | undefined;
+  try {
+    if (config.mailOutbox && !config.custody) throw new Error("Mail outbox requires custody encryption configuration");
+    if (config.custody) outbox = createMailOutbox(db, { installationId: config.custody.installationId, ...config.custody.encryption }, serial, config.mailOutbox, config.mail, config.mailTimeoutMs);
+  } catch (error) { db.close(); throw error; }
+  const auth = createAuthentication(config, db, outbox?.enqueue);
   let initialReadiness: Promise<void> | undefined;
   const ensureInitialReadiness = (): Promise<void> => {
     initialReadiness ??= identities?.assertReady().catch((error: unknown) => { initialReadiness = undefined; throw error; }) ?? Promise.resolve();
@@ -238,11 +246,12 @@ export function createAccountServer(config: AccountServerConfiguration) {
 
   return {
     handler,
+    mailOutbox: outbox?.worker,
     /** Full cryptographic reconciliation before accepting transport traffic/after restore. */
     ready: () => serial(async () => { await identities?.assertReady(); initialReadiness = Promise.resolve(); }),
     requireAccount: (request: Request) => serial(() => requireAccount(request)),
     verifyPassword: (request: Request, password: string) => serial(() => verifyPassword(request, password)),
-    close() { db.close(); },
+    close() { outbox?.assertIdle(); db.close(); },
   };
 }
 

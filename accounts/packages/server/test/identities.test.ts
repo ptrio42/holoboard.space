@@ -201,6 +201,7 @@ test("private-route custody uses only a live verified login before provisioning"
     assert.equal((await request("/v1/auth/sign-in/email", { email: "reader@example.test", password })).status, 403);
     const db = new Database(databasePath);
     try { assert.equal((db.prepare("SELECT COUNT(*) AS count FROM author_identity").get() as { count: number }).count, 0); } finally { db.close(); }
+    await app.mailOutbox!.drain();
     await app.handler(new Request(mail[0]!.url));
     const login = await request("/v1/auth/sign-in/email", { email: "reader@example.test", password });
     cookie = login.headers.getSetCookie().find((value) => value.startsWith("__Secure-better-auth.session_token="))!.split(";", 1)[0]!;

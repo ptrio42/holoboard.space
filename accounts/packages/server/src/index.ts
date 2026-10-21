@@ -10,3 +10,5 @@ export type { CustodyConfiguration, IdentityStore, AccountIdentity } from "./ide
 export { createKeyEncryption } from "./key-encryption.ts";
 export type { KeyEncryptionConfiguration } from "./key-encryption.ts";
 export type { SigningPolicy } from "./policy.ts";
+
+export type { MailOutboxConfiguration, MailOutboxWorker, MailOutboxStatus } from "./mail-outbox.ts";

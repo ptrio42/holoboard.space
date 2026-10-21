@@ -8,7 +8,7 @@ export function initializeAccountDatabase(path: string): void {
   try {
     db = new Database(path);
     db.pragma("foreign_keys = ON");
-    const migrations = ["0001.sql", "0002.sql"].map((file) => readFileSync(new URL(`../migrations/${file}`, import.meta.url), "utf8"));
+    const migrations = ["0001.sql", "0002.sql", "0003.sql"].map((file) => readFileSync(new URL(`../migrations/${file}`, import.meta.url), "utf8"));
     db.transaction(() => { for (const sql of migrations) db!.exec(sql); })();
   } catch (error) {
     db?.close();
@@ -22,7 +22,7 @@ export function openAccountDatabase(path: string): Database.Database {
   try {
     db.pragma("foreign_keys = ON");
     const row = db.prepare("SELECT version FROM account_schema").get() as { version?: number } | undefined;
-    if (row?.version !== 2) throw new Error("Unsupported account database schema");
+    if (row?.version !== 3) throw new Error("Unsupported account database schema");
     return db;
   } catch (error) { db.close(); throw error; }
 }

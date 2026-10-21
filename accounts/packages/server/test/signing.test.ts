@@ -27,7 +27,9 @@ async function setup(options: Record<string, unknown> = {}) {
   });
   const db = new Database(databasePath);
   async function request(path: string, body?: unknown, cookie = "", headers: Record<string, string> = {}) {
-    return app.handler(new Request(`${baseURL}${path}`, { method: body === undefined ? "GET" : "POST", headers: { origin, ...(cookie ? { cookie } : {}), ...(body === undefined ? {} : { "content-type": "application/json" }), ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }));
+    const response = await app.handler(new Request(`${baseURL}${path}`, { method: body === undefined ? "GET" : "POST", headers: { origin, ...(cookie ? { cookie } : {}), ...(body === undefined ? {} : { "content-type": "application/json" }), ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }));
+    await app.mailOutbox!.drain();
+    return response;
   }
   async function login(email = "reader@example.test", currentPassword = password) {
     const response = await request("/v1/auth/sign-in/email", { email, password: currentPassword });
