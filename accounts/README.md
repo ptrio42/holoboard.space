@@ -1,15 +1,14 @@
 # Accounts workspace
 
-Private, independent TypeScript packages for an embeddable account service and
-client SDK. This scaffold defines package boundaries only. Account routes,
-storage, mail, custody and HTTP startup are not implemented. The service entry
-point is intentionally inert. See the [account contract](../docs/accounts-design.md)
-for required behavior and remaining acceptance.
+Private TypeScript packages for an embeddable account handler and future service
+and client SDK. The server implements email registration, verification, login,
+fixed seven-day database sessions, logout and password recovery through Better
+Auth. Custody, signing, the runnable service and client transport remain pending.
+See the [account contract](../docs/accounts-design.md).
 
 Use Node.js **24.22.1** and npm **11.19.1**, pinned in `.nvmrc`, `engines` and
 `packageManager`. Node 24 is an LTS line in the
 [official support schedule](https://github.com/nodejs/Release#release-schedule).
-The selected patch is listed in the [official release index](https://nodejs.org/dist/index.json).
 Changing runtime or native dependencies requires another packaging check.
 
 ```sh
@@ -22,35 +21,100 @@ npm test
 npm run build
 ```
 
-`check` checks each package independently. `build` emits declarations and ESM to
-separate package-local `dist` directories. `test` discovers `test/*.test.ts` in
-each package and runs native Node tests with
-`node --experimental-strip-types --test test/*.test.ts`. Until behavioral tests
-exist, it explicitly reports their absence and does not manufacture passing
-cases. A successful scaffold command is not account acceptance.
+Tests use temporary private SQLite files and captured mail, with serial Node test
+files to limit native hashing memory. Builds emit ESM and declarations to each
+package's `dist`. The server package also includes `migrations/0001.sql`, loaded
+relative to either source or emitted JavaScript.
 
 | Package | Responsibility | Runtime dependencies |
 | --- | --- | --- |
-| `@holoboard/accounts-server` | Shared HTTP handler boundary, future account and custody implementation | Better Auth, SQLite, Argon2, JOSE, Nostr |
-| `@holoboard/accounts-client` | Shared signer boundary, future transport and SDK | `nostr-tools` only |
-| `@holoboard/accounts-service` | Future configuration and HTTP lifecycle around the server library | Server package only |
+| `@holoboard/accounts-server` | Account handler, private persistence and future custody | Better Auth, SQLite, Argon2, JOSE, Nostr |
+| `@holoboard/accounts-client` | Signer types; transport and SDK pending | `nostr-tools` only |
+| `@holoboard/accounts-service` | Configuration and HTTP lifecycle pending | Server package only |
 
-The client compiles with ES2024 libraries and no Node or DOM ambient types. Its
-current emitted JavaScript has no imports; its declaration imports only event
-types from `nostr-tools/pure`. It has no server-package, database, password,
-key-storage, React or browser-global dependency. It currently exposes types,
-not a working account client. Workspace hoisting does not define the consumer's
-dependency graph: install the client artifact separately when checking this
-boundary. No existing web, curator or Go dependency graph is changed.
+The client has no server-package, database, password, key-storage, React or
+browser-global dependency. Its separate installation boundary was checked during
+scaffolding. No existing web, curator or Go dependency graph is changed.
 
-Scaffold verification on the pinned macOS x64 runtime: workspace `check` and
-`build` completed successfully. `test` completed with **zero behavioral tests**,
-explicitly reported for all three packages. Native dependency imports and an
-in-memory SQLite query succeeded. A locally packed client was installed in a
-separate temporary npm project, using the package cache and no install scripts;
-its import succeeded and its locked dependency graph contained no server,
-Better Auth, SQLite, Argon2 or JOSE packages. These checks do not verify an
-account flow, browser transport or native cookie storage.
+## Embedding and HTTP
+
+Call `initializeAccountDatabase(path)` explicitly for a new installation. It
+creates a mode-0600 file and refuses existing paths. `createAccountServer(config)`
+opens an existing schema without applying migrations. Keep its directory private
+and backups separate from public caches. Drain requests before `close()`.
+
+The factory accepts `databasePath`, HTTPS origin `baseURL`, optional `basePath`
+(default `/v1/auth`), a random authentication `secret` of at least 32 characters,
+exact HTTPS `trustedOrigins`, fixed trusted `returnURLs`, and a private `mail`
+adapter. The mail adapter receives `{ kind, email, url, token }` and an AbortSignal;
+it must avoid logging message data and honor cancellation. Mail has a five-second
+maximum deadline and bounded capacity even if an adapter ignores its signal.
+`mailTimeoutMs` can shorten the deadline. This slice has no durable mail outbox;
+an accepted response does not promise delivery. Retry/outbox acceptance is pending.
+
+Mount only `server.handler(request, { peerAddress })`. Supply the peer from the
+transport socket, never forwarding headers. The handler validates its configured
+URL origin; a future HTTP adapter must construct URLs from trusted configuration,
+without trusting Host or forwarded protocol headers. Secure cookies require HTTPS.
+Native clients use a cookie jar and explicitly send the configured web Origin for
+mutations. The server does not accept a missing mutation Origin.
+
+| Actual path, relative to `/v1/auth` | Method and native fields | Result |
+| --- | --- | --- |
+| `/sign-up/email` | POST `email`, `password`, `name`, optional `callbackURL` | `202 { accepted: true }`, no session |
+| `/send-verification-email` | POST `email`, optional `callbackURL` | Generic `202` |
+| `/verify-email` | GET `token`, optional `callbackURL` | Verification result or redirect, no automatic login |
+| `/sign-in/email` | POST `email`, `password`, optional `callbackURL` | Native user and redirect fields, session only in cookie |
+| `/get-session` | GET with cookie | Native `{ user, session }` or `null`, session token removed |
+| `/request-password-reset` | POST `email`, optional `redirectTo` | Generic `202` |
+| `/reset-password` | POST `token`, `newPassword` | Native `{ status: true }`, revoke sessions |
+| `/sign-out` | POST `{}` with cookie | Native success and all deletion cookies |
+
+Return URLs match the entire configured URL, including path; extra query strings
+and sibling paths are rejected. Missing return URLs use the first configured page.
+Recovery mail links directly to that page with a token; the native reset callback
+route is not public. Application pages must remove consumed tokens from navigation.
+See [the exact wire and error boundary](../docs/accounts-design.md#implemented-authentication-slice).
+
+`requestLimit` defaults to 60 requests per minute globally and per trusted peer;
+`sensitiveLimit` defaults to five password checks per account per minute and five
+attempts per normalized email per authentication operation per minute. Email
+limiter keys are HMAC digests and remain bounded in memory. Both
+are bounded in-memory limits per factory instance, not a distributed quota. The
+handler bounds input to 64 KiB, headers and URLs to 8 KiB, eight concurrent
+requests and a 15-second response deadline. Body reads have a five-second deadline.
+Argon2id uses 19 MiB, two passes, one lane and at most two concurrent hashes or
+verifications, without an unbounded queue. These are initial operator parameters,
+not deployment benchmarks. Requests admitted before a timeout may still complete;
+capacity remains occupied until the underlying operation settles.
+
+The server-only `requireAccount(request)` returns our minimal `AccountSession`
+from a live database session. `verifyPassword(request, password)` applies its own
+account limit before the supported Better Auth verifier. Neither is a public
+endpoint. `privateRoutes` extends the same protected ingress for future identity
+routes, passing only session-derived authority; each extension must validate its
+own body fields and signing policy.
+
+## Better Auth integration review
+
+Only the eight reviewed native routes above are mounted. Better Auth origin and
+CSRF checks remain enabled. The narrow response adapter removes JSON session
+tokens, maps errors and registration/recovery responses, and preserves every
+`Set-Cookie` header. Cookies are Secure, HttpOnly, SameSite=Lax and host-only.
+Session refresh and cookie cache are disabled; no secondary storage is configured.
+
+The pinned source review covers `api/routes/session`, `password`, `sign-up`,
+`email-verification`, `update-user`, `cookies`, `utils/password` and the Kysely
+adapter in Better Auth 1.7.12. Its raw better-sqlite3 adapter enables transactions;
+reset consumes its database verification record, updates credentials and revokes
+sessions within `runWithTransaction` when `revokeSessionsOnPasswordReset` is set.
+Email verification itself uses signed expiring JWTs and can be repeated without
+creating a session. Atomic reset under injected failure and concurrency remains
+separate acceptance. Native password change recreates a session, so it stays
+unexposed until adapted to the all-sessions-revoked contract. The supported
+server-only `auth.api.verifyPassword` is not mounted. No internal npm file imports
+are used. See upstream [sessions](https://better-auth.com/docs/concepts/session-management)
+and [password reset](https://better-auth.com/docs/authentication/email-password#revoking-sessions-on-password-reset).
 
 ## Pinned dependencies and platforms
 
@@ -97,70 +161,3 @@ Better Auth's recent
 and [OAuth Proxy advisory](https://github.com/better-auth/better-auth/security/advisories/GHSA-r4xp-prcw-77qf)
 are patched in 1.7.7, before this pin. These plugins are outside the initial flow.
 An advisory check is time-bound evidence, not a security audit.
-
-## Better Auth 1.7.12 integration findings
-
-The following are source findings from the installed release, not tested account
-behavior. Paths below are relative to `accounts`; npm hoisting may move files
-on a future install. Public imports must use supported package exports instead
-of these implementation paths.
-
-- **Sessions:** `packages/server/node_modules/better-auth/dist/api/routes/session.mjs`
-  reads the database when cookie cache is disabled.
-  `session.disableSessionRefresh: true`, `expiresIn: 604800` and
-  `cookieCache.enabled: false` express the fixed seven-day policy. Do not
-  configure secondary storage. Sensitive middleware performs an authoritative
-  session read. Account status must still be checked by our identity routes.
-- **Reset transaction:** `dist/api/routes/password.mjs` calls
-  `dist/utils/password.mjs`'s `resetCredentialPassword`, which wraps token
-  consumption, optional session deletion and credential update in
-  `runWithTransaction`. Enable `emailAndPassword.revokeSessionsOnPasswordReset`.
-  Database verification records and database sessions are required for rollback;
-  secondary-storage token consumption cannot roll back. The `onPasswordReset`
-  callback runs after the helper completes and must not own critical revocation.
-- **SQLite transactions:** `node_modules/@better-auth/kysely-adapter/dist/index.mjs`
-  detects a raw `better-sqlite3` instance through its `aggregate` method and sets
-  `transaction: true`. `dist/db/adapter-kysely.mjs` passes that to the adapter.
-  If supplying a `{ db, type }` or `{ dialect, type }` configuration instead,
-  explicitly set `transaction: true`; those forms propagate the configured flag.
-  Kysely runs the callback on its transaction object. Failure injection and
-  concurrent reset-token tests are still required before claiming atomic reset.
-- **Mail and passwords:** `node_modules/@better-auth/core/dist/types/init-options.d.mts`
-  declares `emailVerification.sendVerificationEmail` and
-  `emailAndPassword.sendResetPassword` callbacks with `{ user, url, token }` and
-  an optional Request. `emailAndPassword.password.hash/verify` supports an
-  Argon2id adapter. No mail transport or hash parameters are configured yet.
-  Set `autoSignIn: false`, `requireEmailVerification: true` and verification's
-  `autoSignInAfterVerification: false` during integration.
-- **Export password verification:** `dist/api/routes/password.mjs` defines
-  `verifyPassword` with `metadata.scope: "server"` and sensitive-session middleware.
-  The supported server API is `auth.api.verifyPassword({ body: { password }, headers })`.
-  It checks the credential hash belonging to the live session user through the
-  configured verifier. Keep it behind our private export adapter and limits;
-  never add `/verify-password` to the public route allowlist.
-- **Response privacy:** `dist/api/routes/sign-in.mjs` returns the session token
-  in JSON as well as a cookie; session-list/read responses also need review.
-  `dist/api/dispatch.mjs` lets after-hooks replace `context.returned` while
-  preserving accumulated response headers. Plugin `onResponse` in
-  `dist/api/index.mjs` can also replace the final Response. Redact credentials
-  through a narrow integration hook, preserve every `Set-Cookie` header, and
-  retain expiration/deletion attributes. `dist/cookies/index.mjs` sets HttpOnly,
-  SameSite=Lax and conditional Secure; cross-subdomain cookies are opt-in.
-  Configure secure, host-only cookies for HTTPS. No redaction is implemented yet.
-- **Ingress:** the HTTP router applies its request limiter in `dist/api/index.mjs`;
-  direct `auth.api` dispatch does not pass through that limiter. Our public chain
-  still needs body limits, exact origin policy, JSON-only mutations, no-store,
-  error mapping and independent limits for internal sensitive calls. Mount only
-  reviewed routes, preserving framework origin and CSRF checks.
-- **Password change mismatch:** `dist/api/routes/update-user.mjs` revokes sessions
-  and changes the password transactionally when `revokeOtherSessions` is true,
-  then creates a replacement session and returns its token/cookie. This does not
-  meet the account contract's all-sessions-revoked/relogin requirement. Keep
-  `/change-password` outside the initial allowlist until adapted and tested.
-
-Other `dist/...` paths above are under the installed `better-auth` directory.
-See upstream [sessions](https://better-auth.com/docs/concepts/session-management),
-[password reset](https://better-auth.com/docs/authentication/email-password#revoking-sessions-on-password-reset)
-and [rate limits](https://better-auth.com/docs/concepts/rate-limit).
-The first implementation must test these settings through the actual public
-handler, without exposing unreviewed framework routes.

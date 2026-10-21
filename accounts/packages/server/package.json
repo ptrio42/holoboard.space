@@ -7,7 +7,8 @@
     "node": "24.22.1"
   },
   "files": [
-    "dist"
+    "dist",
+    "migrations"
   ],
   "exports": {
     ".": {
