@@ -187,7 +187,9 @@ export function createAccountServer(config: AccountServerConfiguration) {
             const result = await privateRoute.handle({ request, body, account, verifyPassword: (password) => verifyPassword(request, password),
               ...(identities ? { identity: { getOrCreate: () => identities!.getOrCreate(account.user.id), withSecret: <T>(use: (secret: Uint8Array) => T | Promise<T>) => identities!.withSecret(account.user.id, use) } } : {}),
             });
-            const text = await readBoundedBody(result.body);
+            let text: string;
+            try { text = await readBoundedBody(result.body, 131072); }
+            catch { throw new AccountError("TEMPORARILY_UNAVAILABLE", 503); }
             return new Response(text || null, { status: result.status, headers: copyHeaders(result.headers) });
           }
           if (path === "/sign-up/email" && identities) await identities.assertProvisioningReady();

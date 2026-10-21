@@ -156,6 +156,26 @@ test("signing rejects unpaired UTF-16 surrogates in content and tags before prov
   } finally { await f.close(); }
 });
 
+test("signing returns a complete exact event when the accepted request is near its 64 KiB bound", async () => {
+  const f = await setup();
+  try {
+    const cookie = await f.account();
+    const requested = { kind: 1, created_at: 0, content: "", tags: [Array<string>(31).fill("x".repeat(2048)), ["x".repeat(1800)]] };
+    const body = { template: requested };
+    assert.ok(Buffer.byteLength(JSON.stringify(body)) <= 65536);
+    const response = await f.request("/v1/identity/sign", body, cookie);
+    assert.equal(response.status, 200);
+    const serialized = await response.text();
+    assert.ok(Buffer.byteLength(serialized) > 65536, "signature fields grow the response past the request limit");
+    const event = JSON.parse(serialized) as Event;
+    assert.deepEqual({ kind: event.kind, created_at: event.created_at, content: event.content, tags: event.tags }, requested);
+    assert.equal(event.id, getEventHash(event)); assert.equal(verifyEvent(event), true);
+    const oversized = { template: { ...requested, tags: [...requested.tags, ["x".repeat(2048)]] } };
+    assert.ok(Buffer.byteLength(JSON.stringify(oversized)) > 65536);
+    await expectError(await f.request("/v1/identity/sign", oversized, cookie), 413, "REQUEST_TOO_LARGE");
+  } finally { await f.close(); }
+});
+
 test("all identity operations require a live verified session and respect shared CSRF ingress", async () => {
   const f = await setup();
   try {

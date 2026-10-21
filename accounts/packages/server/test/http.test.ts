@@ -114,3 +114,18 @@ test("private extension routes share ingress and receive only session-derived ac
     assert.notEqual(context.account.user.id, context.body.accountId);
   } finally { await f.close(); }
 });
+
+test("oversized private extension responses fail as service errors without changing the request body limit", async () => {
+  const f = await fixture({ privateRoutes: [{ path: "/v1/response-boundary", method: "POST", handle: async () => new Response("x".repeat(131073)) }] });
+  try {
+    await f.register(); await f.verify(); const login = await f.login();
+    const cookie = login.headers.getSetCookie()[0]!.split(";", 1)[0]!;
+    const request = (body: unknown) => f.app.handler(new Request(`${baseURL}/v1/response-boundary`, {
+      method: "POST", headers: { cookie, origin, "content-type": "application/json" }, body: JSON.stringify(body),
+    }));
+    const response = await request({});
+    assert.equal(response.status, 503);
+    assert.equal(((await response.json()) as { error: { code: string } }).error.code, "TEMPORARILY_UNAVAILABLE");
+    assert.equal((await request({ content: "x".repeat(65536) })).status, 413);
+  } finally { await f.close(); }
+});

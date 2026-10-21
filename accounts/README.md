@@ -178,6 +178,10 @@ safe integers. Content is limited to 16 KiB in UTF-8, with at most 256 tags,
 contain well-formed Unicode. Validation preserves all content, timestamps,
 duplicates and tag order.
 
+Private route responses have a separate 128 KiB bound, leaving room for signature
+fields on an accepted event. An oversized internal response fails with
+`503 TEMPORARILY_UNAVAILABLE`; oversized requests still return `413 REQUEST_TOO_LARGE`.
+
 Signing explicitly provisions or reuses the committed identity, decrypts only
 inside its account-bound callback and returns the event after recomputing its
 ID, checking the exact template and public key and verifying its signature on
