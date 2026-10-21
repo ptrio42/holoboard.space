@@ -62,3 +62,34 @@ Programmatic verification deliberately omits the native callback URL: native
 error links also redirect, and browsers hide redirect status details. The SDK
 rejects redirects and accepts only `{ status: true }`, returning `{ verified: true }`.
 The host controls navigation after that result.
+
+Login, logout and password reset serialize their cookie-changing requests within a
+bounded shared scope (eight admitted mutations, including one active transport).
+Logout clears local session state immediately, but returns success only after all
+previous admitted login/reset/logout cookie writes and its own server sign-out
+complete. A later explicit login can establish a new session. Session reads wait for preceding cookie operations;
+pending identity, signing and export work is invalidated by shared auth transitions.
+
+Default browser SDK instances in the same JavaScript realm and with the same API
+origin share a scope. Injected clients sharing the exact transport function and API
+origin share one too. When separate adapters use one cookie jar, pass the same
+`authScope: createAccountAuthScope()` to every client. A host must preserve that scope
+when constructing another SDK while requests remain unresolved. This in-memory
+coordination does not synchronize unrelated tabs, realms or native processes.
+Reloading or replacing the host during an unresolved operation requires the host's
+own transport/cookie lifecycle handling; this is not cross-tab revocation storage.
+
+SDK deadlines do not mean an injected transport has stopped. Its slot and cookie
+fence remain until the actual transport promise settles. Timed-out queued mutations
+never dispatch later. Automatic session restoration remains blocked after uncertain
+transport failure, including in a fresh SDK sharing the scope, until an explicit
+successful login, logout or reset resolves the state. Callers receive bounded
+`REQUEST_TIMEOUT` or `TEMPORARILY_UNAVAILABLE`, with no automatic mutation retry.
+A permanently stuck adapter keeps its bounded slots unavailable.
+
+An `AccountTransport` promise must settle only after every cookie write has completed
+or been definitively cancelled. Never race an internal timer while detached work can
+still update the jar. The SDK itself supplies its deadline around that full lifecycle.
+The default web transport aborts browser fetch on timeout; injected fetch replacements
+must honor AbortController's cancellation semantics. External cookie writers are
+outside this coordinator's guarantee.

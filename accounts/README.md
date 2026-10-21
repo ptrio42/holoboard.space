@@ -29,7 +29,7 @@ separate cookie jars, an ephemeral OpenSSL certificate pinned by each client, an
 a separate Node process for persistence checks. They require `openssl` and local
 listen permission. They do not send external mail or establish native mobile
 compatibility. Builds emit ESM and declarations to each
-package's `dist`. The server package also includes reviewed migrations `0001.sql` through `0003.sql`, loaded
+package's `dist`. The server package also includes reviewed migrations `0001.sql` through `0004.sql`, loaded
 relative to either source or emitted JavaScript.
 
 | Package | Responsibility | Runtime dependencies |

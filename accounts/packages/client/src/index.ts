@@ -3,6 +3,11 @@ import { decode } from 'nostr-tools/nip19';
 import { AccountClientError, createWebTransport, utf8Bytes, withClientDeadline } from './transport.ts';
 import type { AccountTransport, ErrorCode } from './transport.ts';
 import { AccountSigner } from './signer.ts';
+import { scopeForTransport } from './auth-coordination.ts';
+import type { AccountAuthScope } from './auth-coordination.ts';
+export { createAccountAuthScope } from './auth-coordination.ts';
+export type { AccountAuthScope } from './auth-coordination.ts';
+let defaultWebTransport: AccountTransport | undefined;
 export { AccountClientError, createWebTransport } from './transport.ts';
 export type { AccountTransport, TransportRequest, TransportResponse, FetchLike, ErrorCode } from './transport.ts';
 export { AccountSigner, validateSignedEvent } from './signer.ts';
@@ -31,11 +36,14 @@ export interface ClientConfiguration {
   baseURL: string;
   authBasePath?: string;
   transport?: AccountTransport;
+  /** Share explicitly when separate transport functions use the same cookie jar. */
+  authScope?: AccountAuthScope;
   timeoutMs?: number;
   now?: () => number;
 }
 interface AuthSnapshot {
   epoch: number;
+  scopeRevision: number;
   accountId: string;
   expiresAt: number;
 }
@@ -53,13 +61,15 @@ export class AccountClient {
   readonly signer: AccountSigner;
   private readonly config: ClientConfiguration;
   private readonly transport: AccountTransport;
+  private readonly authScope: AccountAuthScope;
   private epoch = 0;
   private state: AccountSession | null = null;
   constructor(config: ClientConfiguration) {
     if (!/^https:\/\/[^/?#@\s]+$/.test(config.baseURL) || !/^\/[a-zA-Z0-9-]+(?:\/[a-zA-Z0-9-]+)*$/.test(config.authBasePath ?? '/v1/auth') || !Number.isInteger(config.timeoutMs ?? 15000) || (config.timeoutMs ?? 15000) < 1 || (config.timeoutMs ?? 15000) > 60000)
       throw new AccountClientError('INVALID_INPUT');
     this.config = { ...config };
-    this.transport = config.transport ?? createWebTransport();
+    this.transport = config.transport ?? (defaultWebTransport ??= createWebTransport());
+    this.authScope = config.authScope ?? scopeForTransport(this.transport, config.baseURL);
     this.signer = new AccountSigner(this);
   }
   get currentSession(): AccountSession | null {
@@ -74,14 +84,16 @@ export class AccountClient {
       this.clear();
       throw new AccountClientError('UNAUTHENTICATED', 401);
     }
-    return { epoch: this.epoch, accountId: this.state.user.id, expiresAt: Date.parse(this.state.session.expiresAt) };
+    this.authScope.assertReady();
+    return { epoch: this.epoch, scopeRevision: this.authScope.revision, accountId: this.state.user.id, expiresAt: Date.parse(this.state.session.expiresAt) };
   }
   assertAuth(snapshot: AuthSnapshot) {
-    if (this.epoch !== snapshot.epoch || this.state?.user.id !== snapshot.accountId || snapshot.expiresAt <= (this.config.now ?? Date.now)()) {
+    if (this.epoch !== snapshot.epoch || this.authScope.revision !== snapshot.scopeRevision || this.state?.user.id !== snapshot.accountId || snapshot.expiresAt <= (this.config.now ?? Date.now)()) {
       if (this.epoch === snapshot.epoch)
         this.clear();
       throw new AccountClientError('STALE_AUTH_STATE');
     }
+    this.authScope.assertReady();
   }
   /** Internal wire operation is public for composed adapters; it never accepts account authority. */
   async request(path: string, body?: unknown): Promise<unknown> {
@@ -98,7 +110,11 @@ export class AccountClient {
       throw new AccountClientError('REQUEST_TOO_LARGE', 413);
     const start = this.epoch;
     try {
-      const response = await withClientDeadline(() => this.transport({ url: this.config.baseURL + path, method: body === undefined ? 'GET' : 'POST', ...(serialized === undefined ? {} : { body: serialized }), timeoutMs: this.config.timeoutMs ?? 15000, maxResponseBytes: 131072 }), this.config.timeoutMs ?? 15000);
+      const prefix = this.config.authBasePath ?? '/v1/auth';
+      const mutation = ['/sign-in/email', '/sign-out', '/reset-password'].some(route => path === prefix + route);
+      if (path === prefix + '/get-session' && this.authScope.hasPending) await this.authScope.wait(this.config.timeoutMs ?? 15000);
+      const operation = { url: this.config.baseURL + path, method: body === undefined ? 'GET' as const : 'POST' as const, ...(serialized === undefined ? {} : { body: serialized }), timeoutMs: this.config.timeoutMs ?? 15000, maxResponseBytes: 131072 };
+      const response = mutation ? await this.authScope.send(this.transport, operation) : await withClientDeadline(() => this.transport(operation), operation.timeoutMs);
       if (!Number.isInteger(response.status) || response.status < 100 || response.status > 599 || typeof response.body !== 'string' || utf8Bytes(response.body) > 131072)
         return invalid();
       let value: unknown;
@@ -151,27 +167,33 @@ export class AccountClient {
   }
   async login(email: string, password: string) {
     this.clear();
+    const generation = this.authScope.begin();
     const epoch = this.epoch;
     const result = await this.auth('/sign-in/email', { email, password }) as {
       user?: unknown;
     };
-    if (epoch !== this.epoch)
+    if (epoch !== this.epoch || generation !== this.authScope.revision)
       throw new AccountClientError('STALE_AUTH_STATE');
     const user = parseUser(result.user);
-    const loaded = await this.loadSession(epoch, user.id);
-    if (loaded.epoch !== this.epoch || loaded.session === null)
+    const loaded = await this.loadSession(epoch, user.id, generation);
+    if (loaded.epoch !== this.epoch || generation !== this.authScope.revision || loaded.session === null)
       throw new AccountClientError('STALE_AUTH_STATE');
+    this.authScope.complete(generation);
     return loaded.session;
   }
   async getSession(): Promise<AccountSession | null> {
-    const loaded = await this.loadSession(this.epoch);
-    if (loaded.epoch !== this.epoch)
+    const epoch = this.epoch, scopeRevision = this.authScope.revision;
+    if (this.authScope.hasPending) await this.authScope.wait(this.config.timeoutMs ?? 15000);
+    this.authScope.assertReady();
+    const loaded = await this.loadSession(epoch, undefined, scopeRevision);
+    if (loaded.epoch !== this.epoch || scopeRevision !== this.authScope.revision)
       throw new AccountClientError('STALE_AUTH_STATE');
     return loaded.session;
   }
-  private async loadSession(epoch: number, expectedAccountId?: string): Promise<{ session: AccountSession | null; epoch: number }> {
+  private async loadSession(epoch: number, expectedAccountId?: string, scopeRevision = this.authScope.revision): Promise<{ session: AccountSession | null; epoch: number }> {
+    if (scopeRevision !== this.authScope.revision) throw new AccountClientError('STALE_AUTH_STATE');
     const result = await this.auth('/get-session') as AccountSession | null;
-    if (epoch !== this.epoch)
+    if (epoch !== this.epoch || scopeRevision !== this.authScope.revision)
       throw new AccountClientError('STALE_AUTH_STATE');
     if (result === null) {
       this.clear();
@@ -195,7 +217,9 @@ export class AccountClient {
   }
   async logout() {
     this.clear();
+    const generation = this.authScope.begin();
     await this.auth('/sign-out', {});
+    this.authScope.complete(generation);
   }
   async requestRecovery(email: string, redirectTo?: string) {
     await this.auth('/request-password-reset', { email, ...(redirectTo ? { redirectTo } : {}) });
@@ -203,7 +227,9 @@ export class AccountClient {
   }
   async resetPassword(token: string, newPassword: string) {
     this.clear();
+    const generation = this.authScope.begin();
     await this.auth('/reset-password', { token, newPassword });
+    this.authScope.complete(generation);
   }
   async getIdentity(): Promise<AccountIdentity> {
     const state = this.captureAuth();

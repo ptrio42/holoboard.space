@@ -11,6 +11,7 @@ export interface TransportResponse {
   body: string;
   retryAfter?: string;
 }
+/** Settle only after cookie effects finish or are definitively cancelled; never detach cookie writes. */
 export type AccountTransport = (request: TransportRequest) => Promise<TransportResponse>;
 export type ErrorCode = 'INVALID_INPUT' | 'UNAUTHENTICATED' | 'EMAIL_UNVERIFIED' | 'PERMISSION_DENIED' | 'IDENTITY_UNAVAILABLE' | 'TEMPORARILY_UNAVAILABLE' | 'REQUEST_TOO_LARGE' | 'REQUEST_TIMEOUT' | 'RATE_LIMITED' | 'NOT_FOUND' | 'UNSUPPORTED_MEDIA_TYPE' | 'REQUEST_HEADERS_TOO_LARGE' | 'NETWORK_ERROR' | 'INVALID_RESPONSE' | 'INVALID_SIGNATURE' | 'STALE_AUTH_STATE';
 export class AccountClientError extends Error {

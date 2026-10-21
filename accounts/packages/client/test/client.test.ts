@@ -229,3 +229,37 @@ test('email verification accepts only explicit success and never treats an opaqu
   } });
   assert.deepEqual(await client.verifyEmail('valid-token'), { verified: true });
 });
+
+test('a shared-scope account transition prevents pending export from sending the old password', async () => {
+  const other = { ...session, user: { ...user, id: 'other' }, session: { ...session.session, id: 'other-session' } };
+  let active = session, release!: (response: sdk.TransportResponse) => void, exportRequests = 0;
+  const transport: sdk.AccountTransport = async request => {
+    if (request.url.includes('get-session')) return { status: 200, body: JSON.stringify(active) };
+    if (request.url.endsWith('/identity')) return new Promise(resolve => { release = resolve; });
+    if (request.url.includes('sign-in')) { active = other; return { status: 200, body: JSON.stringify({ user: other.user }) }; }
+    if (request.url.endsWith('/export')) exportRequests++;
+    return { status: 200, body: '{}' };
+  };
+  const first = sdk.createAccountClient({ baseURL: 'https://accounts.test', transport }), second = sdk.createAccountClient({ baseURL: 'https://accounts.test', transport });
+  await first.getSession(); const pending = first.exportKey('old private password');
+  while (!release) await new Promise(resolve => setImmediate(resolve));
+  await second.logout(); await second.login('other@example.test', 'other password');
+  release({ status: 200, body: JSON.stringify({ accountId: user.id, publicKey: 'a'.repeat(64), capabilities: { allowedKinds: [1], exportEnabled: true } }) });
+  await assert.rejects(pending, { code: 'STALE_AUTH_STATE' }); assert.equal(exportRequests, 0); assert.equal(second.currentSession?.user.id, other.user.id);
+});
+
+test('shared-scope session reads cannot reintroduce a session from before another client logged out', async () => {
+  let release!: (response: sdk.TransportResponse) => void;
+  const transport: sdk.AccountTransport = request => request.url.includes('get-session') ? new Promise(resolve => { release = resolve; }) : Promise.resolve({ status: 200, body: '{}' });
+  const first = sdk.createAccountClient({ baseURL: 'https://accounts.test', transport }), second = sdk.createAccountClient({ baseURL: 'https://accounts.test', transport });
+  const pending = first.getSession(); await second.logout(); release({ status: 200, body: JSON.stringify(session) });
+  await assert.rejects(pending, { code: 'STALE_AUTH_STATE' }); assert.equal(first.currentSession, null);
+});
+
+test('snapshot validation also rejects an unresolved cookie write through the composed wire adapter', async () => {
+  let release!: (response: sdk.TransportResponse) => void;
+  const client = sdk.createAccountClient({ baseURL: 'https://accounts.test', transport: request => request.url.includes('get-session') ? Promise.resolve({ status: 200, body: JSON.stringify(session) }) : new Promise(resolve => { release = resolve; }) });
+  await client.getSession(); const snapshot = client.captureAuth(); const pending = client.request('/v1/auth/sign-in/email', { email: user.email, password: 'fixture password' });
+  try { assert.throws(() => client.assertAuth(snapshot), { code: 'TEMPORARILY_UNAVAILABLE' }); }
+  finally { release({ status: 200, body: JSON.stringify({ user }) }); await pending; }
+});
