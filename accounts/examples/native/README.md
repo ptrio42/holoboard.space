@@ -20,6 +20,13 @@ explicit device backup policy. The account SDK does not persist credentials or
 provide a verified platform adapter. A session ID returned in JSON is a
 management identifier, not a credential.
 
+Clients sharing one cookie jar must also share its auth-operation scope. Reuse
+the same transport function or explicitly inject `createAccountAuthScope()`;
+see the [client transport contract](../../docs/client.md). A transport promise
+must settle after cookie writes finish or are definitively cancelled. A local
+timeout alone does not establish that. Native background requests and process
+restart need their own lifecycle handling before restoring a session.
+
 Send the operator-configured allowed web `Origin` on mutations. This satisfies
 the service's CSRF policy; it does not authenticate the application. Keep the
 HTTPS trust store enabled and use operator-controlled HTTPS return links.

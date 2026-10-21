@@ -244,6 +244,14 @@ the basic browser signer methods in [NIP-07](https://github.com/nostr-protocol/n
 that resemblance does not make the SDK a browser extension or inject it into
 other websites.
 
+Instances sharing a cookie jar coordinate login, logout and password reset
+through a bounded auth scope. Successful logout follows earlier cookie writes;
+an unresolved transport keeps its fence after a caller timeout and blocks
+automatic restoration until an explicit successful transition. Inject the same
+scope when separate adapters share a jar. This is local request coordination;
+hosts own cross-tab and native-process lifecycle behavior. See the
+[client transport contract](../accounts/docs/client.md).
+
 The SDK snapshots the requested event and expected account, validates the
 returned signature, public key, event ID and exact template, and rejects a late
 response after logout or account switching. A timeout permits explicit retry of
