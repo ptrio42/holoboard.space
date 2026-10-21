@@ -1,0 +1,33 @@
+{
+  "name": "@holoboard/accounts-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.22.1"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "check": "tsc --noEmit -p tsconfig.json",
+    "test": "node ../../scripts/test.mjs",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "better-auth": "1.7.12",
+    "better-sqlite3": "13.0.3",
+    "@node-rs/argon2": "2.2.2",
+    "jose": "6.2.13",
+    "nostr-tools": "2.25.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "9.6.0"
+  }
+}

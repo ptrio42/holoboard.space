@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.state/
+private/
+coverage/
+test-results/
+*.tsbuildinfo
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+.env
+.env.*
+!.env.example
