@@ -40,7 +40,7 @@ try {
     }
     throw new Error();
   }
-  const verification=await message('verification');await client.verifyEmail(verification.token,config.returnURLs[0]);
+  const verification=await message('verification');await client.verifyEmail(verification.token);
   assert.equal(await client.getSession(),null);await client.login(email,password);
   const publicKey=await client.signer.getPublicKey();
   const template={kind:1,created_at:1700000000,content:'Local unpublished fixture',tags:[['t','local'],['t','local']]};

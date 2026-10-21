@@ -46,12 +46,20 @@ interface AssignmentRow { account_id: string; public_key: string; inventory_comm
 
 /** Trusted server library only. Public callers must use a live session-derived ID. */
 export function createIdentityStore(db: Database.Database, config: CustodyConfiguration): IdentityStore {
+  return identityStore(db, config, false);
+}
+/** Internal offline reconciliation, never exported by the public entry point. */
+export function createRecoveryIdentityStore(db: Database.Database, config: CustodyConfiguration): IdentityStore {
+  return identityStore(db, config, true);
+}
+function identityStore(db: Database.Database, config: CustodyConfiguration, maintenance: boolean): IdentityStore {
   const installation = custodyInstallation(db);
   if (!installation || installation !== config.installationId) throw new Error("Custody installation must be explicitly initialized and match configuration");
   const encryption = createKeyEncryption({ ...config.encryption, installationId: config.installationId });
   const inventory = openIdentityInventory(config.inventoryPath, config.installationId);
   const serial = createSerialExecutor(16);
   function snapshot() {
+    if (!maintenance && db.prepare("SELECT 1 FROM account_restore WHERE quarantined = 1").get()) throw identityUnavailable();
     if (custodyInstallation(db) !== installation) throw identityUnavailable();
     const assignments = db.prepare("SELECT account_id, public_key, inventory_committed FROM identity_assignment").all() as AssignmentRow[];
     const identities = db.prepare("SELECT account_id, public_key, encrypted_secret FROM author_identity").all() as IdentityRow[];

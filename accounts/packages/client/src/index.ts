@@ -84,7 +84,7 @@ export class AccountClient {
     }
   }
   /** Internal wire operation is public for composed adapters; it never accepts account authority. */
-  async request(path: string, body?: unknown, redirect = false): Promise<unknown> {
+  async request(path: string, body?: unknown): Promise<unknown> {
     if (!path.startsWith('/') || path.startsWith('//'))
       throw new AccountClientError('INVALID_INPUT');
     let serialized: string | undefined;
@@ -101,8 +101,6 @@ export class AccountClient {
       const response = await withClientDeadline(() => this.transport({ url: this.config.baseURL + path, method: body === undefined ? 'GET' : 'POST', ...(serialized === undefined ? {} : { body: serialized }), timeoutMs: this.config.timeoutMs ?? 15000, maxResponseBytes: 131072 }), this.config.timeoutMs ?? 15000);
       if (!Number.isInteger(response.status) || response.status < 100 || response.status > 599 || typeof response.body !== 'string' || utf8Bytes(response.body) > 131072)
         return invalid();
-      if (redirect && response.status >= 300 && response.status < 400)
-        return { redirected: true };
       let value: unknown;
       try {
         value = JSON.parse(response.body);
@@ -128,8 +126,8 @@ export class AccountClient {
       throw error instanceof AccountClientError ? error : new AccountClientError('NETWORK_ERROR');
     }
   }
-  private auth(path: string, body?: unknown, redirect = false) {
-    return this.request((this.config.authBasePath ?? '/v1/auth') + path, body, redirect);
+  private auth(path: string, body?: unknown) {
+    return this.request((this.config.authBasePath ?? '/v1/auth') + path, body);
   }
   async register(fields: {
     email: string;
@@ -140,8 +138,12 @@ export class AccountClient {
     await this.auth('/sign-up/email', fields);
     return { accepted: true as const };
   }
-  async verifyEmail(token: string, callbackURL?: string) {
-    return this.auth('/verify-email?token=' + encodeURIComponent(token) + (callbackURL ? '&callbackURL=' + encodeURIComponent(callbackURL) : ''), undefined, true);
+  async verifyEmail(token: string): Promise<{ verified: true }> {
+    // Native callback redirects conceal both success and errors from browser fetch.
+    // Programmatic verification requires the native explicit JSON result instead.
+    const result = await this.auth('/verify-email?token=' + encodeURIComponent(token)) as { status?: unknown };
+    if (result?.status !== true) return invalid();
+    return { verified: true };
   }
   async requestVerification(email: string, callbackURL?: string) {
     await this.auth('/send-verification-email', { email, ...(callbackURL ? { callbackURL } : {}) });

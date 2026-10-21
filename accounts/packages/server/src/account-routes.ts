@@ -2,6 +2,7 @@ import { createHmac, randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 import type { AuthConfiguration } from "./auth.ts";
 import { createAuthentication } from "./auth.ts";
+import { bindAuthenticationSecret } from "./recovery.ts";
 import { openAccountDatabase } from "./database.ts";
 import { AccountError, createCapacity, createLimiter, readBoundedBody, withDeadline } from "./limits.ts";
 import type { RequestLimit } from "./limits.ts";
@@ -82,6 +83,7 @@ export function createAccountServer(config: AccountServerConfiguration) {
   const db = openAccountDatabase(config.databasePath);
   let identities: IdentityStore | undefined;
   try {
+    bindAuthenticationSecret(db, config.secret);
     if (!config.custody && custodyInstallation(db)) throw new Error("Custody configuration is required for this installation");
     if (config.custody) identities = createIdentityStore(db, config.custody);
   } catch (error) { db.close(); throw error; }
@@ -96,7 +98,7 @@ export function createAccountServer(config: AccountServerConfiguration) {
   let outbox: ReturnType<typeof createMailOutbox> | undefined;
   try {
     if (config.mailOutbox && !config.custody) throw new Error("Mail outbox requires custody encryption configuration");
-    if (config.custody) outbox = createMailOutbox(db, { installationId: config.custody.installationId, ...config.custody.encryption }, serial, config.mailOutbox, config.mail, config.mailTimeoutMs);
+    if (config.custody) outbox = createMailOutbox(db, { ...config.custody.encryption, installationId: config.custody.installationId }, serial, config.mailOutbox, config.mail, config.mailTimeoutMs);
   } catch (error) { db.close(); throw error; }
   const auth = createAuthentication(config, db, outbox?.enqueue);
   let initialReadiness: Promise<void> | undefined;

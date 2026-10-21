@@ -212,9 +212,11 @@ Encryption uses [JOSE Compact JWE](https://www.rfc-editor.org/rfc/rfc7516.html)
 with fixed `dir`/`A256GCM`, library-generated randomness and authenticated
 installation, account, purpose and version binding. Decryption checks the derived
 Nostr public key against the immutable assignment. New records use `activeKid`;
-retain older decryption keys for existing records and supported backups. Rotation
-does not rewrite existing ciphertext. Plaintext keys are not cached; byte buffers
-are cleared after use where possible, without promising JavaScript zeroization.
+retain older decryption keys for existing records and supported backups. Changing
+the configured active key alone does not rewrite existing ciphertext.
+Use the explicit [offline rotation operation](docs/recovery.md#actual-storage-key-rotation)
+to rewrap current identities and queued mail atomically. Plaintext keys are not
+cached; byte buffers are cleared after use where possible, without promising JavaScript zeroization.
 
 Custody-enabled handlers serialize database operations through a bounded process
 lifecycle; body reads remain outside that critical section. Use one server/writer
@@ -339,3 +341,16 @@ Better Auth's recent
 and [OAuth Proxy advisory](https://github.com/better-auth/better-auth/security/advisories/GHSA-r4xp-prcw-77qf)
 are patched in 1.7.7, before this pin. These plugins are outside the initial flow.
 An advisory check is time-bound evidence, not a security audit.
+
+## Developer forms and offline maintenance
+
+The [developer web example](examples/web/README.md) exercises the built SDK with
+local TLS forms and a real-browser acceptance test. The [recovery guide](docs/recovery.md)
+describes consistent SQLite backup, isolated restore with enforced auth-secret
+rotation and password recovery, persistent quarantine, and actual storage-key rewrap.
+These do not activate Holoboard accounts or establish production recovery guarantees.
+
+The example tooling pins [esbuild 0.28.2](https://registry.npmjs.org/esbuild/0.28.2)
+(MIT, Node >=18) and [Playwright 1.63.0](https://registry.npmjs.org/playwright/1.63.0)
+(Apache-2.0, Node >=20). Browser tests use an already installed Chrome; no device
+or browser toolchain is downloaded.

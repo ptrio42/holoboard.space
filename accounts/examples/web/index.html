@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer"><title>Account library developer example</title><script type="module" src="/app.js"></script></head>
+<body>
+<h1>Account library developer example</h1>
+<p>Local forms for the account library. Signed events are returned here and are never published.</p>
+<p id="status" role="status" data-busy="true">Loading session</p><pre id="result"></pre>
+<form id="register"><h2>Register</h2><label>Name <input name="name" required maxlength="100" autocomplete="nickname"></label><label>Email <input name="email" type="email" required autocomplete="email"></label><label>Password <input name="password" type="password" required minlength="12" maxlength="128" autocomplete="new-password"></label><button type="submit">Register</button></form>
+<form id="resend"><h2>Resend verification</h2><label>Email <input name="email" type="email" required autocomplete="email"></label><button type="submit">Resend</button></form>
+<form id="verify"><h2>Verify email</h2><p>Open a private verification link in this example first. Its token stays in memory until used.</p><button type="submit">Verify</button></form>
+<form id="login"><h2>Sign in</h2><label>Email <input name="email" type="email" required autocomplete="username"></label><label>Password <input name="password" type="password" required autocomplete="current-password"></label><button type="submit">Sign in</button></form>
+<form id="session"><button type="submit">Refresh session</button></form>
+<form id="sign"><h2>Sign an unpublished note</h2><label>Text <textarea name="content" required></textarea></label><button type="submit">Sign exact text</button></form>
+<form id="recovery"><h2>Recover password</h2><label>Email <input name="email" type="email" required autocomplete="email"></label><button type="submit">Request recovery</button></form>
+<form id="reset"><h2>Set recovered password</h2><p>Open the private recovery link first.</p><label>New password <input name="password" type="password" required minlength="12" maxlength="128" autocomplete="new-password"></label><button type="submit">Reset password</button></form>
+<form id="export"><h2>Explicit key export</h2><p>This reveals your private Nostr key on this page. Save it privately, then clear the result.</p><label>Current password <input name="password" type="password" required autocomplete="current-password"></label><button type="submit">Reveal private key</button><button id="clear-export" type="button">Clear result</button></form>
+<form id="logout"><button type="submit">Sign out</button></form>
+</body></html>

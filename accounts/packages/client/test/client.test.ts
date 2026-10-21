@@ -8,10 +8,10 @@ test('client maps ordinary operations to the actual native wire and normalizes s
   const calls: any[] = [];
   const client = sdk.createAccountClient({ baseURL: 'https://accounts.test', transport: async (request: any) => {
       calls.push(request);
-      return { status: request.url.includes('verify-email') ? 302 : 200, body: JSON.stringify(request.url.includes('get-session') ? session : request.url.includes('sign-in') ? { user } : { accepted: true }) };
+      return { status: 200, body: JSON.stringify(request.url.includes('verify-email') ? { status: true } : request.url.includes('get-session') ? session : request.url.includes('sign-in') ? { user } : { accepted: true }) };
     } });
   await client.register({ email: user.email, password: 'test password', name: user.name });
-  await client.verifyEmail('token', 'https://web.test/complete');
+  await client.verifyEmail('token');
   await client.requestVerification(user.email);
   await client.login(user.email, 'test password');
   assert.equal((await client.getSession())?.user.id, user.id);
@@ -217,3 +217,15 @@ for (const transition of ['logout', 'account switch'] as const) {
     assert.equal(client.currentSession?.user.id ?? null, transition === 'logout' ? null : other.user.id);
   });
 }
+
+test('email verification accepts only explicit success and never treats an opaque error redirect as verified', async () => {
+  for (const response of [{ status: 302, body: '' }, { status: 200, body: '{"status":false}' }, { status: 200, body: '{}' }]) {
+    const client = sdk.createAccountClient({ baseURL: 'https://accounts.test', transport: async () => response });
+    await assert.rejects(client.verifyEmail('invalid-token'), { code: 'INVALID_RESPONSE' });
+  }
+  const client = sdk.createAccountClient({ baseURL: 'https://accounts.test', transport: async request => {
+    assert.equal(new URL(request.url).searchParams.has('callbackURL'), false);
+    return { status: 200, body: '{"status":true}' };
+  } });
+  assert.deepEqual(await client.verifyEmail('valid-token'), { verified: true });
+});

@@ -13,3 +13,6 @@ export type { SigningPolicy } from "./policy.ts";
 
 export type { MailOutboxConfiguration, MailOutboxWorker, MailOutboxStatus } from "./mail-outbox.ts";
 export { createNodeAccountListener } from './node-http.ts';
+
+export { backupAccountDatabase, restoreAccountDatabase, reconcileAccountRestore, rotateAccountStorageKey } from "./recovery.ts";
+export type { RestoreAccountConfiguration } from "./recovery.ts";

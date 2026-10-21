@@ -22,7 +22,7 @@ used only by the optional web transport; a native host supplies its transport.
 | SDK method | Actual operation |
 | --- | --- |
 | `register({ email, password, name, callbackURL? })` | POST auth `sign-up/email`; generic acceptance, no session |
-| `verifyEmail(token, callbackURL?)` | GET auth `verify-email`; redirect completion, no automatic login |
+| `verifyEmail(token)` | GET auth `verify-email` without a callback; requires explicit JSON success, no automatic login |
 | `requestVerification(email, callbackURL?)` | POST auth `send-verification-email` |
 | `login(email, password)` | POST auth `sign-in/email`, then live `get-session` |
 | `getSession()` | GET auth `get-session`, normalized user/session or null |
@@ -57,3 +57,8 @@ the NIP-19 checksum and derives the expected public key before returning the raw
 `nsec`; it retains no backup. Callers must keep that explicit result out of caches,
 telemetry and logs. JavaScript cannot guarantee secret zeroization.
 
+
+Programmatic verification deliberately omits the native callback URL: native
+error links also redirect, and browsers hide redirect status details. The SDK
+rejects redirects and accepts only `{ status: true }`, returning `{ verified: true }`.
+The host controls navigation after that result.
