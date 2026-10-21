@@ -8,6 +8,9 @@ record deployment, not announcement publication.
 
 ### Added
 
+- Add a local developer preview of reusable email/password accounts with stable
+  Nostr identities, scoped signing and password-confirmed key export. Holoboard's
+  public sign-in is unchanged.
 - Add an opt-in Add to board editor for text, links, quotes and existing posts,
   with live previews, optional guest author-key export and existing Nostr signers.
   New posts publish after board payment, with durable

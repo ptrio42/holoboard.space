@@ -576,11 +576,13 @@ unavailable-profile states. Existing Nostr signers retain exact-event signature
 validation. Creating posts and recovering issued invoices do not require an
 account service.
 
-Email/password accounts are deferred to a separate change. The intended direction
-is Holoboard-owned forms and established authentication components in the Go
-backend. Account recovery must retain the same author key; database and encryption
-key backups must support restoring that identity after a server failure. This
-release does not implement custodial accounts.
+Email/password account activation is separate from post creation. The private
+[accounts workspace](../accounts/README.md) supplies a reusable TypeScript
+library, client SDK and Node service, using Better Auth for account mechanics
+and separate custody/signing modules. Holoboard-owned forms can call that service
+alongside the existing Go backend. Follow the
+[account contract](accounts-design.md) for identity, recovery and activation
+requirements. The public board's account entry points remain unchanged.
 
 ## Publication
 
