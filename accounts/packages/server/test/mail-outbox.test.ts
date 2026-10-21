@@ -171,3 +171,23 @@ test("a blocked provider keeps one worker slot without blocking public acceptanc
     assert.equal(f.app.mailOutbox!.status().queued, 2);
   } finally { release(); await drain; await f.close(); }
 });
+
+test("a crashed fifth attempt counts as terminal failure after its lease expires without resending", async () => {
+  const f = await setup();
+  try {
+    await f.register();
+    f.db.prepare("UPDATE account_mail_outbox SET attempts = 5, lease_id = 'crashed-final-attempt', lease_until = ?, last_error = 'DELIVERY_FAILED'").run(Date.now() + 60000);
+    f.restart();
+    assert.equal(f.app.mailOutbox!.status().failed, 0);
+    assert.equal(f.app.mailOutbox!.status().leased, 1);
+    f.db.exec("UPDATE account_mail_outbox SET lease_until = 0");
+    await f.app.mailOutbox!.drain();
+    assert.equal(f.app.mailOutbox!.status().failed, 1);
+    assert.equal(f.app.mailOutbox!.status().leased, 0);
+    assert.equal(f.messages.length, 0);
+    assert.equal((f.db.prepare("SELECT attempts FROM account_mail_outbox").get() as { attempts: number }).attempts, 5);
+    f.db.exec("UPDATE account_mail_outbox SET expires_at = 0");
+    await f.app.mailOutbox!.drain();
+    assert.equal(f.app.mailOutbox!.status().queued, 0);
+  } finally { await f.close(); }
+});

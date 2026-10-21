@@ -23,7 +23,7 @@ export function createMailOutbox(db: Database.Database, encryptionConfig: KeyEnc
   const encryption = createKeyEncryption(encryptionConfig);
   let enqueueFailures = 0, active = false;
   const purge = () => db.prepare("DELETE FROM account_mail_outbox WHERE expires_at <= ?").run(Date.now());
-  const totals = () => db.prepare("SELECT count(*) AS queued, coalesce(sum(payload_bytes), 0) AS bytes, coalesce(sum(last_error IN ('INVALID_PAYLOAD', 'ATTEMPTS_EXHAUSTED')), 0) AS failed, coalesce(sum(lease_until > ?), 0) AS leased FROM account_mail_outbox").get(Date.now()) as Omit<MailOutboxStatus, "enqueueFailures" | "transportConfigured">;
+  const totals = () => db.prepare("SELECT count(*) AS queued, coalesce(sum(payload_bytes), 0) AS bytes, coalesce(sum(last_error IN ('INVALID_PAYLOAD', 'ATTEMPTS_EXHAUSTED') OR (attempts >= 5 AND lease_until <= ?)), 0) AS failed, coalesce(sum(lease_until > ?), 0) AS leased FROM account_mail_outbox").get(Date.now(), Date.now()) as Omit<MailOutboxStatus, "enqueueFailures" | "transportConfigured">;
   const worker: MailOutboxWorker = {
     status: () => ({ ...totals(), enqueueFailures, transportConfigured: !!transport }),
     async drain() {
