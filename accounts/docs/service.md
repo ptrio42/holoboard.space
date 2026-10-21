@@ -88,4 +88,3 @@ underlying database work and the current worker within the configured deadline,
 then closes storage. An unresolved worker reports incomplete shutdown and never
 claims a clean database close. CLI logs contain fixed lifecycle codes and the
 configured URL, never request payloads, mail or credentials.
-

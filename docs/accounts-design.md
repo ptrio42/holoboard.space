@@ -244,8 +244,10 @@ the basic browser signer methods in [NIP-07](https://github.com/nostr-protocol/n
 that resemblance does not make the SDK a browser extension or inject it into
 other websites.
 
-Instances sharing a cookie jar coordinate login, logout and password reset
-through a bounded auth scope. Successful logout follows earlier cookie writes;
+Native auth HTTP requests share a bounded scope across instances using the same
+cookie jar: even session reads can issue cookies. Login, logout and password
+reset also advance the local auth state. Successful logout follows earlier
+cookie writes;
 an unresolved transport keeps its fence after a caller timeout and blocks
 automatic restoration until an explicit successful transition. Inject the same
 scope when separate adapters share a jar. This is local request coordination;
