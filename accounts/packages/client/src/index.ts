@@ -221,6 +221,7 @@ export class AccountClient {
   }> {
     const state = this.captureAuth();
     const identity = await this.getIdentity();
+    this.assertAuth(state);
     const value = await this.request('/v1/identity/export', { password }) as {
       publicKey: string;
       nsec: string;

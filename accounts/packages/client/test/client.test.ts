@@ -186,3 +186,34 @@ test('an explicit session transition invalidates pending login without clearing 
   await assert.rejects(pending, { code: 'STALE_AUTH_STATE' });
   assert.equal(client.currentSession?.user.id, other.user.id);
 });
+
+for (const transition of ['logout', 'account switch'] as const) {
+  test(`key export sends no password when ${transition} runs after identity resolution`, async () => {
+    const other = { ...session, user: { ...user, id: 'other', email: 'other@example.test' }, session: { ...session.session, id: 'other-session' } };
+    let active = session;
+    const requests: string[] = [];
+    const client = sdk.createAccountClient({ baseURL: 'https://accounts.test', transport: async request => {
+      requests.push(new URL(request.url).pathname);
+      if (request.url.includes('get-session')) return { status: 200, body: JSON.stringify(active) };
+      if (request.url.endsWith('/identity')) return { status: 200, body: JSON.stringify({ accountId: active.user.id, publicKey: 'a'.repeat(64), capabilities: { allowedKinds: [1], exportEnabled: true } }) };
+      if (request.url.includes('sign-in')) {
+        active = other;
+        return { status: 200, body: JSON.stringify({ user: active.user }) };
+      }
+      return { status: 200, body: '{}' };
+    } });
+    await client.getSession();
+    const readIdentity = client.getIdentity.bind(client);
+    let changing: Promise<unknown> | undefined;
+    // Keep the real lookup and place the state transition precisely in its await gap.
+    client.getIdentity = async () => {
+      const identity = await readIdentity();
+      queueMicrotask(() => { changing = transition === 'logout' ? client.logout() : client.login(other.user.email, 'other password'); });
+      return identity;
+    };
+    await assert.rejects(client.exportKey('original account password'), { code: 'STALE_AUTH_STATE' });
+    await changing;
+    assert.equal(requests.includes('/v1/identity/export'), false);
+    assert.equal(client.currentSession?.user.id ?? null, transition === 'logout' ? null : other.user.id);
+  });
+}
