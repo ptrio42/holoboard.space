@@ -5,9 +5,12 @@ import { createAuthentication } from "./auth.ts";
 import { openAccountDatabase } from "./database.ts";
 import { AccountError, createCapacity, createLimiter, readBoundedBody, withDeadline } from "./limits.ts";
 import type { RequestLimit } from "./limits.ts";
+import { createIdentityStore, createSerialExecutor, custodyInstallation } from "./identities.ts";
+import type { CustodyConfiguration, IdentityStore } from "./identities.ts";
 
 export interface AccountServerConfiguration extends AuthConfiguration {
   databasePath: string;
+  custody?: CustodyConfiguration;
   requestLimit?: RequestLimit;
   sensitiveLimit?: RequestLimit;
   privateRoutes?: readonly PrivateAccountRoute[];
@@ -23,6 +26,8 @@ export interface PrivateAccountRoute {
   handle(context: {
     request: Request; body: unknown; account: AccountSession;
     verifyPassword(password: string): Promise<boolean>;
+    /** Scoped to the current live, verified account. Never uses a client account ID. */
+    identity?: { getOrCreate(): ReturnType<IdentityStore["getOrCreate"]>; withSecret<T>(use: (secret: Uint8Array) => T | Promise<T>): Promise<T> };
   }): Promise<Response>;
 }
 /** Supplied by the embedding transport from its socket, never from HTTP headers. */
@@ -66,7 +71,18 @@ export function createAccountServer(config: AccountServerConfiguration) {
   const sensitive = createLimiter(config.sensitiveLimit ?? { maxRequests: 5, windowMs: 60000 });
   const capacity = createCapacity(8);
   const db = openAccountDatabase(config.databasePath);
+  let identities: IdentityStore | undefined;
+  try {
+    if (!config.custody && custodyInstallation(db)) throw new Error("Custody configuration is required for this installation");
+    if (config.custody) identities = createIdentityStore(db, config.custody);
+  } catch (error) { db.close(); throw error; }
+  const serial = config.custody ? createSerialExecutor() : <T>(operation: () => Promise<T>) => operation();
   const auth = createAuthentication(config, db);
+  let initialReadiness: Promise<void> | undefined;
+  const ensureInitialReadiness = (): Promise<void> => {
+    initialReadiness ??= identities?.assertReady().catch((error: unknown) => { initialReadiness = undefined; throw error; }) ?? Promise.resolve();
+    return initialReadiness;
+  };
   const basePath = config.basePath ?? "/v1/auth";
   const privateRoutes = new Map<string, PrivateAccountRoute>();
   for (const route of config.privateRoutes ?? []) {
@@ -158,41 +174,47 @@ export function createAccountServer(config: AccountServerConfiguration) {
             forwarded = new Request(request.url, { method: "POST", headers, body: JSON.stringify(body) });
           }
         }
-        if (privateRoute) {
-          const account = await requireAccount(request);
-          const result = await privateRoute.handle({ request, body, account, verifyPassword: (password) => verifyPassword(request, password) });
-          const text = await readBoundedBody(result.body);
-          return new Response(text || null, { status: result.status, headers: copyHeaders(result.headers) });
-        }
-        const native = await auth.handler(forwarded);
-        if (native.status >= 400) {
-          const json = await readBoundedBody(native.body);
-          let code: string | undefined;
-          try { code = (JSON.parse(json) as { code?: string }).code; } catch { /* Do not expose dependency errors. */ }
-          const mapped = code === "EMAIL_NOT_VERIFIED" ? new AccountError("EMAIL_UNVERIFIED", 403) :
-            native.status === 401 ? new AccountError("UNAUTHENTICATED", 401) :
-            native.status === 403 ? new AccountError("PERMISSION_DENIED", 403) :
-            native.status >= 500 ? new AccountError("TEMPORARILY_UNAVAILABLE", 503) : new AccountError("INVALID_INPUT", 400);
-          const safe = errorResponse(mapped);
-          copyCookies(native.headers, safe.headers);
-          return safe;
-        }
-        if (genericRoutes.has(path)) {
-          void native.body?.cancel().catch(() => {});
-          const safe = Response.json({ accepted: true }, { status: 202 });
-          copyCookies(native.headers, safe.headers);
-          return safe;
-        }
-        if (native.status >= 200 && native.status < 300 && native.headers.get("content-type")?.includes("application/json")) {
-          const data = JSON.parse(await readBoundedBody(native.body)) as Record<string, unknown> | null;
-          if (data && typeof data === "object") {
-            delete data.token;
-            if (data.session && typeof data.session === "object") delete (data.session as Record<string, unknown>).token;
+        return serial(async () => {
+          await ensureInitialReadiness();
+          if (privateRoute) {
+            const account = await requireAccount(request);
+            const result = await privateRoute.handle({ request, body, account, verifyPassword: (password) => verifyPassword(request, password),
+              ...(identities ? { identity: { getOrCreate: () => identities!.getOrCreate(account.user.id), withSecret: <T>(use: (secret: Uint8Array) => T | Promise<T>) => identities!.withSecret(account.user.id, use) } } : {}),
+            });
+            const text = await readBoundedBody(result.body);
+            return new Response(text || null, { status: result.status, headers: copyHeaders(result.headers) });
           }
-          const safe = Response.json(data, { status: native.status, headers: copyHeaders(native.headers) });
-          return safe;
-        }
-        return new Response(native.body, { status: native.status, headers: copyHeaders(native.headers) });
+          if (path === "/sign-up/email" && identities) await identities.assertProvisioningReady();
+          const native = await auth.handler(forwarded);
+          if (native.status >= 400) {
+            const json = await readBoundedBody(native.body);
+            let code: string | undefined;
+            try { code = (JSON.parse(json) as { code?: string }).code; } catch { /* Do not expose dependency errors. */ }
+            const mapped = code === "EMAIL_NOT_VERIFIED" ? new AccountError("EMAIL_UNVERIFIED", 403) :
+              native.status === 401 ? new AccountError("UNAUTHENTICATED", 401) :
+              native.status === 403 ? new AccountError("PERMISSION_DENIED", 403) :
+              native.status >= 500 ? new AccountError("TEMPORARILY_UNAVAILABLE", 503) : new AccountError("INVALID_INPUT", 400);
+            const safe = errorResponse(mapped);
+            copyCookies(native.headers, safe.headers);
+            return safe;
+          }
+          if (genericRoutes.has(path)) {
+            void native.body?.cancel().catch(() => {});
+            const safe = Response.json({ accepted: true }, { status: 202 });
+            copyCookies(native.headers, safe.headers);
+            return safe;
+          }
+          if (native.status >= 200 && native.status < 300 && native.headers.get("content-type")?.includes("application/json")) {
+            const data = JSON.parse(await readBoundedBody(native.body)) as Record<string, unknown> | null;
+            if (data && typeof data === "object") {
+              delete data.token;
+              if (data.session && typeof data.session === "object") delete (data.session as Record<string, unknown>).token;
+            }
+            const safe = Response.json(data, { status: native.status, headers: copyHeaders(native.headers) });
+            return safe;
+          }
+          return new Response(native.body, { status: native.status, headers: copyHeaders(native.headers) });
+        });
       }), 15000);
     } catch (error) { response = errorResponse(error); }
     response.headers.set("cache-control", "no-store");
@@ -207,8 +229,11 @@ export function createAccountServer(config: AccountServerConfiguration) {
   };
 
   return {
-    handler, requireAccount,
-    verifyPassword,
+    handler,
+    /** Full cryptographic reconciliation before accepting transport traffic/after restore. */
+    ready: () => serial(async () => { await identities?.assertReady(); initialReadiness = Promise.resolve(); }),
+    requireAccount: (request: Request) => serial(() => requireAccount(request)),
+    verifyPassword: (request: Request, password: string) => serial(() => verifyPassword(request, password)),
     close() { db.close(); },
   };
 }

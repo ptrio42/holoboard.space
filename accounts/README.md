@@ -3,7 +3,8 @@
 Private TypeScript packages for an embeddable account handler and future service
 and client SDK. The server implements email registration, verification, login,
 fixed seven-day database sessions, logout and password recovery through Better
-Auth. Custody, signing, the runnable service and client transport remain pending.
+Auth, plus optional encrypted stable author identities. Signing/export routes,
+the runnable service and client transport remain pending.
 See the [account contract](../docs/accounts-design.md).
 
 Use Node.js **24.22.1** and npm **11.19.1**, pinned in `.nvmrc`, `engines` and
@@ -23,7 +24,7 @@ npm run build
 
 Tests use temporary private SQLite files and captured mail, with serial Node test
 files to limit native hashing memory. Builds emit ESM and declarations to each
-package's `dist`. The server package also includes `migrations/0001.sql`, loaded
+package's `dist`. The server package also includes reviewed `migrations/0001.sql` and `0002.sql`, loaded
 relative to either source or emitted JavaScript.
 
 | Package | Responsibility | Runtime dependencies |
@@ -98,6 +99,58 @@ account limit before the supported Better Auth verifier. Neither is a public
 endpoint. `privateRoutes` extends the same protected ingress for future identity
 routes, passing only session-derived authority; each extension must validate its
 own body fields and signing policy.
+
+## Private author identity storage
+
+For a fresh custody installation, explicitly call
+`initializeIdentityInventory(inventoryPath, installationId)`, then
+`initializeAccountCustody(databasePath, { installationId, inventoryPath })`.
+Both refuse an existing initialized installation. Pass matching `custody`
+configuration to the server: `{ installationId, inventoryPath, encryption:
+{ activeKid, keys } }`, where `keys` maps local key IDs to independently supplied
+32-byte encryption keys. No setup operation generates or loads secrets for you.
+Keep these keys separate from the database, auth secret, relay and wallet keys.
+A database marked for custody refuses startup without custody configuration,
+even before the first author identity is assigned.
+
+Await `server.ready()` before accepting traffic. The first handler call also
+checks initial readiness if the embedding application omitted that call. Full
+readiness authenticates every persisted key and reconciles pending assignments.
+Use the explicit readiness check again after isolated restore. Structural checks
+before registration and provisioning compare every independent assignment with
+its immutable account, assignment marker and encrypted-key row. A missing account
+in an older backup therefore quarantines registration and provisioning. Missing
+storage, unavailable encryption keys and corrupt assigned identities fail startup
+or return `503 IDENTITY_UNAVAILABLE` at runtime, never a replacement identity.
+
+Private routes receive `context.identity`, scoped to the current live verified
+account, with `getOrCreate()` and `withSecret(callback)`. No identity endpoint is
+mounted yet. The trusted low-level store requires a session-derived account ID
+when exposed through HTTP. Its synchronous transaction assigns one public key,
+encrypted secret and separate marker; concurrent first calls reuse its winner.
+The independent mode-0700 inventory contains only installation/account IDs and
+public keys. It publishes mode-0600 files without overwriting, then fsyncs the
+file and directory before exposing a public key or invoking a secret callback.
+If inventory persistence fails after the SQL commit, retry reconciles that same
+winner. A previously durable missing/conflicting record fails closed. Inventory
+creation is an explicit first-install action, never automatic missing-file repair.
+Keep this inventory on separately durable storage with its own backup; local
+files alone do not establish a production recovery guarantee.
+
+Encryption uses [JOSE Compact JWE](https://www.rfc-editor.org/rfc/rfc7516.html)
+with fixed `dir`/`A256GCM`, library-generated randomness and authenticated
+installation, account, purpose and version binding. Decryption checks the derived
+Nostr public key against the immutable assignment. New records use `activeKid`;
+retain older decryption keys for existing records and supported backups. Rotation
+does not rewrite existing ciphertext. Plaintext keys are not cached; byte buffers
+are cleared after use where possible, without promising JavaScript zeroization.
+
+Custody-enabled handlers serialize database operations through a bounded process
+lifecycle; body reads remain outside that critical section. Use one server/writer
+per database and drain all admitted work before closing. Separate processes and
+shared-network-filesystem writers are unsupported. Ordinary access decrypts only
+the requested identity and does not rewrite durable assignment state. Global
+structural inventory scans are not a measured production scaling guarantee.
 
 ## Better Auth integration review
 
