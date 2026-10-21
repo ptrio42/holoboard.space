@@ -27,10 +27,14 @@ export interface AuthConfiguration {
 export function createAuthentication(config: AuthConfiguration, database: Database.Database): ReturnType<typeof betterAuth> {
   const hashCapacity = createCapacity(2);
   const mailCapacity = createCapacity(8);
-  const send = async (message: AccountMail) => {
+  const scheduleDelivery = (message: AccountMail): void => {
     const timeout = config.mailTimeoutMs ?? 5000;
     const signal = AbortSignal.timeout(timeout);
-    await withDeadline(mailCapacity(() => config.mail.send(message, signal)), timeout);
+    // Temporary best-effort delivery. A durable outbox must await local enqueue here,
+    // while keeping external provider completion independent of the auth response.
+    void withDeadline(mailCapacity(() => config.mail.send(message, signal)), timeout).catch(() => {
+      // Provider errors and capacity/deadline failures must not expose eligibility or mail data.
+    });
   };
   return betterAuth<BetterAuthOptions>({
     baseURL: config.baseURL, basePath: config.basePath ?? "/v1/auth", secret: config.secret,
@@ -59,12 +63,12 @@ export function createAuthentication(config: AuthConfiguration, database: Databa
         const callback = new URL(url).searchParams.get("callbackURL");
         const target = new URL(callback && config.returnURLs.includes(callback) ? callback : config.returnURLs[0]!);
         target.searchParams.set("token", token);
-        await send({ kind: "password-reset", email: user.email, token, url: target.href });
+        scheduleDelivery({ kind: "password-reset", email: user.email, token, url: target.href });
       },
     },
     emailVerification: {
       sendOnSignUp: true, sendOnSignIn: false, autoSignInAfterVerification: false, expiresIn: 3600,
-      sendVerificationEmail: async ({ user, url, token }) => send({ kind: "verification", email: user.email, url, token }),
+      sendVerificationEmail: async ({ user, url, token }) => scheduleDelivery({ kind: "verification", email: user.email, url, token }),
     },
   });
 }

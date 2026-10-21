@@ -47,10 +47,14 @@ The factory accepts `databasePath`, HTTPS origin `baseURL`, optional `basePath`
 (default `/v1/auth`), a random authentication `secret` of at least 32 characters,
 exact HTTPS `trustedOrigins`, fixed trusted `returnURLs`, and a private `mail`
 adapter. The mail adapter receives `{ kind, email, url, token }` and an AbortSignal;
-it must avoid logging message data and honor cancellation. Mail has a five-second
-maximum deadline and bounded capacity even if an adapter ignores its signal.
-`mailTimeoutMs` can shorten the deadline. This slice has no durable mail outbox;
-an accepted response does not promise delivery. Retry/outbox acceptance is pending.
+it must avoid logging message data and honor cancellation. External delivery runs
+in the background, with a five-second maximum deadline and eight retained provider
+slots even if an adapter ignores its signal. Provider errors, deadlines and full
+capacity never enter authentication responses or logs. `mailTimeoutMs` can shorten
+the deadline. This slice has no durable mail outbox: messages may be lost on process
+exit or when capacity is full, and acceptance does not promise delivery. The
+durable outbox must await local enqueue before acceptance while keeping external
+provider completion independent. Retry/outbox acceptance is pending.
 
 Mount only `server.handler(request, { peerAddress })`. Supply the peer from the
 transport socket, never forwarding headers. The handler validates its configured

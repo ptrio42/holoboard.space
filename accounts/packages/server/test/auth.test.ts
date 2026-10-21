@@ -96,12 +96,15 @@ test("protected server APIs derive the user from the live session and limit pass
 test("mail has a bounded deadline even when its adapter ignores cancellation", async () => {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
-  const timer = setTimeout(release, 1500);
-  const f = await fixture({ mailTimeoutMs: 50, mail: { send: async () => gate } });
+  const timer = setTimeout(release, 5000);
+  let deliveries = 0;
+  const f = await fixture({ mailTimeoutMs: 50, mail: { send: async () => { deliveries++; await gate; } } });
   try {
     const start = Date.now();
     assert.equal((await f.register()).status, 202);
     assert.ok(Date.now() - start < 1000, "an ignored abort signal must not leave the handler waiting for the provider");
+    for (let index = 0; index < 10; index++) assert.equal((await f.register(`blocked${index}@example.test`)).status, 202);
+    assert.equal(deliveries, 8, "timed-out ignored cancellation still holds its provider capacity slot");
   } finally { release(); clearTimeout(timer); await f.close(); }
 });
 
@@ -117,6 +120,62 @@ test("mail failures do not reveal whether signup or recovery found an account", 
     assert.equal(known.status, 202); assert.equal(unknown.status, 202);
     assert.deepEqual(await known.json(), await unknown.json());
   } finally { await f.close(); }
+});
+
+test("verification resend is generic for absent, unverified and verified addresses when delivery fails", async () => {
+  let failing = false;
+  let providerCalls = 0;
+  const f = await fixture({ mail: { send: async () => { providerCalls++; if (failing) throw new Error("private delivery failure"); } } });
+  try {
+    await f.register();
+    const db = new Database(f.databasePath);
+    db.prepare('UPDATE user SET emailVerified = 1').run();
+    db.close();
+    await f.register("pending@example.test");
+    failing = true;
+    const before = providerCalls;
+    for (const email of ["absent@example.test", "pending@example.test", "reader@example.test"]) {
+      const response = await f.request("/send-verification-email", { email });
+      assert.equal(response.status, 202, email);
+      assert.deepEqual(await response.json(), { accepted: true });
+    }
+    assert.equal(providerCalls - before, 1, "only eligible mail is scheduled");
+    assert.equal((await f.request("/send-verification-email", { email: "invalid" })).status, 400);
+  } finally { await f.close(); }
+});
+
+test("blocked delivery does not delay generic signup, recovery or verification responses", async () => {
+  let blocked = false;
+  const pending: Array<() => void> = [];
+  const calls: number[] = [];
+  const f = await fixture({ mailTimeoutMs: 2000, mail: { send: async () => {
+    calls.push(Date.now());
+    if (blocked) await new Promise<void>((resolve) => { pending.push(resolve); });
+  } } });
+  try {
+    await f.register();
+    const db = new Database(f.databasePath);
+    db.prepare('UPDATE user SET emailVerified = 1').run();
+    db.close();
+    await f.register("pending@example.test");
+    blocked = true;
+    const before = calls.length;
+    const outcomes: Array<{ path: string; email: string; elapsed: number; status: number }> = [];
+    for (const path of ["/sign-up/email", "/request-password-reset", "/send-verification-email"]) {
+      for (const email of [path === "/sign-up/email" ? "new@example.test" : "absent@example.test", "pending@example.test", "reader@example.test"]) {
+        const start = Date.now();
+        const response = await f.request(path, { email, password, name: "Reader" });
+        outcomes.push({ path, email, elapsed: Date.now() - start, status: response.status });
+      }
+    }
+    assert.ok(calls.length > before, "the test exercised an eligible blocked provider");
+    for (const outcome of outcomes) {
+      assert.equal(outcome.status, 202, `${outcome.path} ${outcome.email}`);
+      assert.ok(outcome.elapsed < 1000, `${outcome.path} must not await its 2000ms provider deadline`);
+      if (outcome.path === "/send-verification-email") assert.ok(outcome.elapsed >= 450, "native resend privacy floor is preserved");
+    }
+    assert.ok(pending.length <= 8, "ignored provider cancellation must retain bounded capacity");
+  } finally { for (const release of pending) release(); await f.close(); }
 });
 
 test("database initialization is explicit, private and refuses an existing file", async () => {
