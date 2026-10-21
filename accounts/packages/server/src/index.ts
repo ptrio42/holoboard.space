@@ -9,3 +9,4 @@ export { initializeAccountCustody, createIdentityStore } from "./identities.ts";
 export type { CustodyConfiguration, IdentityStore, AccountIdentity } from "./identities.ts";
 export { createKeyEncryption } from "./key-encryption.ts";
 export type { KeyEncryptionConfiguration } from "./key-encryption.ts";
+export type { SigningPolicy } from "./policy.ts";

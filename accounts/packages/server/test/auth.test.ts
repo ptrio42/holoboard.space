@@ -29,7 +29,9 @@ test("real cookies are secure and host-only, all cookies survive token redaction
   const f = await fixture();
   try {
     await f.register(); await f.verify();
+    const loginStartedAt = Date.now();
     const login = await f.login();
+    const loginFinishedAt = Date.now();
     const cookies = login.headers.getSetCookie();
     assert.ok(cookies.length >= 1);
     const sessionCookie = cookies.find((value) => value.startsWith("__Secure-better-auth.session_token="))!;
@@ -42,7 +44,9 @@ test("real cookies are secure and host-only, all cookies survive token redaction
     };
     assert.equal(session.user.emailVerified, true);
     assert.equal("token" in session.session, false);
-    assert.equal(Date.parse(session.session.expiresAt) - Date.parse(session.session.createdAt), 604800000);
+    // Better Auth reads the expiry and creation clocks separately.
+    const expiresAt = Date.parse(session.session.expiresAt);
+    assert.ok(expiresAt >= loginStartedAt + 604800000 && expiresAt <= loginFinishedAt + 604800000);
     const db = new Database(f.databasePath);
     const stored = db.prepare('SELECT password FROM account').get() as { password: string };
     assert.match(stored.password, /^\$argon2id\$v=19\$m=19456,t=2,p=1\$/);

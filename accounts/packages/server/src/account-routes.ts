@@ -7,10 +7,14 @@ import { AccountError, createCapacity, createLimiter, readBoundedBody, withDeadl
 import type { RequestLimit } from "./limits.ts";
 import { createIdentityStore, createSerialExecutor, custodyInstallation } from "./identities.ts";
 import type { CustodyConfiguration, IdentityStore } from "./identities.ts";
+import { createIdentityRoutes } from "./identity-routes.ts";
+import type { SigningPolicy } from "./policy.ts";
 
 export interface AccountServerConfiguration extends AuthConfiguration {
   databasePath: string;
   custody?: CustodyConfiguration;
+  signingPolicy?: SigningPolicy;
+  explicitExportEnabled?: boolean;
   requestLimit?: RequestLimit;
   sensitiveLimit?: RequestLimit;
   privateRoutes?: readonly PrivateAccountRoute[];
@@ -67,6 +71,8 @@ function errorResponse(error: unknown): Response {
 
 export function createAccountServer(config: AccountServerConfiguration) {
   validateConfiguration(config);
+  if ((config.signingPolicy || config.explicitExportEnabled) && !config.custody) throw new Error("Identity routes require custody configuration");
+  const identityRoutes = config.custody && config.signingPolicy ? createIdentityRoutes(config.signingPolicy, config.explicitExportEnabled === true) : [];
   const ingress = createLimiter(config.requestLimit ?? { maxRequests: 60, windowMs: 60000 });
   const sensitive = createLimiter(config.sensitiveLimit ?? { maxRequests: 5, windowMs: 60000 });
   const capacity = createCapacity(8);
@@ -85,7 +91,7 @@ export function createAccountServer(config: AccountServerConfiguration) {
   };
   const basePath = config.basePath ?? "/v1/auth";
   const privateRoutes = new Map<string, PrivateAccountRoute>();
-  for (const route of config.privateRoutes ?? []) {
+  for (const route of [...identityRoutes, ...config.privateRoutes ?? []]) {
     if (!/^\/[a-zA-Z0-9/-]+$/.test(route.path) || route.path.startsWith(basePath) || privateRoutes.has(route.path)) {
       db.close(); throw new Error("Invalid private account route");
     }

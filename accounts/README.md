@@ -3,8 +3,9 @@
 Private TypeScript packages for an embeddable account handler and future service
 and client SDK. The server implements email registration, verification, login,
 fixed seven-day database sessions, logout and password recovery through Better
-Auth, plus optional encrypted stable author identities. Signing/export routes,
-the runnable service and client transport remain pending.
+Auth, plus optional encrypted stable author identities, bounded kind-1 signing
+and explicit password-confirmed key export. The runnable service and client
+transport remain pending.
 See the [account contract](../docs/accounts-design.md).
 
 Use Node.js **24.22.1** and npm **11.19.1**, pinned in `.nvmrc`, `engines` and
@@ -29,7 +30,7 @@ relative to either source or emitted JavaScript.
 
 | Package | Responsibility | Runtime dependencies |
 | --- | --- | --- |
-| `@holoboard/accounts-server` | Account handler, private persistence and future custody | Better Auth, SQLite, Argon2, JOSE, Nostr |
+| `@holoboard/accounts-server` | Account handler, private custody and scoped signing | Better Auth, SQLite, Argon2, JOSE, Nostr |
 | `@holoboard/accounts-client` | Signer types; transport and SDK pending | `nostr-tools` only |
 | `@holoboard/accounts-service` | Configuration and HTTP lifecycle pending | Server package only |
 
@@ -96,7 +97,7 @@ capacity remains occupied until the underlying operation settles.
 The server-only `requireAccount(request)` returns our minimal `AccountSession`
 from a live database session. `verifyPassword(request, password)` applies its own
 account limit before the supported Better Auth verifier. Neither is a public
-endpoint. `privateRoutes` extends the same protected ingress for future identity
+endpoint. `privateRoutes` extends the same protected ingress used by identity
 routes, passing only session-derived authority; each extension must validate its
 own body fields and signing policy.
 
@@ -124,8 +125,8 @@ storage, unavailable encryption keys and corrupt assigned identities fail startu
 or return `503 IDENTITY_UNAVAILABLE` at runtime, never a replacement identity.
 
 Private routes receive `context.identity`, scoped to the current live verified
-account, with `getOrCreate()` and `withSecret(callback)`. No identity endpoint is
-mounted yet. The trusted low-level store requires a session-derived account ID
+account, with `getOrCreate()` and `withSecret(callback)`. The trusted low-level
+store requires a session-derived account ID
 when exposed through HTTP. Its synchronous transaction assigns one public key,
 encrypted secret and separate marker; concurrent first calls reuse its winner.
 The independent mode-0700 inventory contains only installation/account IDs and
@@ -151,6 +152,46 @@ per database and drain all admitted work before closing. Separate processes and
 shared-network-filesystem writers are unsupported. Ordinary access decrypts only
 the requested identity and does not rewrite durable assignment state. Global
 structural inventory scans are not a measured production scaling guarantee.
+
+## Scoped signing and export
+
+Pass `signingPolicy: { allowedKinds: [1] }` alongside `custody` to mount the
+identity routes below. Omitting the policy mounts none; `allowedKinds: []`
+permits no signatures. The policy is snapshotted at server creation. This slice
+implements only kind 1; configuring other kinds fails startup. Discussion,
+zap and media authorization policies remain follow-up work. Set
+`explicitExportEnabled: true` separately to allow export; its default is false.
+
+| Path | Request | Success |
+| --- | --- | --- |
+| `GET /v1/identity` | Live verified session cookie | `{ publicKey, capabilities: { allowedKinds, exportEnabled } }` |
+| `POST /v1/identity/sign` | Cookie, `{ template: { kind, created_at, content, tags } }` | Complete signed Nostr event |
+| `POST /v1/identity/export` | Cookie, `{ password }` | `{ publicKey, nsec }` |
+
+These paths are fixed independently of the configurable auth prefix. They use
+the same origin checks, 64 KiB ingress limit, live session lookup, no-store
+responses and error envelope as authentication. The account comes solely from
+the session. Unknown envelope or template fields, including `accountId`,
+`pubkey`, `id` and `sig`, are rejected. Kind and timestamp must be nonnegative
+safe integers. Content is limited to 16 KiB in UTF-8, with at most 256 tags,
+32 strings per tag and 2048 UTF-8 bytes per string. Content and tag strings must
+contain well-formed Unicode. Validation preserves all content, timestamps,
+duplicates and tag order.
+
+Signing explicitly provisions or reuses the committed identity, decrypts only
+inside its account-bound callback and returns the event after recomputing its
+ID, checking the exact template and public key and verifying its signature on
+a fresh object without the library's cached verification marker. Neither signing
+nor export fetches caller URLs, publishes events or accesses wallets. Requests
+admitted after logout, expiry or password-reset revocation fail. A signature
+already produced before revocation cannot be retracted.
+
+Every export requires the current password through the bounded private auth
+verifier, including repeated exports in the same session. A wrong password or
+disabled export returns `403 PERMISSION_DENIED`. The native password-verification
+route stays unexposed. Ordinary identity, signing and session responses contain
+no author secret; only the explicit export response contains `nsec`. Applications
+must keep that response out of caches, telemetry and automatic retries.
 
 ## Better Auth integration review
 
