@@ -129,3 +129,22 @@ test("oversized private extension responses fail as service errors without chang
     assert.equal((await request({ content: "x".repeat(65536) })).status, 413);
   } finally { await f.close(); }
 });
+
+test('library shutdown refuses active database work and can explicitly await idleness', async () => {
+  let release!: () => void;
+  let entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const f = await fixture({ privateRoutes: [{ path: '/v1/blocked', method: 'POST', handle: async () => { entered(); await blocked; return Response.json({done:true}); } }] });
+  let pending: Promise<Response> | undefined;
+  try {
+    await f.register(); await f.verify(); const login = await f.login();
+    const cookie = login.headers.getSetCookie()[0]!.split(';',1)[0]!;
+    pending = f.app.handler(new Request(baseURL+'/v1/blocked', {method:'POST',headers:{cookie,origin,'content-type':'application/json'},body:'{}'}));
+    await started;
+    assert.throws(() => f.app.close(), {message:'ACCOUNT_WORK_ACTIVE'});
+    let idle = false; const waiting = f.app.whenIdle().then(() => {idle=true;});
+    await new Promise(resolve => setImmediate(resolve)); assert.equal(idle,false);
+    release(); assert.equal((await pending).status,200); await waiting; assert.equal(idle,true);
+  } finally { release(); await pending; await f.close(); }
+});

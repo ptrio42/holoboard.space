@@ -61,7 +61,8 @@ test("protected identity reads are stable and signing preserves the complete exa
     const socketGuard = t.mock.method(Socket.prototype, "connect", () => { throw new Error("outbound socket forbidden"); });
     const identityResponse = await f.request("/v1/identity", undefined, cookie);
     assert.equal(identityResponse.status, 200);
-    const identity = await identityResponse.json() as { publicKey: string; capabilities: { allowedKinds: number[]; exportEnabled: boolean } };
+    const identity = await identityResponse.json() as { accountId: string; publicKey: string; capabilities: { allowedKinds: number[]; exportEnabled: boolean } };
+    assert.equal(identity.accountId, (await (await f.request("/v1/auth/get-session", undefined, cookie)).json() as {user:{id:string}}).user.id);
     assert.match(identity.publicKey, /^[0-9a-f]{64}$/);
     assert.deepEqual(identity.capabilities, { allowedKinds: [1], exportEnabled: true });
     assert.deepEqual(await (await f.request("/v1/identity", undefined, cookie)).json(), identity);

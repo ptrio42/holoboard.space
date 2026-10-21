@@ -16,7 +16,7 @@
     }
   },
   "scripts": {
-    "check": "tsc --noEmit -p tsconfig.json",
+    "check": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
     "test": "node ../../scripts/test.mjs",
     "build": "tsc -p tsconfig.build.json"
   },

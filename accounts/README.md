@@ -1,12 +1,11 @@
 # Accounts workspace
 
-Private TypeScript packages for an embeddable account handler and future service
-and client SDK. The server implements email registration, verification, login,
+Private TypeScript packages for an embeddable account handler, a loopback TLS
+service and a transport-independent client SDK. The server implements email registration, verification, login,
 fixed seven-day database sessions, logout and password recovery through Better
 Auth, plus optional encrypted stable author identities, bounded kind-1 signing
 and explicit password-confirmed key export. Custody installations include a
-durable encrypted mail outbox with an explicit delivery worker. The runnable service and client
-transport remain pending.
+durable encrypted mail outbox with an explicit delivery worker. The service and embedded example share the same handler and HTTP bridge.
 See the [account contract](../docs/accounts-design.md).
 
 Use Node.js **24.22.1** and npm **11.19.1**, pinned in `.nvmrc`, `engines` and
@@ -36,19 +35,51 @@ relative to either source or emitted JavaScript.
 | Package | Responsibility | Runtime dependencies |
 | --- | --- | --- |
 | `@holoboard/accounts-server` | Account handler, private custody and scoped signing | Better Auth, SQLite, Argon2, JOSE, Nostr |
-| `@holoboard/accounts-client` | Signer types; transport and SDK pending | `nostr-tools` only |
-| `@holoboard/accounts-service` | Configuration and HTTP lifecycle pending | Server package only |
+| `@holoboard/accounts-client` | Account operations, web transport and verified signer | `nostr-tools` only |
+| `@holoboard/accounts-service` | Private configuration, local TLS and bounded lifecycle | Server package only |
 
 The client has no server-package, database, password, key-storage, React or
-browser-global dependency. Its separate installation boundary was checked during
-scaffolding. No existing web, curator or Go dependency graph is changed.
+browser-global dependency. An independent tarball was installed offline and imported with only the
+`nostr-tools` dependency graph. Better Auth, SQLite, Argon2 and JOSE were absent. No existing web, curator or Go dependency graph is changed.
+
+## Run locally
+
+Build, explicitly create a fresh private installation, then start the TLS service:
+
+```sh
+npm run build
+node examples/local-setup.mjs /private/tmp/accounts-local 3443
+node apps/service/dist/main.js init /private/tmp/accounts-local/config.json
+node apps/service/dist/main.js serve /private/tmp/accounts-local/config.json
+```
+
+Stop with Ctrl-C. Use `node examples/embedded.mjs /private/tmp/accounts-local/config.json`
+for the embedded host instead of `serve`. Both use the public server package and
+shared bounded TLS bridge. The explicit local setup requires OpenSSL and creates
+separate secrets, a self-signed certificate and a private mail capture file. No
+external mail is sent. Serving requires existing storage and owner-only config/key
+files. It never initializes storage or generates missing secrets. Only loopback
+TLS is implemented; public TLS termination and proxies remain future work.
+
+See [configuration, local verification and shutdown](docs/service.md) for the
+exact JSON shape, private capture workflow and isolated end-to-end helper.
+
+## Client SDK
+
+`createAccountClient({ baseURL, transport? })` exposes registration, verification,
+login, session, logout, recovery, identity and explicit key export. Its `signer`
+provides `getPublicKey()` and exact verified `signEvent(template)`. The default web
+transport uses credentialed fetch; native hosts supply their own cookie transport.
+Pending work is bound to the account and auth epoch. Events are never published
+and exports never retried or stored. See [SDK usage and actual wire mapping](docs/client.md).
 
 ## Embedding and HTTP
 
 Call `initializeAccountDatabase(path)` explicitly for a new installation. It
 creates a mode-0600 file and refuses existing paths. `createAccountServer(config)`
 opens an existing schema without applying migrations. Keep its directory private
-and backups separate from public caches. Drain requests before `close()`.
+and backups separate from public caches. Stop admissions and new worker drains, await `whenIdle()` and the active mail
+worker, then call `close()`. Closing active database work is rejected.
 
 The factory accepts `databasePath`, HTTPS origin `baseURL`, optional `basePath`
 (default `/v1/auth`), a random authentication `secret` of at least 32 characters,
@@ -99,7 +130,7 @@ service integrations must configure custody and use its encrypted outbox.
 
 Mount only `server.handler(request, { peerAddress })`. Supply the peer from the
 transport socket, never forwarding headers. The handler validates its configured
-URL origin; a future HTTP adapter must construct URLs from trusted configuration,
+URL origin; the Node adapter constructs URLs from trusted configuration,
 without trusting Host or forwarded protocol headers. Secure cookies require HTTPS.
 Native clients use a cookie jar and explicitly send the configured web Origin for
 mutations. The server does not accept a missing mutation Origin.
@@ -119,7 +150,7 @@ Return URLs match the entire configured URL, including path; extra query strings
 and sibling paths are rejected. Missing return URLs use the first configured page.
 Recovery mail links directly to that page with a token; the native reset callback
 route is not public. Application pages must remove consumed tokens from navigation.
-See [the exact wire and error boundary](../docs/accounts-design.md#implemented-authentication-slice).
+See [the exact wire and error boundary](../docs/accounts-design.md#implemented-account-and-signing-slice).
 
 `requestLimit` defaults to 60 requests per minute globally and per trusted peer;
 `sensitiveLimit` defaults to five password checks per account per minute and five
@@ -203,7 +234,7 @@ zap and media authorization policies remain follow-up work. Set
 
 | Path | Request | Success |
 | --- | --- | --- |
-| `GET /v1/identity` | Live verified session cookie | `{ publicKey, capabilities: { allowedKinds, exportEnabled } }` |
+| `GET /v1/identity` | Live verified session cookie | `{ accountId, publicKey, capabilities: { allowedKinds, exportEnabled } }` |
 | `POST /v1/identity/sign` | Cookie, `{ template: { kind, created_at, content, tags } }` | Complete signed Nostr event |
 | `POST /v1/identity/export` | Cookie, `{ password }` | `{ publicKey, nsec }` |
 

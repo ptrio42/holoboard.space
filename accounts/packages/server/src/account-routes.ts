@@ -85,7 +85,14 @@ export function createAccountServer(config: AccountServerConfiguration) {
     if (!config.custody && custodyInstallation(db)) throw new Error("Custody configuration is required for this installation");
     if (config.custody) identities = createIdentityStore(db, config.custody);
   } catch (error) { db.close(); throw error; }
-  const serial = config.custody ? createSerialExecutor() : <T>(operation: () => Promise<T>) => operation();
+  const executeSerial = config.custody ? createSerialExecutor() : <T>(operation: () => Promise<T>) => operation();
+  const activeWork = new Set<Promise<unknown>>();
+  const serial = <T>(operation: () => Promise<T>): Promise<T> => {
+    const pending = executeSerial(operation);
+    activeWork.add(pending);
+    void pending.then(() => activeWork.delete(pending), () => activeWork.delete(pending));
+    return pending;
+  };
   let outbox: ReturnType<typeof createMailOutbox> | undefined;
   try {
     if (config.mailOutbox && !config.custody) throw new Error("Mail outbox requires custody encryption configuration");
@@ -251,7 +258,9 @@ export function createAccountServer(config: AccountServerConfiguration) {
     ready: () => serial(async () => { await identities?.assertReady(); initialReadiness = Promise.resolve(); }),
     requireAccount: (request: Request) => serial(() => requireAccount(request)),
     verifyPassword: (request: Request, password: string) => serial(() => verifyPassword(request, password)),
-    close() { outbox?.assertIdle(); db.close(); },
+    /** Stop transport admissions and mail drains before awaiting this barrier. */
+    async whenIdle() { while (activeWork.size) await Promise.allSettled([...activeWork]); },
+    close() { if (activeWork.size) throw new Error("ACCOUNT_WORK_ACTIVE"); outbox?.assertIdle(); db.close(); },
   };
 }
 

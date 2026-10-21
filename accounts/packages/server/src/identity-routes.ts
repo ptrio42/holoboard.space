@@ -10,9 +10,9 @@ export function createIdentityRoutes(policy: SigningPolicy, exportEnabled: boole
   const signing = createSigningPolicy(policy);
   const capabilities = { allowedKinds: signing.allowedKinds, exportEnabled };
   return [
-    { path: "/v1/identity", method: "GET", handle: async ({ identity }) => {
+    { path: "/v1/identity", method: "GET", handle: async ({ identity, account }) => {
       if (!identity) throw new AccountError("IDENTITY_UNAVAILABLE", 503);
-      return Response.json({ ...await identity.getOrCreate(), capabilities });
+      return Response.json({ ...await identity.getOrCreate(), accountId: account.user.id, capabilities });
     } },
     { path: "/v1/identity/sign", method: "POST", handle: async ({ body, identity }) => {
       const input = exactObject(body, ["template"]);

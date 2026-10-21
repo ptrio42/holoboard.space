@@ -12,3 +12,4 @@ export type { KeyEncryptionConfiguration } from "./key-encryption.ts";
 export type { SigningPolicy } from "./policy.ts";
 
 export type { MailOutboxConfiguration, MailOutboxWorker, MailOutboxStatus } from "./mail-outbox.ts";
+export { createNodeAccountListener } from './node-http.ts';
