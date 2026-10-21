@@ -63,12 +63,22 @@ error links also redirect, and browsers hide redirect status details. The SDK
 rejects redirects and accepts only `{ status: true }`, returning `{ verified: true }`.
 The host controls navigation after that result.
 
-Login, logout and password reset serialize their cookie-changing requests within a
-bounded shared scope (eight admitted mutations, including one active transport).
-Logout clears local session state immediately, but returns success only after all
-previous admitted login/reset/logout cookie writes and its own server sign-out
-complete. A later explicit login can establish a new session. Session reads wait for preceding cookie operations;
-pending identity, signing and export work is invalidated by shared auth transitions.
+Every request under the configured native auth prefix shares one bounded HTTP
+queue (eight admitted requests, including one active transport). GET session reads,
+verification and recovery requests participate too: native auth responses can set
+or delete cookies regardless of method or response status. In the pinned Better
+Auth source, both `get-session` and `send-verification-email` can return deletion
+cookies for a revoked session. Identity, signing and export routes are outside
+this cookie queue because their facade responses do not forward auth cookies.
+
+Login, logout and reset advance auth intent revisions immediately. Logout clears
+local session state immediately, but returns success only after preceding auth
+responses finish their cookie effects and its own server sign-out completes. A
+later explicit login can establish a new session. Internal session loading after
+login enters the same queue as a separate request. Pending identity, signing and
+export work is invalidated by shared auth transitions. Concurrent session reads
+are serialized; a response whose local or shared auth snapshot has since changed
+is rejected instead of replacing the committed session.
 
 Default browser SDK instances in the same JavaScript realm and with the same API
 origin share a scope. Injected clients sharing the exact transport function and API
@@ -80,7 +90,7 @@ Reloading or replacing the host during an unresolved operation requires the host
 own transport/cookie lifecycle handling; this is not cross-tab revocation storage.
 
 SDK deadlines do not mean an injected transport has stopped. Its slot and cookie
-fence remain until the actual transport promise settles. Timed-out queued mutations
+fence remain until the actual transport promise settles. Timed-out queued auth requests
 never dispatch later. Automatic session restoration remains blocked after uncertain
 transport failure, including in a fresh SDK sharing the scope, until an explicit
 successful login, logout or reset resolves the state. Callers receive bounded

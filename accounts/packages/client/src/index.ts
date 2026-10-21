@@ -111,10 +111,11 @@ export class AccountClient {
     const start = this.epoch;
     try {
       const prefix = this.config.authBasePath ?? '/v1/auth';
-      const mutation = ['/sign-in/email', '/sign-out', '/reset-password'].some(route => path === prefix + route);
-      if (path === prefix + '/get-session' && this.authScope.hasPending) await this.authScope.wait(this.config.timeoutMs ?? 15000);
+      // Native authentication responses can change cookies even on GET or errors.
+      // Serialize the namespace as a whole, independently of auth intent revisions.
+      const authRequest = path.startsWith(prefix + '/');
       const operation = { url: this.config.baseURL + path, method: body === undefined ? 'GET' as const : 'POST' as const, ...(serialized === undefined ? {} : { body: serialized }), timeoutMs: this.config.timeoutMs ?? 15000, maxResponseBytes: 131072 };
-      const response = mutation ? await this.authScope.send(this.transport, operation) : await withClientDeadline(() => this.transport(operation), operation.timeoutMs);
+      const response = authRequest ? await this.authScope.send(this.transport, operation) : await withClientDeadline(() => this.transport(operation), operation.timeoutMs);
       if (!Number.isInteger(response.status) || response.status < 100 || response.status > 599 || typeof response.body !== 'string' || utf8Bytes(response.body) > 131072)
         return invalid();
       let value: unknown;
@@ -183,16 +184,17 @@ export class AccountClient {
   }
   async getSession(): Promise<AccountSession | null> {
     const epoch = this.epoch, scopeRevision = this.authScope.revision;
-    if (this.authScope.hasPending) await this.authScope.wait(this.config.timeoutMs ?? 15000);
-    this.authScope.assertReady();
-    const loaded = await this.loadSession(epoch, undefined, scopeRevision);
+    this.authScope.assertRestorable();
+    const loaded = await this.loadSession(epoch, undefined, scopeRevision, true);
+    this.authScope.assertRestorable();
     if (loaded.epoch !== this.epoch || scopeRevision !== this.authScope.revision)
       throw new AccountClientError('STALE_AUTH_STATE');
     return loaded.session;
   }
-  private async loadSession(epoch: number, expectedAccountId?: string, scopeRevision = this.authScope.revision): Promise<{ session: AccountSession | null; epoch: number }> {
+  private async loadSession(epoch: number, expectedAccountId?: string, scopeRevision = this.authScope.revision, restoring = false): Promise<{ session: AccountSession | null; epoch: number }> {
     if (scopeRevision !== this.authScope.revision) throw new AccountClientError('STALE_AUTH_STATE');
     const result = await this.auth('/get-session') as AccountSession | null;
+    if (restoring) this.authScope.assertRestorable();
     if (epoch !== this.epoch || scopeRevision !== this.authScope.revision)
       throw new AccountClientError('STALE_AUTH_STATE');
     if (result === null) {

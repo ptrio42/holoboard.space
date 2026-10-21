@@ -93,3 +93,33 @@ test('unsettled transport keeps a bounded queue and expired queued mutations nev
     assert.equal(f.calls.filter(path => path.endsWith('/sign-out')).length, 1);
   } finally { await f.close(); }
 });
+
+for (const route of ['get-session', 'send-verification-email'] as const) test(`native ${route} deletion cookies finish before a later login`, async () => {
+  const f = await fixture(); const release = deferred(), waiting = deferred(); let held = false, hold = false, loginDispatches = 0; let pendingLogin: Promise<unknown> | undefined;
+  try {
+    await f.register(); await f.verify();
+    const jar = new TestCookieJar(); let deletionCookies = 0;
+    const transport: AccountTransport = async operation => {
+      const url = new URL(operation.url);
+      if (url.pathname.endsWith('/sign-in/email')) loginDispatches++;
+      const response = await f.app.handler(new Request(url, { method: operation.method, headers: { origin, cookie: jar.header(url), ...(operation.body ? { 'content-type': 'application/json' } : {}) }, ...(operation.body ? { body: operation.body } : {}) }));
+      if (hold && !held && url.pathname.endsWith('/' + route)) {
+        held = true; deletionCookies = response.headers.getSetCookie().filter(value => /Max-Age=0/i.test(value)).length;
+        waiting.resolve(); await release.promise;
+      }
+      jar.accept(url, response.headers.getSetCookie()); return { status: response.status, body: await response.text() };
+    };
+    const first = createAccountClient({ baseURL, transport }), second = createAccountClient({ baseURL, transport });
+    await first.login('reader@example.test', password);
+    const { default: Database } = await import('better-sqlite3'); const db = new Database(f.databasePath); db.exec('DELETE FROM session'); db.close();
+    hold = true;
+    const old = (route === 'get-session' ? first.getSession() : first.requestVerification('reader@example.test')).then(() => 'success', error => error.code);
+    await waiting.promise; assert.ok(deletionCookies > 0, 'the actual native response must contain session deletion cookies');
+    const newer = second.login('reader@example.test', password).then(value => ({ value }), error => ({ error: error.code })); pendingLogin = newer;
+    assert.equal(loginDispatches, 1, 'new login must not dispatch before the earlier cookie deletion');
+    release.resolve(); const accepted = await newer; assert.ok('value' in accepted);
+    assert.equal(await old, route === 'get-session' ? 'STALE_AUTH_STATE' : 'success');
+    assert.equal((await second.getSession())?.session.id, accepted.value.session.id);
+    assert.equal((await createAccountClient({ baseURL, transport }).getSession())?.session.id, accepted.value.session.id);
+  } finally { release.resolve(); await pendingLogin; await f.app.whenIdle(); await f.close(); }
+});

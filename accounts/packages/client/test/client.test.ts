@@ -28,9 +28,10 @@ test('late session reads cannot restore state after logout and errors expose onl
       complete = resolve;
     }) : { status: 200, body: '{}' } });
   const pending = client.getSession();
-  await client.logout();
+  const logout = client.logout();
   complete({ status: 200, body: JSON.stringify(session) });
   await assert.rejects(pending, { code: 'STALE_AUTH_STATE' });
+  await logout;
   assert.equal(client.currentSession, null);
   const broken = sdk.createAccountClient({ baseURL: 'https://accounts.test', transport: async () => {
       throw new Error('private password token');
@@ -80,9 +81,10 @@ test('a stale 401 does not clear a newer login, and newest login wins', async ()
       return { status: 200, body: JSON.stringify({ user }) };
     } });
   const old = client.getSession();
-  await client.login(user.email, 'password');
+  const login = client.login(user.email, 'password');
   stale({ status: 401, body: '{"error":{"code":"UNAUTHENTICATED"}}' });
   await assert.rejects(old);
+  await login;
   assert.equal(client.currentSession?.user.id, 'one');
 });
 test('a login waiting for session loading cannot return a newer same-account session', async () => {
@@ -101,9 +103,10 @@ test('a login waiting for session loading cannot return a newer same-account ses
   const first = client.login(user.email, 'password');
   while (!release)
     await new Promise(resolve => setImmediate(resolve));
-  await client.login(user.email, 'password');
+  const newer = client.login(user.email, 'password');
   release({ status: 200, body: JSON.stringify(session) });
   await assert.rejects(first, { code: 'STALE_AUTH_STATE' });
+  await newer;
 });
 test('explicit key export rejects malformed or mismatched backup keys and never retries', async () => {
   const {generateSecretKey,getPublicKey}=await import('nostr-tools/pure');const {nsecEncode}=await import('nostr-tools/nip19');
@@ -140,17 +143,19 @@ test('a rejected login never adopts a cookie session belonging to another accoun
   assert.equal(identityRequests, 0);
 });
 
-test('concurrent session reads cannot restore an older account after the first session commit', async () => {
+test('concurrent session reads serialize cookie effects and reject outdated local snapshots', async () => {
   const other = { ...session, user: { ...user, id: 'other' }, session: { ...session.session, id: 'other-session' } };
   const responses: Array<(response: sdk.TransportResponse) => void> = [];
   const client = sdk.createAccountClient({ baseURL: 'https://accounts.test', transport: () => new Promise(resolve => { responses.push(resolve); }) });
   const older = client.getSession();
   const newer = client.getSession();
-  responses[1]!({ status: 200, body: JSON.stringify(other) });
-  assert.equal((await newer)?.user.id, other.user.id);
+  assert.equal(responses.length, 1, 'only one native auth response may update cookies at a time');
   responses[0]!({ status: 200, body: JSON.stringify(session) });
-  await assert.rejects(older, { code: 'STALE_AUTH_STATE' });
-  assert.equal(client.currentSession?.user.id, other.user.id);
+  assert.equal((await older)?.user.id, user.id);
+  while (responses.length < 2) await new Promise(resolve => setImmediate(resolve));
+  responses[1]!({ status: 200, body: JSON.stringify(other) });
+  await assert.rejects(newer, { code: 'STALE_AUTH_STATE' });
+  assert.equal(client.currentSession?.user.id, user.id);
 });
 
 test('a stale mismatched login response cannot clear a newer legitimate login', async () => {
@@ -164,13 +169,14 @@ test('a stale mismatched login response cannot clear a newer legitimate login', 
   } });
   const pending = client.login(user.email, 'password');
   while (!release) await new Promise(resolve => setImmediate(resolve));
-  await client.login(other.user.email, 'password');
+  const newer = client.login(other.user.email, 'password');
   release({ status: 200, body: JSON.stringify(other) });
   await assert.rejects(pending, { code: 'STALE_AUTH_STATE' });
+  await newer;
   assert.equal(client.currentSession?.user.id, other.user.id);
 });
 
-test('an explicit session transition invalidates pending login without clearing the selected session', async () => {
+test('a session read queued behind login cannot replace its committed state with an old snapshot', async () => {
   const other = { ...session, user: { ...user, id: 'other' }, session: { ...session.session, id: 'other-session' } };
   let release!: (response: sdk.TransportResponse) => void;
   let reads = 0;
@@ -181,10 +187,12 @@ test('an explicit session transition invalidates pending login without clearing 
   } });
   const pending = client.login(user.email, 'password');
   while (!release) await new Promise(resolve => setImmediate(resolve));
-  assert.equal((await client.getSession())?.user.id, other.user.id);
+  const selection = client.getSession();
   release({ status: 200, body: JSON.stringify(session) });
-  await assert.rejects(pending, { code: 'STALE_AUTH_STATE' });
-  assert.equal(client.currentSession?.user.id, other.user.id);
+  await pending;
+  await assert.rejects(selection, { code: 'STALE_AUTH_STATE' });
+  assert.equal(client.currentSession?.user.id, user.id);
+  assert.equal((await client.getSession())?.user.id, other.user.id);
 });
 
 for (const transition of ['logout', 'account switch'] as const) {
@@ -252,8 +260,8 @@ test('shared-scope session reads cannot reintroduce a session from before anothe
   let release!: (response: sdk.TransportResponse) => void;
   const transport: sdk.AccountTransport = request => request.url.includes('get-session') ? new Promise(resolve => { release = resolve; }) : Promise.resolve({ status: 200, body: '{}' });
   const first = sdk.createAccountClient({ baseURL: 'https://accounts.test', transport }), second = sdk.createAccountClient({ baseURL: 'https://accounts.test', transport });
-  const pending = first.getSession(); await second.logout(); release({ status: 200, body: JSON.stringify(session) });
-  await assert.rejects(pending, { code: 'STALE_AUTH_STATE' }); assert.equal(first.currentSession, null);
+  const pending = first.getSession(); const logout = second.logout(); release({ status: 200, body: JSON.stringify(session) });
+  await assert.rejects(pending, { code: 'STALE_AUTH_STATE' }); await logout; assert.equal(first.currentSession, null);
 });
 
 test('snapshot validation also rejects an unresolved cookie write through the composed wire adapter', async () => {
@@ -262,4 +270,19 @@ test('snapshot validation also rejects an unresolved cookie write through the co
   await client.getSession(); const snapshot = client.captureAuth(); const pending = client.request('/v1/auth/sign-in/email', { email: user.email, password: 'fixture password' });
   try { assert.throws(() => client.assertAuth(snapshot), { code: 'TEMPORARILY_UNAVAILABLE' }); }
   finally { release({ status: 200, body: JSON.stringify({ user }) }); await pending; }
+});
+
+test('native session reads share the bounded auth queue and cancelled reads never dispatch', async () => {
+  let release!: (response: sdk.TransportResponse) => void, reads = 0;
+  const client = sdk.createAccountClient({ baseURL: 'https://accounts.test', timeoutMs: 20, transport: request => {
+    if (request.url.endsWith('/get-session')) { reads++; if (reads === 1) return new Promise(resolve => { release = resolve; }); return Promise.resolve({ status: 200, body: 'null' }); }
+    return Promise.resolve({ status: 200, body: '{}' });
+  } });
+  const results = await Promise.all(Array.from({ length: 9 }, () => client.getSession().then(() => 'success', error => error.code)));
+  assert.equal(results.filter(code => code === 'REQUEST_TIMEOUT').length, 8);
+  assert.equal(results.filter(code => code === 'TEMPORARILY_UNAVAILABLE').length, 1);
+  assert.equal(reads, 1);
+  release({ status: 200, body: 'null' }); await new Promise(resolve => setImmediate(resolve));
+  await assert.rejects(client.getSession(), { code: 'TEMPORARILY_UNAVAILABLE' });
+  await client.logout(); assert.equal(await client.getSession(), null); assert.equal(reads, 2);
 });

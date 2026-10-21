@@ -9,14 +9,14 @@ export class AccountAuthScope {
   private recoveryRequired = false;
   begin(): number { return ++this.generation; }
   complete(generation: number): void { if (generation === this.generation) this.recoveryRequired = false; }
+  assertRestorable(): void {
+    if (this.recoveryRequired) throw new AccountClientError('TEMPORARILY_UNAVAILABLE', 503);
+  }
   assertReady(): void {
-    if (this.recoveryRequired || this.pending) throw new AccountClientError('TEMPORARILY_UNAVAILABLE', 503);
+    this.assertRestorable();
+    if (this.pending) throw new AccountClientError('TEMPORARILY_UNAVAILABLE', 503);
   }
   get revision(): number { return this.generation; }
-  get hasPending(): boolean { return this.pending > 0; }
-  async wait(milliseconds: number): Promise<void> {
-    await withClientDeadline(() => this.tail, milliseconds);
-  }
   async send(transport: AccountTransport, input: TransportRequest): Promise<TransportResponse> {
     if (this.pending >= 8) throw new AccountClientError('TEMPORARILY_UNAVAILABLE', 503);
     const previous = this.pending ? this.tail : undefined;
