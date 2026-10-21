@@ -33,7 +33,8 @@ used only by the optional web transport; a native host supplies its transport.
 | `exportKey(password)` | POST fixed `/v1/identity/export`, explicit caller action only |
 
 `authBasePath` defaults to `/v1/auth`; identity paths remain fixed at `/v1/identity`.
-Session JSON retains only user fields and session ID/expiry, never a credential.
+Login checks the live session against its sign-in account before changing local
+state. Session JSON retains only user fields and session ID/expiry, never a credential.
 `currentSession` is a defensive in-memory copy. After a page reload, explicitly
 call `getSession()` before signing. Account state uses an epoch: logout, reset,
 login, a changed session and a current 401 invalidate pending work. Identity reads

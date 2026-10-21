@@ -124,3 +124,65 @@ test('retry hints follow HTTP status without trusting remote retryable fields', 
 test('authentication prefix cannot inject a query or fragment into native route URLs', () => {
   for(const authBasePath of ['/auth?','/auth#','//auth','/auth/'])assert.throws(()=>sdk.createAccountClient({baseURL:'https://accounts.test',authBasePath,transport:async()=>({status:200,body:'null'})}),{code:'INVALID_INPUT'});
 });
+
+test('a rejected login never adopts a cookie session belonging to another account', async () => {
+  const other = { ...session, user: { ...user, id: 'other', email: 'other@example.test' }, session: { ...session.session, id: 'other-session' } };
+  let identityRequests = 0;
+  const client = sdk.createAccountClient({ baseURL: 'https://accounts.test', transport: async request => {
+    if (request.url.includes('sign-in')) return { status: 200, body: JSON.stringify({ user }) };
+    if (request.url.includes('get-session')) return { status: 200, body: JSON.stringify(other) };
+    identityRequests++;
+    return { status: 200, body: JSON.stringify({ accountId: other.user.id, publicKey: 'a'.repeat(64), capabilities: { allowedKinds: [1], exportEnabled: false } }) };
+  } });
+  await assert.rejects(client.login(user.email, 'password'), { code: 'STALE_AUTH_STATE' });
+  assert.equal(client.currentSession, null);
+  await assert.rejects(client.signer.getPublicKey(), { code: 'UNAUTHENTICATED' });
+  assert.equal(identityRequests, 0);
+});
+
+test('concurrent session reads cannot restore an older account after the first session commit', async () => {
+  const other = { ...session, user: { ...user, id: 'other' }, session: { ...session.session, id: 'other-session' } };
+  const responses: Array<(response: sdk.TransportResponse) => void> = [];
+  const client = sdk.createAccountClient({ baseURL: 'https://accounts.test', transport: () => new Promise(resolve => { responses.push(resolve); }) });
+  const older = client.getSession();
+  const newer = client.getSession();
+  responses[1]!({ status: 200, body: JSON.stringify(other) });
+  assert.equal((await newer)?.user.id, other.user.id);
+  responses[0]!({ status: 200, body: JSON.stringify(session) });
+  await assert.rejects(older, { code: 'STALE_AUTH_STATE' });
+  assert.equal(client.currentSession?.user.id, other.user.id);
+});
+
+test('a stale mismatched login response cannot clear a newer legitimate login', async () => {
+  const other = { ...session, user: { ...user, id: 'other', email: 'other@example.test' }, session: { ...session.session, id: 'other-session' } };
+  let release!: (response: sdk.TransportResponse) => void;
+  let reads = 0;
+  const client = sdk.createAccountClient({ baseURL: 'https://accounts.test', transport: async request => {
+    if (request.url.includes('sign-in')) return { status: 200, body: JSON.stringify({ user: JSON.parse(request.body!).email === user.email ? user : other.user }) };
+    if (reads++ === 0) return new Promise(resolve => { release = resolve; });
+    return { status: 200, body: JSON.stringify(other) };
+  } });
+  const pending = client.login(user.email, 'password');
+  while (!release) await new Promise(resolve => setImmediate(resolve));
+  await client.login(other.user.email, 'password');
+  release({ status: 200, body: JSON.stringify(other) });
+  await assert.rejects(pending, { code: 'STALE_AUTH_STATE' });
+  assert.equal(client.currentSession?.user.id, other.user.id);
+});
+
+test('an explicit session transition invalidates pending login without clearing the selected session', async () => {
+  const other = { ...session, user: { ...user, id: 'other' }, session: { ...session.session, id: 'other-session' } };
+  let release!: (response: sdk.TransportResponse) => void;
+  let reads = 0;
+  const client = sdk.createAccountClient({ baseURL: 'https://accounts.test', transport: async request => {
+    if (request.url.includes('sign-in')) return { status: 200, body: JSON.stringify({ user }) };
+    if (reads++ === 0) return new Promise(resolve => { release = resolve; });
+    return { status: 200, body: JSON.stringify(other) };
+  } });
+  const pending = client.login(user.email, 'password');
+  while (!release) await new Promise(resolve => setImmediate(resolve));
+  assert.equal((await client.getSession())?.user.id, other.user.id);
+  release({ status: 200, body: JSON.stringify(session) });
+  await assert.rejects(pending, { code: 'STALE_AUTH_STATE' });
+  assert.equal(client.currentSession?.user.id, other.user.id);
+});

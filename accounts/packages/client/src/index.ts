@@ -156,31 +156,40 @@ export class AccountClient {
     if (epoch !== this.epoch)
       throw new AccountClientError('STALE_AUTH_STATE');
     const user = parseUser(result.user);
-    await this.getSession();
-    if (epoch !== this.epoch || this.state?.user.id !== user.id)
+    const loaded = await this.loadSession(epoch, user.id);
+    if (loaded.epoch !== this.epoch || loaded.session === null)
       throw new AccountClientError('STALE_AUTH_STATE');
-    return this.currentSession!;
+    return loaded.session;
   }
   async getSession(): Promise<AccountSession | null> {
-    const epoch = this.epoch;
+    const loaded = await this.loadSession(this.epoch);
+    if (loaded.epoch !== this.epoch)
+      throw new AccountClientError('STALE_AUTH_STATE');
+    return loaded.session;
+  }
+  private async loadSession(epoch: number, expectedAccountId?: string): Promise<{ session: AccountSession | null; epoch: number }> {
     const result = await this.auth('/get-session') as AccountSession | null;
     if (epoch !== this.epoch)
       throw new AccountClientError('STALE_AUTH_STATE');
     if (result === null) {
       this.clear();
-      return null;
+      return { session: null, epoch: this.epoch };
     }
     const user = parseUser(result.user);
+    if (expectedAccountId !== undefined && user.id !== expectedAccountId) {
+      this.clear();
+      throw new AccountClientError('STALE_AUTH_STATE');
+    }
     if (!result.session || typeof result.session.id !== 'string' || !Number.isFinite(Date.parse(result.session.expiresAt)))
       return invalid();
     if (Date.parse(result.session.expiresAt) <= (this.config.now ?? Date.now)()) {
       this.clear();
-      return null;
+      return { session: null, epoch: this.epoch };
     }
-    if (this.state && (this.state.user.id !== user.id || this.state.session.id !== result.session.id))
+    if (!this.state || this.state.user.id !== user.id || this.state.session.id !== result.session.id)
       this.epoch++;
     this.state = { user, session: { id: result.session.id, expiresAt: result.session.expiresAt } };
-    return this.currentSession;
+    return { session: this.currentSession, epoch: this.epoch };
   }
   async logout() {
     this.clear();
