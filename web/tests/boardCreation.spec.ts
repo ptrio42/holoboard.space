@@ -237,6 +237,56 @@ test("late updates from another page stay with their original archived invoice",
     expect(state.requests).toHaveLength(1); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
 });
 
+test("a delayed resume locks source choices and cannot replace a draft after closing", async ({ context, page }) => {
+    const state = await setup(context, page);
+    await page.getByRole("textbox", { name: "Text or link" }).fill("Saved payment A");
+    await page.getByRole("button", { name: "Review post", exact: true }).click();
+    await page.getByRole("button", { name: "Add to board 210 sats", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+    const event = state.requests[0].event as Event;
+    await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+    await page.evaluate(async ({ source, otherNote }) => {
+        const records = await import("/src/components/PromoteModal/paymentRecords.ts");
+        const saved = records.restorePayment(source)!;
+        await records.savePayment({ ...saved, note: otherNote, event: undefined, noteSummary: "Saved payment B",
+            board: { ...saved.board, noteId: otherNote, paymentHash: "c".repeat(64), invoice: "lnbc-saved-B" } });
+    }, { source: event.id, otherNote: original.id });
+    await page.getByRole("button", { name: "Add to board", exact: true }).click();
+    await page.getByText("Unfinished payments", { exact: true }).click();
+    const resumeA = page.getByText("Saved payment A", { exact: true }).locator("..").getByRole("button", { name: "Resume payment", exact: true });
+    const resumeB = page.getByText("Saved payment B", { exact: true }).locator("..").getByRole("button", { name: "Resume payment", exact: true });
+    await page.evaluate(async () => {
+        const { IndexedPaymentRecoveryStore } = await import("/src/lib/paymentRecoveryStore.ts");
+        const originalChange = IndexedPaymentRecoveryStore.prototype.change;
+        const fixture = { waiting: false, release: () => {} };
+        Object.assign(window, { resumeStorageFixture: fixture });
+        IndexedPaymentRecoveryStore.prototype.change = async function(backend, update) {
+            IndexedPaymentRecoveryStore.prototype.change = originalChange;
+            fixture.waiting = true;
+            await new Promise<void>(resolve => { fixture.release = resolve; });
+            return originalChange.call(this, backend, update);
+        };
+    });
+    await resumeA.click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { resumeStorageFixture: { waiting: boolean } }).resumeStorageFixture.waiting)).toBe(true);
+    try {
+        await expect(page.getByRole("textbox", { name: "Text or link" })).toBeDisabled();
+        await expect(resumeB).toBeDisabled();
+        await expect(page.getByRole("button", { name: "Review post", exact: true })).toBeDisabled();
+        await expect(page.getByRole("button", { name: "Close dialog", exact: true })).toBeEnabled();
+        await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+        await page.getByRole("button", { name: "Add to board", exact: true }).click();
+        await page.getByRole("textbox", { name: "Text or link" }).fill("Draft B while the closed editor finishes saving");
+    } finally {
+        await page.evaluate(() => (window as unknown as { resumeStorageFixture: { release(): void } }).resumeStorageFixture.release());
+    }
+    await expect.poll(() => page.evaluate(async () => (await import("/src/lib/paymentSession.ts")).getPaymentSessionStatus().saving)).toBe(false);
+    await expect(page.getByRole("textbox", { name: "Text or link" })).toHaveValue("Draft B while the closed editor finishes saving");
+    await expect(page.getByRole("dialog", { name: "Promotion payment" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Review post", exact: true })).toBeEnabled();
+    expect(state.requests).toHaveLength(1); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
+});
+
 test("original and quote interpretation remain explicit and have separate paid IDs", async ({ context, page }) => {
     const state = await setup(context, page);
     const field = page.getByRole("textbox", { name: "Text or link" });

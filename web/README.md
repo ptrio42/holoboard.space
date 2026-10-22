@@ -366,7 +366,9 @@ retaining their invoices for review. Changing notes clears amount, split,
 appearance, notifications, public-zap consent and stale status messages.
 Unfinished invoices survive closing the tab in the same browser profile and app
 origin. The editor waits for private IndexedDB storage before listing saved
-payments. Recovery requires explicit selection and preserves original invoices,
+payments. While a payment resumes, its source and payment selection stay locked
+until saving finishes. Closing the editor cancels the pending view change while
+keeping its invoices. Recovery requires explicit selection and preserves original invoices,
 hashes, signed post snapshots and the configured API URL and relay identity.
 This database is separate from public read caches and the publication outbox;
 it contains no guest author keys or wallet/signer credentials. Invoice and

@@ -2,7 +2,7 @@ import type { BoardComposition } from "./BoardComposer";
 import type { Event } from "nostr-tools/pure";
 import { isAnonymousPost } from "../../lib/boardComposer";
 import { queryNostr } from "../../lib/nostrTransport";
-import { useEffect, useEffectEvent, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { BillboardEditor } from "./BillboardEditor";
 import { initialBillboard, validBillboard, type BillboardConfig } from "../../lib/billboard";
@@ -84,6 +84,9 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     const [endpoint, setEndpoint] = useState<AuthorEndpoint | null>(null);
     const [loading, setLoading] = useState(false);
     const [busy, setBusy] = useState(false);
+    const [resuming, setResuming] = useState(false);
+    const resumeOperation = useRef<object | null>(null);
+    useLayoutEffect(() => () => { resumeOperation.current = null; }, []);
     const [walletPart, setWalletPart] = useState<PaymentRecipient | null>(null);
     const [error, setError] = useState("");
     const [authorInvoiceError, setAuthorInvoiceError] = useState("");
@@ -155,6 +158,9 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     const paymentOptions = <button type="button" className={actionClass} disabled={busy} onClick={() => openPanel("options")}>Payment options &gt;</button>;
     const footer = (content: ReactNode) => footerHost ? createPortal(content, footerHost) : null;
     const changeReference = (next: string) => {
+        if (resumeOperation.current) {
+            resumeOperation.current = null; setResuming(false); setBusy(false);
+        }
         latestReference.current = next;
         if (parseNoteReference(next)?.id !== parseNoteReference(reference)?.id) {
             abort.current?.abort();
@@ -170,22 +176,37 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         setLoading(!!parseNoteReference(next));
     };
     const resumePayment = async (saved: Payment) => {
-        if (busy) return;
-        if (payment) await savePayment({ ...payment, editing: true });
-        changeReference(saved.note);
-        setSelectedEvent(saved.event);
-        const resumed = { ...saved, editing: false };
-        await savePayment(resumed); setPayment(resumed); setRecordsVersion((version) => version + 1);
-        setLoadVersion((version) => version + 1); selectTab("compose"); setChangingReference(false);
-        const first = preferredWallet(); setWalletFirst(first); setMethod(first ? "wallet" : "invoice");
-        setRecipient(saved.promotionPaid && saved.author ? "author" : "board");
+        if (busy || resumeOperation.current) return;
+        const operation = {}, sourceReference = latestReference.current;
+        resumeOperation.current = operation;
+        setBusy(true); setResuming(true); setError("");
+        const current = () => resumeOperation.current === operation && latestReference.current === sourceReference;
+        const finish = () => { resumeOperation.current = null; setResuming(false); setBusy(false); };
+        try {
+            if (payment) {
+                await savePayment({ ...payment, editing: true });
+                if (!current()) return;
+            }
+            const resumed = { ...saved, editing: false };
+            await savePayment(resumed);
+            if (!current()) return;
+            // Commit the visible reference and invoice together only after the
+            // save finishes. Closing or changing source invalidates this token.
+            finish();
+            changeReference(saved.note); setSelectedEvent(saved.event); setPayment(resumed);
+            setRecordsVersion(version => version + 1); setLoadVersion(version => version + 1);
+            selectTab("compose"); setChangingReference(false);
+            const first = preferredWallet(); setWalletFirst(first); setMethod(first ? "wallet" : "invoice");
+            setRecipient(saved.promotionPaid && saved.author ? "author" : "board");
+        } catch (failure) { if (current()) setError(describeFailure(failure)); }
+        finally { if (resumeOperation.current === operation) finish(); }
     };
 
     const deferredComposition = useRef<BoardComposition | undefined>(undefined);
     const applyComposition = useEffectEvent((source: BoardComposition) => {
         // An account response can arrive after invoices are prepared. Keep
         // their exact event and payment choices frozen until editing resumes.
-        if (payment || busy) { deferredComposition.current = source; return; }
+        if (payment || busy || resumeOperation.current) { deferredComposition.current = source; return; }
         deferredComposition.current = undefined;
         const savedAmount = amountText, savedSelection = amountSelection;
         if (source.post) creationSettings.current = { config, billboardEnabled };
@@ -208,7 +229,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         const timer = window.setTimeout(() => {
             setLoading(true); setError(""); setEndpoint(null);
             void fetchNotePreview(reference, controller.signal, selectedEvent).then(async (loaded) => {
-                if (controller.signal.aborted || loaded.event.id !== parseNoteReference(latestReference.current)?.id) return;
+                if (controller.signal.aborted || resumeOperation.current || loaded.event.id !== parseNoteReference(latestReference.current)?.id) return;
                 setPreview(loaded);
                 const creation = selectedEvent ? creationSettings.current : undefined;
                 setConfig(creation?.config.text ? creation.config : loaded.billboard ?? initialBillboard(loaded.event.content));
@@ -511,7 +532,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         } finally { if (!controller.signal.aborted) setBusy(false); }
     };
     const cannotPrepare = busy || loading || !preview || !validAmount || invalidTip || (billboardEnabled && !validBillboard(config, preview.event.content, preview.images));
-    const submissionLabel = busy ? "Preparing payments" : !validAmount ? "Enter amount" : `${boost ? "Boost" : composer || selectedEvent ? "Add to board" : "Promote"} ${amount+fee} sats`;
+    const submissionLabel = resuming ? "Restoring payment" : busy ? "Preparing payments" : !validAmount ? "Enter amount" : `${boost ? "Boost" : composer || selectedEvent ? "Add to board" : "Promote"} ${amount+fee} sats`;
     const splitWarning = split.author > 0 && (authorInvoiceError || (endpoint && invalidTip)) && <div className="space-y-2 border-l-2 border-neon-gold pl-3 text-xs text-neon-gold" aria-label="Author payment issue">
         <p role="alert">{authorInvoiceError ? `Could not prepare author support: ${authorInvoiceError}` : !endpoint?.available ? endpoint?.reason : `The author's wallet accepts ${endpoint.min_sats} to ${endpoint.max_sats} sats. Increase the amount or change the allocation.`}</p>
         <p>Visibility only: {amount} sats to Holoboard, 0 to the author{fee > 0 ? `, plus ${fee} sats for appearance` : ""}.</p>
@@ -595,7 +616,8 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     return <>{navigation}<div className={boost ? "space-y-2" : "space-y-4"} aria-busy={loading || busy} {...tabPanelProps}>
         <UnfinishedPayments payments={pendingSessions} forNote={!!parseNoteReference(reference)} disabled={busy} storageFailed={recovery.failed} onResume={resumePayment} />
         {recovery.unverifiedLegacy && <LegacyInvoices payments={unverifiedLegacyPayments()} />}
-        {composer}
+        {resuming && <StatusMessage loading compact>Restoring saved payment...</StatusMessage>}
+        {composer && <fieldset disabled={resuming} className="contents">{composer}</fieldset>}
         {!composer && (!preview && !initialReference || changingReference) && <label className="block space-y-2">
             <span className="promotion-label text-cyan-200/70">Note link</span>
             <input className={`${FIELD} min-h-11 text-base`} value={reference} placeholder="note1, nevent1, or a note link" spellCheck={false} disabled={busy}
