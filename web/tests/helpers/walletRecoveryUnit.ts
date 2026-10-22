@@ -3,6 +3,7 @@ import { vi } from "vitest";
 /** Mock only native persistence and Web Locks, keeping coordinator policy real. */
 const recovery = vi.hoisted(() => ({
     records: new Map<string, unknown>(), fail: false, pause: undefined as Promise<void> | undefined,
+    beforeCommit: undefined as ((record: unknown) => Promise<void>) | undefined,
 }));
 vi.mock("../../src/lib/paymentRecoveryStore", async (original) => {
     const actual = await original<typeof import("../../src/lib/paymentRecoveryStore")>();
@@ -12,13 +13,14 @@ vi.mock("../../src/lib/paymentRecoveryStore", async (original) => {
             if (recovery.pause) await recovery.pause;
             if (recovery.fail) throw new Error("Private payment storage did not commit.");
             const record = update(recovery.records.get(hash));
+            if (recovery.beforeCommit) await recovery.beforeCommit(record);
             recovery.records.set(hash, structuredClone(record));
             return structuredClone(record);
         }
     } };
 });
 export function setupWalletRecovery() {
-    recovery.records.clear(); recovery.fail = false; recovery.pause = undefined;
+    recovery.records.clear(); recovery.fail = false; recovery.pause = undefined; recovery.beforeCommit = undefined;
     const tab = new Map<string, string>();
     vi.stubGlobal("sessionStorage", { get length() { return tab.size; }, key: (index: number) => [...tab.keys()][index] ?? null, getItem: (key: string) => tab.get(key) ?? null, setItem: (key: string, value: string) => tab.set(key, value) });
     const active = new Set<string>();

@@ -397,6 +397,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     };
     const payWithWallet = async () => {
         const pending = payment;
+        const caller = savedPayment;
         const wallet = browserWallet(); if (!wallet || !pending || busy) return;
         if (isMockInvoice(pending.board.invoice)) { setError(MOCK_INVOICE_MESSAGE); return; }
         setBusy(true); setError("");
@@ -421,7 +422,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                         setPayment((latest) => latest?.board.paymentHash === pending.board.paymentHash ? { ...latest, promotionPaid: true, publication: progress.publication, added: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted } : latest);
                     } else if (canPayOrCheckInvoice(wallet, pending.board.expiresAt, pending.boardAttempt)) {
                         setWalletPart("board");
-                        await payInvoiceSafely(wallet, pending.board.invoice, pending.board.paymentHash, pending.boardAttempt, (attempt) => saveAttempt("boardAttempt", attempt), pending.board.expiresAt, undefined, () => !controller.signal.aborted);
+                        await payInvoiceSafely(wallet, pending.board.invoice, pending.board.paymentHash, caller?.board.paymentHash === pending.board.paymentHash ? caller.boardAttempt : pending.boardAttempt, (attempt) => saveAttempt("boardAttempt", attempt), pending.board.expiresAt, undefined, () => !controller.signal.aborted);
                     }
                 } catch (failure) { failures.push(`Visibility: ${describeFailure(failure)}`); }
                 finally { if (!controller.signal.aborted) setWalletPart(null); }
@@ -432,7 +433,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                 try {
                     if (canPayOrCheckInvoice(wallet, pending.author.expires_at, pending.authorAttempt)) {
                         setWalletPart("author");
-                        const proof = await payInvoiceSafely(wallet, pending.author.invoice, pending.author.payment_hash, pending.authorAttempt, (attempt) => saveAttempt("authorAttempt", attempt), pending.author.expires_at, undefined, () => !controller.signal.aborted);
+                        const proof = await payInvoiceSafely(wallet, pending.author.invoice, pending.author.payment_hash, caller?.author?.payment_hash === pending.author.payment_hash ? caller.authorAttempt : pending.authorAttempt, (attempt) => saveAttempt("authorAttempt", attempt), pending.author.expires_at, undefined, () => !controller.signal.aborted);
                         if (proof.preimage && await verifyAuthorPayment(pending.note, pending.author, { preimage: proof.preimage })) setPayment((current) => current?.author?.payment_hash === pending.author?.payment_hash ? { ...current!, tipStatus: "confirmed" } : current);
                         else failures.push("The wallet returned no verified payment proof. Check your wallet before retrying author support.");
                     }

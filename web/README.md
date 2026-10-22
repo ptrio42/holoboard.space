@@ -506,8 +506,12 @@ stay protected and available for review. Hash-scoped
 [Web Locks](https://www.w3.org/TR/web-locks/#dom-lockoptions-ifavailable)
 use `ifAvailable`, so a competing action fails immediately instead of waiting to
 send after navigation. Each action rereads the durable attempt while holding the
-lock. Sending starts only after its uncertain attempt transaction commits;
-submitted proof writes are also awaited. The transaction requests
+lock. Older known snapshot revisions cannot undo a committed resolution; unknown
+revisions and verified preimages remain protective. Passive invoice reads do not
+import attempt state; explicit wallet actions reconcile their original caller
+snapshot under the lock. Sending starts only after its
+uncertain attempt transaction commits. Expiry is checked again after pending
+writes, immediately before sending. Submitted proof writes are also awaited. The transaction requests
 [`strict` durability](https://www.w3.org/TR/IndexedDB/#dom-idbtransactionoptions-durability)
 and resolves only on completion. Browser closure releases the lock, while a
 committed uncertain attempt retains the original wallet identity and hash.

@@ -80,6 +80,7 @@ async function executePayment(
     if (!canSend()) throw new Error("Payment action ended. No wallet payment was sent.");
     await save({ state: "uncertain", walletId: wallet.id });
     if (!canSend()) throw new Error("Payment action ended. Check the original wallet before retrying.");
+    if (Date.now() >= expiresAt*1000) throw new Error("The invoice expired. No wallet payment was sent.");
     try {
         const proof = await wallet.sendPayment(invoice);
         if (!await verifyWalletPaymentProof(paymentHash, proof.preimage)) throw new Error("The wallet did not provide a valid payment proof. Check its history.");

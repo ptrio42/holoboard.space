@@ -2282,3 +2282,24 @@ test("cross-tab promotion and Wallet Send compete for one origin-wide invoice ha
     expect(recovery.attempt).toMatchObject({ state: "submitted", walletId: `nwc:${walletPubkey}:${getPublicKey(clientKey)}` });
     expect(state.authorCharges).toBe(1); expect(state.boardCharges).toBe(0); expect(state.errors).toEqual([]);
 });
+
+test("promotion keeps raw caller uncertainty when the shared snapshot says unpaid", async ({ context, page }) => {
+    const state = await setup(context, page, { boardExpiresIn: -1, validAuthorInvoice: true });
+    await connectNwc(page); await prepareInvoices(page);
+    const payment = await savedPayment(page);
+    await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+    await page.evaluate(async payment => {
+        const ledger = await import("/src/lib/walletAttempts.ts");
+        await ledger.saveWalletAttempt(payment.author!.payment_hash, { state: "unpaid", walletId: "previous-wallet" });
+        const records = await import("/src/components/PromoteModal/paymentRecords.ts");
+        await records.updateSavedPayment(payment.note, payment.board.paymentHash,
+            { authorAttempt: { state: "uncertain", walletId: "original-wallet" } }, payment.author!.payment_hash);
+    }, payment);
+    await page.reload();
+    await page.evaluate(async () => { await (await import("/src/lib/walletAttempts.ts")).initializeWalletAttempts(); });
+    await page.getByRole("button", { name: "Boost", exact: true }).first().click();
+    await page.getByRole("button", { name: "Pay 42 sats", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("original wallet");
+    expect(state.authorAttempts).toBe(0); expect(state.authorCharges).toBe(0); expect(state.boardCharges).toBe(0);
+    expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1); expect(state.errors).toEqual([]);
+});

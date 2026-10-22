@@ -71,12 +71,20 @@ function parseRecord(value: unknown): AttemptRecord | undefined {
 function protect(existing: AttemptRecord | undefined, incoming: AttemptRecord | undefined, hash: string): AttemptRecord | undefined {
     if (!incoming) return existing;
     if (!existing) return incoming;
+    // A delayed read cannot undo a newer committed resolution. Unknown-revision
+    // barriers and verified preimages retain their independent protection.
+    const knownOlder = incoming.revision !== undefined && existing.revision !== undefined && incoming.revision < existing.revision;
+    if (knownOlder && !walletAttemptIsConfirmed(hash, incoming.attempt)) return existing;
     const strongerProof = incoming.attempt.state === "submitted" && existing.attempt.state === "submitted" &&
         ((!existing.attempt.preimage && !!incoming.attempt.preimage) ||
             (walletAttemptIsConfirmed(hash, incoming.attempt) && !walletAttemptIsConfirmed(hash, existing.attempt)));
     const useIncoming = strength(incoming.attempt) > strength(existing.attempt) || strongerProof;
     const walletId = existing.attempt.state === "unpaid" ? incoming.attempt.walletId : existing.attempt.walletId;
-    return { ...incoming, ...existing, attempt: useIncoming ? { ...incoming.attempt, walletId } : existing.attempt };
+    const merged = { ...incoming, ...existing, attempt: useIncoming ? { ...incoming.attempt, walletId } : existing.attempt };
+    const revision = (useIncoming ? incoming : existing).revision;
+    if (revision === undefined) delete merged.revision;
+    else merged.revision = revision;
+    return merged;
 }
 function remember(hash: string, record: AttemptRecord) {
     records.set(hash, record);

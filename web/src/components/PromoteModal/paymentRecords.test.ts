@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PromotionPayment } from "./PaymentState";
 
-const fixture = vi.hoisted(() => ({ records: new Map<string, { payments: Map<string, string>; lastPayment: string | null }>(), fail: false }));
+const fixture = vi.hoisted(() => ({ attempts: new Map<string, unknown>(), records: new Map<string, { payments: Map<string, string>; lastPayment: string | null }>(), fail: false }));
 vi.mock("../../lib/paymentRecoveryStore", () => ({ IndexedPaymentRecoveryStore: class {
+    async readWalletAttempts() { return new Map(fixture.attempts); }
+    async changeWalletAttempt(hash: string, update: (record: unknown) => unknown) {
+        const record = update(fixture.attempts.get(hash));
+        if (record !== undefined) fixture.attempts.set(hash, structuredClone(record));
+        return structuredClone(record);
+    }
     async change(backend: string, update: (snapshot: { payments: Map<string, string>; lastPayment: string | null }) => void) {
         if (fixture.fail) throw new Error("Storage blocked");
         const previous = fixture.records.get(backend);
@@ -20,7 +26,8 @@ const makePayment = (note: string, hash: string): PromotionPayment => ({
 });
 
 beforeEach(() => {
-    vi.resetModules(); fixture.records.clear(); fixture.fail = false;
+    vi.resetModules(); fixture.records.clear(); fixture.attempts.clear(); fixture.fail = false;
+    vi.stubGlobal("navigator", { locks: { request: async (_name: string, _options: unknown, action: (lock: object) => Promise<unknown>) => action({}) } });
     const stored = new Map<string, string>();
     vi.stubGlobal("sessionStorage", {
         get length() { return stored.size; }, key: (index: number) => [...stored.keys()][index] ?? null,
@@ -40,6 +47,22 @@ describe("promotion payment records", () => {
         await records.savePayment({ ...expired, boardAttempt: { state: "uncertain", walletId: "wallet" } });
         expect(records.restorePayment(noteA)?.editing).not.toBe(true);
         expect(records.unfinishedPayments(noteA)).toHaveLength(1);
+    });
+    it("reading an old invoice snapshot cannot revive an explicitly resolved wallet attempt", async () => {
+        const { paymentHash } = await import("../../../tests/helpers/walletFixture");
+        const records = await import("./paymentRecords");
+        const ledger = await import("../../lib/walletAttempts");
+        await ledger.initializeWalletAttempts();
+        await ledger.saveWalletAttempt(paymentHash, { state: "uncertain", walletId: "original" }, "invoice");
+        const previous = ledger.getWalletAttempt(paymentHash)!;
+        const payment = { ...makePayment(noteA, paymentHash), author: undefined, boardAttempt: previous };
+        payment.board.expiresAt = 1;
+        await records.savePayment(payment);
+        await ledger.acknowledgeWalletFailure(paymentHash, previous);
+        expect(ledger.getWalletAttempt(paymentHash)?.state).toBe("unpaid");
+        expect(records.restorePayment(noteA)?.editing).toBe(true);
+        expect(ledger.getWalletAttempt(paymentHash)?.state).toBe("unpaid");
+        expect(fixture.attempts.get(paymentHash)).toMatchObject({ attempt: { state: "unpaid" } });
     });
     it("opens a blank editor without adopting the last note's payment", async () => {
         const records = await import("./paymentRecords");

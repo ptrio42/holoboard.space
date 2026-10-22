@@ -51,7 +51,10 @@ export function restorePayment(note: string): PromotionPayment | null {
     const payment = parsePayment(readPaymentSession(paymentKey(note)));
     if (!payment || paymentKey(payment.note) !== paymentKey(note) || complete(payment) || (isMockInvoice(payment.board.invoice) && !payment.author)) return null;
     const expired = payment.board.expiresAt * 1000 <= Date.now() && (!payment.author || payment.author.expires_at * 1000 <= Date.now());
-    const attempted = [getWalletAttempt(payment.board.paymentHash, payment.boardAttempt), payment.author && getWalletAttempt(payment.author.payment_hash, payment.authorAttempt)]
+    // Reading a parsed invoice snapshot must not import its old attempt back
+    // over a committed wallet resolution. Send actions reconcile their callers.
+    const attempted = [getWalletAttempt(payment.board.paymentHash) ?? payment.boardAttempt,
+        payment.author && (getWalletAttempt(payment.author.payment_hash) ?? payment.authorAttempt)]
         .some((attempt) => attempt && attempt.state !== "unpaid");
     if (expired && !payment.promotionPaid && payment.tipStatus === "pending" && !attempted) return { ...payment, editing: true };
     return payment;

@@ -16,7 +16,7 @@ beforeEach(async () => {
     });
     ledger = await import("./walletAttempts"); payments = await import("./walletPayment");
 });
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("shared wallet attempt protection", () => {
     it("restores an uncertain hash after reload and blocks another connection with no caller attempt", async () => {
@@ -109,6 +109,68 @@ describe("shared wallet attempt protection", () => {
         recovery.records.set(paymentHash, { attempt: { state: "unpaid", walletId: "original" }, revision: 3 });
         focus(); await Promise.resolve(); await Promise.resolve();
         expect(ledger.getWalletAttempt(paymentHash)?.state).toBe("uncertain");
+        recovery.records.set(paymentHash, { attempt: { state: "unpaid", walletId: "original" }, revision: 4 });
+        focus(); await Promise.resolve(); await Promise.resolve();
+        expect(ledger.getWalletAttempt(paymentHash)?.state).toBe("uncertain");
+    });
+    it.each(["acknowledgement", "original-wallet lookup"])("a delayed different-hash proof cannot revive uncertainty after %s", async resolution => {
+        let focus!: () => void;
+        vi.stubGlobal("window", { addEventListener: (_type: string, listener: () => void) => { focus = listener; } });
+        vi.stubGlobal("BroadcastChannel", undefined);
+        vi.resetModules(); ledger = await import("./walletAttempts"); payments = await import("./walletPayment");
+        await ledger.initializeWalletAttempts();
+        await ledger.saveWalletAttempt(paymentHash, { state: "uncertain", walletId: "original" }, "invoice");
+        const previous = ledger.getWalletAttempt(paymentHash)!;
+        const invoice = await import("./walletInvoice");
+        const otherPreimage = "13".repeat(32);
+        const otherHash = await invoice.sha256Hex(new Uint8Array(32).fill(0x13));
+        const nativeDigest = crypto.subtle.digest.bind(crypto.subtle);
+        let releaseProof!: () => void, proofStarted!: () => void;
+        const paused = new Promise<void>(resolve => { proofStarted = resolve; });
+        const proofGate = new Promise<void>(resolve => { releaseProof = resolve; });
+        vi.spyOn(crypto.subtle, "digest").mockImplementation(async (algorithm, bytes) => {
+            if (bytes instanceof Uint8Array && bytes[0] === 0x13) { proofStarted(); await proofGate; }
+            return nativeDigest(algorithm, bytes);
+        });
+        const targetSnapshot = structuredClone(recovery.records.get(paymentHash));
+        recovery.records.clear();
+        recovery.records.set(otherHash, { attempt: { state: "submitted", walletId: "another", preimage: otherPreimage }, revision: 1 });
+        recovery.records.set(paymentHash, targetSnapshot);
+        focus(); await paused;
+        if (resolution === "acknowledgement") await ledger.acknowledgeWalletFailure(paymentHash, previous);
+        else {
+            const payer = { ...wallet("original"), lookupPayment: vi.fn(async () => ({ state: "unpaid" as const })) };
+            await expect(payments.payInvoiceSafely(payer, "invoice", paymentHash, previous, vi.fn(), 1)).rejects.toThrow("expired");
+            expect(payer.sendPayment).not.toHaveBeenCalled();
+        }
+        const resolved = structuredClone(recovery.records.get(paymentHash));
+        expect(resolved).toMatchObject({ attempt: { state: "unpaid" } });
+        expect(ledger.getWalletAttempt(paymentHash)?.state).toBe("unpaid");
+        releaseProof();
+        expect(await ledger.verifyWalletPaymentProof(otherHash, otherPreimage)).toBe(true);
+        expect(ledger.getWalletAttempt(paymentHash)?.state).toBe("unpaid");
+        expect(recovery.records.get(paymentHash)).toEqual(resolved);
+        await ledger.withWalletAttempt(paymentHash, undefined, undefined, undefined, async locked => {
+            expect(locked.attempt?.state).toBe("unpaid");
+        });
+        expect(recovery.records.get(paymentHash)).toMatchObject({ attempt: { state: "unpaid" } });
+    });
+    it("an older valid preimage remains protective after a newer unpaid snapshot", async () => {
+        let focus!: () => void;
+        vi.stubGlobal("window", { addEventListener: (_type: string, listener: () => void) => { focus = listener; } });
+        vi.stubGlobal("BroadcastChannel", undefined);
+        vi.resetModules(); ledger = await import("./walletAttempts"); payments = await import("./walletPayment");
+        recovery.records.set(paymentHash, { attempt: { state: "unpaid", walletId: "original" }, revision: 5 });
+        await ledger.initializeWalletAttempts();
+        const { IndexedPaymentRecoveryStore } = await import("./paymentRecoveryStore");
+        vi.spyOn(IndexedPaymentRecoveryStore.prototype, "readWalletAttempts").mockResolvedValueOnce(new Map([
+            [paymentHash, { attempt: { state: "submitted", walletId: "original", preimage }, revision: 1 }],
+        ]));
+        focus();
+        await vi.waitFor(() => expect(ledger.getWalletAttempt(paymentHash)?.state).toBe("submitted"));
+        const payer = wallet("replacement");
+        await expect(payments.payInvoiceSafely(payer, "invoice", paymentHash, undefined, vi.fn())).resolves.toEqual({ preimage });
+        expect(payer.sendPayment).not.toHaveBeenCalled();
     });
     it("keeps the external-store snapshot stable when a caller repeats unchanged uncertainty", async () => {
         await ledger.initializeWalletAttempts();

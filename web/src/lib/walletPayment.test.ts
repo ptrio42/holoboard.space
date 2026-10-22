@@ -32,6 +32,29 @@ describe("wallet payment recovery", () => {
         commit(); await payment;
         expect(payer.sendPayment).toHaveBeenCalledOnce();
     });
+    it.each(["attempt transaction", "caller snapshot"])("rechecks expiry after awaiting the %s and retains committed uncertainty", async checkpoint => {
+        const now = vi.spyOn(Date, "now").mockReturnValue(100_000);
+        let beginWrite!: () => void, finishWrite!: () => void;
+        const writing = new Promise<void>(resolve => { beginWrite = resolve; });
+        const gate = new Promise<void>(resolve => { finishWrite = resolve; });
+        const pauseUncertain = async (attempt: WalletAttempt | undefined) => {
+            if (attempt?.state === "uncertain") { beginWrite(); await gate; }
+        };
+        if (checkpoint === "attempt transaction") recovery.beforeCommit = async record => pauseUncertain((record as { attempt?: WalletAttempt } | undefined)?.attempt);
+        const save = checkpoint === "caller snapshot" ? pauseUncertain : vi.fn();
+        const payer = wallet();
+        try {
+            const payment = payInvoiceSafely(payer, "invoice", paymentHash, undefined, save, 101);
+            const rejected = expect(payment).rejects.toThrow("expired");
+            await writing;
+            now.mockReturnValue(102_000); finishWrite(); await rejected;
+            expect(payer.sendPayment).not.toHaveBeenCalled();
+            expect(recovery.records.get(paymentHash)).toMatchObject({ attempt: { state: "uncertain", walletId: payer.id } });
+            payer.lookupPayment = vi.fn(async () => ({ state: "paid" as const, preimage }));
+            await expect(payInvoiceSafely(payer, "invoice", paymentHash, undefined, vi.fn(), 101)).resolves.toEqual({ preimage });
+            expect(payer.sendPayment).not.toHaveBeenCalled();
+        } finally { now.mockRestore(); }
+    });
     it("never sends when the attempt transaction fails", async () => {
         recovery.fail = true;
         const payer = wallet();
