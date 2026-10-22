@@ -61,6 +61,14 @@ foundation before Tasks 1 to 7 change the editor. The proposed refinements under
 the spec's working-prototype section remain proposals, including unsigned draft
 autosave and a changed split for new account-authored posts.
 
+Implement Tasks 2 to 4 as one integration unit after the stable composer
+contract in Task 1. Progress, contextual panels and payment returns share
+DirectPromote's rendering and navigation state. Keeping this change together
+avoids an intermediate editor with unreachable options or mixed navigation.
+Retain every checklist and verification requirement from those three tasks,
+then review their combined scope for specification compliance and code quality.
+The actual-component acceptance and PWA tasks remain separate execution units.
+
 ## File ownership
 
 | File | Responsibility and planned change |
@@ -144,30 +152,30 @@ must never bypass saved-invoice or wallet-send protections.
 **Files:** Create paymentRecoveryStore.ts; modify paymentSession.ts,
 paymentRecords.ts, PromoteModal.tsx and their existing unit/browser tests.
 
-- [ ] Add a browser case that issues a guest invoice, closes its page and opens
+- [x] Add a browser case that issues a guest invoice, closes its page and opens
   a fresh page in the same browser context. Do not copy sessionStorage to it.
   Select the saved payment explicitly and assert its event, hash, QR/open/copy
   values and invoice-request count are unchanged. Run it against the current
   implementation to observe the missing recovery record.
-- [ ] Add a private IndexedDB-backed store using the documented transaction
+- [x] Add a private IndexedDB-backed store using the documented transaction
   lifecycle. Keep invoices, archived records and shared attempts distinct from
   public read caches and the publication outbox. Preserve exact signed snapshots
   and backend provenance. Do not store guest keys or wallet/signer credentials.
-- [ ] Expose initialization readiness and await it before synchronous cache
+- [x] Expose initialization readiness and await it before synchronous cache
   readers select records. Keep memory fallback for unavailable/full storage;
   show its limited lifetime without blocking anonymous invoice open/copy/QR.
-- [ ] Investigate legacy-record provenance with a focused fixture before
+- [x] Investigate legacy-record provenance with a focused fixture before
   importing old sessionStorage records. Preserve legacy originals and avoid
   silently assigning an unverifiable invoice to the current backend. Document
   and test the import policy; do not delete original records during import.
   This is browser-format compatibility, not a migration of deployed server data.
-- [ ] Make hash-scoped updates transactional. A late response may update its
+- [x] Make hash-scoped updates transactional. A late response may update its
   archived invoice but cannot replace another invoice or the current selection.
   Keep unresolved/uncertain records despite expiry; do not silently evict them.
-- [ ] Add backend-isolation, malformed-record, storage-failure and fresh-page
+- [x] Add backend-isolation, malformed-record, storage-failure and fresh-page
   tests. Verify restored content stays private and no signature, publication,
   connection or invoice request occurs simply from restoration.
-- [ ] Run the focused storage/record tests and fresh-tab browser case. Commit
+- [x] Run the focused storage/record tests and fresh-tab browser case. Commit
   with `Persist unfinished invoices for same-device recovery`.
 
 ## Task R2: Preserve shared wallet-attempt safety across tabs and restarts
@@ -175,29 +183,29 @@ paymentRecords.ts, PromoteModal.tsx and their existing unit/browser tests.
 **Files:** paymentRecoveryStore.ts, walletAttempts.ts, walletPayment.ts,
 walletAccount.ts, WalletPanel.tsx, DirectPromote.tsx and relevant wallet tests.
 
-- [ ] Extend the recovery fixture with an uncertain send, page closure and
+- [x] Extend the recovery fixture with an uncertain send, page closure and
   return. Add two tabs competing to send the same invoice, including promotion
   in one and Wallet Send in the other. Assert one send at most, with original
   wallet identity and payment hashes retained. A same-page Set is insufficient.
-- [ ] Use the standard Web Locks API to coordinate by payment hash across the
+- [x] Use the standard Web Locks API to coordinate by payment hash across the
   two callers. Re-read the durable attempt while holding the lock before
   deciding whether to look up or send. Save and await the uncertain-attempt
   transaction before invoking wallet.sendPayment.
-- [ ] Integrate the async persistence boundary in payInvoiceSafely and both
+- [x] Integrate the async persistence boundary in payInvoiceSafely and both
   callers. Await submitted proof writes as well. A pending write, storage error,
   missing coordination capability or unknown prior attempt must not authorize
   another wallet send. Keep anonymous invoice methods available in these states.
-- [ ] Re-verify restored preimages. Refresh shared snapshots on external writes
+- [x] Re-verify restored preimages. Refresh shared snapshots on external writes
   without regressing confirmed, reported or uncertain records to unpaid. The
   transactionally stored state is authoritative; notifications only request a
   refresh. Keep local busy indicators and original-wallet lookup rules.
-- [ ] Test tab closure while a request is pending, after a committed attempt
+- [x] Test tab closure while a request is pending, after a committed attempt
   but before sending, and after sending without a response. No response is a
   retained unknown state until lookup or explicit existing recovery resolves it.
-- [ ] Run the unit wallet/attempt tests, promotion-versus-Wallet Send browser
+- [x] Run the unit wallet/attempt tests, promotion-versus-Wallet Send browser
   cases and new cross-tab cases sequentially. Include the supported phone
   engine for the fresh-page and coordination cases.
-- [ ] Commit with `Coordinate recoverable wallet attempts across tabs`. Use
+- [x] Commit with `Coordinate recoverable wallet attempts across tabs`. Use
   this committed foundation as the pre-redesign rollback baseline for Task 6.
   Older tab-only builds retain their historical in-session compatibility scope;
   do not claim fresh-tab recovery while running code that cannot read the store.
@@ -214,8 +222,8 @@ web/tests/boardCreation.spec.ts.
 - [ ] Run the guest, original/quote and late-sign-in creation cases with creation
   and signer flags enabled, using the command pattern under Verification. Record
   their baseline requests and saved IDs before changing the composer contract.
-- [ ] Change the composer render prop to expose this contract, updating its
-  three callers together so TypeScript remains buildable:
+- [ ] Change the composer render prop to expose this contract, updating all
+  actual callers together so TypeScript remains buildable:
 
 ```ts
 export interface BoardComposerView {
