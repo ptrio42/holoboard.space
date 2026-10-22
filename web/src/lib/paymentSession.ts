@@ -107,6 +107,29 @@ export function changePaymentSessions(update: (snapshot: PaymentRecoverySnapshot
     writes = run.then(() => {}, () => {});
     return run;
 }
+/** Destructive operations have no optimistic mutation and no delayed retry.
+ * Their caller holds all invoice hash locks until this transaction completes.
+ */
+export function changePaymentSessionsWithAttempts(update: (snapshot: PaymentRecoverySnapshot, attempts: Map<string, unknown>) => void): Promise<boolean> {
+    const run = writes.then(async () => {
+        await initializePaymentSessions();
+        setStatus({ ...status, saving: true });
+        try {
+            const next = await store.changeWithWalletAttempts(paymentBackendKey, (snapshot, attempts) => {
+                for (const retry of retryUpdates) retry(snapshot);
+                update(snapshot, attempts);
+            });
+            cache = next; retryUpdates.length = 0;
+            setStatus({ ...status, persistent: true, saving: false, failed: false });
+            return true;
+        } catch {
+            setStatus({ ...status, saving: false, persistent: false, failed: true });
+            return false;
+        }
+    });
+    writes = run.then(() => {}, () => {});
+    return run;
+}
 export function savePaymentSession(key: string, value: string, makeCurrent = true): Promise<boolean> {
     return changePaymentSessions(snapshot => {
         snapshot.payments.set(key, value);

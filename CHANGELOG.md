@@ -13,6 +13,8 @@ record deployment, not announcement publication.
   New posts publish after board payment, with durable delivery and same-browser
   invoice recovery after closing a tab. Wallet attempts retain their original
   connection and coordinate sends across tabs to avoid duplicate payments.
+  Restart preserves invoices when another tab may have paid or their saved
+  status cannot be checked safely.
   Older invoice copies with unknown backend provenance stay available to open,
   copy or scan without automatic status checks.
 - Add an optional discovery fund: a local Codex curator finds worthwhile posts

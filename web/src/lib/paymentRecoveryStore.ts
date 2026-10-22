@@ -1,5 +1,6 @@
 /** Private payment records never share the expendable public cache or outbox. */
 export const PAYMENT_RECOVERY_DATABASE = "holoboard-private-payments-v1";
+const WALLET_NAMESPACE = "origin-wallet-attempts-v1";
 export const PAYMENT_RECOVERY_STORES = { invoices: "invoices", metadata: "metadata", attempts: "walletAttempts" } as const;
 export interface PaymentRecoverySnapshot {
     payments: Map<string, string>;
@@ -45,21 +46,25 @@ export class IndexedPaymentRecoveryStore implements PaymentRecoveryStore {
         void opening.catch(() => { if (this.opening === opening) this.opening = undefined; });
         return opening;
     }
-    private async transaction(backend: string, update?: (snapshot: PaymentRecoverySnapshot) => void): Promise<PaymentRecoverySnapshot> {
+    private async transaction(backend: string, update?: (snapshot: PaymentRecoverySnapshot) => void, guarded?: (snapshot: PaymentRecoverySnapshot, attempts: Map<string, unknown>) => void): Promise<PaymentRecoverySnapshot> {
         const database = await this.database();
         return new Promise((resolve, reject) => {
-            const transaction = database.transaction([PAYMENT_RECOVERY_STORES.invoices, PAYMENT_RECOVERY_STORES.metadata], update ? "readwrite" : "readonly");
+            const names: string[] = [PAYMENT_RECOVERY_STORES.invoices, PAYMENT_RECOVERY_STORES.metadata];
+            if (guarded) names.push(PAYMENT_RECOVERY_STORES.attempts);
+            const transaction = guarded ? database.transaction(names, "readwrite", { durability: "strict" }) :
+                database.transaction(names, update ? "readwrite" : "readonly");
             const invoices = transaction.objectStore(PAYMENT_RECOVERY_STORES.invoices);
             const metadata = transaction.objectStore(PAYMENT_RECOVERY_STORES.metadata);
             const records = invoices.index("backend").getAll(backend);
             const pointer = metadata.get(backend);
+            const attempts = guarded ? transaction.objectStore(PAYMENT_RECOVERY_STORES.attempts).index("backend").getAll(WALLET_NAMESPACE) : undefined;
             let result: PaymentRecoverySnapshot = { payments: new Map(), lastPayment: null };
             let failure: unknown;
             const timer = setTimeout(() => {
                 failure = new Error("Private payment storage timed out.");
                 try { transaction.abort(); } catch { reject(failure); }
             }, 3000);
-            let remaining = 2;
+            let remaining = guarded ? 3 : 2;
             const read = () => {
                 if (--remaining) return;
                 try {
@@ -68,9 +73,10 @@ export class IndexedPaymentRecoveryStore implements PaymentRecoveryStore {
                             record?.backend === backend && typeof record.key === "string" && typeof record.value === "string" ? [[record.key, record.value] as const] : [])),
                         lastPayment: typeof pointer.result?.lastPayment === "string" ? pointer.result.lastPayment : null,
                     };
-                    if (!update) return;
+                    if (!update && !guarded) return;
                     const before = new Map(result.payments);
-                    update(result);
+                    if (guarded) guarded(result, new Map(attempts!.result.map((record: { key: string; value?: unknown }) => [record.key, record.value ?? null])));
+                    else update!(result);
                     for (const [key, value] of result.payments) {
                         if (before.get(key) !== value) invoices.put({ backend, key, value });
                     }
@@ -79,6 +85,7 @@ export class IndexedPaymentRecoveryStore implements PaymentRecoveryStore {
                 } catch (error) { failure = error; transaction.abort(); }
             };
             records.onsuccess = pointer.onsuccess = read;
+            if (attempts) attempts.onsuccess = read;
             transaction.oncomplete = () => { clearTimeout(timer); resolve(result); };
             transaction.onabort = transaction.onerror = () => { clearTimeout(timer); reject(failure ?? new Error("Private payment storage did not commit.")); };
         });
@@ -92,7 +99,7 @@ export class IndexedPaymentRecoveryStore implements PaymentRecoveryStore {
     }
     private async walletTransaction(hash?: string, update?: (record: unknown) => unknown): Promise<Map<string, unknown>> {
         const database = await this.database();
-        const namespace = "origin-wallet-attempts-v1";
+        const namespace = WALLET_NAMESPACE;
         return new Promise((resolve, reject) => {
             const transaction = database.transaction(PAYMENT_RECOVERY_STORES.attempts, update ? "readwrite" : "readonly", { durability: "strict" });
             const store = transaction.objectStore(PAYMENT_RECOVERY_STORES.attempts);
@@ -121,6 +128,10 @@ export class IndexedPaymentRecoveryStore implements PaymentRecoveryStore {
             transaction.oncomplete = () => { clearTimeout(timer); resolve(result); };
             transaction.onabort = transaction.onerror = () => { clearTimeout(timer); reject(failure ?? new Error("Private wallet storage did not commit.")); };
         });
+    }
+    /** The attempt read and invoice deletion share one serializable transaction. */
+    changeWithWalletAttempts(backend: string, update: (snapshot: PaymentRecoverySnapshot, attempts: Map<string, unknown>) => void) {
+        return this.transaction(backend, undefined, update);
     }
     read(backend: string) { return this.transaction(backend); }
     change(backend: string, update: (snapshot: PaymentRecoverySnapshot) => void) { return this.transaction(backend, update); }

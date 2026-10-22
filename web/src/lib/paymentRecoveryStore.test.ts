@@ -8,7 +8,8 @@ function controlledDatabase() {
     const pointer = { result: { lastPayment: "invoice" }, onsuccess: undefined as (() => void) | undefined };
     const invoices = { index: vi.fn(() => ({ getAll: vi.fn(() => records) })), put: vi.fn(), delete: vi.fn() };
     const attempt = { result: undefined as unknown, onsuccess: undefined as (() => void) | undefined };
-    const attempts = { get: vi.fn(() => attempt), put: vi.fn() };
+    const allAttempts = { result: [] as unknown[], onsuccess: undefined as (() => void) | undefined };
+    const attempts = { get: vi.fn(() => attempt), put: vi.fn(), index: vi.fn(() => ({ getAll: vi.fn(() => allAttempts) })) };
     const metadata = { get: vi.fn(() => pointer), put: vi.fn() };
     const transaction = { objectStore: (name: string) => name === PAYMENT_RECOVERY_STORES.invoices ? invoices : name === PAYMENT_RECOVERY_STORES.attempts ? attempts : metadata,
         oncomplete: undefined as (() => void) | undefined, onabort: undefined as (() => void) | undefined,
@@ -16,7 +17,7 @@ function controlledDatabase() {
     const database = { transaction: vi.fn(() => transaction), close: vi.fn() };
     const request = { result: database, onsuccess: undefined as (() => void) | undefined };
     vi.stubGlobal("indexedDB", { open: vi.fn(() => { queueMicrotask(() => request.onsuccess?.()); return request; }) });
-    return { records, pointer, invoices, metadata, transaction, database, attempt, attempts,
+    return { records, pointer, invoices, metadata, transaction, database, attempt, attempts, allAttempts,
         async read() {
             await vi.waitFor(() => expect(records.onsuccess).toBeTypeOf("function"));
             records.onsuccess?.(); pointer.onsuccess?.();
@@ -37,6 +38,33 @@ describe("native private payment transactions", () => {
         expect(fixture.attempts.put).toHaveBeenCalledWith({ backend: "origin-wallet-attempts-v1", key: hash, value: record });
         await Promise.resolve(); expect(completed).toBe(false);
         fixture.transaction.oncomplete?.(); expect(await write).toEqual(record);
+    });
+    it("guards invoice deletion and the pointer with the authoritative attempts in one strict transaction", async () => {
+        const fixture = controlledDatabase();
+        fixture.allAttempts.result = [{ backend: "origin-wallet-attempts-v1", key: "hash", value: { attempt: { state: "uncertain", walletId: "original" } } }];
+        const update = vi.fn((snapshot, attempts) => {
+            expect(attempts.get("hash")).toMatchObject({ attempt: { state: "uncertain" } });
+            snapshot.payments.delete("invoice"); snapshot.lastPayment = null;
+        });
+        let completed = false;
+        const write = new IndexedPaymentRecoveryStore().changeWithWalletAttempts("backend", update).then(result => { completed = true; return result; });
+        await fixture.read();
+        expect(update).not.toHaveBeenCalled();
+        fixture.allAttempts.onsuccess?.();
+        expect(update).toHaveBeenCalledOnce();
+        expect(fixture.database.transaction).toHaveBeenCalledWith(["invoices", "metadata", "walletAttempts"], "readwrite", { durability: "strict" });
+        expect(fixture.invoices.delete).toHaveBeenCalledWith(["backend", "invoice"]);
+        expect(fixture.metadata.put).toHaveBeenCalledWith({ backend: "backend", lastPayment: null });
+        await Promise.resolve(); expect(completed).toBe(false);
+        fixture.transaction.oncomplete?.(); expect((await write).lastPayment).toBeNull();
+    });
+    it("a guarded deletion abort never reports its provisional snapshot as committed", async () => {
+        const fixture = controlledDatabase();
+        const write = new IndexedPaymentRecoveryStore().changeWithWalletAttempts("backend", snapshot => snapshot.payments.clear());
+        const rejected = expect(write).rejects.toThrow("did not commit");
+        await fixture.read(); fixture.allAttempts.onsuccess?.();
+        expect(fixture.invoices.delete).toHaveBeenCalledOnce();
+        fixture.transaction.onabort?.(); await rejected;
     });
     it("a successful wallet put followed by abort is never durable", async () => {
         const fixture = controlledDatabase();

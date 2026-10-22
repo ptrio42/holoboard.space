@@ -11,13 +11,13 @@ import { restartBlocked, type PaymentMethod, type PaymentRecipient, type Promoti
 
 export function PromotionPayment({ id, payment, method, recipient, onRecipient, wallet, walletName, connecting, busy, walletPart, now,
     storageFailed, error, actualRank, onPay, onReplaceAuthor, onReplaceBoard, onReportAuthor, onAcknowledge, onHelp, onSigner, onRestart, onBack,
-    restartConfirm, onRestartConfirm, hasPublicZapConsent, authorCanReplace, footer }: {
+    restartConfirm, restartUnavailable, onRestartConfirm, hasPublicZapConsent, authorCanReplace, footer }: {
     id: string; payment: Payment; method: PaymentMethod; recipient: PaymentRecipient; onRecipient: (part: PaymentRecipient) => void;
     wallet: PaymentWallet | undefined; walletName: string; connecting: boolean; busy: boolean; now: number;
     walletPart: PaymentRecipient | null;
     storageFailed: boolean; error: string; actualRank: number | null;
     onPay: () => void; onReplaceAuthor: () => void; onReplaceBoard: () => void; onReportAuthor: () => void; onAcknowledge: (part: PaymentRecipient) => void;
-    onHelp: () => void; onSigner: () => void; onRestart: () => void; onBack: () => void; restartConfirm: boolean;
+    onHelp: () => void; onSigner: () => void; onRestart: () => void; onBack: () => void; restartConfirm: boolean; restartUnavailable: boolean;
     onRestartConfirm: (value: boolean) => void; hasPublicZapConsent: boolean; authorCanReplace: boolean; footer: (content: ReactNode) => ReactNode;
 }) {
     const mockPayment = isMockInvoice(payment.board.invoice);
@@ -140,12 +140,12 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                 <PixelLink className="min-h-11 flex-1" size="sm" variant="accent" href={`lightning:${selected.invoice}`}>Open in wallet</PixelLink>
                 <CopyButton key={selected.hash} value={selected.invoice} label="Copy invoice" />
             </div>}
-            {restartConfirm && !blocked && <div className="space-y-2 text-xs text-neon-gold">
+            {restartConfirm && !blocked && !restartUnavailable && <div className="space-y-2 text-xs text-neon-gold">
                 <p>Check your wallet first. Issued invoices are not cancelled and could still be paid. Restart returns to your promotion choices.</p>
                 <PixelButton className="w-full" size="sm" variant="ghost" disabled={busy} onClick={onRestart}>I haven't paid, restart</PixelButton>
             </div>}
             <div className="flex flex-wrap items-center justify-between gap-x-3">
-                {blocked || busy ? <button type="button" className={actionClass} onClick={onBack}>Back to promotion</button> : restartConfirm ? <button type="button" className={actionClass} onClick={() => onRestartConfirm(false)}>Keep payment</button> : <button type="button" className={actionClass} onClick={() => onRestartConfirm(true)}>Restart payment</button>}
+                {blocked || busy || restartUnavailable ? <button type="button" className={actionClass} onClick={onBack}>Back to promotion</button> : restartConfirm ? <button type="button" className={actionClass} onClick={() => onRestartConfirm(false)}>Keep payment</button> : <button type="button" className={actionClass} onClick={() => onRestartConfirm(true)}>Restart payment</button>}
                 <button type="button" className={actionClass} aria-label="Payment help >" onClick={onHelp}>Help &gt;</button>
             </div>
         </div>)}

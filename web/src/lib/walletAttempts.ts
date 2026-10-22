@@ -159,11 +159,7 @@ export function initializeWalletAttempts(): Promise<void> {
         try {
             for (const [hash, record] of legacy) {
                 if (record.attempt.state === "unpaid") continue;
-                const saved = parseRecord(await store.changeWalletAttempt(hash, raw => {
-                    const previous = parseRecord(raw);
-                    return { ...protect(previous, record, hash), revision: (previous?.revision ?? 0) + 1 };
-                }));
-                if (saved) remember(hash, saved);
+                await reconcileAttempt(hash, record.invoice, record.amountMsats);
             }
             for (const hash of invalid) await store.changeWalletAttempt(hash, raw => raw ?? { invalid: true });
             await refreshWalletAttempts();
@@ -201,10 +197,69 @@ export function getPendingWalletAttempts() {
     return [...records].filter(([hash, record]) => (record.attempt.state === "uncertain" || (record.attempt.state === "submitted" && !walletAttemptIsConfirmed(hash, record.attempt))) && typeof record.invoice === "string")
         .map(([paymentHash, record]) => ({ paymentHash, ...record }));
 }
-export interface LockedWalletAttempt {
-    attempt: WalletAttempt | undefined;
-    save(attempt: WalletAttempt): Promise<void>;
+/** Durable state may resolve known older snapshots, never unknown evidence. */
+function mergeDurable(hash: string, durable: AttemptRecord | undefined, local: AttemptRecord | undefined) {
+    const resolvedNewer = durable && (!local || local.revision !== undefined) && local?.attempt.state !== "submitted" &&
+        (durable.revision ?? 0) > (local?.revision ?? 0);
+    const merged = resolvedNewer ? durable : protect(durable, local, hash);
+    if (merged && local?.revision === undefined && local?.attempt.state === "uncertain" && merged.attempt.state !== "submitted") {
+        const unknown = { ...merged };
+        delete unknown.revision;
+        return unknown;
+    }
+    return merged;
 }
+const sameRecord = (left: AttemptRecord | undefined, right: AttemptRecord | undefined) => JSON.stringify(left) === JSON.stringify(right);
+const changed = () => new Error("The wallet attempt changed. Review its current status before continuing.");
+
+/** Facts can arrive even from an action which loses the lock. Their import is
+ * monotonic, never a resolution or permission to send. Reconcile again if new
+ * local evidence arrived while the transaction was committing.
+ */
+async function reconcileAttempt(hash: string, invoice?: string, amountMsats?: number): Promise<AttemptRecord | undefined> {
+    for (;;) {
+        let observed: AttemptRecord | undefined;
+        const saved = parseRecord(await store.changeWalletAttempt(hash, raw => {
+            observed = records.get(hash);
+            const authoritative = parseRecord(raw);
+            const merged = mergeDurable(hash, authoritative, observed);
+            if (!merged) return undefined;
+            const next = { ...merged, ...(invoice ? { invoice } : {}), ...(amountMsats === undefined ? {} : { amountMsats }) };
+            return sameRecord(next, authoritative) ? authoritative : { ...next, revision: (authoritative?.revision ?? 0) + 1 };
+        }));
+        const local = records.get(hash);
+        const next = local === observed ? saved : mergeDurable(hash, saved, local);
+        if (next) remember(hash, next);
+        if (sameRecord(next, saved)) { persistent = true; return saved; }
+    }
+}
+
+export interface LockedWalletAttempt {
+    readonly attempt: WalletAttempt | undefined;
+    save(attempt: WalletAttempt): Promise<void>;
+    refresh(): Promise<void>;
+    /** Synchronous guard after the final await, immediately before wire send. */
+    isCurrent(attempt: WalletAttempt | undefined): boolean;
+}
+/** Shared by send/check and destructive invoice operations. Never queue actions. */
+export async function withWalletAttemptLocks<T>(hashes: string[], action: () => Promise<T>): Promise<T> {
+    if (typeof navigator === "undefined" || !navigator.locks?.request) throw blocked();
+    const keys = [...new Set(hashes)].sort();
+    const acquire = async (index: number): Promise<T> => index === keys.length ? action() :
+        navigator.locks.request(`holoboard-wallet-payment:${keys[index]}`, { mode: "exclusive", ifAvailable: true }, async lock => {
+            if (!lock) throw new Error("This payment already has a send or status check in progress in another view or tab.");
+            return acquire(index + 1);
+        });
+    return acquire(0);
+}
+/** Validate the authoritative transaction snapshot as well as local barriers. */
+export function walletAttemptBlocksRemoval(hash: string, raw: unknown): boolean {
+    load();
+    if (invalid.has(hash) || unreadableLegacy) return true;
+    const record = mergeDurable(hash, parseRecord(raw), records.get(hash));
+    return !!record && record.attempt.state !== "unpaid";
+}
+
 /** ifAvailable never queues a send to run after the user's original action. */
 export async function withWalletAttempt<T>(hash: string, previous: WalletAttempt | undefined, invoice: string | undefined, amountMsats: number | undefined,
     action: (locked: LockedWalletAttempt) => Promise<T>): Promise<T> {
@@ -212,59 +267,75 @@ export async function withWalletAttempt<T>(hash: string, previous: WalletAttempt
     if (!validHash(hash)) throw new Error("Invalid payment hash. No wallet payment was sent.");
     if (previous && !validWalletAttempt(previous)) throw new Error("The previous wallet attempt is malformed or unknown.");
     if (previous) getWalletAttempt(hash, previous);
-    const readonly = async (failure: unknown) => {
+    const prepare = async () => {
         await initializeWalletAttempts();
         if (previous?.state === "submitted") { await verifyWalletPaymentProof(hash, previous.preimage); getWalletAttempt(hash, previous); }
         if (invalid.has(hash) || unreadableLegacy) throw new Error("The stored wallet attempt cannot be read safely. Check the original wallet before continuing.");
+    };
+    const readonly = async (failure: unknown) => {
+        await prepare();
         persistent = false; notify();
-        return action({ attempt: records.get(hash)?.attempt, save: async () => { throw failure; } });
+        return action({ get attempt() { return records.get(hash)?.attempt; }, save: async () => { throw failure; },
+            refresh: async () => { throw failure; }, isCurrent: () => false });
     };
     if (typeof navigator === "undefined" || !navigator.locks?.request) return readonly(blocked());
     return navigator.locks.request(`holoboard-wallet-payment:${hash}`, { mode: "exclusive", ifAvailable: true }, async (lock) => {
-        if (!lock) throw new Error("This payment already has a send or status check in progress in another view or tab.");
-        await initializeWalletAttempts();
-        if (previous?.state === "submitted") { await verifyWalletPaymentProof(hash, previous.preimage); getWalletAttempt(hash, previous); }
-        if (invalid.has(hash) || unreadableLegacy) throw new Error("The stored wallet attempt cannot be read safely. Check the original wallet before continuing.");
+        if (!lock) {
+            // Reject the action, but finish accepting its protective knowledge.
+            // This transaction cannot release a barrier held by the active action.
+            if (previous && previous.state !== "unpaid") {
+                await prepare();
+                try { await reconcileAttempt(hash, invoice, amountMsats); channel?.postMessage(null); }
+                catch (failure) { persistent = false; notify(); throw failure; }
+            }
+            throw new Error("This payment already has a send or status check in progress in another view or tab.");
+        }
+        await prepare();
         let current: AttemptRecord | undefined;
-        try {
-            const local = records.get(hash);
-            const candidate = local ?? (previous ? { attempt: cleanAttempt(previous) } : undefined);
-            current = parseRecord(await store.changeWalletAttempt(hash, raw => {
-                const authoritative = parseRecord(raw);
-                const incoming = authoritative && candidate?.revision !== undefined && (authoritative.revision ?? 0) > candidate.revision && candidate.attempt.state !== "submitted" ? undefined : candidate;
-                const merged = protect(authoritative, incoming, hash);
-                return merged ? { ...merged, revision: (authoritative?.revision ?? 0) + 1 } : undefined;
-            }));
-            persistent = true;
-        } catch (failure) {
+        try { current = await reconcileAttempt(hash, invoice, amountMsats); }
+        catch (failure) {
             persistent = false; notify();
             if (failure instanceof Error && /malformed|unknown/.test(failure.message)) throw failure;
             return readonly(failure);
         }
-        if (current) {
-            remember(hash, current);
-            if (previous && JSON.stringify(cleanAttempt(previous)) === JSON.stringify(current.attempt)) snapshotRevisions.set(previous, current.revision ?? 0);
-        }
-        const locked: LockedWalletAttempt = { attempt: current?.attempt, save: async (attempt) => {
-            if (!validWalletAttempt(attempt)) throw new Error("Invalid wallet attempt.");
-            const next: AttemptRecord = { ...current, attempt: cleanAttempt(attempt), ...(invoice ? { invoice } : {}), ...(amountMsats === undefined ? {} : { amountMsats }) };
-            try {
-                const saved = parseRecord(await store.changeWalletAttempt(hash, raw => {
-                    const authoritative = parseRecord(raw);
-                    if (authoritative?.revision !== current?.revision || JSON.stringify(authoritative?.attempt) !== JSON.stringify(current?.attempt)) throw new Error("The wallet attempt changed. Review its current status before continuing.");
-                    if (authoritative?.attempt.state === "submitted" && attempt.state !== "submitted") throw new Error("A submitted payment cannot be released.");
-                    return { ...next, revision: (authoritative?.revision ?? 0) + 1 };
-                }))!;
-                current = saved; locked.attempt = saved.attempt; persistent = true;
-                snapshotRevisions.set(attempt, saved.revision ?? 0); remember(hash, saved);
-                channel?.postMessage(null);
-            } catch (failure) {
-                // Preserve stronger local knowledge after any failed commit. It cannot authorize a send.
-                const protectedRecord = protect(records.get(hash), next, hash);
-                if (protectedRecord) remember(hash, protectedRecord);
-                persistent = false; notify(); throw failure;
-            }
-        } };
+        if (previous && JSON.stringify(cleanAttempt(previous)) === JSON.stringify(current?.attempt)) snapshotRevisions.set(previous, current?.revision ?? 0);
+        const locked: LockedWalletAttempt = {
+            get attempt() { return current?.attempt; },
+            refresh: async () => { current = await reconcileAttempt(hash, invoice, amountMsats); },
+            isCurrent: attempt => !!attempt && snapshotRevisions.get(attempt) === current?.revision &&
+                JSON.stringify(attempt) === JSON.stringify(current?.attempt) && sameRecord(current, records.get(hash)),
+            save: async (attempt) => {
+                if (!validWalletAttempt(attempt)) throw new Error("Invalid wallet attempt.");
+                const next: AttemptRecord = { attempt: cleanAttempt(attempt), ...(invoice ? { invoice } : {}), ...(amountMsats === undefined ? {} : { amountMsats }) };
+                let observed: AttemptRecord | undefined, conflict = false;
+                try {
+                    const saved = parseRecord(await store.changeWalletAttempt(hash, raw => {
+                        const authoritative = parseRecord(raw);
+                        observed = records.get(hash);
+                        const latest = mergeDurable(hash, authoritative, observed);
+                        conflict = !sameRecord(authoritative, current) || !sameRecord(latest, current);
+                        // A resolution belongs to precisely the fact that was checked.
+                        // New evidence, including unknown uncertainty, invalidates it.
+                        if (conflict) return latest ? { ...protect(latest, next, hash), revision: (authoritative?.revision ?? 0) + 1 } : undefined;
+                        if (authoritative?.attempt.state === "submitted" && attempt.state !== "submitted") throw new Error("A submitted payment cannot be released.");
+                        return { ...current, ...next, revision: (authoritative?.revision ?? 0) + 1 };
+                    }));
+                    const local = records.get(hash);
+                    const adopted = local === observed ? saved : mergeDurable(hash, saved, local);
+                    if (adopted) remember(hash, adopted);
+                    current = saved;
+                    if (!sameRecord(adopted, saved)) { conflict = true; current = await reconcileAttempt(hash, invoice, amountMsats); }
+                    persistent = true; channel?.postMessage(null);
+                } catch (failure) {
+                    // A failed proof/checkpoint write is still protective knowledge.
+                    const protectedRecord = protect(records.get(hash), next, hash);
+                    if (protectedRecord) remember(hash, protectedRecord);
+                    persistent = false; notify(); throw failure;
+                }
+                if (conflict && !(attempt.state === "submitted" && current?.attempt.preimage === attempt.preimage && walletAttemptIsConfirmed(hash, current?.attempt))) throw changed();
+                snapshotRevisions.set(attempt, current?.revision ?? 0);
+            },
+        };
         return action(locked);
     });
 }

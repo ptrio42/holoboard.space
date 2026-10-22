@@ -1,9 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PaymentRecoverySnapshot } from "../../lib/paymentRecoveryStore";
 import type { PromotionPayment } from "./PaymentState";
 
-const fixture = vi.hoisted(() => ({ attempts: new Map<string, unknown>(), records: new Map<string, { payments: Map<string, string>; lastPayment: string | null }>(), fail: false }));
+const fixture = vi.hoisted(() => ({ attempts: new Map<string, unknown>(), records: new Map<string, { payments: Map<string, string>; lastPayment: string | null }>(), fail: false, failAttempts: false, beforeDelete: undefined as (() => Promise<void>) | undefined }));
 vi.mock("../../lib/paymentRecoveryStore", () => ({ IndexedPaymentRecoveryStore: class {
-    async readWalletAttempts() { return new Map(fixture.attempts); }
+    async readWalletAttempts() { if (fixture.failAttempts) throw new Error("Attempt storage blocked"); return new Map(fixture.attempts); }
+    async changeWithWalletAttempts(backend: string, update: (snapshot: PaymentRecoverySnapshot, attempts: Map<string, unknown>) => void) {
+        if (fixture.beforeDelete) await fixture.beforeDelete();
+        if (fixture.failAttempts) throw new Error("Attempt storage blocked");
+        return this.change(backend, snapshot => update(snapshot, structuredClone(fixture.attempts)));
+    }
     async changeWalletAttempt(hash: string, update: (record: unknown) => unknown) {
         const record = update(fixture.attempts.get(hash));
         if (record !== undefined) fixture.attempts.set(hash, structuredClone(record));
@@ -26,8 +32,13 @@ const makePayment = (note: string, hash: string): PromotionPayment => ({
 });
 
 beforeEach(() => {
-    vi.resetModules(); fixture.records.clear(); fixture.attempts.clear(); fixture.fail = false;
-    vi.stubGlobal("navigator", { locks: { request: async (_name: string, _options: unknown, action: (lock: object) => Promise<unknown>) => action({}) } });
+    vi.resetModules(); fixture.records.clear(); fixture.attempts.clear(); fixture.fail = false; fixture.failAttempts = false; fixture.beforeDelete = undefined;
+    const active = new Set<string>();
+    vi.stubGlobal("navigator", { locks: { request: async (name: string, _options: unknown, action: (lock: object | null) => Promise<unknown>) => {
+        if (active.has(name)) return action(null);
+        active.add(name);
+        try { return await action({}); } finally { active.delete(name); }
+    } } });
     const stored = new Map<string, string>();
     vi.stubGlobal("sessionStorage", {
         get length() { return stored.size; }, key: (index: number) => [...stored.keys()][index] ?? null,
@@ -187,6 +198,90 @@ describe("promotion payment records", () => {
         await records.updateSavedPayment(noteA, "new", { boardAttempt: { state: "uncertain", walletId: "wallet" } });
         await records.removeSavedPayment(noteA, "new");
         expect(records.restorePayment(noteA)?.boardAttempt?.state).toBe("uncertain");
+    });
+    it.each(["board", "author"] as const)("keeps invoices when another tab committed an unseen %s attempt", async part => {
+        const records = await import("./paymentRecords");
+        const ledger = await import("../../lib/walletAttempts");
+        const session = await import("../../lib/paymentSession");
+        await ledger.initializeWalletAttempts();
+        const payment = makePayment(noteA, "42".repeat(32));
+        payment.author!.payment_hash = "43".repeat(32);
+        await records.savePayment(payment);
+        const pointer = session.readPaymentSession();
+        const hash = part === "board" ? payment.board.paymentHash : payment.author!.payment_hash;
+        fixture.attempts.set(hash, { attempt: { state: "uncertain", walletId: "original" }, revision: 1 });
+        expect(ledger.getWalletAttempt(hash)).toBeUndefined();
+        expect(await records.removeSavedPayment(noteA, payment.board.paymentHash)).toBe(false);
+        expect(records.restorePayment(noteA)?.board).toEqual(payment.board);
+        expect(session.readPaymentSession()).toBe(pointer);
+    });
+    it.each(["storage", "attempt storage", "locks", "malformed"])("refuses destructive restart with unavailable authority: %s", async failure => {
+        const records = await import("./paymentRecords");
+        const ledger = await import("../../lib/walletAttempts");
+        const session = await import("../../lib/paymentSession");
+        await ledger.initializeWalletAttempts();
+        const payment = makePayment(noteA, "42".repeat(32));
+        await records.savePayment(payment);
+        const pointer = session.readPaymentSession();
+        if (failure === "storage") fixture.fail = true;
+        if (failure === "attempt storage") fixture.failAttempts = true;
+        if (failure === "locks") vi.stubGlobal("navigator", {});
+        if (failure === "malformed") fixture.attempts.set(payment.board.paymentHash, { attempt: { state: "future" } });
+        expect(await records.removeSavedPayment(noteA, payment.board.paymentHash)).toBe(false);
+        expect(records.restorePayment(noteA)?.board).toEqual(payment.board);
+        expect(session.readPaymentSession()).toBe(pointer);
+        // Failed destructive work must never replay later without its locks.
+        fixture.fail = false; fixture.failAttempts = false;
+        await records.savePayment({ ...payment, editing: true }, false);
+        expect(records.restorePayment(noteA)?.board).toEqual(payment.board);
+    });
+    it.each(["board", "author"] as const)("holds the %s lock through deletion and rejects a competing send", async part => {
+        const records = await import("./paymentRecords");
+        const ledger = await import("../../lib/walletAttempts");
+        const payments = await import("../../lib/walletPayment");
+        await ledger.initializeWalletAttempts();
+        const payment = makePayment(noteA, "42".repeat(32)); payment.author!.payment_hash = "43".repeat(32);
+        await records.savePayment(payment);
+        let release!: () => void, entered!: () => void;
+        const gate = new Promise<void>(resolve => { release = resolve; });
+        const paused = new Promise<void>(resolve => { entered = resolve; });
+        fixture.beforeDelete = async () => { entered(); await gate; };
+        const removal = records.removeSavedPayment(noteA, payment.board.paymentHash);
+        await paused;
+        expect(records.restorePayment(noteA)?.board).toEqual(payment.board);
+        const payer = { id: "wallet", kind: "nwc" as const, enable: async () => {}, sendPayment: vi.fn() };
+        const hash = part === "board" ? payment.board.paymentHash : payment.author!.payment_hash;
+        await expect(payments.payInvoiceSafely(payer, "invoice", hash, undefined, vi.fn())).rejects.toThrow("in progress");
+        expect(payer.sendPayment).not.toHaveBeenCalled();
+        release(); expect(await removal).toBe(true);
+        expect(records.restorePayment(noteA)).toBeNull();
+    });
+    it("a protective fact arriving during deletion is checked in the same transaction", async () => {
+        const records = await import("./paymentRecords");
+        const ledger = await import("../../lib/walletAttempts");
+        await ledger.initializeWalletAttempts();
+        const payment = makePayment(noteA, "42".repeat(32));
+        await records.savePayment(payment);
+        fixture.beforeDelete = async () => {
+            await expect(ledger.saveWalletAttempt(payment.board.paymentHash, { state: "uncertain", walletId: "original" })).rejects.toThrow("in progress");
+        };
+        expect(await records.removeSavedPayment(noteA, payment.board.paymentHash)).toBe(false);
+        expect(records.restorePayment(noteA)?.board).toEqual(payment.board);
+        expect(fixture.attempts.get(payment.board.paymentHash)).toMatchObject({ attempt: { state: "uncertain" } });
+    });
+    it("refuses deletion if another tab replaced an unlocked recipient hash", async () => {
+        const records = await import("./paymentRecords");
+        const session = await import("../../lib/paymentSession");
+        const payment = makePayment(noteA, "42".repeat(32));
+        await records.savePayment(payment);
+        fixture.beforeDelete = async () => {
+            const snapshot = fixture.records.get(session.paymentBackendKey)!;
+            const current = JSON.parse(snapshot.payments.get(records.paymentKey(noteA))!);
+            current.author.payment_hash = "new-author";
+            snapshot.payments.set(records.paymentKey(noteA), JSON.stringify(current));
+        };
+        expect(await records.removeSavedPayment(noteA, payment.board.paymentHash)).toBe(false);
+        expect(records.restorePayment(noteA)?.author?.payment_hash).toBe("new-author");
     });
     it("keeps a replacement author invoice when old snapshots and responses arrive", async () => {
         const records = await import("./paymentRecords");

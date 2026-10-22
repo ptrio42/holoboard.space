@@ -346,7 +346,12 @@ confirmed unpaid session and its last-payment pointer. It restores the saved
 promotion draft, without requesting new invoices or clearing shared wallet
 attempts and connections. Older sessions restore known amounts and allocation.
 Paid or reported parts and unresolved wallet attempts block deletion of the
-session, including after expiry. **Back to promotion** returns to the editor
+session, including after expiry. Restart holds both recipient hash locks until
+the invoice, pointer and authoritative shared-attempt check finish in one
+transaction. Delayed refresh notifications cannot hide another tab's attempt.
+Missing storage or coordination keeps the invoices available and blocks clearing
+the session. Failed deletion is never retried outside its original locks.
+**Back to promotion** returns to the editor
 and keeps the session under **Previous payment for this note**. It can interrupt
 an active wallet request without sending the next part or losing its proof.
 Preparing another payment archives the previous invoices under their note and
@@ -509,8 +514,13 @@ send after navigation. Each action rereads the durable attempt while holding the
 lock. Older known snapshot revisions cannot undo a committed resolution; unknown
 revisions and verified preimages remain protective. Passive invoice reads do not
 import attempt state; explicit wallet actions reconcile their original caller
-snapshot under the lock. Sending starts only after its
-uncertain attempt transaction commits. Expiry is checked again after pending
+snapshot with durable state. An action that loses the lock still commits stronger
+caller evidence before reporting that another action is in progress. These
+imports can only add protection. Lookup resolutions apply to the exact revision
+that was checked; new unknown uncertainty or proof invalidates an old resolution.
+Sending starts only after its uncertain attempt transaction commits and the
+caller save finishes. A final durable reconciliation and synchronous guard stop
+the send if newer evidence arrived during either write. Expiry is checked again after pending
 writes, immediately before sending. Submitted proof writes are also awaited. The transaction requests
 [`strict` durability](https://www.w3.org/TR/IndexedDB/#dom-idbtransactionoptions-durability)
 and resolves only on completion. Browser closure releases the lock, while a

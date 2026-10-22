@@ -2,8 +2,8 @@ import { parseBillboard } from "../../lib/billboard";
 import { verifiedNostrEvent } from "../../lib/verifyNostrEvent";
 import { isMockInvoice } from "../../lib/invoice";
 import { parseNoteReference } from "../../lib/nostr";
-import { changePaymentSessions, hasPaymentProvenance, listPaymentSessions, listUnverifiedPaymentSessions, paymentBackend, readPaymentSession, serializePrivatePayment } from "../../lib/paymentSession";
-import { getWalletAttempt, validWalletAttempt } from "../../lib/walletAttempts";
+import { changePaymentSessionsWithAttempts, changePaymentSessions, hasPaymentProvenance, listPaymentSessions, listUnverifiedPaymentSessions, paymentBackend, readPaymentSession, serializePrivatePayment } from "../../lib/paymentSession";
+import { getWalletAttempt, validWalletAttempt, initializeWalletAttempts, withWalletAttemptLocks, walletAttemptBlocksRemoval } from "../../lib/walletAttempts";
 import type { PromoteInvoice } from "../../lib/promote";
 import type { AuthorInvoice } from "../../lib/support";
 import type { PromotionPayment } from "./PaymentState";
@@ -161,18 +161,38 @@ export function savePayment(payment: PromotionPayment, select = true): Promise<b
 /** Clear only the selected, resolved/unattempted session, never a newer hash
  * that another page selected for the same note while this editor was open.
  */
-export function removeSavedPayment(note: string, hash: string): Promise<boolean> {
-    return changePaymentSessions(snapshot => {
-        const key = paymentKey(note);
+export async function removeSavedPayment(note: string, hash: string): Promise<boolean> {
+    const key = paymentKey(note);
+    const selected = parsePayment(readPaymentSession(key));
+    if (selected?.board.paymentHash !== hash) return false;
+    // Archiving completed invoices preserves payment facts, including late proof
+    // callbacks. It does not need permission to treat any recipient as unpaid.
+    if (complete(selected)) return changePaymentSessions(snapshot => {
         const current = parsePayment(snapshot.payments.get(key) ?? null);
-        if (current?.board.paymentHash !== hash) return;
-        const unresolved = current.promotionPaid || current.tipStatus !== "pending" ||
-            [current.boardAttempt, current.authorAttempt].some(attempt => attempt && attempt.state !== "unpaid");
-        if (!complete(current) && unresolved) return;
-        if (complete(current)) snapshot.payments.set(archivedKey(current), serializePayment({ ...current, editing: true }));
+        if (current?.board.paymentHash !== hash || !complete(current)) return;
+        snapshot.payments.set(archivedKey(current), serializePayment({ ...current, editing: true }));
         snapshot.payments.delete(key);
         if (snapshot.lastPayment === key) snapshot.lastPayment = null;
     });
+    const hashes = [hash, ...(selected.author ? [selected.author.payment_hash] : [])];
+    try {
+        return await withWalletAttemptLocks(hashes, async () => {
+            await initializeWalletAttempts();
+            let removed = false;
+            const committed = await changePaymentSessionsWithAttempts((snapshot, attempts) => {
+                const current = parsePayment(snapshot.payments.get(key) ?? null);
+                if (current?.board.paymentHash !== hash || current.author?.payment_hash !== selected.author?.payment_hash) return;
+                const unresolved = current.promotionPaid || current.tipStatus !== "pending" ||
+                    [current.boardAttempt, current.authorAttempt].some(attempt => attempt && attempt.state !== "unpaid") ||
+                    hashes.some(part => walletAttemptBlocksRemoval(part, attempts.get(part)));
+                if (unresolved) return;
+                snapshot.payments.delete(key);
+                if (snapshot.lastPayment === key) snapshot.lastPayment = null;
+                removed = true;
+            });
+            return committed && removed;
+        });
+    } catch { return false; }
 }
 
 export function updateSavedPayment(note: string, hash: string, changes: Partial<PromotionPayment>, expectedAuthorHash?: string): Promise<boolean> {

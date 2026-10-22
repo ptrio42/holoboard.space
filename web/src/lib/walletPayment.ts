@@ -1,5 +1,5 @@
 import { isMockInvoice, MOCK_INVOICE_MESSAGE } from "./invoice";
-import { withWalletAttempt, verifyWalletPaymentProof } from "./walletAttempts";
+import { withWalletAttempt, verifyWalletPaymentProof, type LockedWalletAttempt } from "./walletAttempts";
 
 export interface WalletProof { preimage?: string; feesPaidMsats?: number }
 export interface WalletLookup extends WalletProof { state: "paid" | "unpaid" | "pending" | "unknown" }
@@ -35,14 +35,14 @@ export async function payInvoiceSafely(
         return executePayment(wallet, invoice, paymentHash, attempt, async next => {
             await locked.save(next);
             if (await save(next) === false) throw new Error("Private payment storage did not commit. Use Invoice / QR or check the original wallet.");
-        }, expiresAt, canSend, retryUncertain);
+        }, expiresAt, canSend, retryUncertain, locked);
     });
 }
 
 async function executePayment(
     wallet: PaymentWallet, invoice: string, paymentHash: string,
     previous: WalletAttempt | undefined, save: (attempt: WalletAttempt) => unknown | Promise<unknown>,
-    expiresAt = Infinity, canSend: () => boolean = () => true, retryUncertain = true,
+    expiresAt = Infinity, canSend: () => boolean = () => true, retryUncertain = true, locked: LockedWalletAttempt,
 ): Promise<WalletProof> {
     if (isMockInvoice(invoice)) throw new PaymentRejected(MOCK_INVOICE_MESSAGE);
     if (previous?.state === "submitted") {
@@ -79,6 +79,16 @@ async function executePayment(
     if (Date.now() >= expiresAt*1000) throw new Error("The invoice expired. No wallet payment was sent.");
     if (!canSend()) throw new Error("Payment action ended. No wallet payment was sent.");
     await save({ state: "uncertain", walletId: wallet.id });
+    const committed = locked.attempt;
+    await locked.refresh();
+    const checkpoint = locked.attempt;
+    if (checkpoint?.state === "submitted") {
+        if (await verifyWalletPaymentProof(paymentHash, checkpoint.preimage)) return { preimage: checkpoint.preimage };
+        throw new Error("The wallet reported this payment as sent. Check the original wallet. Another payment will not be sent.");
+    }
+    if (checkpoint?.state !== "uncertain" || checkpoint.walletId !== wallet.id || !locked.isCurrent(committed)) {
+        throw new Error("The wallet attempt changed. Review its current status before continuing.");
+    }
     if (!canSend()) throw new Error("Payment action ended. Check the original wallet before retrying.");
     if (Date.now() >= expiresAt*1000) throw new Error("The invoice expired. No wallet payment was sent.");
     try {

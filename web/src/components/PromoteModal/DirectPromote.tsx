@@ -74,6 +74,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     const [method, setMethod] = useState<PaymentMethod>(() => preferredWallet() ? "wallet" : "invoice");
     const [recipient, setRecipient] = useState<PaymentRecipient>(() => recovered.current?.author && (recovered.current.promotionPaid || isMockInvoice(recovered.current.board.invoice)) ? "author" : "board");
     const [restartConfirm, setRestartConfirm] = useState(false);
+    const [restartUnavailableHash, setRestartUnavailableHash] = useState<string | null>(null);
     const restartedDraft = useRef<Payment | null>(null);
     const [amountText, setAmountText] = useState(() => String(recovered.current?.draft?.amount ?? (recovered.current ? (recovered.current.board.promotionSats ?? recovered.current.board.amountSats - (recovered.current.board.billboardFeeSats ?? 0)) + (recovered.current.author?.amount_sats ?? 0) : ZAP_PRESETS[1])));
     const validAmount = /^[0-9]+$/.test(amountText) && Number.isSafeInteger(Number(amountText)) && Number(amountText) >= 1 && Number(amountText) <= 10000000;
@@ -491,9 +492,15 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     };
     const startAnother = async () => {
         if (!payment) return;
-        await removeSavedPayment(payment.note, payment.board.paymentHash);
+        if (!await removeSavedPayment(payment.note, payment.board.paymentHash)) {
+            setRestartUnavailableHash(payment.board.paymentHash);
+            setRestartConfirm(false);
+            setError("This payment could not be cleared safely. Its invoices are still available. Use Back to promotion to edit, or check the original wallet.");
+            return false;
+        }
         setPayment(null); setError(""); setActualRank(null); notified.current = false; setRestartConfirm(false); selectTab("compose");
         setRecordsVersion((version) => version + 1);
+        return true;
     };
     const backToPromotion = async (saved = latestPayment.current) => {
         if (!saved) return;
@@ -526,11 +533,10 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                 authorAttempt: current.author ? getWalletAttempt(current.author.payment_hash, current.authorAttempt) : undefined };
             if (restartBlocked(latest)) { backToPromotion(latest); return; }
             if (preview) restoreDraft(payment, preview);
-            restartedDraft.current = payment;
-            abort.current?.abort();
-            setBusy(false);
-            await startAnother();
-            setLoadVersion((version) => version + 1);
+            if (await startAnother()) {
+                restartedDraft.current = payment;
+                setLoadVersion((version) => version + 1);
+            }
         } finally { if (!controller.signal.aborted) setBusy(false); }
     };
     const cannotPrepare = busy || loading || !preview || !validAmount || invalidTip || (billboardEnabled && !validBillboard(config, preview.event.content, preview.images));
@@ -622,7 +628,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         }}
         onHelp={() => openHelp("payments")} onSigner={() => openPanel("signer")} onRestart={() => void restartPayment()}
         onBack={() => backToPromotion()}
-        restartConfirm={restartConfirm} onRestartConfirm={setRestartConfirm} hasPublicZapConsent={hasPublicZapConsent()} authorCanReplace={!!endpoint?.available} footer={footer} /></>;
+        restartConfirm={restartConfirm} restartUnavailable={restartUnavailableHash === payment.board.paymentHash} onRestartConfirm={setRestartConfirm} hasPublicZapConsent={hasPublicZapConsent()} authorCanReplace={!!endpoint?.available} footer={footer} /></>;
     return <>{navigation}<div className={boost ? "space-y-2" : "space-y-4"} aria-busy={loading || busy} {...tabPanelProps}>
         <UnfinishedPayments payments={pendingSessions} forNote={!!parseNoteReference(reference)} disabled={busy} storageFailed={recovery.failed} onResume={resumePayment} />
         {recovery.unverifiedLegacy && <LegacyInvoices payments={unverifiedLegacyPayments()} />}

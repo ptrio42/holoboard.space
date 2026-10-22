@@ -1504,7 +1504,7 @@ test("connecting and disconnecting inside payment preserves invoices and tab ord
     expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
 });
 
-for (const reopen of ["persistent", "blocked storage", "offline"] as const) test(`restart before expiry clears an unpaid session with ${reopen}`, async ({ context, page }) => {
+for (const reopen of ["persistent", "blocked storage", "offline"] as const) test(`restart before expiry ${reopen === "blocked storage" ? "retains invoices with" : "clears an unpaid session with"} ${reopen}`, async ({ context, page }) => {
     const state = await setup(context, page, { blockStorage: reopen === "blocked storage" });
     await setAuthorShare(page, 35);
     await prepareInvoices(page);
@@ -1515,6 +1515,14 @@ for (const reopen of ["persistent", "blocked storage", "offline"] as const) test
     await page.getByRole("button", { name: "Restart payment", exact: true }).click();
     await expect(page.getByText("Check your wallet first.", { exact: false })).toBeVisible();
     await page.getByRole("button", { name: "I haven't paid, restart", exact: true }).click();
+    if (reopen === "blocked storage") {
+        await expect(page.getByRole("alert")).toContainText("could not be cleared safely");
+        await invoiceMethod(page); await expectSplitInvoices(page);
+        const retained = await savedPayment(page);
+        expect(retained.board.invoice).toBe("lnbc-visibility");
+        expect(retained.author?.invoice).toBe("lnbc-author");
+        await page.getByRole("button", { name: "Back to promotion", exact: true }).click();
+    }
     await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
     await expect(page.getByRole("slider", { name: "Holoboard share in percent" })).toHaveValue("65");
     await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toHaveCount(0);
@@ -2302,4 +2310,85 @@ test("promotion keeps raw caller uncertainty when the shared snapshot says unpai
     await expect(page.getByRole("alert")).toContainText("original wallet");
     expect(state.authorAttempts).toBe(0); expect(state.authorCharges).toBe(0); expect(state.boardCharges).toBe(0);
     expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1); expect(state.errors).toEqual([]);
+});
+
+
+for (const part of ["board", "author"] as const) test(`restart checks unseen cross-tab ${part} wallet attempts before deleting invoices`, async ({ context, page }) => {
+    await context.addInitScript(() => {
+        Object.defineProperty(window, "BroadcastChannel", { value: undefined });
+        // Deliberately suppress refresh hints: the destructive operation must
+        // consult authoritative storage even when this view's cache is stale.
+        const listen = window.addEventListener.bind(window);
+        window.addEventListener = ((type: string, ...args: unknown[]) => {
+            if (type !== "focus") (listen as (...args: unknown[]) => void)(type, ...args);
+        }) as typeof window.addEventListener;
+    });
+    const state = await setup(context, page);
+    await prepareInvoices(page);
+    const payment = await savedPayment(page);
+    await page.evaluate(async () => { await (await import("/src/lib/walletAttempts.ts")).initializeWalletAttempts(); });
+    await page.getByRole("button", { name: "Restart payment", exact: true }).click();
+    const other = await context.newPage(); await other.goto("/");
+    const target = part === "board" ? payment.board.paymentHash : payment.author!.payment_hash;
+    await other.evaluate(async hash => {
+        const ledger = await import("/src/lib/walletAttempts.ts");
+        await ledger.saveWalletAttempt(hash, { state: "uncertain", walletId: "original-wallet" });
+    }, target);
+    expect(await page.evaluate(async hash => (await import("/src/lib/walletAttempts.ts")).getWalletAttempt(hash), target)).toBeUndefined();
+    await page.getByRole("button", { name: "I haven't paid, restart", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("could not be cleared safely");
+    await invoiceMethod(page); await expectSplitInvoices(page);
+    expect((await savedPayment(page)).board).toEqual(payment.board);
+    expect((await savedPayment(page)).author).toEqual(payment.author);
+    await page.getByRole("button", { name: "Back to promotion", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
+    await page.close();
+    await other.getByRole("button", { name: "Boost", exact: true }).first().click();
+    await other.getByRole("button", { name: "Resume payment", exact: true }).click();
+    await invoiceMethod(other); await expectSplitInvoices(other);
+    expect((await savedPayment(other)).board).toEqual(payment.board);
+    expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
+for (const phase of ["caller persistence", "unpaid lookup"] as const) test(`cross-tab proof arriving during ${phase} stops the old action and survives closure`, async ({ context, page }) => {
+    const state = await setup(context, page);
+    await page.evaluate(async ({ hash, proof, phase }) => {
+        const ledger = await import("/src/lib/walletAttempts.ts");
+        const payments = await import("/src/lib/walletPayment.ts");
+        await ledger.initializeWalletAttempts();
+        if (phase === "unpaid lookup") await ledger.saveWalletAttempt(hash, { state: "uncertain", walletId: "original" });
+        let release!: () => void;
+        const gate = new Promise<void>(resolve => { release = resolve; });
+        const control = { release, paused: false, sends: 0, result: "pending" };
+        Object.assign(window, { raceControl: control });
+        const payer = { id: "original", kind: "nwc" as const, enable: async () => {}, sendPayment: async () => { control.sends++; return { preimage: proof }; },
+            lookupPayment: async () => { control.paused = true; await gate; return { state: "unpaid" as const }; } };
+        void payments.payInvoiceSafely(payer, "invoice", hash, undefined, async attempt => {
+            if (phase === "caller persistence" && attempt.state === "uncertain") { control.paused = true; await gate; }
+        }).then(() => { control.result = "proof recovered"; }, error => { control.result = error.message; });
+    }, { hash: boardHash, proof: boardPreimage, phase });
+    await expect.poll(() => page.evaluate(() => (window as unknown as { raceControl: { paused: boolean } }).raceControl.paused)).toBe(true);
+    const other = await context.newPage(); await other.goto("/");
+    const rejected = await other.evaluate(async ({ hash, proof }) => {
+        const payments = await import("/src/lib/walletPayment.ts");
+        try {
+            await payments.payInvoiceSafely({ id: "original", kind: "nwc", enable: async () => {}, sendPayment: async () => { throw new Error("Unexpected send"); } },
+                "invoice", hash, { state: "submitted", walletId: "original", preimage: proof }, async () => {});
+            return "Unexpected success";
+        } catch (error) { return (error as Error).message; }
+    }, { hash: boardHash, proof: boardPreimage });
+    expect(rejected).toContain("in progress");
+    await other.close();
+    await page.evaluate(() => (window as unknown as { raceControl: { release(): void } }).raceControl.release());
+    await expect.poll(() => page.evaluate(() => (window as unknown as { raceControl: { result: string } }).raceControl.result)).not.toBe("pending");
+    expect(await page.evaluate(() => (window as unknown as { raceControl: { sends: number } }).raceControl.sends)).toBe(0);
+    await page.close();
+    const fresh = await context.newPage(); await fresh.goto("/");
+    const durable = await fresh.evaluate(async hash => {
+        const { IndexedPaymentRecoveryStore } = await import("/src/lib/paymentRecoveryStore.ts");
+        return (await new IndexedPaymentRecoveryStore().readWalletAttempts()).get(hash);
+    }, boardHash);
+    expect(durable).toMatchObject({ attempt: { state: "submitted", walletId: "original", preimage: boardPreimage } });
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
 });

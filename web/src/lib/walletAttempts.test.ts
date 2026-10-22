@@ -58,14 +58,84 @@ describe("shared wallet attempt protection", () => {
         const payer = wallet("original");
         payer.sendPayment = vi.fn(() => new Promise<{ preimage: string }>((resolve) => { complete = resolve; }));
         const first = payments.payInvoiceSafely(payer, "invoice", paymentHash, undefined, vi.fn());
+        await vi.waitFor(() => expect(payer.sendPayment).toHaveBeenCalledOnce());
         await expect(payments.payInvoiceSafely(wallet("replacement"), "invoice", paymentHash, { state: "unpaid", walletId: "replacement" }, vi.fn())).rejects.toThrow("in progress");
         await expect(ledger.acknowledgeWalletFailure(paymentHash, { state: "uncertain", walletId: payer.id })).rejects.toThrow("in progress");
-        await vi.waitFor(() => expect(payer.sendPayment).toHaveBeenCalledOnce());
         complete({ preimage }); await first;
         const replacement = wallet("replacement");
         await payments.payInvoiceSafely(replacement, "invoice", paymentHash, { state: "unpaid", walletId: replacement.id }, vi.fn());
         expect(replacement.sendPayment).not.toHaveBeenCalled();
         expect(ledger.getWalletAttempt(paymentHash)?.walletId).toBe("original");
+    });
+    it.each(["caller save", "attempt commit"])("retains a losing caller proof arriving during %s before any send", async phase => {
+        await ledger.initializeWalletAttempts();
+        let release!: () => void, paused!: () => void;
+        const gate = new Promise<void>(resolve => { release = resolve; });
+        const entered = new Promise<void>(resolve => { paused = resolve; });
+        if (phase === "attempt commit") recovery.beforeCommit = async raw => {
+            if ((raw as { attempt?: { state: string } })?.attempt?.state === "uncertain") { paused(); await gate; }
+        };
+        const payer = wallet("original");
+        const first = payments.payInvoiceSafely(payer, "invoice", paymentHash, undefined, async attempt => {
+            if (phase === "caller save" && attempt.state === "uncertain") { paused(); await gate; }
+        }).catch(error => error as Error);
+        await entered;
+        let rejected = false;
+        const competitor = payments.payInvoiceSafely(payer, "invoice", paymentHash,
+            { state: "submitted", walletId: "original", preimage }, vi.fn()).catch(error => { rejected = true; return error as Error; });
+        await vi.waitFor(() => expect(ledger.getWalletAttempt(paymentHash)?.state).toBe("submitted"));
+        if (phase === "attempt commit") { expect(rejected).toBe(false); release(); }
+        expect((await competitor as Error).message).toContain("in progress");
+        expect(recovery.records.get(paymentHash)).toMatchObject({ attempt: { state: "submitted", preimage } });
+        release(); await first;
+        expect(payer.sendPayment).not.toHaveBeenCalled();
+        expect(ledger.getWalletAttempt(paymentHash)).toMatchObject({ state: "submitted", preimage });
+        // Simulate closure after the rejected action completes accepting its fact.
+        vi.resetModules(); const fresh = await import("./walletPayment");
+        await fresh.payInvoiceSafely(payer, "invoice", paymentHash, undefined, vi.fn());
+        expect(payer.sendPayment).not.toHaveBeenCalled();
+    });
+    it.each(["submitted", "uncertain"] as const)("new %s evidence invalidates an in-flight unpaid lookup resolution", async state => {
+        await ledger.saveWalletAttempt(paymentHash, { state: "uncertain", walletId: "original" }, "invoice");
+        let release!: (status: { state: "unpaid" }) => void;
+        const payer = { ...wallet("original"), lookupPayment: vi.fn(() => new Promise<{ state: "unpaid" }>(resolve => { release = resolve; })) };
+        const first = payments.payInvoiceSafely(payer, "invoice", paymentHash, undefined, vi.fn()).catch(error => error as Error);
+        await vi.waitFor(() => expect(payer.lookupPayment).toHaveBeenCalledOnce());
+        await expect(payments.payInvoiceSafely(payer, "invoice", paymentHash,
+            { state, walletId: "original", ...(state === "submitted" ? { preimage } : {}) }, vi.fn())).rejects.toThrow("in progress");
+        release({ state: "unpaid" });
+        expect((await first as Error).message).toContain("changed");
+        expect(ledger.getWalletAttempt(paymentHash)?.state).toBe(state);
+        expect(recovery.records.get(paymentHash)).toMatchObject({ attempt: { state } });
+        expect(payer.sendPayment).not.toHaveBeenCalled();
+    });
+    it("a losing caller reports failed fact persistence and still prevents the active send", async () => {
+        await ledger.initializeWalletAttempts();
+        let release!: () => void, paused!: () => void;
+        const gate = new Promise<void>(resolve => { release = resolve; });
+        const entered = new Promise<void>(resolve => { paused = resolve; });
+        const payer = wallet("original");
+        const first = payments.payInvoiceSafely(payer, "invoice", paymentHash, undefined, async attempt => {
+            if (attempt.state === "uncertain") { paused(); await gate; }
+        }).catch(error => error as Error);
+        await entered; recovery.fail = true;
+        await expect(payments.payInvoiceSafely(payer, "invoice", paymentHash,
+            { state: "submitted", walletId: "original", preimage }, vi.fn())).rejects.toThrow("storage");
+        expect(ledger.getWalletAttempt(paymentHash)?.state).toBe("submitted");
+        release(); await first;
+        expect(payer.sendPayment).not.toHaveBeenCalled();
+        expect(recovery.records.get(paymentHash)).toMatchObject({ attempt: { state: "uncertain" } });
+    });
+    it("does not send after previously unseen uncertainty arrives during caller persistence", async () => {
+        await ledger.initializeWalletAttempts();
+        const payer = wallet("original");
+        const save = async () => {
+            await expect(payments.payInvoiceSafely(payer, "invoice", paymentHash,
+                { state: "uncertain", walletId: "original" }, vi.fn())).rejects.toThrow("in progress");
+        };
+        await expect(payments.payInvoiceSafely(payer, "invoice", paymentHash, undefined, save)).rejects.toThrow("changed");
+        expect(payer.sendPayment).not.toHaveBeenCalled();
+        expect(recovery.records.get(paymentHash)).toMatchObject({ attempt: { state: "uncertain" } });
     });
     it("blocks sending when storage cannot establish the original hash barriers", async () => {
         vi.stubGlobal("sessionStorage", { getItem: () => { throw new Error("blocked"); } });
