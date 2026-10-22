@@ -19,7 +19,7 @@ async function setup(context: BrowserContext, page: Page, options: { restoredPro
     if (options.restoredProof !== undefined) await context.addInitScript(({ invoice, hash, walletId, proof }) => {
         const key = "holoboard-wallet-attempts";
         if (!sessionStorage.getItem(key)) sessionStorage.setItem(key, JSON.stringify({ [hash]: {
-            attempt: { state: "submitted", walletId, preimage: proof, proofVerified: true }, invoice, amountMsats: 21000,
+            attempt: { state: "submitted", walletId, ...(typeof proof === "string" ? { preimage: proof } : {}), proofVerified: true }, invoice, amountMsats: 21000,
         } }));
     }, { invoice: sentInvoice, hash: paymentHash, walletId: `nwc:${walletPubkey}:${getPublicKey(clientKey)}`, proof: options.restoredProof });
     const state = {
@@ -305,6 +305,8 @@ async function reconnect(page: Page, connection = uri) {
     await page.getByRole("button", { name: "Disconnect wallet", exact: true }).click();
     await page.getByLabel("NWC connection link").fill(connection);
     await page.getByRole("button", { name: "Connect wallet", exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.getByRole("navigation", { name: "Connections" }).getByRole("button", { name: "Wallet", exact: true }).click();
     await expect(page.getByText("Connected: Fixture wallet.", { exact: false })).toBeVisible();
     await page.getByRole("navigation", { name: "Wallet views" }).getByRole("button", { name: "Send", exact: true }).click();
 }

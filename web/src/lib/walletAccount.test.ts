@@ -1,3 +1,4 @@
+import { setupWalletRecovery } from "../../tests/helpers/walletRecoveryUnit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NWCClient, Nip47GetInfoResponse, Nip47Notification } from "@getalby/sdk/nwc";
 import { incomingHash, paymentHash, preimage, walletInvoice } from "../../tests/helpers/walletFixture";
@@ -19,6 +20,7 @@ const payer: PaymentWallet = { id: walletId, kind: "nwc", enable: async () => {}
 const info = (methods: string[], notifications: string[] = []) => ({ methods, notifications }) as Nip47GetInfoResponse;
 const tx = (hash = paymentHash) => ({ type: "outgoing", payment_hash: hash, amount: 21000, state: "settled" });
 beforeEach(async () => {
+    setupWalletRecovery();
     vi.resetModules();
     ({ attachWalletAccount, checkWalletReceive, clearWalletAccount, createWalletReceive, getWalletAccount, loadMoreWalletHistory, prepareWalletSend, refreshWalletAccount, resetWalletSend, reviewWalletSendAttempt, setWalletHistoryFilter, submitWalletSend } = await import("./walletAccount"));
     ({ PaymentRejected, payInvoiceSafely } = await import("./walletPayment"));
@@ -186,7 +188,7 @@ describe("wallet sends", () => {
         const original = attach(["pay_invoice", "lookup_invoice"]);
         const originalId = getWalletAccount().id;
         const { saveWalletAttempt } = await import("./walletAttempts");
-        saveWalletAttempt(paymentHash, { state: "submitted", walletId: originalId, preimage: badProof }, walletInvoice());
+        await saveWalletAttempt(paymentHash, { state: "submitted", walletId: originalId, preimage: badProof }, walletInvoice());
         await prepareWalletSend(walletInvoice(), "");
         expect(getWalletAccount().sendConfirmed).toBe(false);
         lookup.mockResolvedValueOnce({ ...tx(), preimage: badProof }); await submitWalletSend();

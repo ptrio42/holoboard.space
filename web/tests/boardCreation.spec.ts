@@ -155,8 +155,10 @@ test("guest invoices survive a closed tab and explicit recovery in a fresh page"
 });
 
 test("blocked private storage keeps invoice actions and explicit in-page recovery available", async ({ context, page }) => {
-    await context.addInitScript(() => Object.defineProperty(indexedDB, "open", { configurable: true, value: () => { throw new DOMException("Blocked", "SecurityError"); } }));
+    await context.addInitScript(() => Object.defineProperty(IDBFactory.prototype, "open", { configurable: true, value: () => { throw new DOMException("Blocked", "SecurityError"); } }));
     const state = await setup(context, page);
+    expect(await page.evaluate(() => { try { indexedDB.open("blocked-fixture-diagnostic"); return false; } catch { return true; } })).toBe(true);
+    expect(await page.evaluate(async () => (await import("/src/lib/paymentSession.ts")).getPaymentSessionStatus().failed)).toBe(true);
     await page.getByRole("textbox", { name: "Text or link" }).fill("Keep this invoice usable when private storage is blocked");
     await page.getByRole("button", { name: "Review post", exact: true }).click();
     await page.getByRole("button", { name: "Add to board 210 sats", exact: true }).click();
@@ -419,4 +421,69 @@ test("Nostr sign-in during invoice preparation keeps the frozen guest post", asy
     expect(guest.pubkey).not.toBe(accountPubkey);
     expect(state.requests[0].note).toBe(guest.id);
     expect(state.errors).toEqual([]);
+});
+
+for (const phase of ["pending attempt commit", "committed attempt before send", "sent without response"] as const) test(`wallet recovery after tab closure during ${phase}`, async ({ context, page }) => {
+    let sends = 0;
+    await context.exposeBinding("recoveryFixtureSend", () => { sends++; return new Promise(() => {}); });
+    await context.addInitScript(() => {
+        Object.assign(window, { webln: { enable: async () => {}, sendPayment: () => (window as unknown as { recoveryFixtureSend(): Promise<unknown> }).recoveryFixtureSend() } });
+    });
+    const state = await setup(context, page);
+    await page.getByRole("textbox", { name: "Text or link" }).fill(`Recovery at ${phase}`);
+    await page.getByRole("button", { name: "Review post", exact: true }).click();
+    await page.getByRole("button", { name: "Add to board 210 sats", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+    const originalInvoice = await page.getByRole("link", { name: "Open in wallet", exact: true }).getAttribute("href");
+    if (phase !== "sent without response") await page.evaluate(phase => {
+        const originalPut = IDBObjectStore.prototype.put;
+        IDBObjectStore.prototype.put = function(value: unknown, key?: IDBValidKey) {
+            const request = key === undefined ? originalPut.call(this, value) : originalPut.call(this, value, key);
+            const data = value as { value?: unknown };
+            const target = phase === "pending attempt commit" ? this.name === "walletAttempts" && (data.value as { attempt?: { state?: string } })?.attempt?.state === "uncertain"
+                : this.name === "invoices" && typeof data.value === "string" && data.value.includes('"state":"uncertain"');
+            if (target) {
+                Object.assign(window, { recoveryWritePending: true });
+                // Keep a real native transaction uncommitted until this page closes.
+                const hold = () => { const keepalive = this.get(key ?? (this.name === "walletAttempts" ? ["origin-wallet-attempts-v1", (value as { key: string }).key] : [(value as { backend: string }).backend, (value as { key: string }).key])); keepalive.onsuccess = hold; };
+                hold();
+            }
+            return request;
+        };
+    }, phase);
+    await page.getByRole("tab", { name: "Wallet", exact: true }).click();
+    await page.getByRole("button", { name: "Pay 210 sats", exact: true }).click();
+    if (phase === "sent without response") await expect.poll(() => sends).toBe(1);
+    else await expect.poll(() => page.evaluate(() => (window as unknown as { recoveryWritePending?: boolean }).recoveryWritePending)).toBe(true);
+    expect(sends).toBe(phase === "sent without response" ? 1 : 0);
+    await page.close();
+
+    const fresh = await context.newPage();
+    await fresh.goto("/");
+    await fresh.getByRole("button", { name: "Add to board", exact: true }).click();
+    await fresh.getByText("Unfinished payments", { exact: true }).click();
+    await fresh.getByRole("button", { name: "Resume payment", exact: true }).click();
+    await fresh.getByRole("tab", { name: "Invoice / QR", exact: true }).click();
+    await expect(fresh.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", originalInvoice!);
+    await expect(fresh.getByRole("button", { name: "Copy invoice", exact: true })).toBeEnabled();
+    await expect(fresh.getByRole("img", { name: "Holoboard visibility invoice QR code" })).toBeVisible();
+    const record = await fresh.evaluate(async hash => {
+        const store = await import("/src/lib/paymentRecoveryStore.ts");
+        return (await new store.IndexedPaymentRecoveryStore().readWalletAttempts()).get(hash);
+    }, boardHash);
+    if (phase !== "pending attempt commit") expect(record).toMatchObject({ attempt: { state: "uncertain", walletId: "webln" } });
+    const result = record ? await fresh.evaluate(async hash => {
+        const ledger = await import("/src/lib/walletAttempts.ts");
+        const payments = await import("/src/lib/walletPayment.ts");
+        await ledger.initializeWalletAttempts();
+        let sends = 0;
+        try { await payments.payInvoiceSafely({ id: "different-wallet", kind: "nwc", enable: async () => {}, sendPayment: async () => { sends++; return {}; } }, "invoice", hash, undefined, async () => {}); }
+        catch (error) { return { sends, error: (error as Error).message, attempt: ledger.getWalletAttempt(hash) }; }
+        return { sends, error: "", attempt: ledger.getWalletAttempt(hash) };
+    }, boardHash) : undefined;
+    // A pending native transaction may abort on closure. Only committed attempts
+    // protect a hash that never reached send, while all sent attempts must survive.
+    if (record) { expect(record).toMatchObject({ invoice: originalInvoice!.slice("lightning:".length) }); expect(result!.sends).toBe(0); expect(result!.error).toContain("original wallet"); }
+    expect(sends).toBe(phase === "sent without response" ? 1 : 0);
+    expect(state.requests).toHaveLength(1); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
 });

@@ -31,7 +31,7 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
     const promotedNote = options.noteContent ? finalizeEvent({ kind: 1, created_at: 1700000000, tags: [], content: options.noteContent }, userKey) : note;
     if (options.blockStorage) await context.addInitScript(() => {
         Object.defineProperty(window, "sessionStorage", { get: () => { throw new DOMException("Storage blocked by this test", "SecurityError"); } });
-        Object.defineProperty(indexedDB, "open", { value: () => { throw new DOMException("Private storage blocked by this test", "SecurityError"); } });
+        Object.defineProperty(IDBFactory.prototype, "open", { configurable: true, value: () => { throw new DOMException("Private storage blocked by this test", "SecurityError"); } });
     });
     const state = { promotedNote, authorUnavailable: options.authorUnavailable, authorEndpointRequests: 0, boardPaid: false, authorPaid: false, boardCharges: 0, authorCharges: 0, authorAttempts: 0, boardProofs: new Map<string, string>([["lnbc-visibility", boardPreimage]]), authorProofs: new Map<string, string>(), expectedSignerPubkey: getPublicKey(userKey), boardRequests: [] as Record<string, unknown>[], authorRequests: [] as Record<string, unknown>[], methods: [] as string[], signerMethods: [] as string[], linkPreviews: [] as string[], errors: [] as string[], completeAuthorPayment: undefined as (() => void) | undefined, approveSigner: undefined as ((secret?: string) => Promise<void>) | undefined };
     const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Allow-Methods": "GET,POST,OPTIONS" };
@@ -2234,4 +2234,51 @@ test("returning while WebLN enable waits never sends a later payment", async ({ 
     await expect(page.getByRole("button", { name: "Pay 210 sats", exact: true })).toBeEnabled();
     expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0);
     expect((await savedPayment(page)).boardAttempt).toBeUndefined(); expect(state.errors).toEqual([]);
+});
+
+test("cross-tab promotion and Wallet Send compete for one origin-wide invoice hash", async ({ context, page }) => {
+    const state = await setup(context, page, { boardExpiresIn: -1, deferAuthorResponse: true, validAuthorInvoice: true });
+    await connectNwc(page); await prepareInvoices(page);
+    const original = await savedPayment(page);
+    const invoice = original.author!;
+    const other = await context.newPage();
+    await other.goto("/");
+    await other.evaluate(async ({ invoice, walletPubkey, clientPubkey }) => {
+        const account = await import("/src/lib/walletAccount.ts");
+        const ledger = await import("/src/lib/walletAttempts.ts");
+        await ledger.initializeWalletAttempts();
+        const calls = { sends: 0, lookups: 0 };
+        Object.assign(window, { recoveryWalletCalls: calls });
+        const wallet = { walletPubkey, publicKey: clientPubkey };
+        const payer = { id: `nwc:${walletPubkey}:${clientPubkey}`, kind: "nwc", enable: async () => {}, sendPayment: async () => { calls.sends++; return {}; }, lookupPayment: async () => { calls.lookups++; return { state: "unknown" }; } };
+        account.attachWalletAccount(wallet as Parameters<typeof account.attachWalletAccount>[0], { methods: ["pay_invoice", "lookup_invoice"] } as Parameters<typeof account.attachWalletAccount>[1], payer as Parameters<typeof account.attachWalletAccount>[2]);
+        await account.prepareWalletSend(invoice.invoice, "");
+    }, { invoice, walletPubkey, clientPubkey: getPublicKey(clientKey) });
+    await page.getByRole("button", { name: "Pay 42 sats", exact: true }).click();
+    await expect.poll(() => !!state.completeAuthorPayment).toBe(true);
+    const competitor = await other.evaluate(async () => {
+        const account = await import("/src/lib/walletAccount.ts");
+        await account.submitWalletSend();
+        return { error: account.getWalletAccount().actionError, calls: (window as unknown as { recoveryWalletCalls: { sends: number; lookups: number } }).recoveryWalletCalls };
+    });
+    expect(competitor.error).toContain("in progress"); expect(competitor.calls.sends).toBe(0);
+    expect(state.authorAttempts).toBe(1); expect(state.authorCharges).toBe(1);
+    await page.close();
+    // Closure releases Web Locks but preserves the committed original identity.
+    const restored = await other.evaluate(async hash => {
+        const { IndexedPaymentRecoveryStore } = await import("/src/lib/paymentRecoveryStore.ts");
+        return (await new IndexedPaymentRecoveryStore().readWalletAttempts()).get(hash);
+    }, invoice.payment_hash);
+    expect(restored).toMatchObject({ attempt: { state: "uncertain", walletId: `nwc:${walletPubkey}:${getPublicKey(clientKey)}` } });
+    const recovery = await other.evaluate(async ({ hash, proof }) => {
+        const payments = await import("/src/lib/walletPayment.ts");
+        const ledger = await import("/src/lib/walletAttempts.ts");
+        let sends = 0;
+        const original = ledger.getWalletAttempt(hash)!;
+        const result = await payments.payInvoiceSafely({ id: original.walletId, kind: "nwc", enable: async () => {}, sendPayment: async () => { sends++; return {}; }, lookupPayment: async () => ({ state: "paid", preimage: proof }) }, "invoice", hash, original, async () => {});
+        return { sends, result, attempt: ledger.getWalletAttempt(hash) };
+    }, { hash: invoice.payment_hash, proof: authorPreimage });
+    expect(recovery.sends).toBe(0); expect(recovery.result.preimage).toBe(authorPreimage);
+    expect(recovery.attempt).toMatchObject({ state: "submitted", walletId: `nwc:${walletPubkey}:${getPublicKey(clientKey)}` });
+    expect(state.authorCharges).toBe(1); expect(state.boardCharges).toBe(0); expect(state.errors).toEqual([]);
 });

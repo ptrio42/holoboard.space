@@ -12,7 +12,7 @@ export interface PaymentRecoveryStore {
 
 /** Synchronous update callbacks run inside a native read/write transaction.
  * Its completion, including all writes, establishes durability. The dedicated
- * attempts store is reserved for the wallet coordinator, separate from invoices.
+ * attempts store belongs to the wallet coordinator, separate from invoices.
  */
 export class IndexedPaymentRecoveryStore implements PaymentRecoveryStore {
     private opening?: Promise<IDBDatabase>;
@@ -81,6 +81,45 @@ export class IndexedPaymentRecoveryStore implements PaymentRecoveryStore {
             records.onsuccess = pointer.onsuccess = read;
             transaction.oncomplete = () => { clearTimeout(timer); resolve(result); };
             transaction.onabort = transaction.onerror = () => { clearTimeout(timer); reject(failure ?? new Error("Private payment storage did not commit.")); };
+        });
+    }
+    /** Wallet hashes are origin-wide, independent of any invoice API backend. */
+    async readWalletAttempts(): Promise<Map<string, unknown>> {
+        return this.walletTransaction();
+    }
+    async changeWalletAttempt(hash: string, update: (record: unknown) => unknown): Promise<unknown> {
+        return (await this.walletTransaction(hash, update)).get(hash);
+    }
+    private async walletTransaction(hash?: string, update?: (record: unknown) => unknown): Promise<Map<string, unknown>> {
+        const database = await this.database();
+        const namespace = "origin-wallet-attempts-v1";
+        return new Promise((resolve, reject) => {
+            const transaction = database.transaction(PAYMENT_RECOVERY_STORES.attempts, update ? "readwrite" : "readonly", { durability: "strict" });
+            const store = transaction.objectStore(PAYMENT_RECOVERY_STORES.attempts);
+            const request = hash ? store.get([namespace, hash]) : store.index("backend").getAll(namespace);
+            const result = new Map<string, unknown>();
+            let failure: unknown;
+            const timer = setTimeout(() => {
+                failure = new Error("Private wallet storage timed out.");
+                try { transaction.abort(); } catch { reject(failure); }
+            }, 3000);
+            request.onsuccess = () => {
+                try {
+                    if (hash) {
+                        // A present, malformed envelope must never look absent.
+                        const previous = request.result === undefined ? undefined : request.result?.value ?? null;
+                        const next = update ? update(previous) : previous;
+                        if (next !== undefined) {
+                            result.set(hash, next);
+                            if (update) store.put({ backend: namespace, key: hash, value: next });
+                        }
+                    } else for (const record of request.result) {
+                        if (record?.backend === namespace && typeof record.key === "string") result.set(record.key, record.value ?? null);
+                    }
+                } catch (error) { failure = error; transaction.abort(); }
+            };
+            transaction.oncomplete = () => { clearTimeout(timer); resolve(result); };
+            transaction.onabort = transaction.onerror = () => { clearTimeout(timer); reject(failure ?? new Error("Private wallet storage did not commit.")); };
         });
     }
     read(backend: string) { return this.transaction(backend); }

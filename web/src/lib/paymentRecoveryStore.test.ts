@@ -7,14 +7,16 @@ function controlledDatabase() {
     const records = { result: [{ backend: "backend", key: "invoice", value: "original" }], onsuccess: undefined as (() => void) | undefined };
     const pointer = { result: { lastPayment: "invoice" }, onsuccess: undefined as (() => void) | undefined };
     const invoices = { index: vi.fn(() => ({ getAll: vi.fn(() => records) })), put: vi.fn(), delete: vi.fn() };
+    const attempt = { result: undefined as unknown, onsuccess: undefined as (() => void) | undefined };
+    const attempts = { get: vi.fn(() => attempt), put: vi.fn() };
     const metadata = { get: vi.fn(() => pointer), put: vi.fn() };
-    const transaction = { objectStore: (name: string) => name === PAYMENT_RECOVERY_STORES.invoices ? invoices : metadata,
+    const transaction = { objectStore: (name: string) => name === PAYMENT_RECOVERY_STORES.invoices ? invoices : name === PAYMENT_RECOVERY_STORES.attempts ? attempts : metadata,
         oncomplete: undefined as (() => void) | undefined, onabort: undefined as (() => void) | undefined,
         abort: vi.fn(() => transaction.onabort?.()) };
     const database = { transaction: vi.fn(() => transaction), close: vi.fn() };
     const request = { result: database, onsuccess: undefined as (() => void) | undefined };
     vi.stubGlobal("indexedDB", { open: vi.fn(() => { queueMicrotask(() => request.onsuccess?.()); return request; }) });
-    return { records, pointer, invoices, metadata, transaction, database,
+    return { records, pointer, invoices, metadata, transaction, database, attempt, attempts,
         async read() {
             await vi.waitFor(() => expect(records.onsuccess).toBeTypeOf("function"));
             records.onsuccess?.(); pointer.onsuccess?.();
@@ -22,6 +24,38 @@ function controlledDatabase() {
 }
 
 describe("native private payment transactions", () => {
+    it("wallet attempt writes wait for transaction completion and preserve an origin-wide hash key", async () => {
+        const fixture = controlledDatabase();
+        const hash = "42".repeat(32);
+        const record = { attempt: { state: "uncertain", walletId: "webln" }, revision: 1 };
+        let completed = false;
+        const write = new IndexedPaymentRecoveryStore().changeWalletAttempt(hash, previous => {
+            expect(previous).toBeUndefined(); return record;
+        }).then(result => { completed = true; return result; });
+        await vi.waitFor(() => expect(fixture.attempt.onsuccess).toBeTypeOf("function"));
+        fixture.attempt.onsuccess?.();
+        expect(fixture.attempts.put).toHaveBeenCalledWith({ backend: "origin-wallet-attempts-v1", key: hash, value: record });
+        await Promise.resolve(); expect(completed).toBe(false);
+        fixture.transaction.oncomplete?.(); expect(await write).toEqual(record);
+    });
+    it("a successful wallet put followed by abort is never durable", async () => {
+        const fixture = controlledDatabase();
+        const write = new IndexedPaymentRecoveryStore().changeWalletAttempt("42".repeat(32), () => ({ attempt: { state: "uncertain", walletId: "webln" } }));
+        const rejected = expect(write).rejects.toThrow("did not commit");
+        await vi.waitFor(() => expect(fixture.attempt.onsuccess).toBeTypeOf("function"));
+        fixture.attempt.onsuccess?.(); fixture.transaction.onabort?.(); await rejected;
+    });
+    it("exposes malformed wallet envelopes as present rather than absent", async () => {
+        const fixture = controlledDatabase();
+        fixture.attempt.result = { backend: "origin-wallet-attempts-v1", key: "42".repeat(32) };
+        const write = new IndexedPaymentRecoveryStore().changeWalletAttempt("42".repeat(32), previous => {
+            expect(previous).toBeNull(); throw new Error("Malformed stored envelope");
+        });
+        const rejected = expect(write).rejects.toThrow("Malformed stored envelope");
+        await vi.waitFor(() => expect(fixture.attempt.onsuccess).toBeTypeOf("function"));
+        fixture.attempt.onsuccess?.(); await rejected;
+        expect(fixture.attempts.put).not.toHaveBeenCalled();
+    });
     it("does not report success at request success and rejects a later transaction abort", async () => {
         const fixture = controlledDatabase();
         const store = new IndexedPaymentRecoveryStore();

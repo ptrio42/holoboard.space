@@ -401,11 +401,12 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         if (isMockInvoice(pending.board.invoice)) { setError(MOCK_INVOICE_MESSAGE); return; }
         setBusy(true); setError("");
         const controller = new AbortController(); abort.current = controller;
-        const saveAttempt = (part: "boardAttempt" | "authorAttempt", attempt: WalletAttempt) => {
+        const saveAttempt = async (part: "boardAttempt" | "authorAttempt", attempt: WalletAttempt) => {
             const authorHash = part === "authorAttempt" ? pending.author?.payment_hash : undefined;
-            void updateSavedPayment(pending.note, pending.board.paymentHash, { [part]: attempt }, authorHash);
+            const committed = await updateSavedPayment(pending.note, pending.board.paymentHash, { [part]: attempt }, authorHash);
             setPayment((latest) => latest?.board.paymentHash === pending.board.paymentHash &&
                 (part === "boardAttempt" || latest.author?.payment_hash === authorHash) ? { ...latest, [part]: attempt } : latest);
+            return committed;
         };
         const failures: string[] = [];
         try {
@@ -420,7 +421,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                         setPayment((latest) => latest?.board.paymentHash === pending.board.paymentHash ? { ...latest, promotionPaid: true, publication: progress.publication, added: progress.satsPaid, billboardApplied: progress.billboardApplied, feeConverted: progress.feeConverted } : latest);
                     } else if (canPayOrCheckInvoice(wallet, pending.board.expiresAt, pending.boardAttempt)) {
                         setWalletPart("board");
-                        await payInvoiceSafely(wallet, pending.board.invoice, pending.board.paymentHash, pending.boardAttempt, (attempt) => saveAttempt("boardAttempt", attempt), pending.board.expiresAt);
+                        await payInvoiceSafely(wallet, pending.board.invoice, pending.board.paymentHash, pending.boardAttempt, (attempt) => saveAttempt("boardAttempt", attempt), pending.board.expiresAt, undefined, () => !controller.signal.aborted);
                     }
                 } catch (failure) { failures.push(`Visibility: ${describeFailure(failure)}`); }
                 finally { if (!controller.signal.aborted) setWalletPart(null); }
@@ -431,7 +432,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                 try {
                     if (canPayOrCheckInvoice(wallet, pending.author.expires_at, pending.authorAttempt)) {
                         setWalletPart("author");
-                        const proof = await payInvoiceSafely(wallet, pending.author.invoice, pending.author.payment_hash, pending.authorAttempt, (attempt) => saveAttempt("authorAttempt", attempt), pending.author.expires_at);
+                        const proof = await payInvoiceSafely(wallet, pending.author.invoice, pending.author.payment_hash, pending.authorAttempt, (attempt) => saveAttempt("authorAttempt", attempt), pending.author.expires_at, undefined, () => !controller.signal.aborted);
                         if (proof.preimage && await verifyAuthorPayment(pending.note, pending.author, { preimage: proof.preimage })) setPayment((current) => current?.author?.payment_hash === pending.author?.payment_hash ? { ...current!, tipStatus: "confirmed" } : current);
                         else failures.push("The wallet returned no verified payment proof. Check your wallet before retrying author support.");
                     }
@@ -604,11 +605,19 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         onReportAuthor={() => setPayment({ ...payment, tipStatus: "reported" })}
         onAcknowledge={(part) => {
             const attempt = part === "board" ? payment.boardAttempt : payment.authorAttempt;
-            if (!attempt) return;
-            const hash = part === "board" ? payment.board.paymentHash : payment.author!.payment_hash;
-            const next = { ...payment, [part === "board" ? "boardAttempt" : "authorAttempt"]: acknowledgeWalletFailure(hash, attempt) };
-            void updateSavedPayment(payment.note, payment.board.paymentHash, { [part === "board" ? "boardAttempt" : "authorAttempt"]: next[part === "board" ? "boardAttempt" : "authorAttempt"] }, part === "author" ? payment.author?.payment_hash : undefined);
-            setPayment(next); setError("");
+            if (!attempt || busy) return;
+            const saved = payment;
+            const hash = part === "board" ? saved.board.paymentHash : saved.author!.payment_hash;
+            const field = part === "board" ? "boardAttempt" : "authorAttempt";
+            setBusy(true); setError("");
+            void (async () => {
+                try {
+                    const resolved = await acknowledgeWalletFailure(hash, attempt);
+                    await updateSavedPayment(saved.note, saved.board.paymentHash, { [field]: resolved }, part === "author" ? saved.author?.payment_hash : undefined);
+                    setPayment(latest => latest?.board.paymentHash === saved.board.paymentHash && (part === "board" || latest.author?.payment_hash === hash) ? { ...latest, [field]: resolved } : latest);
+                } catch (failure) { setError(describeFailure(failure)); }
+                finally { setBusy(false); }
+            })();
         }}
         onHelp={() => openHelp("payments")} onSigner={() => openPanel("signer")} onRestart={() => void restartPayment()}
         onBack={() => backToPromotion()}

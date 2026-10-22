@@ -493,16 +493,35 @@ seconds when `lookup_invoice` is allowed. Returning to the page refreshes data.
 Successful promotion payments refresh the same wallet balance and history.
 
 The current send and latest receive invoice stay in tab storage under the NWC
-connection identity. A shared tab-level registry protects each payment hash
-across connections, promotion payments and the wallet panel. Balance and history
-remain in memory. Closing or disconnecting does not erase uncertain payment
+connection identity. Shared wallet attempts live in the private IndexedDB payment
+database and protect each invoice hash across connections, tabs, promotion
+payments and the wallet panel, independently of the invoice backend. Balance and
+history remain in memory. Closing or disconnecting does not erase uncertain payment
 protection. Reconnect the original connection with `lookup_invoice` to check
 its status, even if `pay_invoice` permission has been removed. A status check
 in the wallet panel never sends another payment. A confirmed failure requires
 a separate Send action to retry; missing status or an invalid proof keeps the
 hash protected. New payment allows a different invoice while unresolved hashes
-stay protected and available for review. Blocked storage preserves protection
-in memory; the Send view explains that it cannot survive refresh.
+stay protected and available for review. Hash-scoped
+[Web Locks](https://www.w3.org/TR/web-locks/#dom-lockoptions-ifavailable)
+use `ifAvailable`, so a competing action fails immediately instead of waiting to
+send after navigation. Each action rereads the durable attempt while holding the
+lock. Sending starts only after its uncertain attempt transaction commits;
+submitted proof writes are also awaited. The transaction requests
+[`strict` durability](https://www.w3.org/TR/IndexedDB/#dom-idbtransactionoptions-durability)
+and resolves only on completion. Browser closure releases the lock, while a
+committed uncertain attempt retains the original wallet identity and hash.
+Missing responses stay uncertain until original-wallet lookup or explicit failure
+acknowledgement resolves them. These guarantees cover browser closure, not every
+operating-system or storage-device failure.
+
+Missing Web Locks, failed writes and malformed or unknown stored attempts block
+wallet sends. Original-wallet lookup can still run without authorizing a send;
+unavailable storage cannot persist its result or release uncertainty. Invoice
+links, copying and QR remain available. Broadcast messages contain no payment
+data and only request a fresh database read. Legacy tab records retain conservative
+hash barriers without assigning their invoices to an API backend. Valid old
+barriers are copied into private storage without erasing their originals.
 
 The shared payment path verifies the returned preimage against the invoice hash
 before storing a new submitted attempt. Saved proofs are verified again after

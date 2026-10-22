@@ -11,8 +11,10 @@ record deployment, not announcement publication.
 - Add an opt-in Add to board editor for text, links, quotes and existing posts,
   with live previews, optional guest author-key export and existing Nostr signers.
   New posts publish after board payment, with durable delivery and same-browser
-  invoice recovery after closing a tab. Older invoice copies with unknown backend
-  provenance stay available to open, copy or scan without automatic status checks.
+  invoice recovery after closing a tab. Wallet attempts retain their original
+  connection and coordinate sends across tabs to avoid duplicate payments.
+  Older invoice copies with unknown backend provenance stay available to open,
+  copy or scan without automatic status checks.
 - Add an optional discovery fund: a local Codex curator finds worthwhile posts
   across topics, gives them seven days in Waiting room New and can reward authors
   from a separately budgeted Lightning wallet. Discoveries remain unranked until

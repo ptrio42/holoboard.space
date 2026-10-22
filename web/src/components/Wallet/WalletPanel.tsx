@@ -152,7 +152,7 @@ export function WalletPanel({ disabled = false }: { disabled?: boolean }) {
                 </div>)}
             </div>}
             {account.actionError && <p role="alert" className="text-neon-pink">{account.actionError}</p>}
-            {!account.storageAvailable && <p className="text-xs text-neon-pink">Browser storage is blocked. Keep this page open until the payment is confirmed; its status cannot be restored after refresh.</p>}
+            {!account.storageAvailable && <p className="text-xs text-neon-pink">Wallet sending is unavailable until private payment storage and cross-tab coordination work. Check the original wallet for unresolved payments. Invoice links, copying and QR remain available.</p>}
         </section>}
         {tab === "receive" && <section className="wallet-workspace space-y-4" aria-label="Receive payment">
             <h4 className="promotion-section-title text-neon-cyan">Receive</h4>
