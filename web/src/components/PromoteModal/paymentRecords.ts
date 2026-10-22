@@ -29,6 +29,7 @@ function parsePayment(value: string | null): PromotionPayment | null {
         if (payment.publication !== undefined && !["pending", "delivered", "stopped"].includes(payment.publication)) return null;
         if (payment.event && (!verifiedNostrEvent(payment.event) || payment.event.id !== payment.board.noteId || payment.event.kind !== 1)) return null;
         const clean = JSON.parse(serializePayment(payment)) as PromotionPayment;
+        if (clean.sourceEvent && (!verifiedNostrEvent(clean.sourceEvent) || clean.sourceEvent.id !== clean.board.noteId || clean.sourceEvent.kind !== 1)) delete clean.sourceEvent;
         // A corrupt optional draft must not hide otherwise valid invoices.
         // Invoice amounts remain exact; the editor can derive its defaults.
         if (clean.draft !== undefined && (!clean.draft || !validDraft(clean.draft))) delete clean.draft;
@@ -118,7 +119,7 @@ function mergePayment(current: PromotionPayment, next: PromotionPayment): Promot
     return { ...next, author: current.author,
         boardAttempt: mergeAttempt(current.boardAttempt, next.boardAttempt),
         authorAttempt: sameAuthor ? mergeAttempt(current.authorAttempt, next.authorAttempt) : current.authorAttempt,
-        board: current.board, event: current.event ?? next.event,
+        board: current.board, event: current.event ?? next.event, sourceEvent: current.sourceEvent ?? next.sourceEvent,
         promotionPaid: current.promotionPaid || next.promotionPaid,
         added: Math.max(current.added, next.added),
         tipStatus: sameAuthor ? current.tipStatus === "confirmed" || next.tipStatus === "confirmed" ? "confirmed"

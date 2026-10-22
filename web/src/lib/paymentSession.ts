@@ -35,7 +35,7 @@ export function hasPaymentProvenance(value: string): boolean {
 const fields = ["recoveryBackend", "api", "relayPubkey", "note", "board", "invoice", "paymentHash", "amountSats", "noteId", "expiresAt", "promotionSats", "billboardFeeSats",
     "author", "payment_hash", "amount_sats", "expires_at", "nostr_pubkey", "tipStatus", "promotionPaid", "added", "authorShare", "publicZap", "notificationRequested",
     "billboardApplied", "feeConverted", "boardAttempt", "authorAttempt", "state", "walletId", "preimage", "feesPaidMsats", "draft", "amount", "amountSelection", "mode", "rank", "custom",
-    "billboardEnabled", "config", "template", "color", "size", "speed", "text", "slides", "image", "notifyEnabled", "notifyPubkey", "editing", "noteSummary", "event", "publication",
+    "billboardEnabled", "config", "template", "color", "size", "speed", "text", "slides", "image", "notifyEnabled", "notifyPubkey", "editing", "noteSummary", "sourceEvent", "event", "publication",
     "id", "pubkey", "created_at", "kind", "tags", "content", "sig"];
 export const serializePrivatePayment = (payment: unknown): string => JSON.stringify(payment, fields);
 

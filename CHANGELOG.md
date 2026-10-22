@@ -9,7 +9,10 @@ record deployment, not announcement publication.
 ### Added
 
 - Add an opt-in Add to board editor for text, links, quotes and existing posts,
-  with live previews, optional guest author-key export and existing Nostr signers.
+  with Post, Budget and Payment steps, live previews, optional guest author-key
+  export and existing Nostr signers. Budget keeps appearance and notifications
+  optional, and prepared payments retain their exact post, recipients and total
+  when returning to edit or resuming later.
   New posts publish after board payment, with durable delivery and same-browser
   invoice recovery after closing a tab. Wallet attempts retain their original
   connection and coordinate sends across tabs to avoid duplicate payments.

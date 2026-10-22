@@ -11,11 +11,13 @@ import { NoteLinkPreview } from "./NoteLinkPreview";
 import { NoteQuote } from "./NoteQuote";
 
 /** Text unfolds independently of media. Only board cards use the adaptive columns and emphasis. */
-export function NoteContent({ text, tags, ownId, adaptive = false, embedQuotes = true, quoteLimit, strictReferences = false, previewLinks = true, initiallyExpanded = false, initiallyExpandedTexts = [], textPresentation }: {
+export function NoteContent({ text, tags, ownId, adaptive = false, embedQuotes = true, quoteLimit, strictReferences = false, previewLinks = true, initiallyExpanded = false, initiallyExpandedTexts = [], textPresentation, attachmentsOnly = false }: {
     text: string; tags?: string[][]; ownId?: string; adaptive?: boolean; embedQuotes?: boolean; quoteLimit?: number; strictReferences?: boolean; previewLinks?: boolean;
     initiallyExpanded?: boolean; initiallyExpandedTexts?: readonly string[];
     /** Paid text presentation; media and references still come from the signed note. */
     textPresentation?: ReactNode;
+    /** Show link, media and quote context beside an editor without repeating its text. */
+    attachmentsOnly?: boolean;
 }) {
     // Read-cache snapshots copy tags. Preserve text measurement across updates
     // when the signed content and attachment references have not changed.
@@ -42,8 +44,8 @@ export function NoteContent({ text, tags, ownId, adaptive = false, embedQuotes =
     const root = useRef<HTMLDivElement>(null);
     useNoteLinkPlacement(root, adaptive && content.hasVisualMedia && content.hasLink, JSON.stringify([text, tags, !!textPresentation]));
     return <div ref={root} className={`note-composition${adaptive ? " note-composition--adaptive" : ""}${content.hasMedia ? "" : " note-composition--text"}${content.hasVisualMedia ? " note-composition--media" : ""}`} data-long-text={content.length > 280 || undefined} data-text-emphasis={emphasis} data-text-complete={complete || !!textPresentation || undefined}>
-        {textPresentation ? <div className="note-composition-presentation">{textPresentation}</div> :
-            <InlineNoteText tokens={content.words} complete={complete} initiallyExpanded={initiallyExpandedTexts.includes("main") || initiallyExpanded} />}
+        {!attachmentsOnly && (textPresentation ? <div className="note-composition-presentation">{textPresentation}</div> :
+            <InlineNoteText tokens={content.words} complete={complete} initiallyExpanded={initiallyExpandedTexts.includes("main") || initiallyExpanded} />)}
         {content.hasVisualMedia && <div className="note-composition-media">
             <NoteMediaGallery items={content.media} galleryKey={ownId} />
         </div>}

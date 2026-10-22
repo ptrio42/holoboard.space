@@ -27,8 +27,8 @@ export function PromoteModal({ onClose, openSection, initialReference = "", curr
     const [presentation, setPresentation] = useState({ compact: !!initialReference && (currentWeight ?? 0) > 0 && !openSection, boost: !!initialReference && (currentWeight ?? 0) > 0, payment: false });
     return <Modal isOpen onClose={onClose} scrollBody footerRef={setFooterHost} navigationRef={setNavigationHost}
         compact={presentation.compact} mobileFullScreen={!presentation.compact}
-        title={presentation.payment ? "Promotion payment" : presentation.boost ? "Boost note" : "Add to board"}
-        panelClassName={`promotion-typography ${presentation.compact || presentation.payment ? "max-w-lg" : "max-w-3xl"}`}>
+        title={presentation.boost ? presentation.payment ? "Boost payment" : "Boost note" : "Add to board"}
+        panelClassName={`promotion-typography ${presentation.boost ? "max-w-lg" : "max-w-2xl"}`}>
         {!recovery.ready ? <StatusMessage loading>Loading saved payments...</StatusMessage> : ENABLE_POST_CREATION && !initialReference ? <BoardComposer onSource={setSource}>{composer => <DirectPromote composition={source} composer={composer} rankingTargets={rankingTargets} onPaid={onPaid} onClose={onClose}
             initialSection={openSection} footerHost={footerHost} navigationHost={navigationHost} onPresentationChange={setPresentation} />}</BoardComposer> : (
         <DirectPromote initialReference={initialReference} currentWeight={currentWeight}

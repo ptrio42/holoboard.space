@@ -93,24 +93,34 @@ test("guest text and links become one private signed post with recoverable invoi
     const text = "A new post about https://example.com/story and https://example.com/other";
     await dialog.getByRole("textbox", { name: "Text or link" }).fill(text);
     await expect(dialog.locator(".note-link-preview")).toHaveCount(1);
-    await dialog.getByRole("button", { name: "Review post", exact: true }).click();
-    await expect(dialog.getByText("Ready for payment.", { exact: false })).toBeVisible();
-    await expect(dialog.getByRole("button", { name: "Add to board 210 sats", exact: true })).toBeEnabled();
-    await dialog.getByRole("tab", { name: "Billboard", exact: true }).click();
+    await dialog.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(dialog.getByRole("textbox", { name: "Text or link" })).toHaveCount(0);
+    await expect(dialog.getByRole("navigation", { name: "Add to board progress" }).locator('[aria-current="step"]')).toContainText("Budget");
+    expect(state.requests).toHaveLength(0); expect(state.frames).toEqual([]);
+    const reviewedId = state.signed!.id;
+    await dialog.getByRole("button", { name: "Post", exact: true }).click();
+    await expect(dialog.getByRole("textbox", { name: "Text or link" })).toHaveValue(text);
+    await dialog.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(dialog.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
+    expect(state.signed!.id).toBe(reviewedId);
+    expect(state.reviewedIds).toEqual([reviewedId]); expect(state.requests).toHaveLength(0); expect(state.frames).toEqual([]);
+    await expect(dialog.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
+    await dialog.getByRole("button", { name: /^Billboard appearance/ }).click();
     await expect(dialog.getByRole("article")).toHaveCount(1);
     await expect(dialog.getByRole("link", { name: "Discussion", exact: true })).toHaveCount(0);
     await expect(dialog.getByRole("button", { name: "Note options", exact: true })).toHaveCount(0);
-    await dialog.getByRole("tab", { name: "Promotion", exact: true }).click();
+    await dialog.getByRole("button", { name: "< Back to budget", exact: true }).click();
+    await dialog.getByText("Post author", { exact: true }).click();
     await dialog.getByRole("button", { name: "Save author key", exact: true }).click();
     await expect(dialog.getByRole("button", { name: "Copy private author key" })).toBeVisible();
     for (const width of [320, 390, 1280]) {
         await page.setViewportSize({ width, height: 850 });
-        await expect(dialog.getByRole("button", { name: "Add to board 210 sats", exact: true })).toBeInViewport();
+        await expect(dialog.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeInViewport();
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await page.screenshot({ path: info.outputPath(`guest-${width}.png`) });
     }
-    await dialog.getByRole("button", { name: "Add to board 210 sats", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+    await dialog.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
+    await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toBeVisible();
     expect(state.requests).toHaveLength(1);
     const submitted = state.requests[0].event as Event;
     expect(verifyEvent(submitted)).toBe(true); expect(submitted.content).toBe(text);
@@ -134,7 +144,7 @@ test("guest text and links become one private signed post with recoverable invoi
     await expect(page.getByText("Unfinished payments", { exact: true })).toBeVisible();
     await page.getByText("Unfinished payments", { exact: true }).click();
     await page.getByRole("button", { name: /Resume/ }).first().click();
-    await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+    await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toBeVisible();
     expect(state.requests).toHaveLength(1);
     state.paid = true;
     await expect(page.getByLabel("Promotion result")).toContainText("Delivery to other apps is pending");
@@ -145,10 +155,10 @@ test("guest text and links become one private signed post with recoverable invoi
 test("guest invoices survive a closed tab and explicit recovery in a fresh page", async ({ context, page }) => {
     const state = await setup(context, page);
     await page.getByRole("textbox", { name: "Text or link" }).fill("Recover this private guest invoice after closing its tab");
-    await page.getByRole("button", { name: "Review post", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Add to board 210 sats", exact: true })).toBeEnabled();
-    await page.getByRole("button", { name: "Add to board 210 sats", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
+    await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toBeVisible();
     const event = state.requests[0].event as Event;
     const invoice = await page.getByRole("link", { name: "Open in wallet", exact: true }).getAttribute("href");
     const qr = page.getByRole("img", { name: "Holoboard visibility invoice QR code" });
@@ -162,10 +172,10 @@ test("guest invoices survive a closed tab and explicit recovery in a fresh page"
     expect(await fresh.evaluate(() => sessionStorage.getItem("holoboard-last-payment"))).toBeNull();
     await fresh.getByRole("button", { name: "Add to board", exact: true }).click();
     await expect(fresh.getByRole("textbox", { name: "Text or link" })).toHaveValue("");
-    await expect(fresh.getByRole("dialog", { name: "Promotion payment" })).toHaveCount(0);
+    await expect(fresh.getByRole("tablist", { name: "Payment method", exact: true })).toHaveCount(0);
     await fresh.getByText("Unfinished payments", { exact: true }).click();
     await fresh.getByRole("button", { name: "Resume payment", exact: true }).click();
-    await expect(fresh.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+    await expect(fresh.getByRole("tablist", { name: "Payment method", exact: true })).toBeVisible();
     await expect(fresh.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", invoice!);
     const restoredQr = fresh.getByRole("img", { name: "Holoboard visibility invoice QR code" });
     await expect(restoredQr).toBeVisible();
@@ -192,9 +202,9 @@ test("blocked private storage keeps invoice actions and explicit in-page recover
     expect(await page.evaluate(() => { try { indexedDB.open("blocked-fixture-diagnostic"); return false; } catch { return true; } })).toBe(true);
     expect(await page.evaluate(async () => (await import("/src/lib/paymentSession.ts")).getPaymentSessionStatus().failed)).toBe(true);
     await page.getByRole("textbox", { name: "Text or link" }).fill("Keep this invoice usable when private storage is blocked");
-    await page.getByRole("button", { name: "Review post", exact: true }).click();
-    await page.getByRole("button", { name: "Add to board 210 sats", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
+    await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toBeVisible();
     await expect(page.getByText("This browser could not save this payment for recovery after closing the tab.", { exact: false })).toBeVisible();
     const invoice = await page.getByRole("link", { name: "Open in wallet", exact: true }).getAttribute("href");
     await expect(page.getByRole("img", { name: "Holoboard visibility invoice QR code" })).toBeVisible();
@@ -238,9 +248,9 @@ test("older invoice copies stay accessible without assigning a backend or checki
 test("late updates from another page stay with their original archived invoice", async ({ context, page }) => {
     const state = await setup(context, page);
     await page.getByRole("textbox", { name: "Text or link" }).fill("Keep this original invoice immutable across pages");
-    await page.getByRole("button", { name: "Review post", exact: true }).click();
-    await page.getByRole("button", { name: "Add to board 210 sats", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
+    await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toBeVisible();
     const event = state.requests[0].event as Event;
     const other = await context.newPage();
     await other.goto("/");
@@ -274,9 +284,9 @@ test("late updates from another page stay with their original archived invoice",
 test("a delayed resume locks source choices and cannot replace a draft after closing", async ({ context, page }) => {
     const state = await setup(context, page);
     await page.getByRole("textbox", { name: "Text or link" }).fill("Saved payment A");
-    await page.getByRole("button", { name: "Review post", exact: true }).click();
-    await page.getByRole("button", { name: "Add to board 210 sats", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
+    await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toBeVisible();
     const event = state.requests[0].event as Event;
     await page.getByRole("button", { name: "Close dialog", exact: true }).click();
     await page.evaluate(async ({ source, otherNote }) => {
@@ -306,8 +316,8 @@ test("a delayed resume locks source choices and cannot replace a draft after clo
     try {
         await expect(page.getByRole("textbox", { name: "Text or link" })).toBeDisabled();
         await expect(resumeB).toBeDisabled();
-        await expect(page.getByRole("button", { name: "Review post", exact: true })).toBeDisabled();
-        if (process.env.VITE_ENABLE_NOSTR_CONNECT === "true") await expect(page.getByRole("button", { name: "Sign in with Nostr", exact: true })).toBeDisabled();
+        await expect(page.getByRole("button", { name: "Review & continue", exact: true })).toBeDisabled();
+        if (process.env.VITE_ENABLE_NOSTR_CONNECT === "true") await expect(page.getByRole("button", { name: "Use a Nostr account", exact: true })).toBeDisabled();
         await expect(page.getByRole("button", { name: "Close dialog", exact: true })).toBeEnabled();
         await page.getByRole("button", { name: "Close dialog", exact: true }).click();
         await page.getByRole("button", { name: "Add to board", exact: true }).click();
@@ -317,8 +327,8 @@ test("a delayed resume locks source choices and cannot replace a draft after clo
     }
     await expect.poll(() => page.evaluate(async () => (await import("/src/lib/paymentSession.ts")).getPaymentSessionStatus().saving)).toBe(false);
     await expect(page.getByRole("textbox", { name: "Text or link" })).toHaveValue("Draft B while the closed editor finishes saving");
-    await expect(page.getByRole("dialog", { name: "Promotion payment" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Review post", exact: true })).toBeEnabled();
+    await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Review & continue", exact: true })).toBeEnabled();
     expect(state.requests).toHaveLength(1); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
 });
 
@@ -331,9 +341,9 @@ test("original and quote interpretation remain explicit and have separate paid I
     await field.fill(`My comment nostr:${neventEncode({ id: original.id })}`);
     await field.fill(`nostr:${neventEncode({ id: original.id })}`);
     await expect(page.getByText("Your post", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Review post", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Add to board 210 sats", exact: true })).toBeEnabled();
-    await page.getByRole("button", { name: "Add to board 210 sats", exact: true }).click();
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
     expect(state.requests).toHaveLength(1);
     const paid = state.requests[0].event as Event;
     expect(paid.id).not.toBe(original.id);
@@ -350,8 +360,8 @@ test("an arbitrary URL containing a note ID remains a new link post", async ({ c
     await page.getByRole("textbox", { name: "Text or link" }).fill(url);
     await expect(page.getByText("Your post", { exact: true })).toBeVisible();
     await expect(page.locator(".note-link-preview")).toHaveCount(1);
-    await page.getByRole("button", { name: "Review post", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Add to board 210 sats", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
     expect(state.signed?.content).toBe(url);
     expect(state.signed?.tags.some(tag => tag[0] === "q")).toBe(false);
     expect(state.links).toEqual([url]);
@@ -360,16 +370,18 @@ test("an arbitrary URL containing a note ID remains a new link post", async ({ c
 test("the general action opens blank and resumes an original only after selection", async ({ context, page }) => {
     const state = await setup(context, page);
     await page.getByRole("textbox", { name: "Text or link" }).fill(noteEncode(original.id));
-    await expect(page.getByRole("button", { name: "Add to board 210 sats", exact: true })).toBeEnabled();
-    await page.getByRole("button", { name: "Add to board 210 sats", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Review & continue", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
+    await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Close dialog", exact: true }).click();
     await page.getByRole("button", { name: "Add to board", exact: true }).click();
     await expect(page.getByRole("textbox", { name: "Text or link" })).toHaveValue("");
-    await expect(page.getByRole("dialog", { name: "Promotion payment" })).toHaveCount(0);
+    await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toHaveCount(0);
     await page.getByText("Unfinished payments", { exact: true }).click();
     await page.getByRole("button", { name: "Resume payment", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+    await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toBeVisible();
     expect(state.requests).toHaveLength(1);
     expect(state.requests[0].event).toBeUndefined();
     expect(state.frames).toEqual([]);
@@ -380,29 +392,34 @@ test("Nostr sign-in preserves text and payment choices and can post anonymously"
     await installExtension(context, page);
     const state = await setup(context, page);
     await page.getByRole("textbox", { name: "Text or link" }).fill("A post from an existing Nostr account");
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
     await page.getByRole("button", { name: "Custom", exact: true }).click();
     await page.getByRole("textbox", { name: "Custom total in sats" }).fill("333");
-    await page.getByRole("button", { name: "Sign in with Nostr", exact: true }).click();
+    await page.getByRole("button", { name: "Post", exact: true }).click();
+    await page.getByRole("button", { name: "Use a Nostr account", exact: true }).click();
     await expect(page.getByRole("button", { name: "Sign in with email", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Create account", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "Browser extension", exact: true }).click();
-    await expect(page.getByText("Author: Your account", { exact: true })).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "Custom total in sats" })).toHaveValue("333");
+    await expect(page.getByText("Posting with your Nostr account.", { exact: true })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Text or link" })).toHaveValue("A post from an existing Nostr account");
-    await page.getByRole("button", { name: "Review post", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Add to board 333 sats", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 333 sats", exact: true })).toBeEnabled();
     expect(state.signed?.pubkey).toBe(accountPubkey);
     expect(state.signed?.tags.some(tag => tag[0] === "l")).toBe(false);
+    await expect(page.getByRole("textbox", { name: "Custom total in sats" })).toHaveValue("333");
     const accountPost = state.signed!;
     expect(state.signerRequests).toEqual([accountPost.id]);
+    await page.getByRole("button", { name: "Post", exact: true }).click();
+    await page.getByText("Author details", { exact: true }).click();
     await page.getByRole("checkbox", { name: "Post anonymously", exact: true }).check();
-    await expect(page.getByText("Author: Anonymous", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Review post", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Add to board 333 sats", exact: true })).toBeEnabled();
+    await expect(page.getByText("Posting as a guest. No account required.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 333 sats", exact: true })).toBeEnabled();
     expect(state.signed?.pubkey).not.toBe(accountPubkey);
     expect(state.signed?.tags).toContainEqual(["l", "anonymous", "space.holoboard.attribution"]);
     expect(state.signerRequests).toEqual([accountPost.id]);
-    expect(state.reviewedIds).toEqual([accountPost.id, state.signed!.id]);
+    expect(state.reviewedIds).toHaveLength(3);
+    expect(state.reviewedIds.slice(1)).toEqual([accountPost.id, state.signed!.id]);
     expect(state.requests).toEqual([]);
     expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
 });
@@ -413,24 +430,25 @@ test("late Nostr sign-in preserves already prepared guest invoices", async ({ co
     await installExtension(context, page, () => new Promise<string>(resolve => { approve = () => resolve(accountPubkey); }));
     const state = await setup(context, page);
     await page.getByRole("textbox", { name: "Text or link" }).fill("Keep this guest invoice immutable");
-    await page.getByRole("button", { name: "Review post", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Add to board 210 sats", exact: true })).toBeEnabled();
-    await page.getByRole("button", { name: "Sign in with Nostr", exact: true }).click();
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
+    await page.getByText("Post author", { exact: true }).click();
+    await page.getByRole("button", { name: "Use a Nostr account", exact: true }).click();
     await page.getByRole("button", { name: "Browser extension", exact: true }).click();
     await expect.poll(() => typeof approve).toBe("function");
     try {
-        await page.getByRole("button", { name: "Add to board 210 sats", exact: true }).click();
-        await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+        await page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
+        await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toBeVisible();
     } finally { approve(); }
     const guest = state.requests[0].event as Event;
     await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("holoboard-signer") ?? "null")?.pubkey)).toBe(accountPubkey);
-    await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+    await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toBeVisible();
     expect(guest.pubkey).not.toBe(accountPubkey);
     state.paid = true;
     await expect(page.getByLabel("Promotion result")).toBeVisible();
     await page.getByRole("button", { name: "Make another payment", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Review post", exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Add to board 210 sats", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Review & continue", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toHaveCount(0);
     expect(state.requests).toHaveLength(1);
     expect(state.requests[0].event).toEqual(guest);
     expect(state.signerRequests).toEqual([]); expect(state.reviewedIds).toEqual([guest.id]);
@@ -444,20 +462,21 @@ test("Nostr sign-in during invoice preparation keeps the frozen guest post", asy
     await installExtension(context, page, () => new Promise<string>(resolve => { approve = () => resolve(accountPubkey); }));
     const state = await setup(context, page);
     await page.getByRole("textbox", { name: "Text or link" }).fill("Keep this post while the invoice is prepared");
-    await page.getByRole("button", { name: "Review post", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Add to board 210 sats", exact: true })).toBeEnabled();
-    await page.getByRole("button", { name: "Sign in with Nostr", exact: true }).click();
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
+    await page.getByText("Post author", { exact: true }).click();
+    await page.getByRole("button", { name: "Use a Nostr account", exact: true }).click();
     await page.getByRole("button", { name: "Browser extension", exact: true }).click();
     await expect.poll(() => typeof approve).toBe("function");
     state.pauseBoard = true;
-    await page.getByRole("button", { name: "Add to board 210 sats", exact: true }).click();
+    await page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
     await expect.poll(() => typeof state.releaseBoard).toBe("function");
     const guest = state.requests[0].event as Event;
     try {
         approve();
         await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("holoboard-signer") ?? "null")?.pubkey)).toBe(accountPubkey);
     } finally { state.releaseBoard!(); }
-    await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+    await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toBeVisible();
     expect(state.requests).toHaveLength(1);
     expect(guest.pubkey).not.toBe(accountPubkey);
     expect(state.requests[0].note).toBe(guest.id);
@@ -475,9 +494,9 @@ for (const phase of ["pending attempt commit", "committed attempt before send", 
     });
     const state = await setup(context, page);
     await page.getByRole("textbox", { name: "Text or link" }).fill(`Recovery at ${phase}`);
-    await page.getByRole("button", { name: "Review post", exact: true }).click();
-    await page.getByRole("button", { name: "Add to board 210 sats", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
+    await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toBeVisible();
     const originalInvoice = await page.getByRole("link", { name: "Open in wallet", exact: true }).getAttribute("href");
     if (phase !== "sent without response") await page.evaluate(phase => {
         const originalPut = IDBObjectStore.prototype.put;
@@ -530,4 +549,42 @@ for (const phase of ["pending attempt commit", "committed attempt before send", 
     if (record) { expect(record).toMatchObject({ invoice: originalInvoice!.slice("lightning:".length) }); expect(result!.sends).toBe(0); expect(result!.error).toContain("original wallet"); }
     expect(sends).toBe(phase === "sent without response" ? 1 : 0);
     expect(state.requests).toHaveLength(1); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+
+test("guided short-link composition keeps the active task visible at phone and desktop widths", async ({ context, page }, info) => {
+    const state = await setup(context, page);
+    const text = "A community meetup this Saturday. Details: https://example.com/story";
+    const dialog = page.getByRole("dialog", { name: "Add to board", exact: true });
+    await page.getByRole("textbox", { name: "Text or link" }).fill(text);
+    await expect(dialog.locator(".note-link-preview")).toHaveCount(1);
+    await expect(dialog.getByRole("group", { name: "Choose by amount or target position" })).toHaveCount(0);
+    const measurements: unknown[] = [];
+    const capture = async (stage: string, width: number) => {
+        await page.setViewportSize({ width, height: 844 });
+        await dialog.locator("[data-modal-body]").evaluate(element => { element.scrollTop = 0; });
+        await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        await expect(dialog).toBeInViewport();
+        await page.screenshot({ path: info.outputPath(`${stage}-${width}.png`) });
+        measurements.push(await dialog.evaluate((element, stage) => {
+            const body = element.querySelector<HTMLElement>("[data-modal-body]")!;
+            const field = element.querySelector("textarea");
+            return { stage, viewport: innerWidth, dialog: element.getBoundingClientRect().width, bodyHeight: body.clientHeight,
+                bodyScrollHeight: body.scrollHeight, dialogTop: element.getBoundingClientRect().top, dialogBottom: element.getBoundingClientRect().bottom, fieldHeight: field?.getBoundingClientRect().height,
+                textCopies: [...element.querySelectorAll(".inline-note-text")].length,
+                overflow: document.documentElement.scrollWidth > innerWidth };
+        }, stage));
+    };
+    for (const width of [390, 1280]) await capture("post", width);
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
+    for (const width of [390, 1280]) await capture("budget", width);
+    expect(state.requests).toHaveLength(0); expect(state.frames).toEqual([]);
+    await page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
+    await expect(page.getByRole("img", { name: "Holoboard visibility invoice QR code", exact: true })).toBeVisible();
+    for (const width of [390, 1280]) await capture("payment", width);
+    await expect(page.getByRole("button", { name: /^Holoboard \d+ sats/ })).toHaveCount(0);
+    await expect(page.getByLabel("Holoboard visibility payment", { exact: true })).toContainText("210 sats");
+    expect(state.requests).toHaveLength(1); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
+    await info.attach("guided-spatial-measurements", { contentType: "application/json", body: JSON.stringify(measurements, null, 2) });
 });

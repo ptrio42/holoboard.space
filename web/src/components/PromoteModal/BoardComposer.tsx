@@ -8,7 +8,6 @@ import { verifiedNostrEvent } from "../../lib/verifyNostrEvent";
 import { useConnections } from "../../hooks/useConnections";
 import { ENABLE_NOSTR_CONNECT } from "../../config";
 import { NoteContent } from "../TextRenderer/NoteContent";
-import { PixelButton } from "../ui/PixelButton";
 import { CopyButton } from "../ui/CopyButton";
 import { StatusMessage } from "../ui/StatusMessage";
 import { ConnectionSettings } from "./ConnectionSettings";
@@ -17,8 +16,10 @@ export interface BoardComposition { reference: string; event?: Event; post?: boo
 export interface BoardComposerView {
     editor: ReactNode;
     authorDetails: ReactNode;
+    authorExtras: ReactNode;
     canContinue: boolean;
     busy: boolean;
+    signing: boolean;
     review: () => Promise<BoardComposition | null>;
 }
 
@@ -113,32 +114,38 @@ export function BoardComposer({ onSource, children }: { onSource: (source: Board
         return pending;
     };
     const bytes = new TextEncoder().encode(text).length;
+    const authorExtras = classified.mode !== "original" && <div className="space-y-2">
+        {!!account && <label className="flex min-h-11 items-center gap-2 text-xs"><input type="checkbox" checked={anonymous} disabled={busy} onChange={event => { reviewAbort.current?.abort(); generation.current++; reviewedSource.current = undefined; setAnonymous(event.target.checked); setReviewed(undefined); setShowKey(false); }} />Post anonymously</label>}
+        {guestMode && <p className="text-xs text-cyan-100/65">No account required. This post has its own anonymous identity. You can save its private author key after review.</p>}
+        {reviewed && guestMode && guest.current && <><button className="promotion-action focus-pixel min-h-11" onClick={() => setShowKey(!showKey)}>Save author key</button>
+            {showKey && <div className="space-y-2"><p className="text-xs text-neon-gold">Keep this key private. It controls this post's identity. Save it before closing or refreshing this editor, or reviewing changed content. An unsaved key cannot be recovered.</p><CopyButton value={guest.current.export()} label="Copy private author key" /></div>}</>}
+    </div>;
     const editor = <section aria-label="Add to board editor" className="space-y-3">
         <label className="block space-y-2"><span className="promotion-label">Text or link</span>
-            <textarea ref={field} className="composer-textarea focus-pixel w-full" rows={4} maxLength={16384} value={text} disabled={busy}
+            <textarea ref={field} className="composer-textarea board-composer-textarea focus-pixel w-full" rows={4} maxLength={16384} value={text} disabled={busy}
                 placeholder="Write something, share a link, or paste a post" onChange={event => edit(event.target.value)} />
         </label>
+        {classified.mode !== "original" && <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-cyan-100/75">
+            <span>{guestMode ? "Posting as a guest. No account required." : "Posting with your Nostr account."}</span>
+            {ENABLE_NOSTR_CONNECT && <button type="button" className="promotion-action focus-pixel min-h-11 text-neon-cyan" disabled={busy} onClick={() => setShowAccount(!showAccount)}>{account ? "Account settings" : "Use a Nostr account"}</button>}
+        </div>}
+        {showAccount && <ConnectionSettings section="signer" purpose="account" embedded disabled={busy} />}
         {classified.mode === "original" ? <div className="flex flex-wrap items-center gap-3"><span className="promotion-label text-neon-cyan">Original post</span><button className="promotion-action focus-pixel min-h-11" onClick={quote}>Add a comment</button></div> : <>
             <div className="flex flex-wrap items-center gap-3"><span className="promotion-label text-neon-cyan">Your post</span>
                 {interpretation === "quote" && original.current && <button className="promotion-action focus-pixel min-h-11" disabled={busy} onClick={() => { const ref = original.current!; setInterpretation("auto"); edit(eventPointer(ref.id, ref.author, ref.relays)); }}>Use original</button>}
             </div>
-            {text.trim() && !reviewed && <div className="composer-preview @container/row" aria-label="Post preview"><NoteContent text={text} tags={[]} quoteLimit={1} strictReferences initiallyExpanded /></div>}
-            {reviewed ? <p role="status" className="text-xs text-neon-cyan">Ready for payment. Published after the board payment is confirmed.</p>
-                : <PixelButton size="sm" disabled={busy || !text.trim() || bytes > 16384} onClick={() => void review()}>{busy ? "Preparing post..." : "Review post"}</PixelButton>}
+            {text.trim() && <div className="composer-attachments @container/row" aria-label="Post attachments"><NoteContent text={text} tags={[]} quoteLimit={1} strictReferences attachmentsOnly /></div>}
             {busy && <StatusMessage loading compact>Verifying references and preparing your post...</StatusMessage>}
             {error && <p role="alert" className="text-sm text-neon-pink">{error}</p>}
         </>}
     </section>;
     const authorDetails = classified.mode !== "original" && <section aria-label="Post author" className="space-y-2">
         <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xs text-cyan-100/70">Author: {guestMode ? "Anonymous" : "Your account"}</span>
-            {!!account && <label className="flex min-h-11 items-center gap-2 text-xs"><input type="checkbox" checked={anonymous} disabled={busy} onChange={event => { reviewAbort.current?.abort(); generation.current++; reviewedSource.current = undefined; setAnonymous(event.target.checked); setReviewed(undefined); setShowKey(false); }} />Post anonymously</label>}
-            {ENABLE_NOSTR_CONNECT && <button className="promotion-action focus-pixel min-h-11" disabled={busy} onClick={() => setShowAccount(!showAccount)}>{account ? "Account settings" : "Sign in with Nostr"}</button>}
+            <span className="text-xs text-cyan-100/70">{guestMode ? "Posting as a guest" : "Posting with your Nostr account"}</span>
+            {ENABLE_NOSTR_CONNECT && <button className="promotion-action focus-pixel min-h-11" disabled={busy} onClick={() => setShowAccount(!showAccount)}>{account ? "Account settings" : "Use a Nostr account"}</button>}
         </div>
         {showAccount && <ConnectionSettings section="signer" purpose="account" embedded disabled={busy} />}
-        {guestMode && <p className="text-xs text-cyan-100/65">No account required. This post uses its own author key. Its payment goes to visibility.</p>}
-        {reviewed && guestMode && guest.current && <><button className="promotion-action focus-pixel min-h-11" onClick={() => setShowKey(!showKey)}>Save author key</button>
-            {showKey && <div className="space-y-2"><p className="text-xs text-neon-gold">Keep this key private. It controls this post's identity. Save it before closing or refreshing this editor, or reviewing changed content. An unsaved key cannot be recovered.</p><CopyButton value={guest.current.export()} label="Copy private author key" /></div>}</>}
+        {authorExtras}
     </section>;
-    return children({ editor, authorDetails, canContinue: !busy && !!text.trim() && bytes <= 16384, busy, review });
+    return children({ editor, authorDetails, authorExtras, canContinue: !busy && !!text.trim() && bytes <= 16384, busy, signing: !guestMode && classified.mode !== "original", review });
 }

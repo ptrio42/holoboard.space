@@ -4,6 +4,8 @@ import { CopyButton } from "../ui/CopyButton";
 import { PixelButton, PixelLink } from "../ui/PixelButton";
 import { QrCode } from "../ui/QrCode";
 import { StatusMessage } from "../ui/StatusMessage";
+import { CompactNoteText } from "../TextRenderer/CompactNoteText";
+import { njumpUrl } from "../../lib/nostr";
 import { ConnectionSettings } from "./ConnectionSettings";
 import { canPayOrCheckInvoice, type PaymentWallet } from "../../lib/walletPayment";
 import { isMockInvoice, MOCK_INVOICE_MESSAGE } from "../../lib/invoice";
@@ -11,8 +13,8 @@ import { restartBlocked, type PaymentMethod, type PaymentRecipient, type Promoti
 
 export function PromotionPayment({ id, payment, method, recipient, onRecipient, wallet, walletName, connecting, busy, walletPart, now,
     storageFailed, error, actualRank, onPay, onReplaceAuthor, onReplaceBoard, onReportAuthor, onAcknowledge, onHelp, onSigner, onRestart, onBack,
-    restartConfirm, restartUnavailable, onRestartConfirm, hasPublicZapConsent, authorCanReplace, footer }: {
-    id: string; payment: Payment; method: PaymentMethod; recipient: PaymentRecipient; onRecipient: (part: PaymentRecipient) => void;
+    restartConfirm, restartUnavailable, onRestartConfirm, hasPublicZapConsent, authorCanReplace, footer, boost }: {
+    boost: boolean; id: string; payment: Payment; method: PaymentMethod; recipient: PaymentRecipient; onRecipient: (part: PaymentRecipient) => void;
     wallet: PaymentWallet | undefined; walletName: string; connecting: boolean; busy: boolean; now: number;
     walletPart: PaymentRecipient | null;
     storageFailed: boolean; error: string; actualRank: number | null;
@@ -63,13 +65,22 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
     const actionClass = "promotion-action focus-pixel inline-flex min-h-11 items-center text-cyan-200/75 hover:text-neon-cyan disabled:opacity-40";
     return <>
         <div className="space-y-4 text-sm" role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${method}`} tabIndex={0}>
-            <p className="truncate text-xs text-cyan-100/60" title={payment.noteSummary}>For: {payment.noteSummary || payment.draft?.config.text || `note ${payment.board.noteId.slice(0, 8)}...${payment.board.noteId.slice(-6)}`}</p>
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <span className="promotion-label text-cyan-100/60">Promotion total</span>
-                <span className="text-neon-cyan">{parts.reduce((sum, part) => sum + part.amount, 0)} sats</span>
+            <h3 data-stage-heading tabIndex={-1} className="sr-only">Payment</h3>
+            <details className="disclosure" aria-label="Payment post">
+                <summary className="focus-pixel min-h-11 cursor-pointer text-xs leading-relaxed text-cyan-100/70">For: {payment.noteSummary || payment.draft?.config.text || `post ${payment.board.noteId.slice(0, 8)}...${payment.board.noteId.slice(-6)}`}</summary>
+                {payment.sourceEvent || payment.event ? <div className="mt-2 text-sm leading-relaxed text-cyan-100"><CompactNoteText text={(payment.sourceEvent ?? payment.event)!.content} /></div> :
+                    <a className={actionClass} href={njumpUrl(payment.board.noteId, "note")} target="_blank" rel="noopener noreferrer">Open original post</a>}
+            </details>
+            <div className="promotion-complete-total" aria-label="Complete total">
+                <span className="promotion-label text-cyan-100/65">Total</span>
+                <strong className="text-sm text-neon-cyan">{parts.reduce((sum, part) => sum + part.amount, 0)} sats</strong>
             </div>
             <div className="space-y-2" aria-label="Payment recipients">
-                {parts.map((part) => <button key={part.id} type="button" aria-pressed={recipient === part.id}
+                {parts.length > 1 && <p className="text-xs text-cyan-100/65">This payment has two invoices: visibility for Holoboard and support for the original author. Pay each separately, or use Wallet for both.</p>}
+                {parts.map((part) => parts.length === 1 ? <div key={part.id} className="space-y-1 border-t border-cyan-400/20 pt-3" aria-label="Holoboard visibility payment">
+                    <p className="flex flex-wrap items-center justify-between gap-2"><span className="promotion-label">Visibility</span><span>{part.amount} sats</span></p>
+                    <p className="text-xs text-cyan-100/65">{part.paid ? "Payment verified" : part.attempt?.state === "submitted" ? "Verifying payment" : part.attempt?.state === "uncertain" ? "Wallet confirmation missing" : now >= part.expires * 1000 ? "Invoice expired" : "Awaiting payment"}</p>
+                </div> : <button key={part.id} type="button" aria-pressed={recipient === part.id}
                     className={`focus-pixel flex min-h-14 w-full flex-wrap items-center justify-between gap-x-3 gap-y-1 border-2 px-3 py-2 text-left ${recipient === part.id ? "border-neon-cyan/70 bg-cyan-400/5" : "border-cyan-400/20"}`}
                     onClick={() => onRecipient(part.id)}>
                     <span className="promotion-label text-cyan-100">{part.id === "board" ? "Holoboard" : "Author"}</span>
@@ -128,7 +139,7 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
             {payment.author && payment.tipStatus === "pending" && method === "invoice" && recipient === "author" && <div className="space-y-2 text-xs text-cyan-100/60">
                 <PixelButton size="sm" variant="ghost" disabled={busy} onClick={onReportAuthor}>I paid the author, checked my wallet</PixelButton>
             </div>}
-            {ENABLE_NOSTR_CONNECT && payment.publicZap && <button type="button" className={actionClass} disabled={busy} onClick={onSigner}>Nostr signer settings &gt;</button>}
+            {ENABLE_NOSTR_CONNECT && payment.publicZap && <button type="button" className={actionClass} data-panel-trigger="signer" disabled={busy} onClick={onSigner}>Nostr signer settings &gt;</button>}
             {error && !busy && <p role="alert" className="text-xs text-neon-pink">{error}</p>}
             {blocked && !busy && <p className="text-xs text-cyan-100/60">{blocked}</p>}
         </div>
@@ -145,8 +156,9 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                 <PixelButton className="w-full" size="sm" variant="ghost" disabled={busy} onClick={onRestart}>I haven't paid, restart</PixelButton>
             </div>}
             <div className="flex flex-wrap items-center justify-between gap-x-3">
-                {blocked || busy || restartUnavailable ? <button type="button" className={actionClass} onClick={onBack}>Back to promotion</button> : restartConfirm ? <button type="button" className={actionClass} onClick={() => onRestartConfirm(false)}>Keep payment</button> : <button type="button" className={actionClass} onClick={() => onRestartConfirm(true)}>Restart payment</button>}
-                <button type="button" className={actionClass} aria-label="Payment help >" onClick={onHelp}>Help &gt;</button>
+                <button type="button" className={actionClass} onClick={onBack}>{boost ? "Back to boost" : "Back to budget"}</button>
+                {!blocked && !busy && !restartUnavailable && (restartConfirm ? <button type="button" className={actionClass} onClick={() => onRestartConfirm(false)}>Keep payment</button> : <button type="button" className={actionClass} onClick={() => onRestartConfirm(true)}>Restart payment</button>)}
+                <button type="button" className={actionClass} aria-label="Payment help >" data-panel-trigger="help" onClick={onHelp}>Help &gt;</button>
             </div>
         </div>)}
     </>;

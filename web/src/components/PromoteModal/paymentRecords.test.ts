@@ -49,6 +49,27 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("promotion payment records", () => {
+    it("keeps an existing post's frozen source separate from private creation and ignores corrupt optional content", async () => {
+        const { finalizeEvent } = await import("nostr-tools/pure");
+        const records = await import("./paymentRecords");
+        const source = finalizeEvent({ kind: 1, created_at: 1700000000, content: "The complete signed original", tags: [] }, new Uint8Array(32).fill(1));
+        const payment = { ...makePayment(source.id, "source-snapshot"), sourceEvent: source };
+        await records.savePayment(payment);
+        const restored = records.restorePayment(source.id)!;
+        expect(restored.sourceEvent).toEqual(JSON.parse(JSON.stringify(source)));
+        expect(restored.event).toBeUndefined();
+        await records.savePayment({ ...restored, sourceEvent: undefined, editing: true });
+        expect(records.restorePayment(source.id)?.sourceEvent).toEqual(JSON.parse(JSON.stringify(source)));
+        const sessions = await import("../../lib/paymentSession");
+        const key = records.paymentKey(source.id);
+        await sessions.changePaymentSessions(snapshot => {
+            const saved = JSON.parse(snapshot.payments.get(key)!);
+            saved.sourceEvent.content = "Tampered source";
+            snapshot.payments.set(key, JSON.stringify(saved));
+        });
+        expect(records.restorePayment(source.id)?.sourceEvent).toBeUndefined();
+        expect(records.restorePayment(source.id)?.board.invoice).toBe(payment.board.invoice);
+    });
     it("opens expired unattempted invoices in editing while keeping uncertain attempts active", async () => {
         const records = await import("./paymentRecords");
         const expired = makePayment(noteA, "expired");

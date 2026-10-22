@@ -30,7 +30,7 @@ export function PromotionNotePreview({ preview, compact, expanded, onToggle, chi
     const opening = preview.private ? <span className="text-xs text-cyan-100/60">Unpublished</span> : <a href={njumpUrl(preview.event.id, "note")} target="_blank" rel="noopener noreferrer" aria-label="Open note"
         title={preview.active ? `Open note, #${preview.rank} in ${preview.rank <= 21 ? "main board" : "waiting room"}` : "Open note"}
         className={`${ACTION} shrink-0 gap-1 ${compact ? "min-w-11 justify-end" : ""}`}>
-        {compact ? <><span>#{preview.rank}</span><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="currentColor" shapeRendering="crispEdges">
+        {compact && preview.active ? <><span>#{preview.rank}</span><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="currentColor" shapeRendering="crispEdges">
             <path d="M4 0h8v8h-2V4H8v2H6v2H4v2H2v2H0v-2h2V8h2V6h2V4h2V2H4z" />
         </svg></> : "Open note"}
     </a>;

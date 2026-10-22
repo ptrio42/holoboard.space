@@ -13,6 +13,7 @@ export function UnfinishedPayments({ payments, forNote, disabled, storageFailed,
             <p>Resume to finish the remaining parts. A new payment has its own total. Previous invoices are kept; returning here does not cancel or refund payments.</p>
             {payments.map((payment) => <div key={`${payment.board.noteId}:${payment.board.paymentHash}`} className="space-y-1 border-t border-cyan-400/20 pt-2">
                 {!forNote && <p className="truncate text-cyan-100">{payment.noteSummary || payment.draft?.config.text || `Note ${payment.board.noteId.slice(0, 8)}...${payment.board.noteId.slice(-6)}`}</p>}
+                <p className="text-cyan-100">Frozen total: {payment.board.amountSats + (payment.author?.amount_sats ?? 0)} sats</p>
                 <p>Holoboard: {payment.board.amountSats} sats{payment.promotionPaid ? ", verified" : ", not confirmed"}.
                     {payment.author && <> Author: {payment.author.amount_sats} sats{payment.tipStatus === "confirmed" ? ", verified" : payment.tipStatus === "reported" ? ", marked paid by you" : ", not confirmed"}.</>}</p>
                 <button type="button" className="promotion-action focus-pixel inline-flex min-h-11 items-center text-neon-cyan disabled:opacity-40" disabled={disabled} onClick={() => onResume(payment)}>Resume payment</button>

@@ -179,7 +179,7 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
     page.on("pageerror", (error) => state.errors.push(error.message));
     await page.goto("/");
     await page.getByRole("button", { name: "Boost", exact: true }).first().click();
-    const submit = page.getByRole("button", { name: options.newCampaign || options.expiredCampaign ? /^Promote 210 sats$/ : /^Boost 210 sats$/ });
+    const submit = page.getByRole("button", { name: options.newCampaign || options.expiredCampaign ? /^Continue to payment · 210 sats$/ : /^Boost 210 sats$/ });
     if ((options.authorUnavailable && !(options.newCampaign && options.authorUnavailable === "no_address")) || (options.authorMinSats ?? 0) > 42) await expect(submit).toBeDisabled();
     else await expect(submit).toBeEnabled();
     return state;
@@ -189,31 +189,36 @@ function authorConfirmed(page: Page) {
         .or(page.getByLabel("Author payment", { exact: true }).filter({ hasText: "Payment verified" }));
 }
 async function backToForm(page: Page) {
-    const back = page.getByRole("button", { name: /^< Back to / });
+    const back = page.getByRole("button", { name: /^< Back to (settings|payment|boost|budget|promotion)$/ });
     while (await back.isVisible()) await back.click();
-    const promotion = page.getByRole("tab", { name: "Promotion", exact: true });
-    if (await promotion.isVisible() && await promotion.getAttribute("aria-selected") === "false") await promotion.click();
 }
 async function openPaymentOptions(page: Page) {
-    const tab = page.getByRole("tab", { name: /^Payment options/ });
-    if (await tab.isVisible()) await tab.click();
-    else await page.getByRole("button", { name: "Payment options >", exact: true }).click();
+    await backToForm(page);
+    await page.getByRole("button", { name: "Payment options >", exact: true }).click();
+}
+async function openAppearance(page: Page) {
+    await backToForm(page);
+    await page.getByRole("button", { name: /^Billboard appearance/ }).click();
 }
 async function openConnections(page: Page, section: "wallet" | "signer") {
     test.skip(section === "signer" && process.env.VITE_ENABLE_NOSTR_CONNECT !== "true", "Signer UI is disabled for this release.");
     await backToForm(page);
-    if (await page.getByRole("tab", { name: "Invoice / QR", exact: true }).isVisible()) {
-        if (section === "wallet") {
-            await walletMethod(page);
-            const settings = page.getByText("Wallet settings", { exact: true });
-            if (await settings.isVisible()) await settings.click();
-        } else await page.getByRole("button", { name: "Nostr signer settings >", exact: true }).click();
+    if (section === "wallet") {
+        // Payment is the contextual home for wallet setup. Pre-payment NWC
+        // fixtures connect through the independent header before reopening.
+        await walletMethod(page);
+        const settings = page.getByText("Wallet settings", { exact: true });
+        const connect = page.getByText("Connect NWC wallet", { exact: true });
+        if (await settings.isVisible()) await settings.click();
+        else if (await connect.isVisible()) await connect.click();
         return;
     }
-    const publicZap = page.getByText(/^Public author zap( on)?$/);
-    if (section === "signer" && await publicZap.isVisible()) await openSupport(page);
-    else await openPaymentOptions(page);
-    await page.getByRole("dialog").getByRole("button", { name: section === "wallet" ? /^(Connect wallet to pay here|Payment wallet settings)/ : /^(Connect Nostr for a public zap|Nostr signer settings)/ }).click();
+    if (await page.getByRole("tablist", { name: "Payment method" }).isVisible()) {
+        await page.getByRole("button", { name: "Nostr signer settings >", exact: true }).click();
+    } else {
+        await openSupport(page);
+        await page.getByRole("dialog").getByRole("button", { name: /^(Connect Nostr for a public zap|Nostr signer settings)/ }).click();
+    }
 }
 async function openSupport(page: Page) {
     await backToForm(page);
@@ -230,7 +235,7 @@ async function setAuthorShare(page: Page, share: number) {
 }
 async function prepareInvoices(page: Page) {
     await backToForm(page);
-    await page.getByRole("button", { name: /^(Boost|Promote) 210 sats$/ }).click();
+    await page.getByRole("button", { name: /^(Boost 210|Continue to payment · 210) sats$/ }).click();
 }
 async function invoiceMethod(page: Page) {
     await page.getByRole("tab", { name: "Invoice / QR", exact: true }).click();
@@ -251,10 +256,20 @@ async function expectSplitInvoices(page: Page) {
     if (walletSelected) await walletMethod(page);
 }
 async function connectNwc(page: Page) {
-    await openConnections(page, "wallet");
+    const inPayment = await page.getByRole("tablist", { name: "Payment method" }).isVisible();
+    if (inPayment) await openConnections(page, "wallet");
+    else {
+        await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+        await page.getByRole("navigation", { name: "Connections", exact: true }).getByRole("button", { name: "Wallet", exact: true }).click();
+    }
     await page.getByLabel("NWC connection link").fill(walletUri);
     await page.getByRole("button", { name: "Connect wallet", exact: true }).click();
-    await expect(page.getByText("Connected: Test NWC wallet.", { exact: false })).toBeVisible();
+    if (inPayment) await expect(page.getByText("Connected: Test NWC wallet.", { exact: false })).toBeVisible();
+    else {
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        await page.getByRole("button", { name: "Boost", exact: true }).first().click();
+        await expect(page.getByRole("button", { name: /^(Boost 210|Continue to payment · 210) sats$/ })).toBeVisible();
+    }
 }
 
 async function savedPayment(page: Page) {
@@ -401,7 +416,7 @@ for (const scenario of ["new missing address", "new wallet outage", "existing mi
         await page.getByRole("button", { name: "Choose visibility only", exact: true }).click();
     }
     await backToForm(page);
-    const submit = page.getByRole("button", { name: newCampaign ? "Promote 210 sats" : "Boost 210 sats", exact: true });
+    const submit = page.getByRole("button", { name: newCampaign ? "Continue to payment · 210 sats" : "Boost 210 sats", exact: true });
     await expect(submit).toBeEnabled();
     await submit.click();
     await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveCount(1);
@@ -414,7 +429,7 @@ for (const newCampaign of [false, true]) test(`author wallet issues remain visib
     await page.setViewportSize({ width: 320, height: 640 });
     const state = await setup(context, page, { newCampaign, authorUnavailable: "unavailable", noteContent: "A long note. ".repeat(100) });
     const warning = page.getByLabel("Author payment issue");
-    const submit = page.getByRole("button", { name: newCampaign ? "Promote 210 sats" : "Boost 210 sats", exact: true });
+    const submit = page.getByRole("button", { name: newCampaign ? "Continue to payment · 210 sats" : "Boost 210 sats", exact: true });
     const assertVisible = async () => {
         await expect(warning.getByRole("alert")).toContainText("Author support is unavailable");
         await expect(submit).toBeDisabled();
@@ -429,10 +444,8 @@ for (const newCampaign of [false, true]) test(`author wallet issues remain visib
     await assertVisible();
     await page.screenshot({ path: testInfo.outputPath("author-wallet-issue.png") });
     if (newCampaign) {
-        for (const name of ["Billboard", "Payment options"]) {
-            await page.getByRole("tab", { name, exact: true }).click();
-            await assertVisible();
-        }
+        await openAppearance(page); await assertVisible();
+        await openPaymentOptions(page); await assertVisible();
     }
     await warning.getByRole("button", { name: "Choose visibility only", exact: true }).click();
     await expect(warning).toHaveCount(0);
@@ -752,7 +765,7 @@ test("NWC recovers a lost author response after invoice expiry and reload", asyn
     await prepareInvoices(page);
     await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
     await expect.poll(() => state.authorCharges).toBe(1);
-    await expect(page.getByRole("button", { name: "Back to promotion", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Back to (boost|budget)$/, exact: true })).toBeVisible();
     await expect(page.getByRole("status").filter({ hasText: "Processing author support" })).toBeVisible();
     await expect(page.getByRole("button", { name: "I checked my wallet: author support was not paid", exact: true })).toHaveCount(0);
     await page.clock.fastForward(60001);
@@ -1007,11 +1020,11 @@ test("promotion preview bounds images and keeps Nostr references clickable", asy
     await page.getByRole("button", { name: "Show full text", exact: true }).click();
     await expect(article.locator('[aria-label="Original note images"]')).toBeVisible();
     await expect(article.getByRole("link", { name: "Open original image", exact: true })).toHaveAttribute("href", image);
-    const bounds = await page.getByRole("button", { name: "Promote 500 sats", exact: true }).boundingBox();
+    const bounds = await page.getByRole("button", { name: "Continue to payment · 500 sats", exact: true }).boundingBox();
     expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(740);
     await page.getByRole("button", { name: "Show less", exact: true }).click();
-    await page.getByRole("tab", { name: /^Payment options/ }).click();
-    await page.getByRole("tab", { name: "Promotion", exact: true }).click();
+    await openPaymentOptions(page);
+    await backToForm(page);
     await expect(page.getByRole("textbox", { name: "Custom total in sats" })).toHaveValue("500");
     await expect(thumbnail).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
@@ -1061,8 +1074,9 @@ test("amount modes and inline split preserve a boost draft across contextual pan
     await backToForm(page);
     await expect(page.getByRole("button", { name: "Target position", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("slider", { name: "Holoboard share in percent" })).toHaveValue("50");
-    await openConnections(page, "wallet");
-    await expect(page.getByLabel("NWC connection link")).toBeVisible();
+    await openPaymentOptions(page);
+    await expect(page.getByText("Use any Lightning wallet. Choose Invoice / QR or connect a wallet in Payment.", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("NWC connection link")).toHaveCount(0);
     await backToForm(page);
     await expect(page.getByRole("button", { name: "Target position", exact: true })).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: "Reach rank 2, estimated total 801 sats", exact: true }).click();
@@ -1144,10 +1158,10 @@ test("boost payment options offer notifications without a settings list", async 
 test("revived promotion offers appearance and contextual notification identity", async ({ context, page }) => {
     test.skip(process.env.VITE_ENABLE_NOSTR_CONNECT !== "true", "Signer UI is disabled for this release.");
     const state = await setup(context, page, { expiredCampaign: true, extension: true });
-    await expect(page.getByRole("tab", { name: /^Billboard/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Billboard appearance/ })).toBeVisible();
     await openSupport(page);
     await expect(page.getByRole("region", { name: "Payment split" })).toBeVisible();
-    await page.getByRole("tab", { name: /^Billboard/ }).click();
+    await openAppearance(page);
     await page.getByRole("button", { name: "Billboard / +100 sats", exact: true }).click();
     await backToForm(page);
     await openPaymentOptions(page);
@@ -1158,7 +1172,7 @@ test("revived promotion offers appearance and contextual notification identity",
     await page.getByRole("button", { name: "Use connected Nostr identity", exact: true }).click();
     await expect(page.getByRole("textbox", { name: "Npub for confirmation", exact: true })).toHaveValue(note.pubkey);
     await backToForm(page);
-    await expect(page.getByRole("button", { name: "Promote 310 sats", exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Continue to payment · 310 sats", exact: true })).toBeEnabled();
     expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0);
     expect(state.signerMethods).not.toContain("extension:sign_event"); expect(state.errors).toEqual([]);
 });
@@ -1200,14 +1214,14 @@ test("customization, contextual help and notifications preserve payment choices"
     await openSupport(page);
     await setAuthorShare(page, 35);
     await backToForm(page);
-    await page.getByRole("tab", { name: /^Billboard/ }).click();
+    await openAppearance(page);
     await page.getByRole("button", { name: "Billboard / +100 sats", exact: true }).click();
     await page.getByRole("button", { name: "Neon sign", exact: true }).click();
     await page.getByRole("combobox", { name: "Text size", exact: true }).selectOption("large");
     await backToForm(page);
     await page.getByRole("button", { name: "Target position", exact: true }).click();
     await expect(page.getByRole("button", { name: "Reach rank 1, estimated total 408 sats", exact: true })).toBeEnabled();
-    await expect(page.getByRole("button", { name: "Promote 600 sats", exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Continue to payment · 600 sats", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "Amount", exact: true }).click();
     await openPaymentOptions(page);
     await page.getByRole("checkbox", { name: "Send me a confirmation DM", exact: true }).check();
@@ -1223,9 +1237,9 @@ test("customization, contextual help and notifications preserve payment choices"
     await expect(page.getByRole("checkbox", { name: "Send me a confirmation DM", exact: true })).toBeChecked();
     await backToForm(page);
     await page.screenshot({ path: test.info().outputPath("promotion-editor.png") });
-    await page.getByRole("tab", { name: /^Payment options/ }).click();
+    await openPaymentOptions(page);
     await page.screenshot({ path: test.info().outputPath("promotion-payment-options.png") });
-    await page.getByRole("button", { name: "Promote 600 sats", exact: true }).click();
+    await page.getByRole("button", { name: "Continue to payment · 600 sats", exact: true }).click();
     await expectSplitInvoices(page);
     expect(state.boardRequests).toHaveLength(1);
     expect(state.boardRequests[0]).toMatchObject({ amount_sats: 325, author_share: 35, notify_pubkey: note.pubkey, billboard: { template: "neon", size: "large" } });
@@ -1233,56 +1247,42 @@ test("customization, contextual help and notifications preserve payment choices"
     expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
 });
 
-test("promotion tabs keep the draft and payment action accessible", async ({ context, page }) => {
+test("guided Budget panels keep the draft, focus and complete payment action", async ({ context, page }) => {
     await page.setViewportSize({ width: 320, height: 740 });
     const state = await setup(context, page, { newCampaign: true });
-    const tabs = page.getByRole("tablist", { name: "Promotion editor", exact: true });
-    const promotion = tabs.getByRole("tab", { name: "Promotion", exact: true });
-    const billboard = tabs.getByRole("tab", { name: /^Billboard/ });
-    const options = tabs.getByRole("tab", { name: /^Payment options/ });
-    await expect(promotion).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByRole("tabpanel")).toHaveAccessibleName("Promotion");
+    const progress = page.getByRole("navigation", { name: "Add to board progress" });
+    await expect(progress.locator('[aria-current="step"]')).toContainText("Budget");
+    await expect(progress.getByRole("tab")).toHaveCount(0);
     await page.getByRole("button", { name: "Custom", exact: true }).click();
     await expect(page.getByRole("textbox", { name: "Custom total in sats" })).toBeFocused();
     await page.getByRole("textbox", { name: "Custom total in sats" }).fill("500");
     await setAuthorShare(page, 35);
-    await promotion.focus();
-    await page.keyboard.press("ArrowRight");
-    await expect(billboard).toBeFocused();
-    await expect(billboard).toHaveAttribute("aria-selected", "true");
+    const appearance = page.getByRole("button", { name: /^Billboard appearance/ });
+    await appearance.click();
+    await expect(page.getByRole("heading", { name: "Billboard appearance", exact: true })).toBeFocused();
     await page.getByRole("button", { name: "Billboard / +100 sats", exact: true }).click();
     await page.getByRole("button", { name: "Neon sign", exact: true }).click();
-    const body = page.getByRole("dialog").locator("[data-modal-body]");
-    await body.evaluate((element) => { element.scrollTop = element.scrollHeight; });
-    await expect(tabs).toBeInViewport();
-    await expect(page.getByRole("button", { name: "Promote 600 sats", exact: true })).toBeInViewport();
-    await options.click();
-    await expect(page.getByRole("region", { name: "Notifications", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Continue to payment · 600 sats", exact: true })).toBeInViewport();
+    await backToForm(page); await expect(appearance).toBeFocused();
+    await openPaymentOptions(page);
     await page.getByRole("checkbox", { name: "Send me a confirmation DM", exact: true }).check();
-    await promotion.click();
-    await page.getByRole("button", { name: "Promote 600 sats", exact: true }).click();
-    await expect(options).toHaveAttribute("aria-selected", "true");
+    await backToForm(page);
+    await page.getByRole("button", { name: "Continue to payment · 600 sats", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Payment options", exact: true })).toBeFocused();
     await expect(page.getByRole("alert")).toHaveText("Enter a valid npub for the confirmation DM.");
     expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0);
     await page.getByRole("textbox", { name: "Npub for confirmation", exact: true }).fill(note.pubkey);
-    await options.focus();
-    await page.keyboard.press("Tab");
-    await expect(page.getByRole("tabpanel")).toBeFocused();
-    await options.focus();
-    await page.keyboard.press("Home");
-    await expect(promotion).toBeFocused();
+    await backToForm(page);
     await expect(page.getByRole("textbox", { name: "Custom total in sats" })).toHaveValue("500");
     await expect(page.getByRole("slider", { name: "Holoboard share in percent" })).toHaveValue("65");
-    await billboard.click();
+    await openAppearance(page);
     await expect(page.getByRole("button", { name: "Neon sign", exact: true })).toHaveAttribute("aria-pressed", "true");
-    await options.click();
+    await openPaymentOptions(page);
     await expect(page.getByRole("checkbox", { name: "Send me a confirmation DM", exact: true })).toBeChecked();
-    await page.screenshot({ path: test.info().outputPath("promotion-tabs-320.png") });
+    await page.screenshot({ path: test.info().outputPath("guided-budget-options-320.png") });
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
-    expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0);
-    await page.getByRole("button", { name: "Promote 600 sats", exact: true }).click();
-    await expect(tabs).toHaveCount(0);
-    await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Continue to payment · 600 sats", exact: true }).click();
+    await expect(progress.locator('[aria-current="step"]')).toContainText("Payment");
     await expectSplitInvoices(page);
     expect(state.boardRequests[0]).toMatchObject({ amount_sats: 325, author_share: 35, notify_pubkey: note.pubkey, billboard: { template: "neon" } });
     expect(state.authorRequests[0].amount_sats).toBe(175);
@@ -1293,7 +1293,7 @@ test("note popovers in the Billboard preview preserve the editor and its keyboar
     await page.setViewportSize({ width: 390, height: 844 });
     const state = await setup(context, page, { newCampaign: true });
     const editor = page.getByRole("dialog", { name: "Add to board", exact: true });
-    await editor.getByRole("tab", { name: "Billboard", exact: true }).click();
+    await openAppearance(page);
     await editor.getByRole("button", { name: "Billboard / +100 sats", exact: true }).click();
     const preview = editor.getByRole("article");
     const amount = preview.locator(".board-weight");
@@ -1323,7 +1323,7 @@ test("closing a preview image returns to the promotion editor without preparing 
         body: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800"><rect width="600" height="800" fill="#22d3ee"/></svg>' }));
     const state = await setup(context, page, { newCampaign: true, noteContent: "Original picture. https://images.example/preview.png" });
     const editor = page.getByRole("dialog", { name: "Add to board", exact: true });
-    await editor.getByRole("tab", { name: "Billboard", exact: true }).click();
+    await openAppearance(page);
     const opener = editor.getByRole("button", { name: "Open image 1 of 1", exact: true });
     await opener.click();
     const viewer = page.getByRole("dialog", { name: "Media 1 of 1", exact: true });
@@ -1374,7 +1374,7 @@ test("global connections and legacy ranking help work without promotion", async 
     await page.getByRole("button", { name: "Close dialog", exact: true }).click();
     await page.goto("/#how-ranking-works");
     await expect(page.getByRole("heading", { name: "How ranking works", exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: /^(Boost|Promote) .* sats$/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^(Boost|Continue to payment ·) .* sats$/ })).toHaveCount(0);
     await page.getByRole("button", { name: "Close dialog", exact: true }).click();
     await page.goto("/help#other-ways-to-promote");
     await expect(page.getByRole("heading", { name: "Other ways to promote", exact: true })).toBeVisible();
@@ -1521,7 +1521,7 @@ for (const reopen of ["persistent", "blocked storage", "offline"] as const) test
         const retained = await savedPayment(page);
         expect(retained.board.invoice).toBe("lnbc-visibility");
         expect(retained.author?.invoice).toBe("lnbc-author");
-        await page.getByRole("button", { name: "Back to promotion", exact: true }).click();
+        await page.getByRole("button", { name: /^Back to (boost|budget)$/, exact: true }).click();
     }
     await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
     await expect(page.getByRole("slider", { name: "Holoboard share in percent" })).toHaveValue("65");
@@ -1544,23 +1544,23 @@ test("restart restores amount, allocation, appearance and notifications after re
     await page.getByRole("button", { name: "Custom", exact: true }).click();
     await page.getByRole("textbox", { name: "Custom total in sats", exact: true }).fill("500");
     await setAuthorShare(page, 35);
-    await page.getByRole("tab", { name: /^Billboard/ }).click();
+    await openAppearance(page);
     await page.getByRole("button", { name: "Billboard / +100 sats", exact: true }).click();
     await page.getByRole("button", { name: "Neon sign", exact: true }).click();
     await openPaymentOptions(page);
     await page.getByRole("checkbox", { name: "Send me a confirmation DM", exact: true }).check();
     await page.getByRole("textbox", { name: "Npub for confirmation", exact: true }).fill(note.pubkey);
-    await page.getByRole("button", { name: "Promote 600 sats", exact: true }).click();
+    await page.getByRole("button", { name: "Continue to payment · 600 sats", exact: true }).click();
     await expect(page.getByRole("button", { name: "Restart payment", exact: true })).toBeEnabled();
     await page.reload();
     await page.getByRole("button", { name: "Boost", exact: true }).first().click();
     await page.getByRole("button", { name: "Restart payment", exact: true }).click();
     await page.screenshot({ path: test.info().outputPath("payment-restart-320.png") });
     await page.getByRole("button", { name: "I haven't paid, restart", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Promote 600 sats", exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Continue to payment · 600 sats", exact: true })).toBeEnabled();
     await expect(page.getByRole("textbox", { name: "Custom total in sats", exact: true })).toHaveValue("500");
     await expect(page.getByRole("slider", { name: "Holoboard share in percent" })).toHaveValue("65");
-    await page.getByRole("tab", { name: /^Billboard/ }).click();
+    await openAppearance(page);
     await expect(page.getByRole("button", { name: "Neon sign", exact: true })).toHaveAttribute("aria-pressed", "true");
     await openPaymentOptions(page);
     await expect(page.getByRole("checkbox", { name: "Send me a confirmation DM", exact: true })).toBeChecked();
@@ -1592,9 +1592,9 @@ for (const part of ["board", "author"] as const) for (const stateName of ["submi
         }, { part, stateName });
         await page.reload();
         await page.getByRole("button", { name: "Boost", exact: true }).first().click();
-        await expect(page.getByRole("button", { name: "Back to promotion", exact: true })).toBeVisible();
+        await expect(page.getByRole("button", { name: /^Back to (boost|budget)$/, exact: true })).toBeVisible();
         await walletMethod(page);
-        await page.getByRole("button", { name: "Back to promotion", exact: true }).click();
+        await page.getByRole("button", { name: /^Back to (boost|budget)$/, exact: true }).click();
         await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
         await expect(page.getByText("Previous payment for this note", { exact: true })).toBeVisible();
         const retained = await savedPayment(page);
@@ -1603,7 +1603,7 @@ for (const part of ["board", "author"] as const) for (const stateName of ["submi
         else if (stateName === "reported") expect(retained.tipStatus).toBe("reported");
         else expect(retained[part === "board" ? "boardAttempt" : "authorAttempt"]?.state).toBe(stateName);
         await page.getByRole("button", { name: "Resume payment", exact: true }).click();
-        await expect(page.getByRole("button", { name: "Back to promotion", exact: true })).toBeVisible();
+        await expect(page.getByRole("button", { name: /^Back to (boost|budget)$/, exact: true })).toBeVisible();
         expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1);
         expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
     });
@@ -1617,7 +1617,7 @@ test("restart checks settlement and retains an already paid visibility invoice",
     await page.getByRole("button", { name: "I haven't paid, restart", exact: true }).click();
     await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "Resume payment", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Back to promotion", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Back to (boost|budget)$/, exact: true })).toBeVisible();
     await expect(page.getByText("Added 168 sats to visibility.", { exact: true })).toBeVisible();
     expect((await savedPayment(page)).promotionPaid).toBe(true);
     expect(state.boardRequests).toHaveLength(1); expect(state.errors).toEqual([]);
@@ -1724,7 +1724,7 @@ test("closing before WebLN enable completes prevents a later automatic send", as
     await prepareInvoices(page);
     await walletMethod(page);
     await page.getByRole("button", { name: "Pay 210 sats", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Back to promotion", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Back to (boost|budget)$/, exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Close dialog", exact: true }).click();
     await page.getByRole("button", { name: "Boost", exact: true }).first().click();
     await page.getByRole("button", { name: "Restart payment", exact: true }).click();
@@ -1770,7 +1770,7 @@ for (const wallet of ["NWC", "WebLN"] as const) test(`${wallet} replaces expired
     await walletMethod(page);
     await page.getByRole("button", { name: "Pay 42 sats", exact: true }).click();
     await expect(authorConfirmed(page)).toBeVisible();
-    await expect(page.getByRole("button", { name: "Back to promotion", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Back to (boost|budget)$/, exact: true })).toBeVisible();
     const before = await savedPayment(page);
     const newProof = "e".repeat(64), newHash = hash(newProof), newInvoice = "lnbc-visibility-replaced";
     state.boardProofs.set(newInvoice, newProof);
@@ -1952,7 +1952,7 @@ test("submitted NWC payment uses an indicator until confirmed without another ch
     await expect(progress.locator(".pixel-status__copy")).toHaveCount(0);
     await expect(progress.locator('[class*="text-neon-gold"]')).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Payment complete", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Back to promotion", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Back to (boost|budget)$/, exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Check payment status", exact: true })).toBeEnabled();
     const check = page.getByRole("button", { name: "Check payment status", exact: true });
     await expect(check.getByRole("status")).toHaveCount(1);
@@ -1974,7 +1974,7 @@ test("unavailable author wallet can be retried without resetting the amount or s
     await slider.fill("70");
     state.authorUnavailable = undefined;
     await page.getByRole("button", { name: "Retry author wallet", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Promote 50 sats", exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Continue to payment · 50 sats", exact: true })).toBeEnabled();
     await expect(page.getByRole("alert")).toHaveCount(0);
     await expect(input).toHaveValue("50");
     await expect(slider).toHaveAttribute("aria-valuetext", "Holoboard 70%, 35 sats; author 30%, 15 sats");
@@ -2015,7 +2015,7 @@ for (const newCampaign of [false, true]) test(`custom amount can be replaced and
     await expect(input).toHaveValue("50");
     await expect(input).toHaveAttribute("aria-invalid", "false");
     await expect(page.getByRole("slider", { name: "Holoboard share in percent" })).toHaveAttribute("aria-valuetext", "Holoboard 80%, 40 sats; author 20%, 10 sats");
-    await page.getByRole("button", { name: newCampaign ? "Promote 50 sats" : "Boost 50 sats", exact: true }).click();
+    await page.getByRole("button", { name: newCampaign ? "Continue to payment · 50 sats" : "Boost 50 sats", exact: true }).click();
     await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toBeVisible();
     expect(state.boardRequests[0]).toMatchObject({ amount_sats: 40, author_share: 20 });
     expect(state.authorRequests[0]).toMatchObject({ amount_sats: 10 });
@@ -2075,25 +2075,24 @@ test("a promotion link card appears only after expanding its compact note previe
     expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0); expect(state.errors).toEqual([]);
 });
 
-test("new promotion opens a blank editor and Billboard explains note loading", async ({ context, page }, testInfo) => {
+test("new promotion opens a blank Post and Billboard explains note loading", async ({ context, page }, testInfo) => {
     const state = await setup(context, page, { secondNote: true });
     await prepareInvoices(page);
     const previous = await savedPayment(page);
     await page.getByRole("button", { name: "Close dialog", exact: true }).click();
     await page.getByRole("button", { name: "Add to board", exact: true }).click();
-    await expect(page.getByRole("textbox", { name: "Note link", exact: true })).toHaveValue("");
+    await expect(page.getByRole("textbox", { name: "Post link", exact: true })).toHaveValue("");
     await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toHaveCount(0);
     await expect(page.getByText("Unfinished payments", { exact: true })).toBeVisible();
-    const billboard = page.getByRole("tab", { name: "Billboard", exact: true });
-    await expect(billboard).toBeEnabled(); await billboard.click();
+    await openAppearance(page);
     await expect(page.getByText("Load a note to preview", { exact: false })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Promote 210 sats", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: /Continue to payment/ })).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("billboard-before-note.png") });
-    await page.getByRole("textbox", { name: "Note link", exact: true }).fill(otherNote.id);
-    await expect(page.getByRole("button", { name: "Billboard / +100 sats", exact: true })).toBeEnabled();
-    await expect(billboard).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByRole("button", { name: "Promote 210 sats", exact: true })).toBeEnabled();
-    await billboard.press("Home");
+    await backToForm(page);
+    await page.getByRole("textbox", { name: "Post link", exact: true }).fill(otherNote.id);
+    await expect(page.getByRole("button", { name: "Review & continue", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
     await expect(page.getByText("A different note for isolated payment tests.", { exact: true })).toBeVisible();
     expect((await savedPayment(page)).board).toEqual(previous.board);
     expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1);
@@ -2106,7 +2105,7 @@ test("partial payment can return to editing and resume after reopening", async (
     state.boardPaid = true;
     await expect(page.getByRole("button", { name: "Next invoice: Author", exact: true })).toBeVisible();
     const previous = await savedPayment(page);
-    await page.getByRole("button", { name: "Back to promotion", exact: true }).click();
+    await page.getByRole("button", { name: /^Back to (boost|budget)$/, exact: true }).click();
     await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
     await expect(page.getByText("Previous payment for this note", { exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("partial-payment-editor.png") });
@@ -2128,13 +2127,15 @@ test("leaving a pending wallet response cannot affect payment for another note",
     await page.getByRole("button", { name: "Pay 210 sats", exact: true }).click();
     await expect.poll(() => !!state.completeAuthorPayment).toBe(true);
     const old = await savedPayment(page);
-    await page.getByRole("button", { name: "Back to promotion", exact: true }).click();
+    await page.getByRole("button", { name: /^Back to (boost|budget)$/, exact: true }).click();
     await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "Close dialog", exact: true }).click();
     await page.getByRole("button", { name: "Add to board", exact: true }).click();
-    await page.getByRole("textbox", { name: "Note link", exact: true }).fill(otherNote.id);
-    await expect(page.getByRole("button", { name: "Promote 210 sats", exact: true })).toBeEnabled();
-    await page.getByRole("button", { name: "Promote 210 sats", exact: true }).click();
+    await page.getByRole("textbox", { name: "Post link", exact: true }).fill(otherNote.id);
+    await expect(page.getByRole("button", { name: "Review & continue", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
     await expect.poll(async () => (await savedPayment(page)).board.noteId).toBe(otherNote.id);
     const current = await savedPayment(page);
     state.completeAuthorPayment!();
@@ -2153,21 +2154,23 @@ test("changing notes resets allocation, appearance and notification draft", asyn
     await page.getByRole("button", { name: "Custom", exact: true }).click();
     await page.getByRole("textbox", { name: "Custom total in sats", exact: true }).fill("500");
     await setAuthorShare(page, 35);
-    await page.getByRole("tab", { name: "Billboard", exact: true }).click();
+    await openAppearance(page);
     await page.getByRole("button", { name: "Billboard / +100 sats", exact: true }).click();
-    await page.getByRole("tab", { name: "Payment options", exact: true }).click();
+    await openPaymentOptions(page);
     await page.getByRole("checkbox", { name: "Send me a confirmation DM", exact: true }).check();
     await page.getByRole("textbox", { name: "Npub for confirmation", exact: true }).fill(note.pubkey);
-    await page.getByRole("tab", { name: "Promotion", exact: true }).click();
-    await page.getByRole("button", { name: "Change note", exact: true }).click();
-    await page.getByRole("textbox", { name: "Note link", exact: true }).fill(otherNote.id);
-    await expect(page.getByRole("button", { name: "Promote 210 sats", exact: true })).toBeEnabled();
+    await backToForm(page);
+    await page.getByRole("button", { name: "Edit post", exact: true }).click();
+    await page.getByRole("textbox", { name: "Post link", exact: true }).fill(otherNote.id);
+    await expect(page.getByRole("button", { name: "Review & continue", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
     await expect(page.getByRole("slider", { name: "Holoboard share in percent", exact: true })).toHaveValue("80");
-    await page.getByRole("tab", { name: "Billboard", exact: true }).click();
+    await openAppearance(page);
     await expect(page.getByRole("button", { name: "Standard / free", exact: true })).toHaveAttribute("aria-pressed", "true");
-    await page.getByRole("tab", { name: "Payment options", exact: true }).click();
+    await openPaymentOptions(page);
     await expect(page.getByRole("checkbox", { name: "Send me a confirmation DM", exact: true })).not.toBeChecked();
-    await page.getByRole("button", { name: "Promote 210 sats", exact: true }).click();
+    await page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
     const prepared = await savedPayment(page);
     expect(prepared.board.noteId).toBe(otherNote.id); expect(prepared.draft.amount).toBe(210);
     expect(prepared.draft.notifyPubkey).toBe(""); expect(prepared.draft.billboardEnabled).toBe(false);
@@ -2194,7 +2197,7 @@ test("preparing another payment for the same note preserves the old invoices", a
     state.boardPaid = true;
     await expect(page.getByRole("button", { name: "Next invoice: Author", exact: true })).toBeVisible();
     const old = await savedPayment(page);
-    await page.getByRole("button", { name: "Back to promotion", exact: true }).click();
+    await page.getByRole("button", { name: /^Back to (boost|budget)$/, exact: true }).click();
     const nextHash = hash("e".repeat(64));
     await page.route("**/api/promote", async (route) => {
         if (route.request().method() === "OPTIONS") return route.fallback();
@@ -2234,7 +2237,7 @@ test("returning while WebLN enable waits never sends a later payment", async ({ 
     await page.getByRole("button", { name: "Payment help >", exact: true }).click();
     await expect(page.getByRole("button", { name: "< Back to payment", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "< Back to payment", exact: true }).click();
-    await page.getByRole("button", { name: "Back to promotion", exact: true }).click();
+    await page.getByRole("button", { name: /^Back to (boost|budget)$/, exact: true }).click();
     await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
     await page.evaluate(() => (window as unknown as { finishEnable?: () => void }).finishEnable?.());
     await page.getByRole("button", { name: "Resume payment", exact: true }).click();
@@ -2340,7 +2343,7 @@ for (const part of ["board", "author"] as const) test(`restart checks unseen cro
     await invoiceMethod(page); await expectSplitInvoices(page);
     expect((await savedPayment(page)).board).toEqual(payment.board);
     expect((await savedPayment(page)).author).toEqual(payment.author);
-    await page.getByRole("button", { name: "Back to promotion", exact: true }).click();
+    await page.getByRole("button", { name: /^Back to (boost|budget)$/, exact: true }).click();
     await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toBeEnabled();
     await page.close();
     await other.getByRole("button", { name: "Boost", exact: true }).first().click();
@@ -2391,4 +2394,104 @@ for (const phase of ["caller persistence", "unpaid lookup"] as const) test(`cros
     }, boardHash);
     expect(durable).toMatchObject({ attempt: { state: "submitted", walletId: "original", preimage: boardPreimage } });
     expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
+
+for (const step of ["Post", "Budget"] as const) test(`guided Payment ${step} navigation stops pending WebLN without losing invoices`, async ({ context, page }) => {
+    const state = await setup(context, page, { newCampaign: true, webln: true });
+    await prepareInvoices(page); await walletMethod(page);
+    const original = await savedPayment(page);
+    await page.evaluate(() => {
+        const target = window as unknown as { webln: { enable(): Promise<void> }; finishEnable?: () => void };
+        target.webln.enable = () => new Promise<void>(resolve => { target.finishEnable = resolve; });
+    });
+    await page.getByRole("button", { name: "Pay 210 sats", exact: true }).click();
+    await page.getByRole("navigation", { name: "Add to board progress" }).getByRole("button", { name: step, exact: true }).click();
+    await expect(page.getByRole("navigation", { name: "Add to board progress" }).locator('[aria-current="step"]')).toContainText(step);
+    await page.evaluate(() => (window as unknown as { finishEnable?: () => void }).finishEnable?.());
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0);
+    await expect(page.getByText("Frozen total: 210 sats", { exact: true })).toBeVisible();
+    if (step === "Post") {
+        await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
+    }
+    await page.getByRole("button", { name: "Resume payment", exact: true }).click();
+    await expect(page.getByRole("navigation", { name: "Add to board progress" }).locator('[aria-current="step"]')).toContainText("Payment");
+    const restored = await savedPayment(page);
+    expect(restored.board).toEqual(original.board); expect(restored.author).toEqual(original.author);
+    expect(restored.boardAttempt).toBeUndefined(); expect(restored.authorAttempt).toBeUndefined();
+    expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1); expect(state.errors).toEqual([]);
+});
+
+test("a full split Payment keeps its presentation after visibility settles", async ({ context, page }) => {
+    const fullText = "A frozen original with its complete signed wording. ".repeat(8).trim();
+    const options: Options = { newCampaign: true, noteContent: fullText };
+    const state = await setup(context, page, options);
+    await prepareInvoices(page);
+    const original = await savedPayment(page);
+    const source = page.getByLabel("Payment post", { exact: true });
+    await source.locator("summary").click();
+    await expect(source).toContainText(fullText);
+    expect(original.sourceEvent).toEqual(JSON.parse(JSON.stringify(state.promotedNote)));
+    expect(original.event).toBeUndefined();
+    options.newCampaign = false; state.boardPaid = true;
+    await expect(page.getByRole("button", { name: "Next invoice: Author", exact: true })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Add to board", exact: true })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Add to board progress" }).locator('[aria-current="step"]')).toContainText("Payment");
+    await page.getByRole("button", { name: "Back to budget", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
+    await expect(page.getByText("Frozen total: 210 sats", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Resume payment", exact: true }).click();
+    expect((await savedPayment(page)).board).toEqual(original.board);
+    expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
+
+test("creation-disabled Post retains privately issued invoices without exposing writing controls", async ({ context, page }) => {
+    test.skip(process.env.VITE_ENABLE_POST_CREATION === "true", "Verifies the creation-disabled editor.");
+    const state = await setup(context, page);
+    const privateRoot = finalizeEvent({ kind: 1, created_at: 1700000001, content: "A private root issued before creation was disabled",
+        tags: [["l", "anonymous", "space.holoboard.attribution"]] }, generateSecretKey());
+    const invoice = walletInvoice({ hash: boardHash, amountMsats: 210000 });
+    await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+    await page.evaluate(async ({ event, invoice, hash }) => {
+        const records = await import("/src/components/PromoteModal/paymentRecords.ts");
+        await records.savePayment({ note: event.id, event, sourceEvent: event, noteSummary: event.content,
+            board: { invoice, paymentHash: hash, noteId: event.id, amountSats: 210, promotionSats: 210, billboardFeeSats: 0, expiresAt: Math.floor(Date.now() / 1000) + 3600 },
+            tipStatus: "pending", promotionPaid: false, added: 0, authorShare: 0 });
+    }, { event: privateRoot, invoice, hash: boardHash });
+    await page.getByRole("button", { name: "Add to board", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Add to board", exact: true })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Post link", exact: true })).toHaveValue("");
+    await expect(page.getByRole("textbox", { name: "Text or link", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Add a comment", exact: true })).toHaveCount(0);
+    await expect(page.getByText("Posting as a guest. No account required.", { exact: true })).toHaveCount(0);
+    await page.getByText("Unfinished payments", { exact: true }).click();
+    await page.getByRole("button", { name: "Resume payment", exact: true }).click();
+    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", `lightning:${invoice}`);
+    await expect(page.getByRole("img", { name: "Holoboard visibility invoice QR code", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Copy invoice", exact: true })).toBeEnabled();
+    await page.getByLabel("Payment post", { exact: true }).locator("summary").click();
+    await expect(page.getByLabel("Payment post", { exact: true })).toContainText(privateRoot.content);
+    const restored = await savedPayment(page);
+    expect(restored.event).toEqual(privateRoot); expect(restored.board.paymentHash).toBe(boardHash);
+    expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
+
+test("a general existing-post selection keeps Post review even for an active note", async ({ context, page }) => {
+    test.skip(process.env.VITE_ENABLE_POST_CREATION === "true", "Uses the existing-post selector.");
+    const state = await setup(context, page);
+    await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+    await page.getByRole("button", { name: "Add to board", exact: true }).click();
+    await page.getByRole("textbox", { name: "Post link", exact: true }).fill(note.id);
+    await expect(page.getByRole("button", { name: "Review & continue", exact: true })).toBeEnabled();
+    await expect(page.getByRole("navigation", { name: "Add to board progress" }).locator('[aria-current="step"]')).toContainText("Post");
+    await expect(page.getByRole("button", { name: "Boost 210 sats", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
+    expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0);
+    expect(state.signerMethods).toEqual([]); expect(state.errors).toEqual([]);
 });
