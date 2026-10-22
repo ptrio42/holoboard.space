@@ -10,12 +10,12 @@ import { isMockInvoice, MOCK_INVOICE_MESSAGE } from "../../lib/invoice";
 import { restartBlocked, type PaymentMethod, type PaymentRecipient, type PromotionPayment as Payment } from "./PaymentState";
 
 export function PromotionPayment({ id, payment, method, recipient, onRecipient, wallet, walletName, connecting, busy, walletPart, now,
-    canResume, error, actualRank, onPay, onReplaceAuthor, onReplaceBoard, onReportAuthor, onAcknowledge, onHelp, onSigner, onRestart, onBack,
+    storageFailed, error, actualRank, onPay, onReplaceAuthor, onReplaceBoard, onReportAuthor, onAcknowledge, onHelp, onSigner, onRestart, onBack,
     restartConfirm, onRestartConfirm, hasPublicZapConsent, authorCanReplace, footer }: {
     id: string; payment: Payment; method: PaymentMethod; recipient: PaymentRecipient; onRecipient: (part: PaymentRecipient) => void;
     wallet: PaymentWallet | undefined; walletName: string; connecting: boolean; busy: boolean; now: number;
     walletPart: PaymentRecipient | null;
-    canResume: boolean; error: string; actualRank: number | null;
+    storageFailed: boolean; error: string; actualRank: number | null;
     onPay: () => void; onReplaceAuthor: () => void; onReplaceBoard: () => void; onReportAuthor: () => void; onAcknowledge: (part: PaymentRecipient) => void;
     onHelp: () => void; onSigner: () => void; onRestart: () => void; onBack: () => void; restartConfirm: boolean;
     onRestartConfirm: (value: boolean) => void; hasPublicZapConsent: boolean; authorCanReplace: boolean; footer: (content: ReactNode) => ReactNode;
@@ -80,7 +80,7 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                 </button>)}
             </div>
             {mockPayment && <p role="alert" className="text-xs text-neon-gold">{MOCK_INVOICE_MESSAGE} The saved author invoice is separate; check its payment status before starting again.</p>}
-            {!canResume && <p className="text-xs text-neon-gold">This browser cannot save the payment for a refresh. Keep the invoices and check your wallet before refreshing or closing this tab.</p>}
+            {storageFailed && <p className="text-xs text-neon-gold">This browser could not save this payment for recovery after closing the tab. Keep the invoices and check your wallet before refreshing or closing this tab.</p>}
             {payment.promotionPaid && <div className="space-y-1 text-xs text-cyan-100/70" aria-live="polite">
                 <p className="text-neon-cyan">Added {payment.added} sats to visibility.</p>
                 {payment.billboardApplied && <p>Your billboard appearance is active.</p>}

@@ -27,7 +27,7 @@ async function installExtension(context: BrowserContext, page: Page, getPubkey =
 
 async function setup(context: BrowserContext, page: Page) {
     const origin = new URL(test.info().project.use.baseURL!).origin;
-    const state = { requests: [] as Record<string, unknown>[], signed: undefined as Event | undefined, paid: false, frames: [] as string[], errors: [] as string[], links: [] as string[], pauseBoard: false, releaseBoard: undefined as (() => void) | undefined };
+    const state = { requests: [] as Record<string, unknown>[], signed: undefined as Event | undefined, paid: false, frames: [] as string[], errors: [] as string[], links: [] as string[], statusChecks: 0, pauseBoard: false, releaseBoard: undefined as (() => void) | undefined };
     page.on("pageerror", error => state.errors.push(error.message));
     await context.route("**/*", async route => {
         const url = new URL(route.request().url());
@@ -48,7 +48,7 @@ async function setup(context: BrowserContext, page: Page) {
             state.requests.push(body);
             if (state.pauseBoard) await new Promise<void>(resolve => { state.releaseBoard = resolve; });
             data = { invoice: walletInvoice({ hash: boardHash, amountMsats: body.amount_sats * 1000 }), payment_hash: boardHash, amount_sats: body.amount_sats, promotion_sats: body.amount_sats, note_id: body.event?.id ?? original.id, expires_at: Math.floor(Date.now() / 1000) + 3600, billboard_fee_sats: 0 };
-        } else if (url.pathname === "/api/promote/status") data = { pending: !state.paid, settled: state.paid, publication: state.paid ? "pending" : undefined, receipt: state.paid ? { promotion_sats: 210 } : undefined };
+        } else if (url.pathname === "/api/promote/status") { state.statusChecks++; data = { pending: !state.paid, settled: state.paid, publication: state.paid ? "pending" : undefined, receipt: state.paid ? { promotion_sats: 210 } : undefined }; }
         else if (url.pathname === "/api/link-preview") { state.links.push(url.searchParams.get("url")!); data = { url: url.searchParams.get("url"), title: "An ordinary page", description: "Link preview" }; }
         return route.fulfill({ headers, json: data });
     });
@@ -108,6 +108,133 @@ test("guest text and links become one private signed post with recoverable invoi
     state.paid = true;
     await expect(page.getByLabel("Promotion result")).toContainText("Delivery to other apps is pending");
     expect(state.signed?.id).toBe(submitted.id); expect(state.errors).toEqual([]);
+});
+
+test("guest invoices survive a closed tab and explicit recovery in a fresh page", async ({ context, page }) => {
+    const state = await setup(context, page);
+    await page.getByRole("textbox", { name: "Text or link" }).fill("Recover this private guest invoice after closing its tab");
+    await page.getByRole("button", { name: "Review post", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Add to board 210 sats", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Add to board 210 sats", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+    const event = state.requests[0].event as Event;
+    const invoice = await page.getByRole("link", { name: "Open in wallet", exact: true }).getAttribute("href");
+    const qr = page.getByRole("img", { name: "Holoboard visibility invoice QR code" });
+    await expect(qr).toBeVisible();
+    const qrMarkup = await qr.evaluate(element => element.outerHTML);
+    await page.close();
+
+    const fresh = await context.newPage();
+    fresh.on("pageerror", error => state.errors.push(error.message));
+    await fresh.goto("/");
+    expect(await fresh.evaluate(() => sessionStorage.getItem("holoboard-last-payment"))).toBeNull();
+    await fresh.getByRole("button", { name: "Add to board", exact: true }).click();
+    await expect(fresh.getByRole("textbox", { name: "Text or link" })).toHaveValue("");
+    await expect(fresh.getByRole("dialog", { name: "Promotion payment" })).toHaveCount(0);
+    await fresh.getByText("Unfinished payments", { exact: true }).click();
+    await fresh.getByRole("button", { name: "Resume payment", exact: true }).click();
+    await expect(fresh.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+    await expect(fresh.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", invoice!);
+    const restoredQr = fresh.getByRole("img", { name: "Holoboard visibility invoice QR code" });
+    await expect(restoredQr).toBeVisible();
+    expect(await restoredQr.evaluate(element => element.outerHTML)).toBe(qrMarkup);
+    await fresh.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: (value: string) => { Object.assign(window, { copiedInvoice: value }); return Promise.resolve(); } } }));
+    await fresh.getByRole("button", { name: "Copy invoice", exact: true }).click();
+    expect(await fresh.evaluate(() => (window as unknown as { copiedInvoice: string }).copiedInvoice)).toBe(invoice!.slice("lightning:".length));
+    const restored = await fresh.evaluate(async note => {
+        const records = await import("/src/components/PromoteModal/paymentRecords.ts");
+        const { nostrCache } = await import("/src/lib/nostrCache.ts");
+        if (nostrCache.hasRetained(note)) throw new Error("Private invoice event leaked into the public read cache");
+        return records.restorePayment(note);
+    }, event.id);
+    expect(restored?.event).toEqual(event);
+    expect(restored?.board.paymentHash).toBe(boardHash);
+    expect(state.requests).toHaveLength(1);
+    expect(state.frames).toEqual([]);
+    expect(state.errors).toEqual([]);
+});
+
+test("blocked private storage keeps invoice actions and explicit in-page recovery available", async ({ context, page }) => {
+    await context.addInitScript(() => Object.defineProperty(indexedDB, "open", { configurable: true, value: () => { throw new DOMException("Blocked", "SecurityError"); } }));
+    const state = await setup(context, page);
+    await page.getByRole("textbox", { name: "Text or link" }).fill("Keep this invoice usable when private storage is blocked");
+    await page.getByRole("button", { name: "Review post", exact: true }).click();
+    await page.getByRole("button", { name: "Add to board 210 sats", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+    await expect(page.getByText("This browser could not save this payment for recovery after closing the tab.", { exact: false })).toBeVisible();
+    const invoice = await page.getByRole("link", { name: "Open in wallet", exact: true }).getAttribute("href");
+    await expect(page.getByRole("img", { name: "Holoboard visibility invoice QR code" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Copy invoice", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+    await page.getByRole("button", { name: "Add to board", exact: true }).click();
+    await page.getByText("Unfinished payments", { exact: true }).click();
+    await page.getByRole("button", { name: "Resume payment", exact: true }).click();
+    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", invoice!);
+    expect(state.requests).toHaveLength(1); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+test("older invoice copies stay accessible without assigning a backend or checking their status", async ({ context, page }) => {
+    const invoice = walletInvoice({ hash: boardHash, amountMsats: 168000 });
+    const authorInvoice = walletInvoice({ hash: "a".repeat(64), amountMsats: 42000 });
+    const legacy = { note: original.id, board: { invoice, paymentHash: boardHash, noteId: original.id, amountSats: 168 },
+        author: { invoice: authorInvoice, payment_hash: "a".repeat(64), amount_sats: 42 } };
+    await context.addInitScript(({ key, value }) => { sessionStorage.setItem(key, value); sessionStorage.setItem("holoboard-last-payment", key); },
+        { key: `holoboard-payment:${original.id}`, value: JSON.stringify(legacy) });
+    const state = await setup(context, page);
+    await expect(page.getByText("Unfinished payments", { exact: true })).toHaveCount(0);
+    await page.getByText("Older invoices", { exact: true }).click();
+    for (const [label, amount, value] of [["Holoboard", 168, invoice], ["Author", 42, authorInvoice]] as const) {
+        await page.getByText(`${label}: ${amount} sats`, { exact: true }).click();
+        const part = page.getByLabel(`Older ${label} invoice`, { exact: true });
+        await expect(part.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", `lightning:${value}`);
+        await expect(part.getByRole("img", { name: `Older ${label} invoice QR code` })).toBeVisible();
+        await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: (value: string) => { Object.assign(window, { copiedInvoice: value }); return Promise.resolve(); } } }));
+        await part.getByRole("button", { name: "Copy invoice", exact: true }).click();
+        expect(await page.evaluate(() => (window as unknown as { copiedInvoice: string }).copiedInvoice)).toBe(value);
+    }
+    const retained = await page.evaluate(async note => {
+        const session = await import("/src/lib/paymentSession.ts");
+        return { raw: sessionStorage.getItem(`holoboard-payment:${note}`), imported: session.readPaymentSession(`holoboard-payment:${note}`) };
+    }, original.id);
+    expect(retained.raw).toBe(JSON.stringify(legacy)); expect(retained.imported).toBeNull();
+    expect(state.requests).toHaveLength(0); expect(state.statusChecks).toBe(0); expect(state.signed).toBeUndefined();
+    expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+test("late updates from another page stay with their original archived invoice", async ({ context, page }) => {
+    const state = await setup(context, page);
+    await page.getByRole("textbox", { name: "Text or link" }).fill("Keep this original invoice immutable across pages");
+    await page.getByRole("button", { name: "Review post", exact: true }).click();
+    await page.getByRole("button", { name: "Add to board 210 sats", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Promotion payment" })).toBeVisible();
+    const event = state.requests[0].event as Event;
+    const other = await context.newPage();
+    await other.goto("/");
+    await other.evaluate(async note => {
+        const session = await import("/src/lib/paymentSession.ts");
+        const records = await import("/src/components/PromoteModal/paymentRecords.ts");
+        await session.initializePaymentSessions();
+        const old = records.restorePayment(note)!;
+        await records.savePayment({ ...old, board: { ...old.board, invoice: "lnbc-new", paymentHash: "c".repeat(64) } });
+        await records.savePayment({ ...old, event: undefined, note: "d".repeat(64), board: { ...old.board, noteId: "d".repeat(64), invoice: "lnbc-other", paymentHash: "e".repeat(64) } });
+    }, event.id);
+    await page.evaluate(async ({ note, hash }) => {
+        const records = await import("/src/components/PromoteModal/paymentRecords.ts");
+        const stale = records.restorePayment(note)!;
+        await records.updateSavedPayment(note, hash, { promotionPaid: true, added: 210 });
+        await records.savePayment({ ...stale, promotionPaid: true, added: 210 }, false);
+    }, { note: event.id, hash: boardHash });
+    const saved = await other.evaluate(async note => {
+        const { IndexedPaymentRecoveryStore } = await import("/src/lib/paymentRecoveryStore.ts");
+        const { paymentBackendKey } = await import("/src/lib/paymentSession.ts");
+        const snapshot = await new IndexedPaymentRecoveryStore().read(paymentBackendKey);
+        return { current: JSON.parse(snapshot.payments.get(`holoboard-payment:${note}`)!),
+            archived: JSON.parse(snapshot.payments.get(`holoboard-payment:${note}:${"b".repeat(64)}`)!), last: snapshot.lastPayment };
+    }, event.id);
+    expect(saved.current.board.paymentHash).toBe("c".repeat(64)); expect(saved.current.promotionPaid).toBe(false);
+    expect(saved.archived.event).toEqual(event); expect(saved.archived.promotionPaid).toBe(true);
+    expect(saved.last).toBe(`holoboard-payment:${"d".repeat(64)}`);
+    expect(state.requests).toHaveLength(1); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
 });
 
 test("original and quote interpretation remain explicit and have separate paid IDs", async ({ context, page }) => {

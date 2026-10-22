@@ -31,6 +31,7 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
     const promotedNote = options.noteContent ? finalizeEvent({ kind: 1, created_at: 1700000000, tags: [], content: options.noteContent }, userKey) : note;
     if (options.blockStorage) await context.addInitScript(() => {
         Object.defineProperty(window, "sessionStorage", { get: () => { throw new DOMException("Storage blocked by this test", "SecurityError"); } });
+        Object.defineProperty(indexedDB, "open", { value: () => { throw new DOMException("Private storage blocked by this test", "SecurityError"); } });
     });
     const state = { promotedNote, authorUnavailable: options.authorUnavailable, authorEndpointRequests: 0, boardPaid: false, authorPaid: false, boardCharges: 0, authorCharges: 0, authorAttempts: 0, boardProofs: new Map<string, string>([["lnbc-visibility", boardPreimage]]), authorProofs: new Map<string, string>(), expectedSignerPubkey: getPublicKey(userKey), boardRequests: [] as Record<string, unknown>[], authorRequests: [] as Record<string, unknown>[], methods: [] as string[], signerMethods: [] as string[], linkPreviews: [] as string[], errors: [] as string[], completeAuthorPayment: undefined as (() => void) | undefined, approveSigner: undefined as ((secret?: string) => Promise<void>) | undefined };
     const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Allow-Methods": "GET,POST,OPTIONS" };
@@ -257,11 +258,11 @@ async function connectNwc(page: Page) {
 }
 
 async function savedPayment(page: Page) {
-    await expect.poll(() => page.evaluate(() => sessionStorage.getItem("holoboard-last-payment"))).not.toBeNull();
-    return page.evaluate(() => {
-        const key = sessionStorage.getItem("holoboard-last-payment");
-        if (!key) throw new Error("Expected an unfinished payment");
-        return JSON.parse(sessionStorage.getItem(key)!) as {
+    await expect.poll(() => page.evaluate(async () => (await import("/src/lib/paymentSession.ts")).readPaymentSession())).not.toBeNull();
+    return page.evaluate(async () => {
+        const value = (await import("/src/lib/paymentSession.ts")).readPaymentSession();
+        if (!value) throw new Error("Expected an unfinished payment");
+        return JSON.parse(value) as {
             board: Record<string, unknown>; boardAttempt?: Record<string, unknown>;
             author?: { amount_sats: number; author: string; invoice: string; payment_hash: string };
             authorAttempt?: { state: string; walletId: string; preimage?: string };
@@ -302,12 +303,15 @@ test("reopening ignores a saved visibility-only mock invoice with a failed walle
     const state = await setup(context, page, { authorShare: 0 });
     await prepareInvoices(page);
     await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toBeVisible();
-    await page.evaluate(() => {
-        const key = sessionStorage.getItem("holoboard-last-payment")!;
-        const payment = JSON.parse(sessionStorage.getItem(key)!);
-        payment.board.invoice = "lnbc210...mock_invoice";
-        payment.boardAttempt = { state: "uncertain", walletId: "old-wallet" };
-        sessionStorage.setItem(key, JSON.stringify(payment));
+    await page.evaluate(async () => {
+        const session = await import("/src/lib/paymentSession.ts");
+        await session.changePaymentSessions(snapshot => {
+            const key = snapshot.lastPayment!;
+            const payment = JSON.parse(snapshot.payments.get(key)!);
+            payment.board.invoice = "lnbc210...mock_invoice";
+            payment.boardAttempt = { state: "uncertain", walletId: "old-wallet" };
+            snapshot.payments.set(key, JSON.stringify(payment));
+        });
     });
     await page.reload();
     await page.getByRole("button", { name: "Boost", exact: true }).first().click();
@@ -324,13 +328,16 @@ test("a saved mock visibility invoice preserves an uncertain real author payment
     await connectNwc(page);
     await prepareInvoices(page);
     await expectSplitInvoices(page);
-    await page.evaluate(() => {
-        const key = sessionStorage.getItem("holoboard-last-payment")!;
-        const payment = JSON.parse(sessionStorage.getItem(key)!);
-        payment.board.invoice = "lnbc168...mock_invoice";
-        payment.boardAttempt = { state: "uncertain", walletId: "old-wallet" };
-        payment.authorAttempt = { state: "uncertain", walletId: "old-wallet" };
-        sessionStorage.setItem(key, JSON.stringify(payment));
+    await page.evaluate(async () => {
+        const session = await import("/src/lib/paymentSession.ts");
+        await session.changePaymentSessions(snapshot => {
+            const key = snapshot.lastPayment!;
+            const payment = JSON.parse(snapshot.payments.get(key)!);
+            payment.board.invoice = "lnbc168...mock_invoice";
+            payment.boardAttempt = { state: "uncertain", walletId: "old-wallet" };
+            payment.authorAttempt = { state: "uncertain", walletId: "old-wallet" };
+            snapshot.payments.set(key, JSON.stringify(payment));
+        });
     });
     await page.reload();
     await page.getByRole("button", { name: "Boost", exact: true }).first().click();
@@ -349,7 +356,7 @@ test("a saved mock visibility invoice preserves an uncertain real author payment
 test("blocked browser storage preserves anonymous invoices when the form reopens", async ({ context, page }) => {
     const state = await setup(context, page, { blockStorage: true, authorShare: 0 });
     await prepareInvoices(page);
-    await expect(page.getByText("This browser cannot save the payment for a refresh.", { exact: false })).toBeVisible();
+    await expect(page.getByText("This browser could not save this payment for recovery after closing the tab.", { exact: false })).toBeVisible();
     await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", "lightning:lnbc-visibility");
     await expect(page.getByRole("button", { name: "Copy invoice", exact: true })).toBeVisible();
     await expect(page.getByRole("img", { name: "Holoboard visibility invoice QR code" })).toBeVisible();
@@ -569,7 +576,7 @@ test("an author invoice paid in wallet Send is reused by promotion without anoth
     await page.clock.install();
     const state = await setup(context, page, { validAuthorInvoice: true });
     await connectNwc(page); await prepareInvoices(page);
-    await expect.poll(() => page.evaluate(() => sessionStorage.getItem("holoboard-last-payment"))).not.toBeNull();
+    await expect.poll(() => page.evaluate(async () => (await import("/src/lib/paymentSession.ts")).readPaymentSession())).not.toBeNull();
     const invoice = (await savedPayment(page)).author!.invoice;
     await openConnections(page, "wallet");
     await page.getByRole("navigation", { name: "Wallet views" }).getByRole("button", { name: "Send", exact: true }).click();
@@ -1512,8 +1519,8 @@ for (const reopen of ["persistent", "blocked storage", "offline"] as const) test
     await expect(page.getByRole("slider", { name: "Holoboard share in percent" })).toHaveValue("65");
     await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toHaveCount(0);
     if (reopen !== "blocked storage") {
-        expect(await page.evaluate(() => sessionStorage.getItem("holoboard-last-payment"))).toBeNull();
-        expect(await page.evaluate(() => Object.keys(sessionStorage).filter((key) => key.startsWith("holoboard-payment:")))).toEqual([]);
+        expect(await page.evaluate(async () => (await import("/src/lib/paymentSession.ts")).readPaymentSession())).toBeNull();
+        expect(await page.evaluate(async () => (await import("/src/lib/paymentSession.ts")).listPaymentSessions("holoboard-payment:"))).toEqual([]);
     }
     expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1);
     await page.getByRole("button", { name: "Close dialog", exact: true }).click();
@@ -1564,13 +1571,16 @@ for (const part of ["board", "author"] as const) for (const stateName of ["submi
         // persistence effect cannot overwrite the fixture with an older snapshot.
         await page.getByRole("button", { name: "Close dialog", exact: true }).click();
         await expect(page.getByRole("dialog")).toHaveCount(0);
-        await page.evaluate(({ part, stateName }) => {
-            const key = sessionStorage.getItem("holoboard-last-payment")!;
-            const payment = JSON.parse(sessionStorage.getItem(key)!);
-            if (stateName === "paid") { if (part === "board") payment.promotionPaid = true; else payment.tipStatus = "confirmed"; }
-            else if (stateName === "reported") payment.tipStatus = "reported";
-            else payment[part === "board" ? "boardAttempt" : "authorAttempt"] = { state: stateName, walletId: "previous-wallet" };
-            sessionStorage.setItem(key, JSON.stringify(payment));
+        await page.evaluate(async ({ part, stateName }) => {
+            const session = await import("/src/lib/paymentSession.ts");
+            await session.changePaymentSessions(snapshot => {
+                const key = snapshot.lastPayment!;
+                const payment = JSON.parse(snapshot.payments.get(key)!);
+                if (stateName === "paid") { if (part === "board") payment.promotionPaid = true; else payment.tipStatus = "confirmed"; }
+                else if (stateName === "reported") payment.tipStatus = "reported";
+                else payment[part === "board" ? "boardAttempt" : "authorAttempt"] = { state: stateName, walletId: "previous-wallet" };
+                snapshot.payments.set(key, JSON.stringify(payment));
+            });
         }, { part, stateName });
         await page.reload();
         await page.getByRole("button", { name: "Boost", exact: true }).first().click();
@@ -1650,18 +1660,21 @@ test("a late settlement response from an abandoned session cannot confirm new in
     expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
 });
 
-test("legacy sessions restart with known amount and allocation", async ({ context, page }) => {
+test("saved sessions without a draft restart with known amount and allocation", async ({ context, page }) => {
     const state = await setup(context, page);
     await setAuthorShare(page, 35);
     await page.getByRole("button", { name: "Custom", exact: true }).click();
     await page.getByRole("textbox", { name: "Custom total in sats", exact: true }).fill("500");
     await page.getByRole("button", { name: "Boost 500 sats", exact: true }).click();
     await expect(page.getByRole("button", { name: "Restart payment", exact: true })).toBeEnabled();
-    await page.evaluate(() => {
-        const key = sessionStorage.getItem("holoboard-last-payment")!;
-        const payment = JSON.parse(sessionStorage.getItem(key)!);
-        delete payment.draft;
-        sessionStorage.setItem(key, JSON.stringify(payment));
+    await page.evaluate(async () => {
+        const session = await import("/src/lib/paymentSession.ts");
+        await session.changePaymentSessions(snapshot => {
+            const key = snapshot.lastPayment!;
+            const payment = JSON.parse(snapshot.payments.get(key)!);
+            delete payment.draft;
+            snapshot.payments.set(key, JSON.stringify(payment));
+        });
     });
     await page.reload();
     await page.getByRole("button", { name: "Boost", exact: true }).first().click();
@@ -2071,7 +2084,7 @@ test("leaving a pending wallet response cannot affect payment for another note",
     await expect.poll(async () => (await savedPayment(page)).board.noteId).toBe(otherNote.id);
     const current = await savedPayment(page);
     state.completeAuthorPayment!();
-    await expect.poll(() => page.evaluate((id) => JSON.parse(sessionStorage.getItem(`holoboard-payment:${id}`)!).authorAttempt?.state, note.id)).toBe("submitted");
+    await expect.poll(() => page.evaluate(async (id) => JSON.parse((await import("/src/lib/paymentSession.ts")).readPaymentSession(`holoboard-payment:${id}`)!).authorAttempt?.state, note.id)).toBe("submitted");
     const after = await savedPayment(page);
     expect(after.board).toEqual(current.board); expect(after.author).toEqual(current.author);
     expect(after.promotionPaid).toBe(false); expect(after.tipStatus).toBe("pending");

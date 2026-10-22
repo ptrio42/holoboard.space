@@ -358,8 +358,26 @@ payment list; a specific note restores only its own session. Returning to editin
 survives reopening. Expired, unattempted sessions reopen in the editor while
 retaining their invoices for review. Changing notes clears amount, split,
 appearance, notifications, public-zap consent and stale status messages.
-An archive write failure keeps all records in memory and the persistence notice
-visible, even if the current invoice saves successfully.
+Unfinished invoices survive closing the tab in the same browser profile and app
+origin. The editor waits for private IndexedDB storage before listing saved
+payments. Recovery requires explicit selection and preserves original invoices,
+hashes, signed post snapshots and the configured API URL and relay identity.
+This database is separate from public read caches and the publication outbox;
+it contains no guest author keys or wallet/signer credentials. Invoice and
+metadata changes commit together, including hash-scoped archived updates.
+Durability follows the transaction's completion, as defined by the
+[IndexedDB transaction lifecycle](https://w3c.github.io/IndexedDB/#transaction-lifecycle).
+Failed writes keep records in memory with a visible limited-lifetime notice.
+They are retried on the next change without evicting unresolved or expired invoices.
+
+Old tab-storage records without matching original backend metadata are never
+assigned to the currently configured backend or imported into durable recovery.
+Their originals stay untouched. **Older invoices** exposes their original amounts,
+Lightning links, copies and QR codes without signing, publication, connections,
+new invoices or backend status requests. Compatible records with explicit matching
+backend metadata can be imported without replacing durable records or deleting
+the tab-storage originals. This is browser-format compatibility, not a server-data
+migration. Recovery is local to this browser, and clearing its site data removes it.
 Expired recipient invoices can be replaced individually
 when their own wallet attempt is resolved, preserving the other part.
 Issued invoices remain payable; clearing local state
@@ -374,10 +392,10 @@ confirmation DMs also accept a manually entered npub. The legacy
 [WebLN](https://www.webln.guide/building-lightning-apps/webln-reference/webln.sendpayment)
 can pay the recipient invoices sequentially. The fallback exposes separate
 Lightning links, copies and QR codes. Without a signer, author support uses
-ordinary invoices. Partial
-payments remain in session storage for the current tab; retry skips confirmed
-parts. Manual author payment is explicitly unverified unless a receipt arrives.
-If browser storage is blocked or full, payments stay in memory when reopening
+ordinary invoices. Partial payments remain in private recovery storage; retry
+skips confirmed parts. Manual author payment is explicitly unverified unless a
+receipt arrives.
+If private storage is blocked or full, payments stay in memory when reopening
 the form. A visible notice explains that a refresh or closing the tab cannot
 restore them. Invoice links, copying, QR and optional connections still work.
 If preparing author support fails, the form offers visibility only and shows

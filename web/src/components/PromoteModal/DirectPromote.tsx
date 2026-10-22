@@ -22,15 +22,16 @@ import { ConnectionSettings } from "./ConnectionSettings";
 import { useConnections } from "../../hooks/useConnections";
 import { hasSavedWalletConnection } from "../../lib/connections";
 import { canPayOrCheckInvoice, payInvoiceSafely, type WalletAttempt } from "../../lib/walletPayment";
-import { paymentSessionIsPersistent, removePaymentSession } from "../../lib/paymentSession";
+import { getPaymentSessionStatus, subscribePaymentSessions } from "../../lib/paymentSession";
 import { acknowledgeWalletFailure, getWalletAttempt, getWalletAttemptsSnapshot, subscribeWalletAttempts } from "../../lib/walletAttempts";
 import { isMockInvoice, MOCK_INVOICE_MESSAGE } from "../../lib/invoice";
 
 import { PaymentTabs } from "./PaymentTabs";
 import { PromotionPayment } from "./PromotionPayment";
 import { PromotionPaymentResult } from "./PromotionPaymentResult";
+import { LegacyInvoices } from "./LegacyInvoices";
 import { UnfinishedPayments } from "./UnfinishedPayments";
-import { paymentKey as storageKey, restorePayment, savePayment, unfinishedPayments, updateSavedPayment } from "./paymentRecords";
+import { removeSavedPayment, restorePayment, savePayment, unfinishedPayments, unverifiedLegacyPayments, updateSavedPayment } from "./paymentRecords";
 import { restartBlocked, type PromotionPayment as Payment, type PaymentMethod, type PaymentRecipient } from "./PaymentState";
 
 const FIELD = "focus-pixel w-full border-2 border-cyan-400/40 bg-void px-3 py-2 text-base text-cyan-100";
@@ -94,7 +95,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     const [publicZapSigner, setPublicZapSigner] = useState<ReturnType<typeof browserSigner>>();
     const [actualRank, setActualRank] = useState<number | null>(null);
     const [now, setNow] = useState(Date.now);
-    const [canResume, setCanResume] = useState(paymentSessionIsPersistent);
+    const recovery = useSyncExternalStore(subscribePaymentSessions, getPaymentSessionStatus);
     const pendingSessions = unfinishedPayments(parseNoteReference(reference)?.id);
     const abort = useRef<AbortController | null>(null);
     const latestPayment = useRef(payment);
@@ -168,13 +169,13 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         setSelectedEvent(undefined); setReference(next); setPreview(null); setEndpoint(null); setAuthorInvoiceError(""); setNoteExpanded(false);
         setLoading(!!parseNoteReference(next));
     };
-    const resumePayment = (saved: Payment) => {
+    const resumePayment = async (saved: Payment) => {
         if (busy) return;
-        if (payment) savePayment({ ...payment, editing: true });
+        if (payment) await savePayment({ ...payment, editing: true });
         changeReference(saved.note);
         setSelectedEvent(saved.event);
         const resumed = { ...saved, editing: false };
-        savePayment(resumed); setPayment(resumed); setRecordsVersion((version) => version + 1);
+        await savePayment(resumed); setPayment(resumed); setRecordsVersion((version) => version + 1);
         setLoadVersion((version) => version + 1); selectTab("compose"); setChangingReference(false);
         const first = preferredWallet(); setWalletFirst(first); setMethod(first ? "wallet" : "invoice");
         setRecipient(saved.promotionPaid && saved.author ? "author" : "board");
@@ -234,8 +235,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     }, [reference, initialReference, loadVersion, selectedEvent]);
     useEffect(() => () => abort.current?.abort(), []);
     useEffect(() => {
-        if (!payment) return;
-        setCanResume(savePayment(payment));
+        if (payment) void savePayment(payment, false);
     }, [payment]);
     const boardInvoice = payment?.board;
     const promotionPaid = payment?.promotionPaid;
@@ -365,7 +365,9 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                 notified.current = false; setActualRank(null);
                 const prepared: Payment = { note: reference, event: selectedEvent, noteSummary: preview.event.content.replace(/\s+/g, " ").trim().slice(0, 160), board, author, tipStatus: "pending", promotionPaid: false, added: 0, authorShare, publicZap: usePublicZap, notificationRequested: contact !== null,
                     draft: { amount, amountSelection, authorShare, billboardEnabled, config, notifyEnabled, notifyPubkey } };
-                savePayment(prepared); setPayment(prepared); selectTab("compose");
+                await savePayment(prepared);
+                if (controller.signal.aborted) return;
+                setPayment(prepared); selectTab("compose");
                 const first = preferredWallet(); setWalletFirst(first); setMethod(first ? "wallet" : "invoice");
                 setRecipient("board"); setRestartConfirm(false);
             }
@@ -424,7 +426,11 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         try {
             const publicZap = (!payment.event || payment.promotionPaid) && !!payment.publicZap && hasPublicZapConsent() && endpoint.allows_nostr;
             const author = await requestAuthorInvoice(payment.note, payment.author.amount_sats, endpoint, publicZap && (!payment.event || payment.promotionPaid), payment.board.noteId, controller.signal, payment.event);
-            if (!controller.signal.aborted) setPayment((current) => current?.author?.payment_hash === payment.author?.payment_hash ? { ...current!, author, authorAttempt: undefined, publicZap } : current);
+            if (!controller.signal.aborted && latestPayment.current?.author?.payment_hash === payment.author.payment_hash) {
+                const next = { ...latestPayment.current, author, authorAttempt: undefined, publicZap };
+                await savePayment(next, false);
+                if (!controller.signal.aborted) setPayment(next);
+            }
         } catch (failure) { if (!controller.signal.aborted) setError(describeFailure(failure)); }
         finally { if (!controller.signal.aborted) setBusy(false); }
     };
@@ -446,20 +452,24 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
             const contact = draft?.notifyEnabled ? parsePubkey(draft.notifyPubkey) ?? undefined : undefined;
             const visibility = payment.board.promotionSats ?? payment.board.amountSats - (payment.board.billboardFeeSats ?? 0);
             const board = await requestInvoice(payment.note, visibility, controller.signal, appearance, contact, payment.authorShare, payment.event);
-            if (!controller.signal.aborted) setPayment((current) => current?.board.paymentHash === payment.board.paymentHash ? { ...current, board, boardAttempt: undefined, notificationRequested: !!contact } : current);
+            if (!controller.signal.aborted && latestPayment.current?.board.paymentHash === payment.board.paymentHash) {
+                const next = { ...latestPayment.current, board, boardAttempt: undefined, notificationRequested: !!contact };
+                await savePayment(next);
+                if (!controller.signal.aborted) setPayment(next);
+            }
         } catch (failure) { if (!controller.signal.aborted) setError(describeFailure(failure)); }
         finally { if (!controller.signal.aborted) setBusy(false); }
     };
-    const startAnother = () => {
+    const startAnother = async () => {
         if (!payment) return;
-        removePaymentSession(storageKey(payment.note));
+        await removeSavedPayment(payment.note, payment.board.paymentHash);
         setPayment(null); setError(""); setActualRank(null); notified.current = false; setRestartConfirm(false); selectTab("compose");
         setRecordsVersion((version) => version + 1);
     };
-    const backToPromotion = (saved = latestPayment.current) => {
+    const backToPromotion = async (saved = latestPayment.current) => {
         if (!saved) return;
         abort.current?.abort();
-        savePayment({ ...saved, editing: true });
+        await savePayment({ ...saved, editing: true });
         if (preview) restoreDraft(saved, preview);
         setPayment(null); setBusy(false); setWalletPart(null); setError(""); setRestartConfirm(false);
         setActualRank(null); notified.current = false; selectTab("compose");
@@ -490,7 +500,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
             restartedDraft.current = payment;
             abort.current?.abort();
             setBusy(false);
-            startAnother();
+            await startAnother();
             setLoadVersion((version) => version + 1);
         } finally { if (!controller.signal.aborted) setBusy(false); }
     };
@@ -561,7 +571,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         onDone={onClose} onAnother={startAnother} onHelp={() => openHelp("payments")} footer={footer} />;
     if (payment) return <>{navigation}<PromotionPayment id={navigationId} payment={payment} method={method} recipient={recipient}
         onRecipient={setRecipient} wallet={browserWallet()} walletName={connections.walletName} connecting={connections.walletStatus === "connecting"}
-        busy={busy} walletPart={walletPart} now={now} canResume={canResume} error={error} actualRank={actualRank}
+        busy={busy} walletPart={walletPart} now={now} storageFailed={recovery.failed} error={error} actualRank={actualRank}
         onPay={() => void payWithWallet()} onReplaceAuthor={() => void replaceAuthorInvoice()}
         onReplaceBoard={() => void replaceBoardInvoice()}
         onReportAuthor={() => setPayment({ ...payment, tipStatus: "reported" })}
@@ -576,7 +586,8 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         onBack={() => backToPromotion()}
         restartConfirm={restartConfirm} onRestartConfirm={setRestartConfirm} hasPublicZapConsent={hasPublicZapConsent()} authorCanReplace={!!endpoint?.available} footer={footer} /></>;
     return <>{navigation}<div className={boost ? "space-y-2" : "space-y-4"} aria-busy={loading || busy} {...tabPanelProps}>
-        <UnfinishedPayments payments={pendingSessions} forNote={!!parseNoteReference(reference)} disabled={busy} persistent={paymentSessionIsPersistent()} onResume={resumePayment} />
+        <UnfinishedPayments payments={pendingSessions} forNote={!!parseNoteReference(reference)} disabled={busy} storageFailed={recovery.failed} onResume={resumePayment} />
+        {recovery.unverifiedLegacy && <LegacyInvoices payments={unverifiedLegacyPayments()} />}
         {composer}
         {!composer && (!preview && !initialReference || changingReference) && <label className="block space-y-2">
             <span className="promotion-label text-cyan-200/70">Note link</span>

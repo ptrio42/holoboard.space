@@ -17,6 +17,7 @@ export interface PromotionDraft {
     notifyPubkey: string;
 }
 export interface PromotionPayment {
+    recoveryBackend?: { api: string; relayPubkey: string };
     note: string; board: PromoteInvoice; author?: AuthorInvoice;
     tipStatus: "pending" | "confirmed" | "reported";
     promotionPaid: boolean; added: number; authorShare: number;

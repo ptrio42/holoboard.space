@@ -1,7 +1,7 @@
 import type { PromotionPayment } from "./PaymentState";
 
-export function UnfinishedPayments({ payments, forNote, disabled, persistent, onResume }: {
-    payments: PromotionPayment[]; forNote: boolean; disabled: boolean; persistent: boolean; onResume: (payment: PromotionPayment) => void;
+export function UnfinishedPayments({ payments, forNote, disabled, storageFailed, onResume }: {
+    payments: PromotionPayment[]; forNote: boolean; disabled: boolean; storageFailed: boolean; onResume: (payment: PromotionPayment) => void;
 }) {
     if (!payments.length) return null;
     return <details className="disclosure border border-cyan-400/25 px-3" open={forNote}>
@@ -9,7 +9,7 @@ export function UnfinishedPayments({ payments, forNote, disabled, persistent, on
             {forNote ? "Previous payment for this note" : "Unfinished payments"}
         </summary>
         <div className="space-y-3 pb-3 text-xs text-cyan-100/70">
-            {!persistent && <p>Keep this tab open. This browser could not save all invoices for a refresh.</p>}
+            {storageFailed && <p>Keep this tab open. This browser could not save all invoices for recovery after closing it.</p>}
             <p>Resume to finish the remaining parts. A new payment has its own total. Previous invoices are kept; returning here does not cancel or refund payments.</p>
             {payments.map((payment) => <div key={`${payment.board.noteId}:${payment.board.paymentHash}`} className="space-y-1 border-t border-cyan-400/20 pt-2">
                 {!forNote && <p className="truncate text-cyan-100">{payment.noteSummary || payment.draft?.config.text || `Note ${payment.board.noteId.slice(0, 8)}...${payment.board.noteId.slice(-6)}`}</p>}
