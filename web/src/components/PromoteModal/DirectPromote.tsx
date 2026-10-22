@@ -1,4 +1,4 @@
-import type { BoardComposition } from "./BoardComposer";
+import type { BoardComposition, BoardComposerView } from "./BoardComposer";
 import type { Event } from "nostr-tools/pure";
 import { isAnonymousPost } from "../../lib/boardComposer";
 import { queryNostr } from "../../lib/nostrTransport";
@@ -39,7 +39,7 @@ const FIELD = "focus-pixel w-full border-2 border-cyan-400/40 bg-void px-3 py-2 
 type Panel = "compose" | "appearance" | "options" | "wallet" | "signer" | "help";
 
 export function DirectPromote({ initialReference = "", currentWeight, rankingTargets, onPaid, onClose, initialSection, footerHost, navigationHost, onPresentationChange, draftEvent, composer, composition }: {
-    composition?: BoardComposition; draftEvent?: Event; composer?: ReactNode;
+    composition?: BoardComposition; draftEvent?: Event; composer?: BoardComposerView;
     initialReference?: string; currentWeight?: number; rankingTargets: RankingTarget[]; onPaid?: () => void;
     onClose: () => void; initialSection?: string; footerHost: HTMLDivElement | null; navigationHost: HTMLDivElement | null;
     onPresentationChange: (value: { compact: boolean; boost: boolean; payment: boolean }) => void;
@@ -633,7 +633,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         <UnfinishedPayments payments={pendingSessions} forNote={!!parseNoteReference(reference)} disabled={busy} storageFailed={recovery.failed} onResume={resumePayment} />
         {recovery.unverifiedLegacy && <LegacyInvoices payments={unverifiedLegacyPayments()} />}
         {resuming && <StatusMessage loading compact>Restoring saved payment...</StatusMessage>}
-        {composer && <fieldset disabled={resuming} className="contents">{composer}</fieldset>}
+        {composer && <fieldset disabled={resuming} className="contents">{composer.editor}{composer.authorDetails}</fieldset>}
         {!composer && (!preview && !initialReference || changingReference) && <label className="block space-y-2">
             <span className="promotion-label text-cyan-200/70">Note link</span>
             <input className={`${FIELD} min-h-11 text-base`} value={reference} placeholder="note1, nevent1, or a note link" spellCheck={false} disabled={busy}

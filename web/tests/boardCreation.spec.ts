@@ -9,10 +9,26 @@ test.skip(process.env.VITE_ENABLE_POST_CREATION !== "true", "Requires the indepe
 const original = finalizeEvent({ kind: 1, created_at: 1700000000, tags: [], content: "Original source for a quote." }, generateSecretKey());
 const accountKey = generateSecretKey(), accountPubkey = getPublicKey(accountKey);
 const boardHash = "b".repeat(64);
+const compositionEvidence = new WeakMap<BrowserContext, {
+    signerRequests: string[]; reviewedIds: string[]; requests: Record<string, unknown>[]; frames: string[];
+}>();
+
+test.afterEach(async ({ context }, info) => {
+    const state = compositionEvidence.get(context);
+    if (state) await info.attach("composer-evidence", { contentType: "application/json", body: JSON.stringify({
+        signerRequests: state.signerRequests, reviewedIds: state.reviewedIds,
+        invoiceIds: state.requests.map(request => (request.event as Event | undefined)?.id ?? request.note),
+        publicationFrames: state.frames,
+    }, null, 2) });
+});
 
 async function installExtension(context: BrowserContext, page: Page, getPubkey = async () => accountPubkey) {
     await page.exposeFunction("boardFixturePublicKey", getPubkey);
-    await page.exposeFunction("boardFixtureSignEvent", (template: EventTemplate) => finalizeEvent(template, accountKey));
+    await page.exposeFunction("boardFixtureSignEvent", (template: EventTemplate) => {
+        const event = finalizeEvent(template, accountKey);
+        compositionEvidence.get(context)?.signerRequests.push(event.id);
+        return event;
+    });
     await context.addInitScript(() => {
         const fixture = window as unknown as {
             boardFixturePublicKey(): Promise<string>;
@@ -27,7 +43,8 @@ async function installExtension(context: BrowserContext, page: Page, getPubkey =
 
 async function setup(context: BrowserContext, page: Page) {
     const origin = new URL(test.info().project.use.baseURL!).origin;
-    const state = { requests: [] as Record<string, unknown>[], signed: undefined as Event | undefined, paid: false, frames: [] as string[], errors: [] as string[], links: [] as string[], statusChecks: 0, pauseBoard: false, releaseBoard: undefined as (() => void) | undefined };
+    const state = { requests: [] as Record<string, unknown>[], signerRequests: [] as string[], reviewedIds: [] as string[], signed: undefined as Event | undefined, paid: false, frames: [] as string[], errors: [] as string[], links: [] as string[], statusChecks: 0, pauseBoard: false, releaseBoard: undefined as (() => void) | undefined };
+    compositionEvidence.set(context, state);
     page.on("pageerror", error => state.errors.push(error.message));
     await context.route("**/*", async route => {
         const url = new URL(route.request().url());
@@ -41,7 +58,10 @@ async function setup(context: BrowserContext, page: Page) {
         else if (url.pathname === "/api/board/waiting-updates") data = { count: 0, note_ids: [], checked_at: Date.now() };
         else if (url.pathname === "/api/promote/preview") {
             const event = body.event ?? (body.note === state.signed?.id ? state.signed : original);
-            if (body.event) { expect(verifyEvent(body.event)).toBe(true); state.signed = body.event; }
+            if (body.event) {
+                expect(verifyEvent(body.event)).toBe(true); state.signed = body.event;
+                if (!state.reviewedIds.includes(body.event.id)) state.reviewedIds.push(body.event.id);
+            }
             data = { event, active: state.paid && event.id === state.signed?.id, sats_paid: state.paid && event.id === state.signed?.id ? 210 : 0, weight: 0, rank: 0, author_share: 0, billboard_fee_sats: 100, images: [] };
         } else if (url.pathname === "/api/support") data = { available: false, author: body.event?.pubkey ?? original.pubkey, reason_code: "no_address", reason: "No payment address", min_sats: 1, max_sats: 0, allows_nostr: false };
         else if (url.pathname === "/api/promote") {
@@ -98,6 +118,17 @@ test("guest text and links become one private signed post with recoverable invoi
     expect(state.frames).toEqual([]);
     const persisted = await page.evaluate(() => JSON.stringify(Object.fromEntries(Object.entries(sessionStorage))));
     expect(persisted).not.toContain("nsec1");
+    const savedInvoices = await page.evaluate(async () => {
+        const { IndexedPaymentRecoveryStore } = await import("/src/lib/paymentRecoveryStore.ts");
+        const { paymentBackendKey } = await import("/src/lib/paymentSession.ts");
+        const snapshot = await new IndexedPaymentRecoveryStore().read(paymentBackendKey);
+        return [...snapshot.payments.values()].map(value => JSON.parse(value));
+    });
+    expect(savedInvoices).toHaveLength(1);
+    // Invoice JSON excludes nostr-tools' in-memory verification symbol.
+    expect(savedInvoices[0].event).toEqual(JSON.parse(JSON.stringify(submitted)));
+    expect(verifyEvent(savedInvoices[0].event)).toBe(true);
+    expect(JSON.stringify(savedInvoices)).not.toContain("nsec1");
     await page.reload();
     await page.getByRole("button", { name: "Add to board", exact: true }).click();
     await expect(page.getByText("Unfinished payments", { exact: true })).toBeVisible();
@@ -108,6 +139,7 @@ test("guest text and links become one private signed post with recoverable invoi
     state.paid = true;
     await expect(page.getByLabel("Promotion result")).toContainText("Delivery to other apps is pending");
     expect(state.signed?.id).toBe(submitted.id); expect(state.errors).toEqual([]);
+    expect(state.signerRequests).toEqual([]); expect(state.reviewedIds).toEqual([submitted.id]);
 });
 
 test("guest invoices survive a closed tab and explicit recovery in a fresh page", async ({ context, page }) => {
@@ -275,6 +307,7 @@ test("a delayed resume locks source choices and cannot replace a draft after clo
         await expect(page.getByRole("textbox", { name: "Text or link" })).toBeDisabled();
         await expect(resumeB).toBeDisabled();
         await expect(page.getByRole("button", { name: "Review post", exact: true })).toBeDisabled();
+        if (process.env.VITE_ENABLE_NOSTR_CONNECT === "true") await expect(page.getByRole("button", { name: "Sign in with Nostr", exact: true })).toBeDisabled();
         await expect(page.getByRole("button", { name: "Close dialog", exact: true })).toBeEnabled();
         await page.getByRole("button", { name: "Close dialog", exact: true }).click();
         await page.getByRole("button", { name: "Add to board", exact: true }).click();
@@ -307,6 +340,7 @@ test("original and quote interpretation remain explicit and have separate paid I
     expect(state.requests[0].note).toBe(paid.id);
     expect(paid.tags).toContainEqual(["q", original.id, "", original.pubkey]);
     expect(paid.tags.some(tag => tag[0] === "e")).toBe(false);
+    expect(state.signerRequests).toEqual([]); expect(state.reviewedIds).toEqual([paid.id]);
     expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
 });
 
@@ -359,12 +393,17 @@ test("Nostr sign-in preserves text and payment choices and can post anonymously"
     await expect(page.getByRole("button", { name: "Add to board 333 sats", exact: true })).toBeEnabled();
     expect(state.signed?.pubkey).toBe(accountPubkey);
     expect(state.signed?.tags.some(tag => tag[0] === "l")).toBe(false);
+    const accountPost = state.signed!;
+    expect(state.signerRequests).toEqual([accountPost.id]);
     await page.getByRole("checkbox", { name: "Post anonymously", exact: true }).check();
     await expect(page.getByText("Author: Anonymous", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Review post", exact: true }).click();
     await expect(page.getByRole("button", { name: "Add to board 333 sats", exact: true })).toBeEnabled();
     expect(state.signed?.pubkey).not.toBe(accountPubkey);
     expect(state.signed?.tags).toContainEqual(["l", "anonymous", "space.holoboard.attribution"]);
+    expect(state.signerRequests).toEqual([accountPost.id]);
+    expect(state.reviewedIds).toEqual([accountPost.id, state.signed!.id]);
+    expect(state.requests).toEqual([]);
     expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
 });
 
@@ -394,6 +433,8 @@ test("late Nostr sign-in preserves already prepared guest invoices", async ({ co
     await expect(page.getByRole("button", { name: "Add to board 210 sats", exact: true })).toBeDisabled();
     expect(state.requests).toHaveLength(1);
     expect(state.requests[0].event).toEqual(guest);
+    expect(state.signerRequests).toEqual([]); expect(state.reviewedIds).toEqual([guest.id]);
+    expect(state.frames).toEqual([]);
     expect(state.errors).toEqual([]);
 });
 
@@ -420,6 +461,9 @@ test("Nostr sign-in during invoice preparation keeps the frozen guest post", asy
     expect(state.requests).toHaveLength(1);
     expect(guest.pubkey).not.toBe(accountPubkey);
     expect(state.requests[0].note).toBe(guest.id);
+    expect(state.requests[0].event).toEqual(guest);
+    expect(state.signerRequests).toEqual([]); expect(state.reviewedIds).toEqual([guest.id]);
+    expect(state.frames).toEqual([]);
     expect(state.errors).toEqual([]);
 });
 

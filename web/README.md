@@ -621,8 +621,9 @@ ranking, author support and discussion belong to the new quoted post, not its
 source. Billboard appearance uses the paid event's content.
 
 Signed-out authors create a guest post with a fresh in-memory key. **Save author
-key** optionally exports `nsec`; an unsaved key cannot be recovered after refresh
-or closing the editor. Signed invoice snapshots remain recoverable without it.
+key** optionally exports `nsec`; an unsaved key cannot be recovered after refresh,
+closing the editor or reviewing changed content. Signed invoice snapshots remain
+recoverable without it.
 Logged-in authors can explicitly choose **Post anonymously**. Guest posts label
 their own author **Anonymous** using signed NIP-32 tags in
 `space.holoboard.attribution`; public keys remain available in details. This
@@ -631,6 +632,9 @@ payment providers. Guest payments use 100% visibility and no account-bound
 notifications or public zap consent.
 
 **Review post** signs the exact post for the payment preview. It does not publish.
+Reviewing unchanged text, interpretation and author reuses the same signed event
+and guest key. The composer stays mounted while payment and contextual panels
+are shown; author details and optional key export remain owned by that composer.
 The invoice stores that signed snapshot separately from the browser public
 outbox. Changing text prepares a different event while earlier invoices retain
 their own content, ID and payment attempts. Settlement commits the board entry
