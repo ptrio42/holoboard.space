@@ -4,6 +4,8 @@ import { isMockInvoice } from "../../lib/invoice";
 import { parseNoteReference } from "../../lib/nostr";
 import { changePaymentSessions, hasPaymentProvenance, listPaymentSessions, listUnverifiedPaymentSessions, paymentBackend, readPaymentSession, serializePrivatePayment } from "../../lib/paymentSession";
 import { getWalletAttempt, validWalletAttempt } from "../../lib/walletAttempts";
+import type { PromoteInvoice } from "../../lib/promote";
+import type { AuthorInvoice } from "../../lib/support";
 import type { PromotionPayment } from "./PaymentState";
 
 export const paymentKey = (note: string) => `holoboard-payment:${parseNoteReference(note)?.id ?? note}`;
@@ -98,18 +100,27 @@ export function unfinishedPayments(note?: string): PromotionPayment[] {
  */
 const serializePayment = serializePrivatePayment;
 
-/** A stale component or another tab may not erase a known settlement. */
+function mergeAttempt(current: PromotionPayment["boardAttempt"], next: PromotionPayment["boardAttempt"], resolved = false): PromotionPayment["boardAttempt"] {
+    if (!current) return next;
+    if (current.state === "submitted") return next?.state === "submitted" ? { ...current, ...next, preimage: next.preimage ?? current.preimage } : current;
+    if (current.state === "uncertain" && next?.state !== "submitted" && !(resolved && next?.state === "unpaid")) return current;
+    return next ?? current;
+}
+
+/** Ordinary snapshots never replace an issued recipient invoice. Stale author
+ * state can contribute only when its author hash matches the stored invoice.
+ */
 function mergePayment(current: PromotionPayment, next: PromotionPayment): PromotionPayment {
-    const attempt = (old: PromotionPayment["boardAttempt"], incoming: PromotionPayment["boardAttempt"]) =>
-        old && (old.state === "submitted" || (old.state === "uncertain" && incoming?.state !== "submitted")) ? old : incoming ?? old;
-    return { ...next,
-        boardAttempt: attempt(current.boardAttempt, next.boardAttempt),
-        authorAttempt: current.author?.payment_hash === next.author?.payment_hash ? attempt(current.authorAttempt, next.authorAttempt) : next.authorAttempt,
+    const sameAuthor = !!current.author && current.author.payment_hash === next.author?.payment_hash;
+    return { ...next, author: current.author,
+        boardAttempt: mergeAttempt(current.boardAttempt, next.boardAttempt),
+        authorAttempt: sameAuthor ? mergeAttempt(current.authorAttempt, next.authorAttempt) : current.authorAttempt,
         board: current.board, event: current.event ?? next.event,
         promotionPaid: current.promotionPaid || next.promotionPaid,
         added: Math.max(current.added, next.added),
-        tipStatus: current.author?.payment_hash === next.author?.payment_hash && current.tipStatus !== "pending"
-            ? current.tipStatus === "confirmed" ? "confirmed" : next.tipStatus === "confirmed" ? "confirmed" : "reported" : next.tipStatus,
+        tipStatus: sameAuthor ? current.tipStatus === "confirmed" || next.tipStatus === "confirmed" ? "confirmed"
+            : current.tipStatus === "reported" || next.tipStatus === "reported" ? "reported" : "pending" : current.tipStatus,
+        publicZap: sameAuthor ? next.publicZap : current.publicZap,
         publication: current.publication === "delivered" || current.publication === "stopped" ? current.publication : next.publication,
         billboardApplied: current.billboardApplied || next.billboardApplied, feeConverted: current.feeConverted || next.feeConverted,
     };
@@ -155,22 +166,74 @@ export function removeSavedPayment(note: string, hash: string): Promise<boolean>
         const unresolved = current.promotionPaid || current.tipStatus !== "pending" ||
             [current.boardAttempt, current.authorAttempt].some(attempt => attempt && attempt.state !== "unpaid");
         if (!complete(current) && unresolved) return;
+        if (complete(current)) snapshot.payments.set(archivedKey(current), serializePayment({ ...current, editing: true }));
         snapshot.payments.delete(key);
         if (snapshot.lastPayment === key) snapshot.lastPayment = null;
     });
 }
 
-export function updateSavedPayment(note: string, hash: string, changes: Partial<PromotionPayment>): Promise<boolean> {
+export function updateSavedPayment(note: string, hash: string, changes: Partial<PromotionPayment>, expectedAuthorHash?: string): Promise<boolean> {
     return changePaymentSessions(snapshot => {
         for (const key of [paymentKey(note), `${paymentKey(note)}:${hash}`]) {
             const current = parsePayment(snapshot.payments.get(key) ?? null);
             if (current?.board.paymentHash !== hash) continue;
             // Late callbacks can update only their own invoice. Identity, original
             // signed event, editing selection and last-payment pointer stay intact.
+            const authorMatches = !!expectedAuthorHash && current.author?.payment_hash === expectedAuthorHash;
             const next = mergePayment(current, { ...current, ...changes, note: current.note, board: current.board,
-                author: current.author, event: current.event, recoveryBackend: current.recoveryBackend, editing: current.editing });
+                author: current.author, event: current.event, recoveryBackend: current.recoveryBackend, editing: current.editing,
+                tipStatus: authorMatches ? changes.tipStatus ?? current.tipStatus : current.tipStatus,
+                authorAttempt: authorMatches ? changes.authorAttempt ?? current.authorAttempt : current.authorAttempt,
+                publicZap: current.publicZap });
+            // These callbacks include explicit lookup/acknowledgement outcomes.
+            // Autosave cannot release an uncertain attempt by copying old state.
+            next.boardAttempt = mergeAttempt(current.boardAttempt, changes.boardAttempt, true);
+            if (authorMatches) next.authorAttempt = mergeAttempt(current.authorAttempt, changes.authorAttempt, true);
             snapshot.payments.set(key, serializePayment(next));
             return;
         }
+    });
+}
+
+/** Recipient replacement rechecks the original hashes and unresolved state in
+ * the transaction. It derives the other recipient from current durable state.
+ */
+async function replaceSavedInvoice(note: string, boardHash: string, replace: (current: PromotionPayment) => PromotionPayment | null): Promise<PromotionPayment | null> {
+    let replaced: PromotionPayment | null = null;
+    await changePaymentSessions(snapshot => {
+        replaced = null;
+        const main = paymentKey(note);
+        for (const key of [main, `${main}:${boardHash}`]) {
+            const current = parsePayment(snapshot.payments.get(key) ?? null);
+            if (current?.board.paymentHash !== boardHash) continue;
+            const next = replace(current);
+            if (!next || !parsePayment(serializePayment(next))) return;
+            if (next.board.paymentHash !== boardHash) {
+                snapshot.payments.set(archivedKey(current), serializePayment({ ...current, editing: true }));
+            }
+            snapshot.payments.set(key === main ? main : archivedKey(next), serializePayment(next));
+            replaced = next;
+            return;
+        }
+    });
+    return replaced;
+}
+
+export function replaceSavedAuthorInvoice(note: string, boardHash: string, authorHash: string, author: AuthorInvoice, publicZap: boolean): Promise<PromotionPayment | null> {
+    return replaceSavedInvoice(note, boardHash, current => {
+        if (!current.author || current.author.payment_hash !== authorHash || current.tipStatus !== "pending" ||
+            current.author.expires_at * 1000 > Date.now() || (current.authorAttempt && current.authorAttempt.state !== "unpaid") ||
+            author.payment_hash === authorHash || author.amount_sats !== current.author.amount_sats || author.author !== current.author.author) return null;
+        return { ...current, author, authorAttempt: undefined, tipStatus: "pending", publicZap };
+    });
+}
+
+export function replaceSavedBoardInvoice(note: string, boardHash: string, board: PromoteInvoice, notificationRequested: boolean): Promise<PromotionPayment | null> {
+    return replaceSavedInvoice(note, boardHash, current => {
+        if (current.promotionPaid || current.board.expiresAt * 1000 > Date.now() ||
+            (current.boardAttempt && current.boardAttempt.state !== "unpaid") || board.paymentHash === boardHash ||
+            board.noteId !== current.board.noteId || board.amountSats !== current.board.amountSats) return null;
+        return { ...current, board, boardAttempt: undefined, notificationRequested, promotionPaid: false,
+            added: 0, publication: undefined, billboardApplied: undefined, feeConverted: undefined };
     });
 }

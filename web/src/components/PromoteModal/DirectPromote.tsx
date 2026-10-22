@@ -31,7 +31,7 @@ import { PromotionPayment } from "./PromotionPayment";
 import { PromotionPaymentResult } from "./PromotionPaymentResult";
 import { LegacyInvoices } from "./LegacyInvoices";
 import { UnfinishedPayments } from "./UnfinishedPayments";
-import { removeSavedPayment, restorePayment, savePayment, unfinishedPayments, unverifiedLegacyPayments, updateSavedPayment } from "./paymentRecords";
+import { removeSavedPayment, restorePayment, savePayment, unfinishedPayments, unverifiedLegacyPayments, updateSavedPayment, replaceSavedAuthorInvoice, replaceSavedBoardInvoice } from "./paymentRecords";
 import { restartBlocked, type PromotionPayment as Payment, type PaymentMethod, type PaymentRecipient } from "./PaymentState";
 
 const FIELD = "focus-pixel w-full border-2 border-cyan-400/40 bg-void px-3 py-2 text-base text-cyan-100";
@@ -381,8 +381,10 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         setBusy(true); setError("");
         const controller = new AbortController(); abort.current = controller;
         const saveAttempt = (part: "boardAttempt" | "authorAttempt", attempt: WalletAttempt) => {
-            updateSavedPayment(pending.note, pending.board.paymentHash, { [part]: attempt });
-            setPayment((latest) => latest?.board.paymentHash === pending.board.paymentHash ? { ...latest, [part]: attempt } : latest);
+            const authorHash = part === "authorAttempt" ? pending.author?.payment_hash : undefined;
+            void updateSavedPayment(pending.note, pending.board.paymentHash, { [part]: attempt }, authorHash);
+            setPayment((latest) => latest?.board.paymentHash === pending.board.paymentHash &&
+                (part === "boardAttempt" || latest.author?.payment_hash === authorHash) ? { ...latest, [part]: attempt } : latest);
         };
         const failures: string[] = [];
         try {
@@ -427,9 +429,11 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
             const publicZap = (!payment.event || payment.promotionPaid) && !!payment.publicZap && hasPublicZapConsent() && endpoint.allows_nostr;
             const author = await requestAuthorInvoice(payment.note, payment.author.amount_sats, endpoint, publicZap && (!payment.event || payment.promotionPaid), payment.board.noteId, controller.signal, payment.event);
             if (!controller.signal.aborted && latestPayment.current?.author?.payment_hash === payment.author.payment_hash) {
-                const next = { ...latestPayment.current, author, authorAttempt: undefined, publicZap };
-                await savePayment(next, false);
-                if (!controller.signal.aborted) setPayment(next);
+                const next = await replaceSavedAuthorInvoice(payment.note, payment.board.paymentHash, payment.author.payment_hash, author, publicZap);
+                if (!controller.signal.aborted) {
+                    if (next) setPayment(next);
+                    else setError("This invoice changed in another tab or is no longer replaceable. Reopen the saved payment before replacing it.");
+                }
             }
         } catch (failure) { if (!controller.signal.aborted) setError(describeFailure(failure)); }
         finally { if (!controller.signal.aborted) setBusy(false); }
@@ -453,9 +457,11 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
             const visibility = payment.board.promotionSats ?? payment.board.amountSats - (payment.board.billboardFeeSats ?? 0);
             const board = await requestInvoice(payment.note, visibility, controller.signal, appearance, contact, payment.authorShare, payment.event);
             if (!controller.signal.aborted && latestPayment.current?.board.paymentHash === payment.board.paymentHash) {
-                const next = { ...latestPayment.current, board, boardAttempt: undefined, notificationRequested: !!contact };
-                await savePayment(next);
-                if (!controller.signal.aborted) setPayment(next);
+                const next = await replaceSavedBoardInvoice(payment.note, payment.board.paymentHash, board, !!contact);
+                if (!controller.signal.aborted) {
+                    if (next) setPayment(next);
+                    else setError("This invoice changed in another tab or is no longer replaceable. Reopen the saved payment before replacing it.");
+                }
             }
         } catch (failure) { if (!controller.signal.aborted) setError(describeFailure(failure)); }
         finally { if (!controller.signal.aborted) setBusy(false); }
@@ -580,7 +586,8 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
             if (!attempt) return;
             const hash = part === "board" ? payment.board.paymentHash : payment.author!.payment_hash;
             const next = { ...payment, [part === "board" ? "boardAttempt" : "authorAttempt"]: acknowledgeWalletFailure(hash, attempt) };
-            savePayment(next); setPayment(next); setError("");
+            void updateSavedPayment(payment.note, payment.board.paymentHash, { [part === "board" ? "boardAttempt" : "authorAttempt"]: next[part === "board" ? "boardAttempt" : "authorAttempt"] }, part === "author" ? payment.author?.payment_hash : undefined);
+            setPayment(next); setError("");
         }}
         onHelp={() => openHelp("payments")} onSigner={() => openPanel("signer")} onRestart={() => void restartPayment()}
         onBack={() => backToPromotion()}

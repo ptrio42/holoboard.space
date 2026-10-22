@@ -351,8 +351,14 @@ and keeps the session under **Previous payment for this note**. It can interrupt
 an active wallet request without sending the next part or losing its proof.
 Preparing another payment archives the previous invoices under their note and
 visibility payment hash. Late wallet replies update only their own record and
-never change the current note or last-payment pointer. Resume restores the
-original invoices and reconciles their remaining parts.
+never change the current note or last-payment pointer. Author status and proofs
+also require the original author invoice hash; an old snapshot cannot replace a
+newer author invoice. Recipient replacement uses a separate transaction that
+rechecks expiry, the expected hashes and unresolved attempts while preserving
+the other recipient's current confirmation. Completed sessions, including
+manually reported author support, move to the invoice archive when starting
+another payment. Resume
+restores the original invoices and reconciles their remaining parts.
 The general promotion action opens a blank editor with an explicit unfinished
 payment list; a specific note restores only its own session. Returning to editing
 survives reopening. Expired, unattempted sessions reopen in the editor while

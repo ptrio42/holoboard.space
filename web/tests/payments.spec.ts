@@ -1787,6 +1787,52 @@ for (const wallet of ["NWC", "WebLN"] as const) test(`${wallet} replaces expired
     expect(state.authorRequests).toHaveLength(1); expect(state.boardRequests).toHaveLength(2); expect(state.errors).toEqual([]);
 });
 
+test("a replacement author invoice survives another page's late response and stale autosave", async ({ context, page }) => {
+    const options: Options = { authorExpiresIn: -1, validAuthorInvoice: true };
+    const state = await setup(context, page, options);
+    await prepareInvoices(page);
+    const original = await savedPayment(page);
+    const other = await context.newPage();
+    other.on("pageerror", error => state.errors.push(error.message));
+    await other.goto("/");
+    await other.getByRole("button", { name: "Boost", exact: true }).first().click();
+    await expect(other.getByRole("button", { name: "Replace author invoice after checking wallet", exact: true })).toBeEnabled();
+    expect((await savedPayment(other)).author).toEqual(original.author);
+    options.authorExpiresIn = 7200;
+    await other.getByRole("button", { name: "Replace author invoice after checking wallet", exact: true }).click();
+    await expect.poll(async () => (await savedPayment(other)).author?.payment_hash).not.toBe(original.author!.payment_hash);
+    const replaced = await savedPayment(other);
+    expect(replaced.author?.amount_sats).toBe(original.author!.amount_sats);
+    expect(replaced.tipStatus).toBe("pending"); expect(replaced.authorAttempt).toBeUndefined();
+    const pointer = await other.evaluate(async () => {
+        const { IndexedPaymentRecoveryStore } = await import("/src/lib/paymentRecoveryStore.ts");
+        const { paymentBackendKey } = await import("/src/lib/paymentSession.ts");
+        return (await new IndexedPaymentRecoveryStore().read(paymentBackendKey)).lastPayment;
+    });
+    await page.evaluate(async ({ noteId, payment, proof }) => {
+        const records = await import("/src/components/PromoteModal/paymentRecords.ts");
+        const stale = { ...payment, promotionPaid: true, added: 168, tipStatus: "confirmed", authorAttempt: { state: "submitted", walletId: "old-wallet", preimage: proof } };
+        await records.updateSavedPayment(noteId, payment.board.paymentHash, { promotionPaid: true, added: 168 });
+        await records.updateSavedPayment(noteId, payment.board.paymentHash, { tipStatus: "confirmed", authorAttempt: stale.authorAttempt }, payment.author.payment_hash);
+        await records.savePayment(stale, false);
+    }, { noteId: note.id, payment: original, proof: authorPreimage });
+    const stored = await other.evaluate(async noteId => {
+        const { IndexedPaymentRecoveryStore } = await import("/src/lib/paymentRecoveryStore.ts");
+        const { paymentBackendKey } = await import("/src/lib/paymentSession.ts");
+        const snapshot = await new IndexedPaymentRecoveryStore().read(paymentBackendKey);
+        return { payment: JSON.parse(snapshot.payments.get(`holoboard-payment:${noteId}`)!), pointer: snapshot.lastPayment };
+    }, note.id);
+    expect(stored.payment.board).toEqual(replaced.board);
+    expect(stored.payment.author).toEqual(replaced.author);
+    expect(stored.payment.tipStatus).toBe("pending"); expect(stored.payment.authorAttempt).toBeUndefined();
+    expect(stored.payment.promotionPaid).toBe(true); expect(stored.pointer).toBe(pointer);
+    await other.getByRole("button", { name: /^Author 42 sats/ }).click();
+    await expect(other.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", `lightning:${replaced.author!.invoice}`);
+    await expect(other.getByRole("img", { name: "Support the original author invoice QR code", exact: true })).toBeVisible();
+    expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(2);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.signerMethods).toEqual([]); expect(state.errors).toEqual([]);
+});
+
 test("a late wallet response cannot overwrite a replacement visibility invoice after reopening", async ({ context, page }) => {
     const state = await setup(context, page, { boardExpiresIn: -1, deferAuthorResponse: true });
     await connectNwc(page); await prepareInvoices(page);

@@ -76,7 +76,7 @@ describe("promotion payment records", () => {
         await records.savePayment(makePayment(noteB, "other"));
         const session = await import("../../lib/paymentSession");
         const pointer = session.readPaymentSession();
-        await records.updateSavedPayment(noteA, "old", { tipStatus: "confirmed", authorAttempt: { state: "submitted", walletId: "wallet", preimage: "proof" } });
+        await records.updateSavedPayment(noteA, "old", { tipStatus: "confirmed", authorAttempt: { state: "submitted", walletId: "wallet", preimage: "proof" } }, "author-old");
         expect(records.restorePayment(noteA)?.board.paymentHash).toBe("new");
         expect(records.unfinishedPayments(noteA).find((payment) => payment.board.paymentHash === "old")).toMatchObject({ tipStatus: "confirmed", authorAttempt: { preimage: "proof" } });
         expect(session.readPaymentSession()).toBe(pointer);
@@ -164,5 +164,49 @@ describe("promotion payment records", () => {
         await records.updateSavedPayment(noteA, "new", { boardAttempt: { state: "uncertain", walletId: "wallet" } });
         await records.removeSavedPayment(noteA, "new");
         expect(records.restorePayment(noteA)?.boardAttempt?.state).toBe("uncertain");
+    });
+    it("keeps a replacement author invoice when old snapshots and responses arrive", async () => {
+        const records = await import("./paymentRecords");
+        const session = await import("../../lib/paymentSession");
+        const original = makePayment(noteA, "board"); original.author!.expires_at = 1;
+        const author = { ...original.author!, invoice: "lnbc-author-replacement", payment_hash: "author-replacement", expires_at: 2100000000 };
+        await records.savePayment(original);
+        const replaced = await records.replaceSavedAuthorInvoice(noteA, "board", original.author!.payment_hash, author, false);
+        expect(replaced?.author).toEqual(author);
+        const pointer = session.readPaymentSession();
+        await records.savePayment({ ...original, promotionPaid: true, added: 168 }, false);
+        expect(records.restorePayment(noteA)?.author).toEqual(author);
+        await records.updateSavedPayment(noteA, "board", { tipStatus: "confirmed", authorAttempt: { state: "submitted", walletId: "wallet", preimage: "old-author-proof" } }, original.author!.payment_hash);
+        expect(records.restorePayment(noteA)).toMatchObject({ author, tipStatus: "pending", promotionPaid: true });
+        expect(records.restorePayment(noteA)?.authorAttempt).toBeUndefined();
+        expect(JSON.parse(session.readPaymentSession()!).board.paymentHash).toBe(JSON.parse(pointer!).board.paymentHash);
+    });
+    it("accepts author state only for its expected hash, including explicit attempt resolution", async () => {
+        const records = await import("./paymentRecords");
+        const original = makePayment(noteA, "board"); original.author!.expires_at = 1;
+        await records.savePayment(original);
+        await records.updateSavedPayment(noteA, "board", { tipStatus: "confirmed", authorAttempt: { state: "submitted", walletId: "wallet" } });
+        expect(records.restorePayment(noteA)?.tipStatus).toBe("pending");
+        expect(records.restorePayment(noteA)?.authorAttempt).toBeUndefined();
+        await records.updateSavedPayment(noteA, "board", { authorAttempt: { state: "uncertain", walletId: "wallet" } }, original.author!.payment_hash);
+        const author = { ...original.author!, invoice: "lnbc-replacement", payment_hash: "replacement" };
+        expect(await records.replaceSavedAuthorInvoice(noteA, "board", original.author!.payment_hash, author, false)).toBeNull();
+        await records.updateSavedPayment(noteA, "board", { authorAttempt: { state: "unpaid", walletId: "wallet" } }, original.author!.payment_hash);
+        expect((await records.replaceSavedAuthorInvoice(noteA, "board", original.author!.payment_hash, author, false))?.author).toEqual(author);
+        expect(await records.replaceSavedAuthorInvoice(noteA, "board", original.author!.payment_hash, original.author!, false)).toBeNull();
+    });
+    it("replaces visibility using the latest other-recipient state and archives completed sessions", async () => {
+        const records = await import("./paymentRecords");
+        const session = await import("../../lib/paymentSession");
+        const original = makePayment(noteA, "board"); original.board.expiresAt = 1;
+        await records.savePayment(original);
+        await records.updateSavedPayment(noteA, "board", { tipStatus: "confirmed", authorAttempt: { state: "submitted", walletId: "wallet", preimage: "author-proof" } }, original.author!.payment_hash);
+        const board = { ...original.board, invoice: "lnbc-board-replacement", paymentHash: "replacement", expiresAt: 2100000000 };
+        const replaced = await records.replaceSavedBoardInvoice(noteA, "board", board, false);
+        expect(replaced).toMatchObject({ board, author: original.author, tipStatus: "confirmed", authorAttempt: { preimage: "author-proof" } });
+        await records.updateSavedPayment(noteA, "replacement", { promotionPaid: true, added: 168 });
+        await records.removeSavedPayment(noteA, "replacement");
+        expect(session.readPaymentSession(records.paymentKey(noteA))).toBeNull();
+        expect(JSON.parse(session.readPaymentSession(`${records.paymentKey(noteA)}:replacement`)!)).toMatchObject({ board, promotionPaid: true, tipStatus: "confirmed" });
     });
 });
