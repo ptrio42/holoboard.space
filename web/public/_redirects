@@ -1,3 +1,4 @@
 # Serve reader-specific HTML without changing the requested public identity.
-/profile/* /profile.html 200
-/discussion/* /discussion.html 200
+# Clean destinations avoid Pages redirecting away the reader's identifier.
+/profile/* /profile 200
+/discussion/* /discussion 200

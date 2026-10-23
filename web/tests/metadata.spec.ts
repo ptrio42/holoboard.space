@@ -18,6 +18,7 @@ test.describe("metadata before JavaScript", () => {
     for (const entry of pages) test(`serves ${entry.title} without running the app`, async ({ page }) => {
         const response = await page.goto(entry.path);
         expect(response?.status()).toBe(200);
+        await expect(page).toHaveURL(new URL(entry.path, test.info().project.use.baseURL!).href);
         await expect(page).toHaveTitle(entry.title);
         for (const selector of ['meta[name="description"]', 'meta[property="og:description"]', 'meta[name="twitter:description"]']) {
             await expect(page.locator(selector)).toHaveAttribute("content", entry.description);
