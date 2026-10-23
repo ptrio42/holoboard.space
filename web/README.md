@@ -141,56 +141,109 @@ For a feature release, add `-- --with-features` to build an additional enabled
 frontend image. Container builds run sequentially. Use native tests and builds
 for routine development; this smoke is for changes that need container evidence.
 
-The PWA compatibility test is opt-in. Build the legacy invoice interface from
-commit `56439d7` in a temporary checkout and build the current frontend. Use
-these settings for both builds, without copying local wallet or relay secrets:
+PWA compatibility tests are opt-in and use native mock-endpoint builds. The
+supported historical invoice baseline is `f7d90b4`, not an arbitrary old commit.
+The creation-recovery baseline `4329487` includes the approved durable-invoice
+and wallet-attempt fixes, with the old category tabs. Build that revision twice:
+creation/Nostr enabled for created-post recovery, and all features disabled for
+reader/enabled compatibility rollback. These are distinct profiles.
+
+Build each profile sequentially in its source checkout, using a fresh output
+directory outside the checkout and no wallet or relay secrets. From `web/`, this
+helper takes an output directory followed by creation, Nostr, discussions,
+profiles and reply flag values:
 
 ```bash
-VITE_RELAY_URL=ws://127.0.0.1:3334 VITE_API_URL=http://127.0.0.1:3334 \
+build_pwa() {
+  CF_PAGES=0 CF_PAGES_COMMIT_SHA="$(git rev-parse HEAD)" \
+  VITE_API_URL=http://127.0.0.1:3334 VITE_RELAY_URL=ws://127.0.0.1:3334 \
+  VITE_PUBLIC_RELAYS=ws://127.0.0.1:3334 \
+  VITE_SATS_ENDPOINT=http://127.0.0.1:3334/api/board \
+  VITE_RELAY_PUBKEY=1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f \
+  VITE_ENABLE_POST_CREATION="$2" VITE_ENABLE_NOSTR_CONNECT="$3" \
+  VITE_ENABLE_DISCUSSIONS="$4" VITE_ENABLE_PROFILES="$5" \
+  VITE_ENABLE_REPLY_PUBLICATION="$6" npm run build -- --outDir "$1"
+}
+```
+
+Create a fresh temporary root, for example `PWA_OUTPUT=$(mktemp -d)`, and retain
+its absolute path across checkout shells. The profile table gives the arguments
+to `build_pwa` and corresponding test inputs:
+
+| Source | Output below `$PWA_OUTPUT` | Creation / Nostr / discussions / profiles / reply | Test input |
+| --- | --- | --- | --- |
+| `f7d90b4` | `legacy` | false / false / false / false / false | `HOLOBOARD_LEGACY_DIST` |
+| `4329487` | `foundation-on` | true / true / false / false / false | `HOLOBOARD_ROLLBACK_DIST` for created-post tests |
+| `4329487` | `compat-off` | false / false / false / false / false | `HOLOBOARD_ROLLBACK_DIST` for reader/enabled tests; `HOLOBOARD_COMPAT_ROLLBACK_DIST` overrides it for those tests when sharing a run with created-post recovery |
+| Candidate | `creation-on` | true / true / false / false / false | `HOLOBOARD_CREATION_DIST` |
+| Candidate | `creation-off` | false / true / false / false / false | `HOLOBOARD_CREATION_OFF_DIST`, `HOLOBOARD_CURRENT_DIST` |
+| Candidate | `readers` | false / false / true / true / false | `HOLOBOARD_READER_DIST` |
+| Candidate | `enabled` | false / true / true / true / true | `HOLOBOARD_ENABLED_DIST` |
+
+For example, in the candidate checkout run
+`build_pwa "$PWA_OUTPUT/creation-on" true true false false false`. Pin source
+revisions in the verification report. All profiles explicitly use `CF_PAGES=0`
+to avoid the Pages production override.
+
+Run a targeted case from the candidate frontend, with one worker and a fresh
+port/output directory. For the created-post cycle:
+
+```bash
+CI=1 CF_PAGES=0 HOLOBOARD_TEST_PORT=4292 \
+VITE_API_URL=http://127.0.0.1:3334 VITE_RELAY_URL=ws://127.0.0.1:3334 \
 VITE_PUBLIC_RELAYS=ws://127.0.0.1:3334 \
 VITE_SATS_ENDPOINT=http://127.0.0.1:3334/api/board \
-VITE_ENABLE_NOSTR_CONNECT=false npm run build
+VITE_RELAY_PUBKEY=1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f \
+VITE_ENABLE_POST_CREATION=false VITE_ENABLE_NOSTR_CONNECT=false \
+VITE_ENABLE_DISCUSSIONS=false VITE_ENABLE_PROFILES=false \
+VITE_ENABLE_REPLY_PUBLICATION=false \
+HOLOBOARD_ROLLBACK_DIST="$PWA_OUTPUT/foundation-on" \
+HOLOBOARD_CREATION_DIST="$PWA_OUTPUT/creation-on" \
+HOLOBOARD_CREATION_OFF_DIST="$PWA_OUTPUT/creation-off" \
+npx playwright test tests/pwa.spec.ts --grep 'created-post PWA' \
+  --project=desktop --workers=1 --output="$PWA_OUTPUT/results-created"
 ```
 
-Set `HOLOBOARD_LEGACY_DIST` to that legacy build's `dist` directory and run
-`npm run test:e2e -- tests/pwa.spec.ts` from the current frontend directory.
-`HOLOBOARD_CURRENT_DIST` optionally selects a current build outside `dist/`.
-The test expects the legacy interface's invoice labels, so selecting an arbitrary
-previous commit does not provide the same compatibility check.
-The test serves both builds and a mock API locally, checks old client requests,
-worker activation, invoice restoration and API navigation outside the PWA shell.
-Status requests must reach the mock API before and after the worker update,
-including requests passed to `fetch` as URL objects, with their query and headers.
-The restored anonymous invoice must remain usable through its wallet link,
-clipboard action and a decoded QR payload.
+Repeat the cycle with `--project=iphone`, a fresh port and fresh output directory
+for WebKit coverage. It verifies actual worker activation, the same signed event,
+invoice, hash, amounts and backend through update, rollback, real tab closure,
+creation-off, re-enabling and settlement. Rendered QR payloads, clipboard values
+and wallet links remain exact; storage audits check that the unpaid private post
+stays outside public caches and guest keys stay outside persistent stores.
 
-For a read-only release, build a committed stable frontend with all four flags
-disabled and the candidate with discussions/profiles enabled and signer/reply
-publication disabled. Use the local API and relay settings above for both:
+For historical invoices, set `HOLOBOARD_LEGACY_DIST` to `legacy` and
+`HOLOBOARD_CURRENT_DIST` to `creation-off`, then select `--grep 'previous frontend'`.
+Use the same command structure with a fresh port and output directory. Old
+copies with unknown backend provenance remain read-only under **Older invoices**:
+the candidate makes no guessed status lookup or durable import. The old document's
+own polling is checked separately from candidate requests. This is browser-format
+compatibility, not a server-data migration.
 
-```bash
-HOLOBOARD_TEST_PORT=4292 \
-HOLOBOARD_ROLLBACK_DIST=/tmp/holoboard-rollback-dist \
-HOLOBOARD_READER_DIST=/tmp/holoboard-reader-test-dist \
-npx playwright test pwa.spec.ts --grep 'read-only PWA' --workers=1
-```
-
-This checks worker activation, reader routes, the original invoice across
+For reader rollback, set `HOLOBOARD_ROLLBACK_DIST` to `compat-off` and
+`HOLOBOARD_READER_DIST` to `readers`, then select `--grep 'read-only PWA'`. This
+checks worker activation, reader routes, the original anonymous invoice across
 updates and code rollback, and cached application startup with both local HTTP
-servers stopped. It does not emulate a physical device's loss of connectivity.
-Playwright 1.63 WebKit's `setOffline` rejects even literal worker responses;
-the server-unavailability check retains coverage on all three browser projects.
-See the [upstream issue](https://github.com/microsoft/playwright/issues/42775).
-The outage check also distinguishes WebKit's native ledger-fetch transport
-message from application exceptions. It accepts that exact message only when
-paired with an actual failed request started while the mock API was stopped.
+servers stopped. Status requests, including URL-object requests, must reach the
+mock API with their query and headers before and after update. The outage does
+not emulate a physical device's loss of connectivity. Playwright 1.63 WebKit's
+`setOffline` rejects even literal worker responses; the server-unavailability
+check covers this case instead. See the
+[upstream issue](https://github.com/microsoft/playwright/issues/42775).
+WebKit's native ledger-fetch transport message is accepted only alongside an
+actual failed request started while the mock API was stopped.
 
-For an enabled signer/reply release, also build the candidate with all four flags
-enabled. Set `HOLOBOARD_ENABLED_DIST` to that mock-endpoint build and select
-`--grep 'enabled PWA'`. This checks the original anonymous invoice and an unsigned
-reply draft through update, rollback and re-enabling. It does not connect a signer,
-publish or upload. The verification runner adds this check when a rollback baseline
-and the payments or publication profile are selected.
+For signer/reply compatibility, keep the `compat-off` rollback profile, set
+`HOLOBOARD_ENABLED_DIST` to `enabled` and select `--grep 'enabled PWA'`. It preserves
+the anonymous invoice and an unsigned reply draft through update, rollback and
+re-enabling without connecting a signer, publishing or uploading. The verification
+runner adds this case when a rollback baseline and the payments or publication
+profile are selected. Created-post recovery requires `HOLOBOARD_ROLLBACK_DIST`
+for the creation-enabled foundation, `HOLOBOARD_CREATION_DIST` and
+`HOLOBOARD_CREATION_OFF_DIST`. When running reader/enabled cases alongside it,
+set `HOLOBOARD_COMPAT_ROLLBACK_DIST` to `compat-off` so those cases use the
+all-disabled baseline while created-post recovery keeps `foundation-on`.
+Mock invoices cannot be paid; none of these cases establishes real wallet or
+physical-device interoperability.
 
 `HOLOBOARD_LIVE_READS=1 npm run test:reader-release` checks the public production
 API contract, CORS and fresh note signatures with bounded GET requests. To also
@@ -333,17 +386,26 @@ cost, with Custom in the fifth slot in both modes and ranking explanations in
 Help. A shared row keeps the picker height stable. Switching modes preserves
 the selected amount, allocation and open Custom field. Target prices include
 the current author share and any appearance fee; selecting one fixes the amount rather than tracking later
-estimate changes. The full editor uses **Promotion**, **Billboard** and
-**Payment options** tabs. Billboard appearance is available only for an inactive
-note starting a promotion period. **Payment options** groups wallet connection
-and optional notification DMs. Tabs and the payment action stay visible while
-scrolling; switching tabs preserves the draft. Billboard can be opened before
-loading a note, with a note-link field and an explanation of availability.
-Boosts keep the compact form.
+estimate changes. The full **Add to board** editor follows **Post**, **Budget**
+and **Payment**. The general action opens blank Post with an explicit unfinished
+payment list; a known inactive original can enter Budget directly. Post reviews
+an original or, when creation is enabled, prepares a new post or comment.
+Budget keeps amount, allocation, complete total and **Continue to payment**
+together. Optional **Billboard** and **Notifications** panels are available before
+invoice preparation. Appearance applies only when starting a promotion period,
+including revival after expiry. Billboard can be opened before loading a note
+and explains its note and campaign requirements. The total and invoice action
+stay visible inside optional panels. Stage navigation preserves the composer,
+its guest key and current choices. Boost on an active note keeps its compact
+form without task progress; pasting an active original into general Post can
+still review it or add a comment when creation is enabled.
 The footer shows the complete
 amount on the payment action; ranking and removal rules live in help. Contextual
 help and settings panels keep the amount mode and current draft in memory.
-Promote and Boost prepare invoices before opening **Promotion payment**.
+**Continue to payment** and **Boost** prepare invoices before opening payment.
+Prepared payments freeze the signed post, recipients, total and saved appearance
+fee breakdown; returning to edit does not change an issued invoice. Older invoices
+without a saved fee breakdown retain neutral amount labels rather than guessed fees.
 **Wallet** and **Invoice / QR** are equal payment methods; NWC is first when
 connected or restoring, otherwise the invoice method is first. WebLN remains
 available in Wallet. Method and recipient selection survive help and connection
@@ -367,38 +429,71 @@ confirmed unpaid session and its last-payment pointer. It restores the saved
 promotion draft, without requesting new invoices or clearing shared wallet
 attempts and connections. Older sessions restore known amounts and allocation.
 Paid or reported parts and unresolved wallet attempts block deletion of the
-session, including after expiry. **Back to promotion** returns to the editor
+session, including after expiry. Restart holds both recipient hash locks until
+the invoice, pointer and authoritative shared-attempt check finish in one
+transaction. Delayed refresh notifications cannot hide another tab's attempt.
+Missing storage or coordination keeps the invoices available and blocks clearing
+the session. Failed deletion is never retried outside its original locks.
+**Back to promotion** returns to the editor
 and keeps the session under **Previous payment for this note**. It can interrupt
 an active wallet request without sending the next part or losing its proof.
 Preparing another payment archives the previous invoices under their note and
 visibility payment hash. Late wallet replies update only their own record and
-never change the current note or last-payment pointer. Resume restores the
-original invoices and reconciles their remaining parts.
+never change the current note or last-payment pointer. Author status and proofs
+also require the original author invoice hash; an old snapshot cannot replace a
+newer author invoice. Recipient replacement uses a separate transaction that
+rechecks expiry, the expected hashes and unresolved attempts while preserving
+the other recipient's current confirmation. Completed sessions, including
+manually reported author support, move to the invoice archive when starting
+another payment. Resume
+restores the original invoices and reconciles their remaining parts.
 The general promotion action opens a blank editor with an explicit unfinished
 payment list; a specific note restores only its own session. Returning to editing
 survives reopening. Expired, unattempted sessions reopen in the editor while
 retaining their invoices for review. Changing notes clears amount, split,
 appearance, notifications, public-zap consent and stale status messages.
-An archive write failure keeps all records in memory and the persistence notice
-visible, even if the current invoice saves successfully.
+Unfinished invoices survive closing the tab in the same browser profile and app
+origin. The editor waits for private IndexedDB storage before listing saved
+payments. While a payment resumes, its source and payment selection stay locked
+until saving finishes. Closing the editor cancels the pending view change while
+keeping its invoices. Recovery requires explicit selection and preserves original invoices,
+hashes, signed post snapshots and the configured API URL and relay identity.
+This database is separate from public read caches and the publication outbox;
+it contains no guest author keys or wallet/signer credentials. Invoice and
+metadata changes commit together, including hash-scoped archived updates.
+Durability follows the transaction's completion, as defined by the
+[IndexedDB transaction lifecycle](https://w3c.github.io/IndexedDB/#transaction-lifecycle).
+Failed writes keep records in memory with a visible limited-lifetime notice.
+They are retried on the next change without evicting unresolved or expired invoices.
+
+Old tab-storage records without matching original backend metadata are never
+assigned to the currently configured backend or imported into durable recovery.
+Their originals stay untouched. **Older invoices** exposes their original amounts,
+Lightning links, copies and QR codes without signing, publication, connections,
+new invoices or backend status requests. Compatible records with explicit matching
+backend metadata can be imported without replacing durable records or deleting
+the tab-storage originals. This is browser-format compatibility, not a server-data
+migration. Recovery requires the same site, browser profile and device; clearing
+site data removes it. Unsigned draft autosave, guest-key recovery and cross-device recovery
+are separate features and are not supplied by invoice snapshots.
 Expired recipient invoices can be replaced individually
 when their own wallet attempt is resolved, preserving the other part.
 Issued invoices remain payable; clearing local state
 cannot cancel them. An unavailable backend does not block an explicitly
 confirmed restart when no send attempt is recorded.
 Invoice status and payment attempt recovery use the same protections in both
-paths. Global **Wallet** is independent of promotion. Inside the form, wallet
-connection lives in **Payment options**. Production enables Nostr signer controls
-and remote-session restoration through the versioned release profile;
+paths. Global **Wallet** is independent of promotion. Inside Payment, optional
+wallet connection sits beside the **Wallet** method. Production enables Nostr
+signer controls and remote-session restoration through the versioned release profile;
 confirmation DMs also accept a manually entered npub. The legacy
 `#how-ranking-works` link opens contextual help; `/help` is the standalone guide.
 [WebLN](https://www.webln.guide/building-lightning-apps/webln-reference/webln.sendpayment)
 can pay the recipient invoices sequentially. The fallback exposes separate
 Lightning links, copies and QR codes. Without a signer, author support uses
-ordinary invoices. Partial
-payments remain in session storage for the current tab; retry skips confirmed
-parts. Manual author payment is explicitly unverified unless a receipt arrives.
-If browser storage is blocked or full, payments stay in memory when reopening
+ordinary invoices. Partial payments remain in private recovery storage; retry
+skips confirmed parts. Manual author payment is explicitly unverified unless a
+receipt arrives.
+If private storage is blocked or full, payments stay in memory when reopening
 the form. A visible notice explains that a refresh or closing the tab cannot
 restore them. Invoice links, copying, QR and optional connections still work.
 If preparing author support fails, the form offers visibility only and shows
@@ -488,16 +583,44 @@ seconds when `lookup_invoice` is allowed. Returning to the page refreshes data.
 Successful promotion payments refresh the same wallet balance and history.
 
 The current send and latest receive invoice stay in tab storage under the NWC
-connection identity. A shared tab-level registry protects each payment hash
-across connections, promotion payments and the wallet panel. Balance and history
-remain in memory. Closing or disconnecting does not erase uncertain payment
+connection identity. Shared wallet attempts live in the private IndexedDB payment
+database and protect each invoice hash across connections, tabs, promotion
+payments and the wallet panel, independently of the invoice backend. Balance and
+history remain in memory. Closing or disconnecting does not erase uncertain payment
 protection. Reconnect the original connection with `lookup_invoice` to check
 its status, even if `pay_invoice` permission has been removed. A status check
 in the wallet panel never sends another payment. A confirmed failure requires
 a separate Send action to retry; missing status or an invalid proof keeps the
 hash protected. New payment allows a different invoice while unresolved hashes
-stay protected and available for review. Blocked storage preserves protection
-in memory; the Send view explains that it cannot survive refresh.
+stay protected and available for review. Hash-scoped
+[Web Locks](https://www.w3.org/TR/web-locks/#dom-lockoptions-ifavailable)
+use `ifAvailable`, so a competing action fails immediately instead of waiting to
+send after navigation. Each action rereads the durable attempt while holding the
+lock. Older known snapshot revisions cannot undo a committed resolution; unknown
+revisions and verified preimages remain protective. Passive invoice reads do not
+import attempt state; explicit wallet actions reconcile their original caller
+snapshot with durable state. An action that loses the lock still commits stronger
+caller evidence before reporting that another action is in progress. These
+imports can only add protection. Lookup resolutions apply to the exact revision
+that was checked; new unknown uncertainty or proof invalidates an old resolution.
+Sending starts only after its uncertain attempt transaction commits and the
+caller save finishes. A final durable reconciliation and synchronous guard stop
+the send if newer evidence arrived during either write. Expiry is checked again after pending
+writes, immediately before sending. Submitted proof writes are also awaited. The transaction requests
+[`strict` durability](https://www.w3.org/TR/IndexedDB/#dom-idbtransactionoptions-durability)
+and resolves only on completion. Browser closure releases the lock, while a
+committed uncertain attempt retains the original wallet identity and hash.
+Missing responses stay uncertain until original-wallet lookup or explicit failure
+acknowledgement resolves them. These guarantees cover browser closure, not every
+operating-system or storage-device failure.
+
+Missing Web Locks, failed writes and malformed or unknown stored attempts block
+wallet sends. Original-wallet lookup can still run without authorizing a send;
+unavailable storage cannot persist its result or release uncertainty. Invoice
+links, copying and QR remain available. Broadcast messages contain no payment
+data and only request a fresh database read. Legacy tab records retain conservative
+hash barriers without assigning their invoices to an API backend. Valid old
+barriers are copied into private storage without erasing their originals.
 
 The shared payment path verifies the returned preimage against the invoice hash
 before storing a new submitted attempt. Saved proofs are verified again after
@@ -583,16 +706,25 @@ ranking, author support and discussion belong to the new quoted post, not its
 source. Billboard appearance uses the paid event's content.
 
 Signed-out authors create a guest post with a fresh in-memory key. **Save author
-key** optionally exports `nsec`; an unsaved key cannot be recovered after refresh
-or closing the editor. Signed invoice snapshots remain recoverable without it.
+key** optionally exports `nsec`; an unsaved key cannot be recovered after refresh,
+closing the editor or reviewing changed content. Signed invoice snapshots remain
+recoverable without it.
 Logged-in authors can explicitly choose **Post anonymously**. Guest posts label
 their own author **Anonymous** using signed NIP-32 tags in
 `space.holoboard.attribution`; public keys remain available in details. This
 self-report does not prove key freshness or anonymity from the operator or
-payment providers. Guest payments use 100% visibility and no account-bound
-notifications or public zap consent.
+payment providers. Guest-authored posts allocate the full promotion budget to
+visibility and show a visibility-only summary in Budget. Optional Billboard
+appearance adds a separate fee with no ranking weight. These posts have no
+account-bound notifications or public zap consent. A payer without an account
+promoting someone else's signed note can still split author support and enter a
+manual npub for notifications.
 
-**Review post** signs the exact post for the payment preview. It does not publish.
+**Review & continue** signs a new post exactly as reviewed before opening Budget.
+It does not publish.
+Reviewing unchanged text, interpretation and author reuses the same signed event
+and guest key. The composer stays mounted while payment and contextual panels
+are shown; author details and optional key export remain owned by that composer.
 The invoice stores that signed snapshot separately from the browser public
 outbox. Changing text prepares a different event while earlier invoices retain
 their own content, ID and payment attempts. Settlement commits the board entry
@@ -603,9 +735,12 @@ Existing Nostr accounts connect through browser extensions, Amber or remote
 signers when `VITE_ENABLE_NOSTR_CONNECT=true`. Sign-in preserves the live editor
 and payment choices. Guest posts work without a signer or account service.
 Email/password accounts are deferred separately. The current Pages production
-configuration keeps post creation off. Backend `ENABLE_POST_CREATION=false` blocks
-new admission while preserving settlement, retries and recovery for already issued
-invoices.
+configuration explicitly defines post creation as disabled, regardless of an
+environment-only `VITE_ENABLE_POST_CREATION=true` change. Activation requires a
+reviewed build-configuration change as well as matching backend support. With
+creation off, existing-note promotion and recovery of issued new-post invoices
+remain available. Backend `ENABLE_POST_CREATION=false` blocks new admission while
+preserving settlement, retries and recovery for already issued invoices.
 
 For Cloudflare Pages builds on `main`, `vite.config.ts` explicitly sets
 `VITE_ENABLE_POST_CREATION=false`. An environment variable alone cannot enable
@@ -832,8 +967,8 @@ fill. Disabled controls remain visibly subdued.
 
 The shared `Modal` keeps controls and QR codes above the CRT scanline overlay.
 Retain the effect on the board and background. Its scrolling body leaves the
-action footer visible and stable across mobile editor tabs; compact boosts
-retain their smaller layout. Reuse `StatusMessage` for loading and empty states.
+action footer visible and stable across mobile editor stages and contextual
+panels; compact boosts retain their smaller layout. Reuse `StatusMessage` for loading and empty states.
 Its symbols are decorative, its text is exposed as a status, and its loading
 blocks follow the shared reduced-motion rules. All visible loading labels use
 the pixel font, including compact connection, preview, profile and wallet

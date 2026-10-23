@@ -17,6 +17,7 @@ export interface PromotionDraft {
     notifyPubkey: string;
 }
 export interface PromotionPayment {
+    recoveryBackend?: { api: string; relayPubkey: string };
     note: string; board: PromoteInvoice; author?: AuthorInvoice;
     tipStatus: "pending" | "confirmed" | "reported";
     promotionPaid: boolean; added: number; authorShare: number;
@@ -27,6 +28,8 @@ export interface PromotionPayment {
     /** Returning to the editor keeps this session available for explicit resume. */
     editing?: boolean;
     noteSummary?: string;
+    /** Verified source for reading, distinct from a private root submitted for creation. */
+    sourceEvent?: Event;
     /** Private signed root snapshot; never contains the guest secret key. */
     event?: Event;
     publication?: "pending" | "delivered" | "stopped";

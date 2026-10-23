@@ -6,7 +6,7 @@ import { NoteAuthor } from "../UserProfileInline/NoteAuthor";
 import { NoteLinkPreview } from "../TextRenderer/NoteLinkPreview";
 import { CompactNoteText } from "../TextRenderer/CompactNoteText";
 
-const ACTION = "promotion-action focus-pixel inline-flex min-h-11 items-center text-cyan-200/60";
+const ACTION = "promotion-action focus-pixel inline-flex min-h-11 min-w-11 items-center justify-center text-cyan-200/60";
 
 function PreviewImage({ src, compact, expanded }: { src: string; compact: boolean; expanded: boolean }) {
     const [broken, setBroken] = useState(false);
@@ -30,17 +30,17 @@ export function PromotionNotePreview({ preview, compact, expanded, onToggle, chi
     const opening = preview.private ? <span className="text-xs text-cyan-100/60">Unpublished</span> : <a href={njumpUrl(preview.event.id, "note")} target="_blank" rel="noopener noreferrer" aria-label="Open note"
         title={preview.active ? `Open note, #${preview.rank} in ${preview.rank <= 21 ? "main board" : "waiting room"}` : "Open note"}
         className={`${ACTION} shrink-0 gap-1 ${compact ? "min-w-11 justify-end" : ""}`}>
-        {compact ? <><span>#{preview.rank}</span><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="currentColor" shapeRendering="crispEdges">
+        {compact && preview.active ? <><span>#{preview.rank}</span><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="currentColor" shapeRendering="crispEdges">
             <path d="M4 0h8v8h-2V4H8v2H6v2H4v2H2v2H0v-2h2V8h2V6h2V4h2V2H4z" />
         </svg></> : "Open note"}
     </a>;
     return <article className={compact ? "space-y-1" : "space-y-3"} aria-label="Original note">
-        <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0"><NoteAuthor event={preview.event} size={compact ? "sm" : "md"} /></div>
-            {compact && <div className="flex shrink-0 items-center gap-2">{reading}{opening}</div>}
+        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0" data-preview-header>
+            <div className="min-w-0 grow basis-28" data-preview-author><NoteAuthor event={preview.event} size={compact ? "sm" : "md"} /></div>
+            {compact && <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2" data-preview-actions>{reading}{opening}</div>}
         </div>
         <div className="flex items-start gap-3">
-            <div className={`${expanded ? "" : compact ? "line-clamp-2" : "line-clamp-3"} min-w-0 flex-1 text-sm leading-relaxed text-cyan-100`}>
+            <div data-promotion-text className={`${expanded ? "" : compact ? "line-clamp-2" : "line-clamp-3"} min-w-0 flex-1 text-sm leading-relaxed text-cyan-100`}>
                 <CompactNoteText text={expanded ? preview.event.content : images.length && excerpt === "No text preview" ? "[Image]" : excerpt} />
             </div>
             {!expanded && images[0] && <PreviewImage key={images[0]} src={images[0]} compact={compact} expanded={false} />}

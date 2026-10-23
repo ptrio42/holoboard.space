@@ -1,5 +1,5 @@
 import { isMockInvoice, MOCK_INVOICE_MESSAGE } from "./invoice";
-import { acquireWalletAttempt, getWalletAttempt, saveWalletAttempt, verifyWalletPaymentProof } from "./walletAttempts";
+import { withWalletAttempt, verifyWalletPaymentProof, type LockedWalletAttempt } from "./walletAttempts";
 
 export interface WalletProof { preimage?: string; feesPaidMsats?: number }
 export interface WalletLookup extends WalletProof { state: "paid" | "unpaid" | "pending" | "unknown" }
@@ -25,25 +25,24 @@ export function canPayOrCheckInvoice(wallet: PaymentWallet, expiresAt: number, p
 /** Persist the attempt before sending, so leaving the page cannot erase it. */
 export async function payInvoiceSafely(
     wallet: PaymentWallet, invoice: string, paymentHash: string,
-    previous: WalletAttempt | undefined, save: (attempt: WalletAttempt) => void,
-    expiresAt = Infinity, amountMsats?: number,
+    previous: WalletAttempt | undefined, save: (attempt: WalletAttempt) => unknown | Promise<unknown>,
+    expiresAt = Infinity, amountMsats?: number, canSend: () => boolean = () => true, retryUncertain = true,
 ): Promise<WalletProof> {
     if (isMockInvoice(invoice)) throw new PaymentRejected(MOCK_INVOICE_MESSAGE);
-    const release = acquireWalletAttempt(paymentHash);
-    try {
-        const attempt = getWalletAttempt(paymentHash, previous);
-        if (attempt && attempt !== previous) save(attempt);
-        return await executePayment(wallet, invoice, paymentHash, attempt, (next) => {
-            saveWalletAttempt(paymentHash, next, invoice, amountMsats);
-            save(next);
-        }, expiresAt);
-    } finally { release(); }
+    return withWalletAttempt(paymentHash, previous, invoice, amountMsats, async locked => {
+        const attempt = locked.attempt;
+        if (attempt && JSON.stringify(attempt) !== JSON.stringify(previous)) await save(attempt);
+        return executePayment(wallet, invoice, paymentHash, attempt, async next => {
+            await locked.save(next);
+            if (await save(next) === false) throw new Error("Private payment storage did not commit. Use Invoice / QR or check the original wallet.");
+        }, expiresAt, canSend, retryUncertain, locked);
+    });
 }
 
 async function executePayment(
     wallet: PaymentWallet, invoice: string, paymentHash: string,
-    previous: WalletAttempt | undefined, save: (attempt: WalletAttempt) => void,
-    expiresAt = Infinity,
+    previous: WalletAttempt | undefined, save: (attempt: WalletAttempt) => unknown | Promise<unknown>,
+    expiresAt = Infinity, canSend: () => boolean = () => true, retryUncertain = true, locked: LockedWalletAttempt,
 ): Promise<WalletProof> {
     if (isMockInvoice(invoice)) throw new PaymentRejected(MOCK_INVOICE_MESSAGE);
     if (previous?.state === "submitted") {
@@ -51,7 +50,7 @@ async function executePayment(
         if (previous.walletId === wallet.id && wallet.lookupPayment) {
             const status = await wallet.lookupPayment(paymentHash);
             if (status.state === "paid" && await verifyWalletPaymentProof(paymentHash, status.preimage)) {
-                save({ ...previous, preimage: status.preimage });
+                await save({ ...previous, preimage: status.preimage });
                 return { preimage: status.preimage };
             }
         }
@@ -64,7 +63,7 @@ async function executePayment(
         const status = await wallet.lookupPayment(paymentHash);
         if (status.state === "paid") {
             if (!await verifyWalletPaymentProof(paymentHash, status.preimage)) throw new Error("The wallet did not provide a valid payment proof. Check its history.");
-            save({ state: "submitted", walletId: wallet.id, preimage: status.preimage });
+            await save({ state: "submitted", walletId: wallet.id, preimage: status.preimage });
             return { preimage: status.preimage };
         }
         if (status.state !== "unpaid") {
@@ -72,19 +71,33 @@ async function executePayment(
         }
         // Keep the original wallet's confirmed failure even if expiry prevents
         // another attempt, so the caller can safely replace the invoice.
-        save({ state: "unpaid", walletId: wallet.id });
+        await save({ state: "unpaid", walletId: wallet.id });
+        if (!retryUncertain) throw new Error("The wallet confirmed failure. Use a separate Send action to retry.");
     }
     // Expiry forbids sending, but does not invalidate a saved proof or prevent
     // lookup of an attempt that may have settled before its response was lost.
     if (Date.now() >= expiresAt*1000) throw new Error("The invoice expired. No wallet payment was sent.");
-    save({ state: "uncertain", walletId: wallet.id });
+    if (!canSend()) throw new Error("Payment action ended. No wallet payment was sent.");
+    await save({ state: "uncertain", walletId: wallet.id });
+    const committed = locked.attempt;
+    await locked.refresh();
+    const checkpoint = locked.attempt;
+    if (checkpoint?.state === "submitted") {
+        if (await verifyWalletPaymentProof(paymentHash, checkpoint.preimage)) return { preimage: checkpoint.preimage };
+        throw new Error("The wallet reported this payment as sent. Check the original wallet. Another payment will not be sent.");
+    }
+    if (checkpoint?.state !== "uncertain" || checkpoint.walletId !== wallet.id || !locked.isCurrent(committed)) {
+        throw new Error("The wallet attempt changed. Review its current status before continuing.");
+    }
+    if (!canSend()) throw new Error("Payment action ended. Check the original wallet before retrying.");
+    if (Date.now() >= expiresAt*1000) throw new Error("The invoice expired. No wallet payment was sent.");
     try {
         const proof = await wallet.sendPayment(invoice);
         if (!await verifyWalletPaymentProof(paymentHash, proof.preimage)) throw new Error("The wallet did not provide a valid payment proof. Check its history.");
-        save({ state: "submitted", walletId: wallet.id, preimage: proof.preimage });
+        await save({ state: "submitted", walletId: wallet.id, preimage: proof.preimage });
         return proof;
     } catch (failure) {
-        if (failure instanceof PaymentRejected) save({ state: "unpaid", walletId: wallet.id });
+        if (failure instanceof PaymentRejected) await save({ state: "unpaid", walletId: wallet.id });
         throw failure;
     }
 }

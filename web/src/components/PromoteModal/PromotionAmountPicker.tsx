@@ -13,9 +13,10 @@ interface PromotionAmountPickerProps {
     amount: string; validAmount: boolean; currentWeight?: number; max?: number; appearanceFee?: number; onChange: (amount: string) => void;
     targets: RankingTarget[]; totalForPromotion?: (amount: number) => number;
     selection: AmountSelection; onSelectionChange: (selection: AmountSelection) => void;
+    quietModes?: boolean;
     disabled?: boolean;
 }
-export function PromotionAmountPicker({ amount, validAmount, currentWeight = 0, max = 10000000, appearanceFee = 0, onChange, targets, totalForPromotion = (value) => value, selection, onSelectionChange, disabled = false }: PromotionAmountPickerProps) {
+export function PromotionAmountPicker({ amount, validAmount, currentWeight = 0, max = 10000000, appearanceFee = 0, onChange, targets, totalForPromotion = (value) => value, selection, onSelectionChange, disabled = false, quietModes = false }: PromotionAmountPickerProps) {
     const errorId = useId();
     const customInput = useRef<HTMLInputElement>(null);
     const focusCustom = useRef(false);
@@ -36,13 +37,16 @@ export function PromotionAmountPicker({ amount, validAmount, currentWeight = 0, 
         </PixelButton>;
     };
     return <fieldset className="promotion-amount-picker min-w-0 space-y-2" disabled={disabled}>
-        <legend className="promotion-label mb-1 text-cyan-200/70">Amount in sats</legend>
-        <div role="group" aria-label="Choose by amount or target position" className="grid grid-cols-2 gap-2">
+        <legend className={quietModes ? "sr-only" : "promotion-label mb-1 text-cyan-200/70"}>Amount in sats</legend>
+        {quietModes ? <div role="group" aria-label="Choose by amount or target position" className="promotion-amount-modes">
+            <button type="button" className="promotion-action focus-pixel" aria-pressed={selection.mode === "amount"} onClick={() => onSelectionChange({ ...selection, mode: "amount" })}>Amount</button>
+            <button type="button" className="promotion-action focus-pixel" aria-pressed={selection.mode === "position"} aria-label="Target position" onClick={() => onSelectionChange({ ...selection, mode: "position" })}>Position</button>
+        </div> : <div role="group" aria-label="Choose by amount or target position" className="grid grid-cols-2 gap-2">
             <PixelButton size="sm" variant={selection.mode === "amount" ? "accent" : "ghost"} aria-pressed={selection.mode === "amount"}
                 onClick={() => onSelectionChange({ ...selection, mode: "amount" })}>Amount</PixelButton>
             <PixelButton size="sm" variant={selection.mode === "position" ? "accent" : "ghost"} aria-pressed={selection.mode === "position"} aria-label="Target position"
                 onClick={() => onSelectionChange({ ...selection, mode: "position" })}>Position</PixelButton>
-        </div>
+        </div>}
         <div className="space-y-2">
             <div className="promotion-presets grid min-h-[50px] grid-cols-[repeat(4,minmax(0,1fr))_4rem] gap-1 sm:gap-2">
                 {selection.mode === "amount" ? ZAP_PRESETS.map((preset) => <PixelButton key={preset} size="sm" className="amount-preset min-h-12"

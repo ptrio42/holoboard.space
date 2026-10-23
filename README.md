@@ -68,16 +68,22 @@ ordinary invoice payments remain available without signing in.
 
 ## Promote a note
 
-Open **Promote a note**, paste a note link, `note1`, `nevent1` or event ID, and
-choose a total amount. The editor previews the original note automatically.
+Open **Add to board** (shown as **Add** on phones, with the accessible name
+Add to board). In **Post**, paste a note link, `note1`, `nevent1` or event ID
+and review the original, then choose an amount in **Budget**. A known inactive
+note can open directly in Budget. The full editor follows **Post**, **Budget**
+and **Payment**, preserving choices when moving back.
+Ordinary links and new text are accepted only when opt-in post creation is
+enabled; the current production build keeps creation disabled. See the
+[Add to board developer guide](web/README.md#add-to-board) for availability.
 **Boost** on a note opens a compact two-line note preview and amount picker
 with its saved split. Custom stays in the fifth preset slot in both modes. Switch
 between **Amount** and **Position** to choose sat presets or estimated ranking
-targets with matching presets in the same picker. **Payment options** includes
-wallet connection and confirmation DMs. The full editor uses Promotion, Billboard
-and Payment options tabs. Appearance is available in Billboard when starting a
-promotion period, including after expiry. Note images have bounded thumbnails,
-and Nostr references remain clickable. Expand the note to read its full content.
+targets with matching presets in the same picker. Budget offers optional
+**Billboard** appearance and **Notifications** for confirmation DMs before invoice
+preparation. Appearance is available when starting a promotion period, including
+after expiry. The complete total and invoice action stay visible in these panels.
+Note images have bounded thumbnails, and Nostr references remain clickable. Expand the note to read its full content.
 The main action stays visible while scrolling on a phone. The original note
 remains unchanged.
 
@@ -97,16 +103,20 @@ profile. If unavailable or outside that wallet's limits, choose another amount
 or explicitly switch to visibility only.
 
 The form shows each recipient amount and the complete total before confirmation.
-**Boost** or **Promote** prepares invoices and opens **Promotion payment**.
+**Continue to payment** in Budget, or **Boost** in the compact form, prepares
+invoices before opening payment.
 Choose between equally available **Wallet** and **Invoice / QR** tabs. NWC is
 selected first when a connection exists; otherwise invoices come first.
 Wallet payment requires a separate explicit action. Invoice payments show one
 recipient's QR at a time, with Open in wallet and Copy invoice always available
 for that invoice. Select Holoboard or Author to change the displayed invoice.
 No login or Nostr signer is needed for payments. The header's wallet icon connects
-an optional NWC wallet; **Payment options** also offers that connection. **Sign in**
-connects a separate Nostr identity. Confirmation DMs accept that identity or a
-manually entered npub.
+an optional NWC wallet; connection is also available beside the **Wallet**
+payment method. When signer support is enabled, **Sign in** connects a separate
+Nostr identity. Confirmation DMs accept that identity or a manually entered npub.
+An account-free payer can support the author of someone else's signed note.
+Guest-authored new posts instead show a visibility-only summary and have no
+account-bound notifications.
 
 **Restart payment** returns an unpaid session to the same promotion choices
 without creating new invoices. Check your wallet before confirming: issued
@@ -117,7 +127,7 @@ switch to another note. Resume pays only the remaining parts; a new payment
 has its own full total. Older invoices remain available if a new payment is
 prepared for the same note. Connections and shared wallet protections remain.
 
-The header's **Promote** action opens a blank editor, with unfinished
+The header's **Add to board** action opens a blank Post stage, with unfinished
 payments available to resume explicitly. Opening a specific note restores only
 that note's payment. Expired invoices with no recorded send attempt reopen in
 the editor. Changing notes clears the previous draft. Billboard is available
@@ -132,12 +142,16 @@ Author support normally uses ordinary invoices. With a connected signer and a
 compatible recipient, you can explicitly choose a public zap. Existing invoices
 remain available in their original payment session.
 The two payments can succeed independently: the form keeps their separate
-statuses and unfinished invoices in the current browser tab after a refresh.
+statuses and unfinished invoices in private browser storage. After closing a tab,
+return to the same site in the same browser profile and device, then choose
+**Add to board > Unfinished payments** to resume explicitly.
 Wallet payment proofs and valid zap receipts confirm author support. Manual
 author payments without a proof can only be marked paid by the payer; check your
-wallet before retrying. Closing the tab clears this local recovery state.
-Wallet connections also stay in the current tab. Connecting never sends a
-payment. A lost wallet response leaves the invoice protected across connections
+wallet before retrying. Saved invoices keep their original post, amounts and
+backend; unsigned drafts and guest keys are separate and do not gain cross-device
+recovery. If saving fails, keep the invoice because refresh or tab closure can
+lose the in-memory session. Wallet connections stay in the current tab.
+Connecting never sends a payment. A lost wallet response leaves the invoice protected across connections
 and between promotion and the wallet panel. Reconnect the original NWC connection
 to check its status; lookup permission is sufficient. You can prepare a different
 invoice while that payment remains unresolved. Disconnect at any time and use
@@ -148,9 +162,9 @@ and zap its reply, zap the account with the note reference in the comment, or
 DM `PROMOTE <amount> <note>` to receive an invoice. The full command options
 are in the [relay README](relay/README.md#promotion-through-nostr).
 
-Amount, position and allocation controls share one form. Appearance, payment
-options and connection panels preserve the draft. Switching Amount and Position
-also preserves the amount, allocation and open Custom field.
+Amount, position and allocation controls share Budget. Optional appearance,
+notification, help and connection panels preserve the current choices. Switching
+Amount and Position also preserves the amount, allocation and open Custom field.
 [Help](https://holoboard.space/help) explains ranking and alternative promotion
 methods, with the Holoboard pubkey and relay URL available to copy. Contextual
 help returns to the editor without discarding its choices. The payment result

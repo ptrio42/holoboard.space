@@ -8,10 +8,14 @@ record deployment, not announcement publication.
 
 ### Added
 
-- Add an opt-in Add to board editor for text, links, quotes and existing posts,
-  with live previews, optional guest author-key export and existing Nostr signers.
-  New posts publish after board payment, with durable
-  delivery and invoice recovery even after the browser closes.
+- Guide Add to board through Post, Budget and Payment, keeping Billboard,
+  notifications and author details optional and Boost compact. Opt-in new posts
+  support guest key export or existing Nostr signers and publish after board
+  payment. Prepared invoices retain their post, recipients and total for explicit
+  same-browser recovery after tab closure; wallet attempts coordinate across tabs
+  and block unsafe restarts. Older invoices with unknown backend provenance remain
+  available to open, copy or scan without automatic status checks. Keep controls
+  and QR codes reachable on small viewports and with enlarged text.
 - Add an optional discovery fund: a local Codex curator finds worthwhile posts
   across topics, gives them seven days in Waiting room New and can reward authors
   from a separately budgeted Lightning wallet. Discoveries remain unranked until
@@ -44,6 +48,11 @@ record deployment, not announcement publication.
 - Switch board sections without reloading the page, retaining reading position,
   expanded text, waiting-room sorting and loaded pages through navigation and
   browser Back/Forward. Keep direct links and native new-tab behavior.
+
+### Fixed
+
+- Report mismatched post previews and allow retrying the original reference
+  without preparing an invoice or silently remaining in Post.
 
 ## 2026-10-15
 

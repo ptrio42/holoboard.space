@@ -4,25 +4,32 @@ import { CopyButton } from "../ui/CopyButton";
 import { PixelButton, PixelLink } from "../ui/PixelButton";
 import { QrCode } from "../ui/QrCode";
 import { StatusMessage } from "../ui/StatusMessage";
+import { CompactNoteText } from "../TextRenderer/CompactNoteText";
+import { njumpUrl } from "../../lib/nostr";
 import { ConnectionSettings } from "./ConnectionSettings";
 import { canPayOrCheckInvoice, type PaymentWallet } from "../../lib/walletPayment";
 import { isMockInvoice, MOCK_INVOICE_MESSAGE } from "../../lib/invoice";
 import { restartBlocked, type PaymentMethod, type PaymentRecipient, type PromotionPayment as Payment } from "./PaymentState";
 
 export function PromotionPayment({ id, payment, method, recipient, onRecipient, wallet, walletName, connecting, busy, walletPart, now,
-    canResume, error, actualRank, onPay, onReplaceAuthor, onReplaceBoard, onReportAuthor, onAcknowledge, onHelp, onSigner, onRestart, onBack,
-    restartConfirm, onRestartConfirm, hasPublicZapConsent, authorCanReplace, footer }: {
-    id: string; payment: Payment; method: PaymentMethod; recipient: PaymentRecipient; onRecipient: (part: PaymentRecipient) => void;
+    storageFailed, error, actualRank, onPay, onReplaceAuthor, onReplaceBoard, onReportAuthor, onAcknowledge, onHelp, onSigner, onRestart, onBack,
+    restartConfirm, restartUnavailable, onRestartConfirm, hasPublicZapConsent, authorCanReplace, footer, boost }: {
+    boost: boolean; id: string; payment: Payment; method: PaymentMethod; recipient: PaymentRecipient; onRecipient: (part: PaymentRecipient) => void;
     wallet: PaymentWallet | undefined; walletName: string; connecting: boolean; busy: boolean; now: number;
     walletPart: PaymentRecipient | null;
-    canResume: boolean; error: string; actualRank: number | null;
+    storageFailed: boolean; error: string; actualRank: number | null;
     onPay: () => void; onReplaceAuthor: () => void; onReplaceBoard: () => void; onReportAuthor: () => void; onAcknowledge: (part: PaymentRecipient) => void;
-    onHelp: () => void; onSigner: () => void; onRestart: () => void; onBack: () => void; restartConfirm: boolean;
+    onHelp: () => void; onSigner: () => void; onRestart: () => void; onBack: () => void; restartConfirm: boolean; restartUnavailable: boolean;
     onRestartConfirm: (value: boolean) => void; hasPublicZapConsent: boolean; authorCanReplace: boolean; footer: (content: ReactNode) => ReactNode;
 }) {
     const mockPayment = isMockInvoice(payment.board.invoice);
+    const visibility = payment.board.promotionSats;
+    const appearanceFee = payment.board.billboardFeeSats;
+    const knownAllocation = typeof visibility === "number" && typeof appearanceFee === "number" && visibility + appearanceFee === payment.board.amountSats;
+    const includesAppearance = knownAllocation && appearanceFee > 0 && !payment.feeConverted;
+    const boardLabel = includesAppearance ? "Holoboard visibility and appearance" : knownAllocation ? "Holoboard visibility" : "Holoboard";
     const parts = [
-        { id: "board" as const, label: "Holoboard visibility", amount: payment.board.amountSats, invoice: payment.board.invoice,
+        { id: "board" as const, label: boardLabel, amount: payment.board.amountSats, invoice: payment.board.invoice,
             hash: payment.board.paymentHash, expires: payment.board.expiresAt, paid: payment.promotionPaid, reported: false, attempt: payment.boardAttempt },
         ...(payment.author ? [{ id: "author" as const, label: "Support the original author", amount: payment.author.amount_sats, invoice: payment.author.invoice,
             hash: payment.author.payment_hash, expires: payment.author.expires_at, paid: payment.tipStatus !== "pending", reported: payment.tipStatus === "reported", attempt: payment.authorAttempt }] : []),
@@ -63,13 +70,22 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
     const actionClass = "promotion-action focus-pixel inline-flex min-h-11 items-center text-cyan-200/75 hover:text-neon-cyan disabled:opacity-40";
     return <>
         <div className="space-y-4 text-sm" role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${method}`} tabIndex={0}>
-            <p className="truncate text-xs text-cyan-100/60" title={payment.noteSummary}>For: {payment.noteSummary || payment.draft?.config.text || `note ${payment.board.noteId.slice(0, 8)}...${payment.board.noteId.slice(-6)}`}</p>
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <span className="promotion-label text-cyan-100/60">Promotion total</span>
-                <span className="text-neon-cyan">{parts.reduce((sum, part) => sum + part.amount, 0)} sats</span>
+            <h3 data-stage-heading tabIndex={-1} className="sr-only">Payment</h3>
+            <details className="disclosure" aria-label="Payment post">
+                <summary className="focus-pixel flex min-h-11 cursor-pointer items-start gap-2 text-xs leading-relaxed text-cyan-100/70"><span data-promotion-text className="min-w-0 flex-1 break-words">For: {payment.noteSummary || payment.draft?.config.text || `post ${payment.board.noteId.slice(0, 8)}...${payment.board.noteId.slice(-6)}`}</span></summary>
+                {payment.sourceEvent || payment.event ? <div className="mt-2 text-sm leading-relaxed text-cyan-100"><CompactNoteText text={(payment.sourceEvent ?? payment.event)!.content} /></div> :
+                    <a className={actionClass} href={njumpUrl(payment.board.noteId, "note")} target="_blank" rel="noopener noreferrer">Open original post</a>}
+            </details>
+            <div className="promotion-complete-total" aria-label="Complete total">
+                <span className="promotion-label text-cyan-100/65">Total</span>
+                <strong className="text-sm text-neon-cyan">{parts.reduce((sum, part) => sum + part.amount, 0)} sats</strong>
             </div>
             <div className="space-y-2" aria-label="Payment recipients">
-                {parts.map((part) => <button key={part.id} type="button" aria-pressed={recipient === part.id}
+                {parts.length > 1 && <p className="text-xs text-cyan-100/65">This payment has two invoices: {boardLabel} and support for the original author. Pay each separately, or use Wallet for both.</p>}
+                {parts.map((part) => parts.length === 1 ? <div key={part.id} className="space-y-1 border-t border-cyan-400/20 pt-3" aria-label={`${boardLabel} payment`}>
+                    <p className="flex flex-wrap items-center justify-between gap-2"><span className="promotion-label">{includesAppearance || !knownAllocation ? "Holoboard" : "Visibility"}</span><span>{part.amount} sats</span></p>
+                    <p className="text-xs text-cyan-100/65">{part.paid ? "Payment verified" : part.attempt?.state === "submitted" ? "Verifying payment" : part.attempt?.state === "uncertain" ? "Wallet confirmation missing" : now >= part.expires * 1000 ? "Invoice expired" : "Awaiting payment"}</p>
+                </div> : <button key={part.id} type="button" aria-pressed={recipient === part.id}
                     className={`focus-pixel flex min-h-14 w-full flex-wrap items-center justify-between gap-x-3 gap-y-1 border-2 px-3 py-2 text-left ${recipient === part.id ? "border-neon-cyan/70 bg-cyan-400/5" : "border-cyan-400/20"}`}
                     onClick={() => onRecipient(part.id)}>
                     <span className="promotion-label text-cyan-100">{part.id === "board" ? "Holoboard" : "Author"}</span>
@@ -79,8 +95,13 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                     </span>
                 </button>)}
             </div>
+            {knownAllocation && appearanceFee > 0 && <p className="text-xs text-cyan-100/70">
+                {payment.feeConverted
+                    ? `Visibility receives ${visibility + appearanceFee} sats. The ${appearanceFee}-sat appearance fee was converted to visibility.`
+                    : `Visibility receives ${visibility} sats. Appearance costs ${appearanceFee} sats and does not add ranking weight.`}
+            </p>}
             {mockPayment && <p role="alert" className="text-xs text-neon-gold">{MOCK_INVOICE_MESSAGE} The saved author invoice is separate; check its payment status before starting again.</p>}
-            {!canResume && <p className="text-xs text-neon-gold">This browser cannot save the payment for a refresh. Keep the invoices and check your wallet before refreshing or closing this tab.</p>}
+            {storageFailed && <p className="text-xs text-neon-gold">This browser could not save this payment for recovery after closing the tab. Keep the invoices and check your wallet before refreshing or closing this tab.</p>}
             {payment.promotionPaid && <div className="space-y-1 text-xs text-cyan-100/70" aria-live="polite">
                 <p className="text-neon-cyan">Added {payment.added} sats to visibility.</p>
                 {payment.billboardApplied && <p>Your billboard appearance is active.</p>}
@@ -106,6 +127,11 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                 {wallet?.kind === "nwc" || walletName ? <details className="disclosure"><summary className={`${actionClass} cursor-pointer`}>Wallet settings</summary><ConnectionSettings section="wallet" embedded paymentOnly disabled={busy} /></details> : wallet?.kind === "webln" ? <details className="disclosure"><summary className={`${actionClass} cursor-pointer`}>Connect NWC wallet</summary><ConnectionSettings section="wallet" embedded paymentOnly disabled={busy} /></details> : <ConnectionSettings section="wallet" embedded paymentOnly disabled={busy} />}
                 {!wallet && walletName && !connecting && <p className="text-xs text-neon-gold">This NWC connection has no sending permission. Use Invoice / QR or connect a wallet with sending enabled.</p>}
             </section>}
+            {restartConfirm && !blocked && !restartUnavailable && <div className="space-y-2 text-xs text-neon-gold">
+                <p>Check your wallet first. Issued invoices are not cancelled and could still be paid. Restart returns to your promotion choices.</p>
+                <PixelButton className="w-full" size="sm" variant="ghost" disabled={busy} onClick={onRestart}>I haven't paid, restart</PixelButton>
+            </div>}
+            {!blocked && !busy && !restartUnavailable && (restartConfirm ? <button type="button" className={actionClass} onClick={() => onRestartConfirm(false)}>Keep payment</button> : <button type="button" className={actionClass} onClick={() => onRestartConfirm(true)}>Restart payment</button>)}
             {parts.map((part) => !part.paid && !isMockInvoice(part.invoice) && <div key={part.id} className="space-y-2 text-xs text-cyan-100/70">
                 {part.attempt?.state === "uncertain" && !busy && <>
                     <div role="status" className="space-y-2 border-l-2 border-neon-gold/50 bg-white/[0.03] p-3">
@@ -128,7 +154,7 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
             {payment.author && payment.tipStatus === "pending" && method === "invoice" && recipient === "author" && <div className="space-y-2 text-xs text-cyan-100/60">
                 <PixelButton size="sm" variant="ghost" disabled={busy} onClick={onReportAuthor}>I paid the author, checked my wallet</PixelButton>
             </div>}
-            {ENABLE_NOSTR_CONNECT && payment.publicZap && <button type="button" className={actionClass} disabled={busy} onClick={onSigner}>Nostr signer settings &gt;</button>}
+            {ENABLE_NOSTR_CONNECT && payment.publicZap && <button type="button" className={actionClass} data-panel-trigger="signer" disabled={busy} onClick={onSigner}>Nostr signer settings &gt;</button>}
             {error && !busy && <p role="alert" className="text-xs text-neon-pink">{error}</p>}
             {blocked && !busy && <p className="text-xs text-cyan-100/60">{blocked}</p>}
         </div>
@@ -140,13 +166,9 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                 <PixelLink className="min-h-11 flex-1" size="sm" variant="accent" href={`lightning:${selected.invoice}`}>Open in wallet</PixelLink>
                 <CopyButton key={selected.hash} value={selected.invoice} label="Copy invoice" />
             </div>}
-            {restartConfirm && !blocked && <div className="space-y-2 text-xs text-neon-gold">
-                <p>Check your wallet first. Issued invoices are not cancelled and could still be paid. Restart returns to your promotion choices.</p>
-                <PixelButton className="w-full" size="sm" variant="ghost" disabled={busy} onClick={onRestart}>I haven't paid, restart</PixelButton>
-            </div>}
-            <div className="flex flex-wrap items-center justify-between gap-x-3">
-                {blocked || busy ? <button type="button" className={actionClass} onClick={onBack}>Back to promotion</button> : restartConfirm ? <button type="button" className={actionClass} onClick={() => onRestartConfirm(false)}>Keep payment</button> : <button type="button" className={actionClass} onClick={() => onRestartConfirm(true)}>Restart payment</button>}
-                <button type="button" className={actionClass} aria-label="Payment help >" onClick={onHelp}>Help &gt;</button>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2">
+                <button type="button" className={`${actionClass} min-w-0 text-left`} onClick={onBack}>{boost ? "Back to boost" : "Back to budget"}</button>
+                <button type="button" className={`${actionClass} justify-self-end whitespace-nowrap`} aria-label="Payment help >" data-panel-trigger="help" onClick={onHelp}>Help &gt;</button>
             </div>
         </div>)}
     </>;

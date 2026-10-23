@@ -19,7 +19,7 @@ async function setup(context: BrowserContext, page: Page, options: { restoredPro
     if (options.restoredProof !== undefined) await context.addInitScript(({ invoice, hash, walletId, proof }) => {
         const key = "holoboard-wallet-attempts";
         if (!sessionStorage.getItem(key)) sessionStorage.setItem(key, JSON.stringify({ [hash]: {
-            attempt: { state: "submitted", walletId, preimage: proof, proofVerified: true }, invoice, amountMsats: 21000,
+            attempt: { state: "submitted", walletId, ...(typeof proof === "string" ? { preimage: proof } : {}), proofVerified: true }, invoice, amountMsats: 21000,
         } }));
     }, { invoice: sentInvoice, hash: paymentHash, walletId: `nwc:${walletPubkey}:${getPublicKey(clientKey)}`, proof: options.restoredProof });
     const state = {
@@ -149,8 +149,13 @@ test("wallet connection keeps setup help optional and accepts Enter without send
             await input.press("Enter");
             await expect(dialog).toBeVisible();
             await expect(dialog.getByText("In your wallet, create a mainnet Nostr Wallet Connect (NWC) connection for Holoboard.")).toBeHidden();
-            for (const width of [1280, 390, 320]) {
-                await page.setViewportSize({ width, height: 844 });
+            for (const [width, height] of [[1280, 844], [390, 844], [768, 844], [320, 560]]) {
+                await page.setViewportSize({ width, height });
+                await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+                const shell = (await dialog.boundingBox())!;
+                expect(shell.y).toBeGreaterThanOrEqual(0); expect(shell.y + shell.height).toBeLessThanOrEqual(height);
+                const close = (await dialog.getByRole("button", { name: "Close dialog", exact: true }).boundingBox())!;
+                expect(close.width).toBeGreaterThanOrEqual(44); expect(close.height).toBeGreaterThanOrEqual(44);
                 expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
                 const bounds = await connect.boundingBox();
                 expect(bounds?.height).toBeGreaterThanOrEqual(44);
@@ -305,6 +310,8 @@ async function reconnect(page: Page, connection = uri) {
     await page.getByRole("button", { name: "Disconnect wallet", exact: true }).click();
     await page.getByLabel("NWC connection link").fill(connection);
     await page.getByRole("button", { name: "Connect wallet", exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.getByRole("navigation", { name: "Connections" }).getByRole("button", { name: "Wallet", exact: true }).click();
     await expect(page.getByText("Connected: Fixture wallet.", { exact: false })).toBeVisible();
     await page.getByRole("navigation", { name: "Wallet views" }).getByRole("button", { name: "Send", exact: true }).click();
 }
