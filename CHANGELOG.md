@@ -56,6 +56,7 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Include the frontend's required peer dependencies in container builds.
 - Load nearby link previews inside scrolling editors on small screens.
 - Preserve compact loading messages and distinct button styles in shared views.
 - Load media viewers on demand when using the shared note renderer.

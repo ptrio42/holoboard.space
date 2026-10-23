@@ -9,11 +9,12 @@ and billboard rules.
 Run from `web/` with Node.js and npm installed:
 
 ```bash
-npm ci --legacy-peer-deps
+npm ci
 npm run dev
 ```
 
-The install hook installs the pinned shared client build tools from
+Keep peer dependencies enabled for the web app; the locked NDK peers are required
+during bundling. The install hook installs the pinned shared client build tools from
 `../packages/nostr-client`; dev, test and build compile that package first.
 Keep both directories in the checkout. If lifecycle scripts are disabled, run
 `npm ci --prefix ../packages/nostr-client --legacy-peer-deps --ignore-scripts`

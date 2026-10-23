@@ -3,7 +3,7 @@ WORKDIR /app/web
 
 COPY web/package.json web/package-lock.json ./
 COPY packages/nostr-client/package.json packages/nostr-client/package-lock.json /app/packages/nostr-client/
-RUN npm ci --legacy-peer-deps
+RUN npm ci
 
 COPY web .
 COPY packages/nostr-client /app/packages/nostr-client
