@@ -88,7 +88,9 @@ from mounted views; viewer placeholders preserve the caller's original indices. 
 links, including image-only notes and tag-only attachments, without automatic
 media requests. An unavailable upload capability rejects file pick, paste and
 drop before creating object URLs or blocking review. Hosts retain their own CSP; this package does
-not broaden it. The existing gallery/lightbox uses element style attributes for
+not broaden it. The viewer implementation loads only when opened, including through the public
+React export. Server rendering retains source links without loading a viewer.
+The existing gallery/lightbox uses element style attributes for
 geometry, which a strict CSP may block; hosts may keep media unavailable.
 
 ## Public data and receipt ownership

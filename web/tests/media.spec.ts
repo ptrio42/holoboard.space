@@ -179,9 +179,13 @@ test("intrinsic dimensions replace incorrect signed hints and persist through di
 test("navigation cancels a viewer while its lazy module is still loading", async ({ context, page }) => {
     test.skip(process.env.VITE_ENABLE_DISCUSSIONS !== "true");
     await page.setViewportSize({ width: 390, height: 844 });
+    const viewerModule = /\/packages\/nostr-client\/dist\/react\/content\/NoteMediaViewer\.js(?:\?|$)/;
+    const viewerRequests: string[] = [];
+    page.on("request", request => { if (viewerModule.test(request.url())) viewerRequests.push(request.url()); });
     const { row, gallery } = await setup(context, page, { content: `A pending viewer.\n${portrait}` });
+    expect(viewerRequests).toHaveLength(0);
     let pendingModule: Route | undefined;
-    await page.route("**/src/components/TextRenderer/NoteMediaViewer.tsx*", route => {
+    await page.route(viewerModule, route => {
         if (pendingModule) return route.continue();
         pendingModule = route;
     });

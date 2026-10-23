@@ -17,4 +17,4 @@ export { useNoteLinkPlacement } from './content/useNoteLinkPlacement';
 
 export type { NoteEditorProps } from './editor/NoteEditor';
 export type { NoteContentProps } from './content/NoteContent';
-export { default as NoteMediaViewer } from './content/NoteMediaViewer';
+export { NoteMediaViewer } from './content/LazyMediaViewer';
