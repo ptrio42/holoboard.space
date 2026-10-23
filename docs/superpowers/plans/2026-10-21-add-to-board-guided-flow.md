@@ -127,8 +127,9 @@ show loading without briefly presenting controls for an unrelated draft.
 | Trigger | Required result |
 | --- | --- |
 | General Add to board | Blank Post stage; explicit unfinished-payment entry |
+| Original pasted into general Post | Keep review and the optional comment choice, including for an active original |
 | Known inactive post | Budget with its source selected |
-| Active post | Current compact Boost, without the full stepper |
+| Explicit Boost on an active post | Current compact Boost, without the full stepper |
 | Valid Post continuation | Review/sign privately if needed, then Budget; no invoices |
 | Return Post to Budget without edits | Same event ID, signature and guest key; no new signer request |
 | Edit content, interpretation or author before invoicing | Invalidate review and return to Post; preserve text and applicable budget |
@@ -215,14 +216,14 @@ walletAccount.ts, WalletPanel.tsx, DirectPromote.tsx and relevant wallet tests.
 **Files:** BoardComposer.tsx, PromoteModal.tsx, DirectPromote.tsx,
 web/tests/boardCreation.spec.ts.
 
-- [ ] Extend the existing guest and account fixtures to count signer requests
+- [x] Extend the existing guest and account fixtures to count signer requests
   and record reviewed event IDs while retaining their existing frozen-snapshot
   assertions. Repeated review through navigation becomes observable in Task 2;
   do not add a test requiring a second Review post button that does not exist.
-- [ ] Run the guest, original/quote and late-sign-in creation cases with creation
+- [x] Run the guest, original/quote and late-sign-in creation cases with creation
   and signer flags enabled, using the command pattern under Verification. Record
   their baseline requests and saved IDs before changing the composer contract.
-- [ ] Change the composer render prop to expose this contract, updating all
+- [x] Change the composer render prop to expose this contract, updating all
   actual callers together so TypeScript remains buildable:
 
 ```ts
@@ -235,18 +236,18 @@ export interface BoardComposerView {
 }
 ```
 
-- [ ] Make review return the current verified private event, or the selected
+- [x] Make review return the current verified private event, or the selected
   original reference, on success and null on failure. Preserve signature-payload
   validation, version checks and cancellation. Reuse an unchanged reviewed
   event; create a new guest key only when preparing changed content requires it.
-- [ ] Keep edit/account invalidation notifications flowing through onSource.
+- [x] Keep edit/account invalidation notifications flowing through onSource.
   Keep DirectPromote's deferred-composition guard while preparing or showing
   invoices. Accept the returned source directly for stage continuation instead
   of depending on the timing of a React effect.
-- [ ] Separate author details and key export from the writing field. Retain the
+- [x] Separate author details and key export from the writing field. Retain the
   guest-key warning, including replacement after an edited review. Keep the
   composer owner mounted through Budget, Payment and contextual panels.
-- [ ] Rerun the focused creation cases. Check that an old signed invoice never
+- [x] Rerun the focused creation cases. Check that an old signed invoice never
   contains or depends on a guest secret. Commit the reviewed task files with
   `Expose stable composer review for guided navigation`.
 
@@ -255,39 +256,39 @@ export interface BoardComposerView {
 **Files:** Create PromotionSteps.tsx; modify DirectPromote.tsx, PromoteModal.tsx,
 index.css and boardCreation.spec.ts.
 
-- [ ] Adapt the guest browser case to assert that initial Post has no amount
+- [x] Adapt the guest browser case to assert that initial Post has no amount
   picker, split or invoice action. Add `Review & continue`, then assert Budget
   shows the exact reviewed post and no longer shows the editable textarea.
-- [ ] Add Post-to-Budget-to-Post-to-Budget assertions, including unchanged
+- [x] Add Post-to-Budget-to-Post-to-Budget assertions, including unchanged
   signer count and guest event ID. Inspect outgoing requests: this sequence
   must create zero invoices and zero publication frames.
-- [ ] Implement editor progress using the state contract above. For Post,
+- [x] Implement editor progress using the state contract above. For Post,
   render the composer or the existing-post input and its preview. For Budget,
   render the existing preview, amount controls and recipient allocation.
   A new composition effect with the same effective source is idempotent and
   must not undo successful continuation or reset the budget.
-- [ ] Implement PromotionSteps as a navigation region containing an ordered
+- [x] Implement PromotionSteps as a navigation region containing an ordered
   list of Post, Budget and Payment. Announce the current step with aria-current;
   completed reachable steps use real buttons, future unavailable steps are
   noninteractive and have a visible prerequisite explanation. Do not add tab
   roles to sequential progress. PaymentTabs keeps its existing tab semantics.
-- [ ] Put Review & continue in the fixed Post footer, with paid-publication
+- [x] Put Review & continue in the fixed Post footer, with paid-publication
   information and conditional signer explanation. Disable it for empty/invalid
   content or active review. An original must finish verified preview loading
   before continuation; loading and source errors remain actionable in Post.
-- [ ] Give Budget an Edit post action and `Continue to payment · {total} sats`.
+- [x] Give Budget an Edit post action and `Continue to payment · {total} sats`.
   Preserve the current invoice-preparation handler and all its validity guards.
   Display the complete total and `Creates invoices. No payment is sent yet.`
-- [ ] Present guest authorship in plain language with optional Nostr sign-in.
+- [x] Present guest authorship in plain language with optional Nostr sign-in.
   With creation disabled, show only `Post link` and existing-post guidance;
   hide writing, guest-creation and Add a comment controls while preserving
   previously issued creation invoices. The title stays Add to board.
-- [ ] Verify focus moves to the new stage heading, keyboard navigation works,
+- [x] Verify focus moves to the new stage heading, keyboard navigation works,
   source changes invalidate review and known inactive posts skip initial writing.
   Keep Boost unchanged. Run the focused guest case, the original/quote case and
   one creation-disabled existing-post case. Commit with
   `Guide Add to board through post and budget stages`.
-- [ ] Inspect the first functional composition at a normal phone and desktop
+- [x] Inspect the first functional composition at a normal phone and desktop
   width before polishing optional panels. Compare the same short linked post
   used by the baseline audit. Check whether Post still duplicates a tall editor
   and preview, and whether step progress or summaries consume the space saved.
@@ -297,32 +298,32 @@ index.css and boardCreation.spec.ts.
 **Files:** DirectPromote.tsx, PromotionTabs.tsx, index.css,
 boardCreation.spec.ts and payments.spec.ts.
 
-- [ ] Add a Budget regression selecting a custom amount, a changed author split,
+- [x] Add a Budget regression selecting a custom amount, a changed author split,
   Billboard and notifications. Traverse appearance, options, help and account
   panels, then assert every choice and the complete total survive. Check the
   invoice request contains the exact selected notification identity, split and
   appearance, with no payment sent.
-- [ ] Replace the disabled guest split with `All of this amount goes to
+- [x] Replace the disabled guest split with `All of this amount goes to
   visibility.` Keep both amounts, percentages, two-color slider and campaign
   reset together for eligible original posts. Preserve visibility-only and
   missing-address versus temporary-outage behavior.
-- [ ] Add a quiet Billboard entry showing the actual optional fee on Budget.
+- [x] Add a quiet Billboard entry showing the actual optional fee on Budget.
   Preserve the current appearance editor, source-derived fragments and preview.
   Keep an explanatory Billboard entry in Post before a source is ready; after
   loading, editing follows the existing start/revival eligibility rules.
-- [ ] Keep an optional Payment options entry on Budget with explicit
+- [x] Keep an optional Payment options entry on Budget with explicit
   Notifications controls before invoice creation. Hide guest-inapplicable
   controls. Keep public-author-zap consent beside the split and preserve signer
   session checks. Place wallet connection on the payment Wallet method.
-- [ ] Give contextual panels explicit invoking-step and focus-return behavior.
+- [x] Give contextual panels explicit invoking-step and focus-return behavior.
   Budget panels retain the full total and preparation action. Preparation errors
   return to the relevant Budget control; an invalid notification identity opens
   Notifications with the draft intact.
-- [ ] Update payment-test helpers such as backToForm, openPaymentOptions,
+- [x] Update payment-test helpers such as backToForm, openPaymentOptions,
   openConnections and prepareInvoices to use stage/context navigation. Preserve
   each test's original payment assertions and amount expectations; never weaken
   a recovery assertion to make a renamed control pass.
-- [ ] Remove PromotionTabs after checking all references. Keep promotion-tabs
+- [x] Remove PromotionTabs after checking all references. Keep promotion-tabs
   and promotion-tab CSS still used by PaymentTabs; remove only editor-specific
   dead styling. Run the contextual-options case, author-outage case and quick
   Boost layout cases. Commit with `Make promotion extras contextual`.
@@ -332,29 +333,29 @@ boardCreation.spec.ts and payments.spec.ts.
 **Files:** DirectPromote.tsx, PromotionPayment.tsx, PaymentState.ts,
 payments.spec.ts and boardCreation.spec.ts.
 
-- [ ] Add one-recipient and split-invoice assertions: account-free open/copy/QR
+- [x] Add one-recipient and split-invoice assertions: account-free open/copy/QR
   remain usable, one recipient has no redundant selector, and two recipients
   show their individual amounts and statuses. Existing method selection and
   remembered-wallet ordering remain unchanged.
-- [ ] Render stage progress together with PaymentTabs in the shared navigation
+- [x] Render stage progress together with PaymentTabs in the shared navigation
   host for the full flow. Hide stage progress in Boost and completed results.
   Show the frozen post and complete total without reintroducing editing there.
-- [ ] Replace only the redundant single-recipient control with a static amount
+- [x] Replace only the redundant single-recipient control with a static amount
   and status. Add the two-payment explanation when author support exists. Keep
   original invoice hashes, copy values, QR payloads, replacement actions and
   manually reported/unverified distinctions unchanged.
-- [ ] Expose Back to budget for the full flow and keep the compact return label
+- [x] Expose Back to budget for the full flow and keep the compact return label
   appropriate for Boost. Route it through the existing backToPromotion operation
   and then set editor progress to Budget. Do not clear invoice records or shared
   wallet attempts. Ensure late wallet enable/response callbacks cannot continue
   a send sequence after this navigation.
-- [ ] After this return, place a visible Resume entry with the frozen total
+- [x] After this return, place a visible Resume entry with the frozen total
   above the budget form. Check it at phone widths so the fixed preparation
   action does not hide the way back to an already issued invoice.
-- [ ] Preserve existing partial and completed result handling. Use Done to close
+- [x] Preserve existing partial and completed result handling. Use Done to close
   the result and keep created-post publication status separate from settlement.
   Completing or navigating a payment does not silently start another invoice.
-- [ ] Run targeted account-free split, partial recovery, pending WebLN return,
+- [x] Run targeted account-free split, partial recovery, pending WebLN return,
   uncertain NWC and older-invoice-callback cases. Check both request counts and
   saved payment hashes. Commit with `Integrate guided payment and recovery`.
 
@@ -363,40 +364,40 @@ payments.spec.ts and boardCreation.spec.ts.
 **Files:** boardCreation.spec.ts, payments.spec.ts; affected components and
 index.css only for defects exposed by these checks.
 
-- [ ] Extend the existing creation cases for guest-only operation with signer
+- [x] Extend the existing creation cases for guest-only operation with signer
   UI disabled, then for enabled Nostr sign-in, rejected/changed signatures,
   original versus quote, edited content and late sign-in while invoices exist.
   Guest-only checks must run rather than be skipped by the signer flag.
-- [ ] Capture Post, Budget, optional appearance and Payment at 320, 390 and 1280
+- [x] Capture Post, Budget, optional appearance and Payment at 320, 390 and 1280
   CSS pixels with the same short/long text and ordinary link fixtures. Add one
   small-phone case with long note content and one with long author identity.
-- [ ] Assert the expected count of matched actions before checking their
+- [x] Assert the expected count of matched actions before checking their
   geometry. Check fixed-footer visibility, horizontal overflow, native custom
   input clearing, real note links, accessible stage names and error placement.
-- [ ] Record usable text width, title/navigation/footer heights, visible body
+- [x] Record usable text width, title/navigation/footer heights, visible body
   height and scrolling needed to reach required choices. Compare settled frames
   after resize, including the 768px breakpoint. Keep only relevant compact
   summaries and avoid hiding important explanations to improve these numbers.
-- [ ] Review hierarchy and grouping with the current pixel typography and neon
+- [x] Review hierarchy and grouping with the current pixel typography and neon
   palette. Measure actual text/control contrast and effective hit areas rather
   than inferring them from token names. Check font enlargement, reflow and
   focused controls near the fixed footer. The 44px project touch target is not
   the same claim as WCAG's 24px AA minimum with exceptions.
-- [ ] Check focus return from help, author-key export and connection panels.
+- [x] Check focus return from help, author-key export and connection panels.
   Use WebKit for the focused touch/keyboard/focus cases. Inspect a real phone's
   virtual-keyboard behavior manually if available; otherwise record that gap.
-- [ ] Rerun the existing compact Boost width cases and connected-wallet manual
+- [x] Rerun the existing compact Boost width cases and connected-wallet manual
   invoice case. Keep the normal-phone default Boost free of scrolling.
-- [ ] Inspect the result visually and fix demonstrated issues. Do not infer
+- [x] Inspect the result visually and fix demonstrated issues. Do not infer
   improved conversion from fewer controls or clicks. Commit with
   `Cover guided contribution navigation and responsive states`.
-- [ ] Run an agent-led task walkthrough of the actual prototype: a guest sharing
+- [x] Run an agent-led task walkthrough of the actual prototype: a guest sharing
   an ordinary link, promotion of someone else's original, an explicit quote,
   changed budget/appearance with Back, compact Boost, and unfinished/uncertain
   payment recovery after tab closure. Give goals rather than a prescribed click
   sequence. On the first attempt, use visible labels and help, with no source
   code serving as navigation instructions.
-- [ ] Record each goal, attempted route, outcome, friction, severity and screenshot
+- [x] Record each goal, attempted route, outcome, friction, severity and screenshot
   or state evidence. Verify attribution, recipients and the next action. Fix
   demonstrated defects and repeat the affected tasks; do not mark unimplemented
   behavior as passed. Provide the prototype and report for ptrio42's separate
@@ -411,28 +412,28 @@ Review it using the accepted criteria rather than reopening settled choices.
 
 **Files:** web/tests/pwa.spec.ts; existing fixture helpers only if needed.
 
-- [ ] Inspect the existing PWA fixture's baseline-label assumptions before
+- [x] Inspect the existing PWA fixture's baseline-label assumptions before
   changing helpers. Use separate baseline and candidate navigation adapters:
   the baseline build can still have category tabs and old preparation labels.
-- [ ] Add a creation-enabled fixture preparing a private guest post. Verify its
+- [x] Add a creation-enabled fixture preparing a private guest post. Verify its
   signed event snapshot and issued invoice survive update, creation-off rollback
   and re-enabling. Recover and pay that issued invoice in the mock API; new
   creation stays unavailable in the rollback build. No guest secret is persisted.
-- [ ] Add a real tab close and fresh-page reopen during the compatible-baseline
+- [x] Add a real tab close and fresh-page reopen during the compatible-baseline
   rollback cycle. Retain actual service-worker activation, API transport, decoded QR,
   clipboard and open-in-wallet checks. A route-only mock with service workers
   blocked does not substitute for this test.
-- [ ] Build the committed pre-redesign and candidate frontends sequentially
+- [x] Build the committed pre-redesign and candidate frontends sequentially
   using the local mock settings and isolated dist paths documented in
   web/README.md. The baseline includes the R1/R2 recovery foundation. Set creation
   explicitly for each candidate; do not use the
   Pages production profile to activate it.
-- [ ] Run the new created-post PWA case first on desktop, then on the phone
+- [x] Run the new created-post PWA case first on desktop, then on the phone
   engine required by any failure or focus/worker concern. Record exact source
   revisions and built paths. Keep broader release-matrix gaps explicit; remove
   the AGENTS.md outstanding-acceptance note only when all its named gaps have
   revision-specific passing evidence.
-- [ ] Commit the reviewed test with
+- [x] Commit the reviewed test with
   `Preserve created-post invoices across guided-flow rollback`.
 
 ## Task 7: Update current-behavior documentation and hand off the local build
@@ -440,20 +441,20 @@ Review it using the accepted criteria rather than reopening settled choices.
 **Files:** README.md, web/README.md, CHANGELOG.md and AGENTS.md if evidence
 actually closes its outstanding acceptance gates.
 
-- [ ] Replace implemented editor-tab descriptions with Post, Budget and Payment
+- [x] Replace implemented editor-tab descriptions with Post, Budget and Payment
   in the existing user/developer guides. Describe the plain-link/guest path only
   with its real feature availability. Keep setup and account recovery details in
   their current linked documents.
-- [ ] Add one concise Unreleased changelog entry grouping the guided flow and
+- [x] Add one concise Unreleased changelog entry grouping the guided flow and
   contextual options. Do not mark it released before a confirmed deployment.
-- [ ] Run targeted unit checks, changed-file lint and one candidate build as
+- [x] Run targeted unit checks, changed-file lint and one candidate build as
   listed below. Reuse unaffected evidence; do not run unrelated reader/backend
   suites or container builds without an identified dependency risk.
-- [ ] Review the full implementation diff, privacy and unpublished commit
-  metadata. Confirm no production flags, invoice schemas, external publication
+- [x] Review the full implementation diff, privacy and unpublished commit
+  metadata. Confirm no production flags, backend invoice API schemas, external publication
   rules or unrelated working files changed. Commit with
   `Document the guided Add to board flow`.
-- [ ] Provide the runnable local preview, representative screenshots, source
+- [x] Provide the runnable local preview, representative screenshots, source
   revision and verification report. Distinguish passing local mocks from real
   wallet/device interoperability and observed usability. Production activation,
   deployment and public release remain separate authorized actions.
