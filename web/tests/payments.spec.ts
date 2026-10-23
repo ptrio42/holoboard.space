@@ -1970,10 +1970,15 @@ test("WebLN completion survives contextual help", async ({ context, page }) => {
     const state = await setup(context, page, { webln: true });
     await prepareInvoices(page); await walletMethod(page);
     await page.getByRole("button", { name: "Pay 210 sats", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Payment complete", exact: true })).toBeVisible({ timeout: 10000 });
-    await page.getByRole("button", { name: "Payment help >", exact: true }).click();
+    const heading = page.getByRole("heading", { name: "Payment complete", exact: true });
+    await expect(heading).toBeVisible({ timeout: 10000 });
+    await expect(heading).toBeFocused();
+    const help = page.getByRole("button", { name: "Payment help >", exact: true });
+    await help.click();
     await backToForm(page);
-    await expect(page.getByRole("heading", { name: "Payment complete", exact: true })).toBeFocused();
+    await expect(heading).toBeVisible();
+    await expect(help).toBeFocused();
+    await expect(page.getByLabel("Payment summary")).toContainText(/Total paid\s*210 sats/);
     await expect(page.getByRole("button", { name: "Done", exact: true })).toBeVisible();
     expect(state.boardCharges).toBe(1); expect(state.authorCharges).toBe(1); expect(state.errors).toEqual([]);
 });
