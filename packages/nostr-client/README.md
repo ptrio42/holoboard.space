@@ -78,8 +78,12 @@ selectors stay inside the component scope, below consumer utilities. Set `--nost
 `--nostr-background`, `--nostr-panel`, `--nostr-accent`, `--nostr-danger` and
 `--nostr-gold` on a host ancestor to supply the host theme. No font or image asset
 is fetched by package construction. The default auxiliary palette uses Tailwind
-cyan tokens from the original components. A light host theme should override the
-relevant `--color-cyan-*` values on its `.nostr-client` scopes for readable contrast.
+cyan tokens from the original components. Light host themes need overrides for the relevant `--color-cyan-*` values
+on their `.nostr-client` scopes. Inherited editor and status styles also retain
+fixed cyan text colors; override those component classes and the ghost-button
+ink for readable contrast. The independent two-theme fixture checks layout,
+capability boundaries and bindings, rather than establishing light-theme
+contrast acceptance.
 `NoteEditor` accepts optional `textLabel`, `placeholder` and `toolbarLabel` props
 for root-note wording while preserving the original reply defaults. Media embedding checks the supplied media
 policy, including video posters. Direct `NoteVideo` and `NoteMediaViewer` exports
