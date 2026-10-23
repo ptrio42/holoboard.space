@@ -43,6 +43,11 @@ record deployment, not announcement publication.
   expanded text, waiting-room sorting and loaded pages through navigation and
   browser Back/Forward. Keep direct links and native new-tab behavior.
 
+### Fixed
+
+- Report mismatched post previews and allow retrying the original reference
+  without preparing an invoice or silently remaining in Post.
+
 ## 2026-10-15
 
 ### Added

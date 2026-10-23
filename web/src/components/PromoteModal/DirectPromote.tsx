@@ -282,13 +282,15 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     };
 
     useEffect(() => {
-        if (!parseNoteReference(reference)) { setPreview(null); setEndpoint(null); setLoading(false); return; }
+        const requestedId = parseNoteReference(reference)?.id;
+        if (!requestedId) { setPreview(null); setEndpoint(null); setLoading(false); return; }
         const controller = new AbortController();
         const timer = window.setTimeout(() => {
             setLoading(true); setError(""); setEndpoint(null);
             let verified = false;
             void fetchNotePreview(reference, controller.signal, selectedEvent).then(async (loaded) => {
-                if (controller.signal.aborted || resumeOperation.current || loaded.event.id !== parseNoteReference(latestReference.current)?.id) return;
+                if (controller.signal.aborted || resumeOperation.current || requestedId !== parseNoteReference(latestReference.current)?.id) return;
+                if (loaded.event.id !== requestedId) throw new Error("The relay returned a different post. Retry or choose another post.");
                 verified = true; setPreview(loaded);
                 if (resolvedEntry.current !== loaded.event.id) {
                     resolvedEntry.current = loaded.event.id;

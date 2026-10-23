@@ -9,6 +9,7 @@ test.use({ serviceWorkers: "block", reducedMotion: "reduce" });
 test.skip(process.env.VITE_ENABLE_POST_CREATION !== "true", "Requires the independent creation release gate");
 const originalKey = generateSecretKey();
 const original = finalizeEvent({ kind: 1, created_at: 1700000000, tags: [], content: "Original source for a quote." }, originalKey);
+const unrelatedOriginal = finalizeEvent({ kind: 1, created_at: 1700000001, tags: [], content: "A different post must not replace the requested original." }, originalKey);
 const accountKey = generateSecretKey(), accountPubkey = getPublicKey(accountKey);
 const boardHash = "b".repeat(64);
 const compositionEvidence = new WeakMap<BrowserContext, {
@@ -43,7 +44,7 @@ async function installExtension(context: BrowserContext, page: Page, getPubkey =
     });
 }
 
-async function setup(context: BrowserContext, page: Page, options: { authorWallet?: boolean; previewFailures?: number; longAuthor?: boolean } = {}) {
+async function setup(context: BrowserContext, page: Page, options: { authorWallet?: boolean; previewFailures?: number; mismatchedPreviews?: number; longAuthor?: boolean } = {}) {
     const origin = new URL(test.info().project.use.baseURL!).origin;
     const state = { previewCalls: 0, previewFailures: options.previewFailures ?? 0, requests: [] as Record<string, unknown>[], signerRequests: [] as string[], reviewedIds: [] as string[], signed: undefined as Event | undefined, paid: false, frames: [] as string[], errors: [] as string[], links: [] as string[], statusChecks: 0, pauseBoard: false, releaseBoard: undefined as (() => void) | undefined };
     compositionEvidence.set(context, state);
@@ -64,7 +65,7 @@ async function setup(context: BrowserContext, page: Page, options: { authorWalle
                 state.previewFailures--;
                 return route.fulfill({ status: 503, headers, json: { error: "Original preview temporarily unavailable" } });
             }
-            const event = body.event ?? (body.note === state.signed?.id ? state.signed : original);
+            const event = state.previewCalls <= (options.mismatchedPreviews ?? 0) ? unrelatedOriginal : body.event ?? (body.note === state.signed?.id ? state.signed : original);
             if (body.event) {
                 expect(verifyEvent(body.event)).toBe(true); state.signed = body.event;
                 if (!state.reviewedIds.includes(body.event.id)) state.reviewedIds.push(body.event.id);
@@ -643,6 +644,24 @@ test("editing a reviewed account post preserves its applicable budget and defaul
     expect(state.requests).toHaveLength(0); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
 });
 
+
+test("a mismatched nevent preview reports an error and can retry the original", async ({ context, page }) => {
+    const state = await setup(context, page, { mismatchedPreviews: 1 });
+    const reference = neventEncode({ id: original.id, author: original.pubkey, relays: ["wss://nos.lol"] });
+    const field = page.getByRole("textbox", { name: "Text or link", exact: true });
+    await field.fill(reference);
+    await expect(page.getByRole("alert")).toHaveText("The relay returned a different post. Retry or choose another post.");
+    await expect(field).toHaveValue(reference);
+    await expect(page.getByRole("button", { name: "Review & continue", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(page.getByText(unrelatedOriginal.content, { exact: true })).toHaveCount(0);
+    expect(state.previewCalls).toBe(2);
+    expect(state.signed).toBeUndefined(); expect(state.requests).toHaveLength(0);
+    expect(state.signerRequests).toEqual([]); expect(state.reviewedIds).toEqual([]);
+    expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
+});
 
 test("Review retries an unchanged original after a failed preview without signing or invoicing", async ({ context, page }) => {
     const state = await setup(context, page, { previewFailures: 1 });
