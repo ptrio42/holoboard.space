@@ -8,18 +8,14 @@ record deployment, not announcement publication.
 
 ### Added
 
-- Add an opt-in Add to board editor for text, links, quotes and existing posts,
-  with Post, Budget and Payment steps, live previews, optional guest author-key
-  export and existing Nostr signers. Budget keeps appearance and notifications
-  optional, and prepared payments retain their exact post, recipients and total
-  when returning to edit or resuming later.
-  New posts publish after board payment, with durable delivery and same-browser
-  invoice recovery after closing a tab. Wallet attempts retain their original
-  connection and coordinate sends across tabs to avoid duplicate payments.
-  Restart preserves invoices when another tab may have paid or their saved
-  status cannot be checked safely.
-  Older invoice copies with unknown backend provenance stay available to open,
-  copy or scan without automatic status checks.
+- Guide Add to board through Post, Budget and Payment, keeping Billboard,
+  notifications and author details optional and Boost compact. Opt-in new posts
+  support guest key export or existing Nostr signers and publish after board
+  payment. Prepared invoices retain their post, recipients and total for explicit
+  same-browser recovery after tab closure; wallet attempts coordinate across tabs
+  and block unsafe restarts. Older invoices with unknown backend provenance remain
+  available to open, copy or scan without automatic status checks. Keep controls
+  and QR codes reachable on small viewports and with enlarged text.
 - Add an optional discovery fund: a local Codex curator finds worthwhile posts
   across topics, gives them seven days in Waiting room New and can reward authors
   from a separately budgeted Lightning wallet. Discoveries remain unranked until
@@ -34,10 +30,6 @@ record deployment, not announcement publication.
 
 ### Changed
 
-- Keep contribution actions and complete invoice QR codes reachable after resizing
-  or using a short viewport. Enlarge Billboard controls and improve contrast for
-  available colors. Keep enlarged previews and payment actions readable, and
-  clarify appearance fees and same-browser invoice recovery.
 - Bring the logo, sections and actions into one desktop header with a neon rail
   and gold section marker. Name the main action Add to board independently of
   the creation flag. Keep phone controls compact, shorten Add to board to

@@ -198,7 +198,9 @@ distinguish confirmed board payment from pending external relay delivery.
 ### Existing posts, Boost and recovery
 
 - A known inactive post starts at Budget with its content selected and an
-  available review action. An active post uses the compact Boost path.
+  available review action. Explicit Boost on an active post uses the compact
+  path. An active original pasted into general Post can still be reviewed or,
+  when creation is enabled, used as the source of a new comment.
 - Boost retains its two-line preview, inline amount/position controls, split,
   contextual options and fixed total. It does not gain a stepper or category tabs.
 - General Add to board opens a blank Post stage. If unfinished payments exist,
