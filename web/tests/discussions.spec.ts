@@ -94,7 +94,7 @@ test.describe("read-only discussion", () => {
         await expect(page).toHaveTitle(title);
         await page.getByRole("link", { name: "Back to board", exact: true }).click();
         await expect(page).toHaveTitle("holoboard.space");
-        await expect(page.locator('meta[property="og:url"]')).toHaveAttribute("content", "https://holoboard.space/");
+        await expect(page.locator('meta[property="og:url"]')).toHaveAttribute("content", new URL(page.url()).origin + "/");
     });
     test("keeps multiline note metadata bounded and markup inert", async ({ context, page }) => {
         const selected = make('A note\n\n<script>window.metadataXss=1</script> ' + "😀".repeat(180));
