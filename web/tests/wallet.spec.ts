@@ -149,8 +149,13 @@ test("wallet connection keeps setup help optional and accepts Enter without send
             await input.press("Enter");
             await expect(dialog).toBeVisible();
             await expect(dialog.getByText("In your wallet, create a mainnet Nostr Wallet Connect (NWC) connection for Holoboard.")).toBeHidden();
-            for (const width of [1280, 390, 320]) {
-                await page.setViewportSize({ width, height: 844 });
+            for (const [width, height] of [[1280, 844], [390, 844], [768, 844], [320, 560]]) {
+                await page.setViewportSize({ width, height });
+                await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+                const shell = (await dialog.boundingBox())!;
+                expect(shell.y).toBeGreaterThanOrEqual(0); expect(shell.y + shell.height).toBeLessThanOrEqual(height);
+                const close = (await dialog.getByRole("button", { name: "Close dialog", exact: true }).boundingBox())!;
+                expect(close.width).toBeGreaterThanOrEqual(44); expect(close.height).toBeGreaterThanOrEqual(44);
                 expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
                 const bounds = await connect.boundingBox();
                 expect(bounds?.height).toBeGreaterThanOrEqual(44);

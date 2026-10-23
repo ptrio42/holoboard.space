@@ -117,6 +117,11 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                 {wallet?.kind === "nwc" || walletName ? <details className="disclosure"><summary className={`${actionClass} cursor-pointer`}>Wallet settings</summary><ConnectionSettings section="wallet" embedded paymentOnly disabled={busy} /></details> : wallet?.kind === "webln" ? <details className="disclosure"><summary className={`${actionClass} cursor-pointer`}>Connect NWC wallet</summary><ConnectionSettings section="wallet" embedded paymentOnly disabled={busy} /></details> : <ConnectionSettings section="wallet" embedded paymentOnly disabled={busy} />}
                 {!wallet && walletName && !connecting && <p className="text-xs text-neon-gold">This NWC connection has no sending permission. Use Invoice / QR or connect a wallet with sending enabled.</p>}
             </section>}
+            {restartConfirm && !blocked && !restartUnavailable && <div className="space-y-2 text-xs text-neon-gold">
+                <p>Check your wallet first. Issued invoices are not cancelled and could still be paid. Restart returns to your promotion choices.</p>
+                <PixelButton className="w-full" size="sm" variant="ghost" disabled={busy} onClick={onRestart}>I haven't paid, restart</PixelButton>
+            </div>}
+            {!blocked && !busy && !restartUnavailable && (restartConfirm ? <button type="button" className={actionClass} onClick={() => onRestartConfirm(false)}>Keep payment</button> : <button type="button" className={actionClass} onClick={() => onRestartConfirm(true)}>Restart payment</button>)}
             {parts.map((part) => !part.paid && !isMockInvoice(part.invoice) && <div key={part.id} className="space-y-2 text-xs text-cyan-100/70">
                 {part.attempt?.state === "uncertain" && !busy && <>
                     <div role="status" className="space-y-2 border-l-2 border-neon-gold/50 bg-white/[0.03] p-3">
@@ -151,13 +156,8 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                 <PixelLink className="min-h-11 flex-1" size="sm" variant="accent" href={`lightning:${selected.invoice}`}>Open in wallet</PixelLink>
                 <CopyButton key={selected.hash} value={selected.invoice} label="Copy invoice" />
             </div>}
-            {restartConfirm && !blocked && !restartUnavailable && <div className="space-y-2 text-xs text-neon-gold">
-                <p>Check your wallet first. Issued invoices are not cancelled and could still be paid. Restart returns to your promotion choices.</p>
-                <PixelButton className="w-full" size="sm" variant="ghost" disabled={busy} onClick={onRestart}>I haven't paid, restart</PixelButton>
-            </div>}
             <div className="flex flex-wrap items-center justify-between gap-x-3">
                 <button type="button" className={actionClass} onClick={onBack}>{boost ? "Back to boost" : "Back to budget"}</button>
-                {!blocked && !busy && !restartUnavailable && (restartConfirm ? <button type="button" className={actionClass} onClick={() => onRestartConfirm(false)}>Keep payment</button> : <button type="button" className={actionClass} onClick={() => onRestartConfirm(true)}>Restart payment</button>)}
                 <button type="button" className={actionClass} aria-label="Payment help >" data-panel-trigger="help" onClick={onHelp}>Help &gt;</button>
             </div>
         </div>)}

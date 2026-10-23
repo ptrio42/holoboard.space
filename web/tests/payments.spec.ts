@@ -1320,6 +1320,7 @@ test("note popovers in the Billboard preview preserve the editor and its keyboar
 });
 
 test("closing a preview image returns to the promotion editor without preparing payments", async ({ context, page }) => {
+    await page.setViewportSize({ width: 768, height: 560 });
     await page.route("https://images.example/preview.png", route => route.fulfill({ contentType: "image/svg+xml",
         body: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800"><rect width="600" height="800" fill="#22d3ee"/></svg>' }));
     const state = await setup(context, page, { newCampaign: true, noteContent: "Original picture. https://images.example/preview.png" });
@@ -1329,6 +1330,8 @@ test("closing a preview image returns to the promotion editor without preparing 
     await opener.click();
     const viewer = page.getByRole("dialog", { name: "Media 1 of 1", exact: true });
     await expect(viewer).toBeVisible();
+    const viewerBounds = (await viewer.boundingBox())!;
+    expect(viewerBounds.y).toBeGreaterThanOrEqual(0); expect(viewerBounds.y + viewerBounds.height).toBeLessThanOrEqual(560);
     await page.keyboard.press("Tab");
     expect(await viewer.evaluate(element => element.contains(document.activeElement))).toBe(true);
     await page.keyboard.press("Escape");

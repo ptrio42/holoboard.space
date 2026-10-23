@@ -116,15 +116,23 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
             overlay.style.top = `${viewport.offsetTop}px`;
             overlay.style.bottom = "auto";
             overlay.style.height = `${viewport.height}px`;
-            const padding = getComputedStyle(overlay);
-            panel.style.maxHeight = `${viewport.height - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom)}px`;
+            panel.style.maxHeight = `calc(${viewport.height}px - 2 * var(--modal-padding))`;
+        };
+        // Coalesce viewport updates; CSS resolves responsive padding in the same layout.
+        let frame = 0;
+        const scheduleFit = () => {
+            cancelAnimationFrame(frame);
+            frame = requestAnimationFrame(fit);
         };
         fit();
-        viewport.addEventListener("resize", fit);
-        viewport.addEventListener("scroll", fit);
+        viewport.addEventListener("resize", scheduleFit);
+        viewport.addEventListener("scroll", scheduleFit);
+        window.addEventListener("resize", scheduleFit);
         return () => {
-            viewport.removeEventListener("resize", fit);
-            viewport.removeEventListener("scroll", fit);
+            cancelAnimationFrame(frame);
+            viewport.removeEventListener("resize", scheduleFit);
+            viewport.removeEventListener("scroll", scheduleFit);
+            window.removeEventListener("resize", scheduleFit);
         };
     }, [isOpen, scrollBody, mobileFullScreen, compact]);
 
@@ -133,8 +141,8 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
     return <ModalPopoverHost.Provider value={popoverHost}>
         <div
             ref={overlayRef}
-            className={`fixed inset-0 ${aboveScanlines ? "z-[60]" : "z-40"} flex justify-center bg-black/85 backdrop-blur-sm sm:items-center sm:p-6
-                ${compact ? "items-end" : "items-start"} ${mobileFullScreen ? "p-0" : "p-3"}
+            className={`fixed inset-0 ${aboveScanlines ? "z-[60]" : "z-40"} flex justify-center bg-black/85 backdrop-blur-sm sm:items-center sm:[--modal-padding:1.5rem] p-[var(--modal-padding)]
+                ${compact ? "items-end" : "items-start"} ${mobileFullScreen ? "modal-full-screen [--modal-padding:0px]" : "[--modal-padding:0.75rem]"}
                 ${scrollBody ? "overflow-hidden" : "overflow-y-auto"}`}
             onMouseDown={(event) => {
                 backdropMouseDown.current = event.target === event.currentTarget;
@@ -167,7 +175,7 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
                             type="button"
                             onClick={onClose}
                             aria-label="Close dialog"
-                            className="focus-pixel -mt-1 shrink-0 px-2 font-pixel text-lg text-cyan-300
+                            className="focus-pixel -my-2 flex min-h-11 min-w-11 shrink-0 items-center justify-center px-2 font-pixel text-lg text-cyan-300
                                 transition-colors hover:text-neon-pink"
                         >
                             X

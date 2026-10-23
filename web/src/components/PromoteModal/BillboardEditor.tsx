@@ -6,7 +6,7 @@ import type { NotePreview } from "../../lib/promote";
 import { BoardRow } from "../BoardRow/BoardRow";
 import { PixelButton } from "../ui/PixelButton";
 
-const FIELD = "focus-pixel w-full border-2 border-cyan-400/30 bg-void p-2 text-base text-cyan-100";
+const FIELD = "focus-pixel min-h-11 w-full border-2 border-cyan-400/30 bg-void p-2 text-base text-cyan-100";
 
 export function BillboardEditor({ preview, config, onChange, enabled, onEnabledChange, amount }: {
     preview: NotePreview; config: BillboardConfig; onChange: (config: BillboardConfig) => void;
@@ -49,7 +49,7 @@ export function BillboardEditor({ preview, config, onChange, enabled, onEnabledC
     }, [enabled, locked, fragment, slideIndex, preview.event.content]);
 
     return (
-        <section className="space-y-4 border-t-2 border-cyan-400/25 pt-4" aria-label="Billboard appearance">
+        <section className="billboard-editor space-y-4 border-t-2 border-cyan-400/25 pt-4" aria-label="Billboard appearance">
             <div className="flex flex-wrap gap-2">
                 <PixelButton size="sm" variant={!enabled && !preview.billboard ? "accent" : "ghost"} aria-pressed={!enabled && !preview.billboard} disabled={locked}
                     onClick={() => onEnabledChange(false)}>
@@ -91,7 +91,7 @@ export function BillboardEditor({ preview, config, onChange, enabled, onEnabledC
                         <div className="flex flex-wrap gap-2">{Object.entries(BILLBOARD_COLORS).map(([color, ink]) => (
                             <PixelButton key={color} size="sm" variant="ghost" aria-pressed={config.color === color}
                                 onClick={() => onChange({ ...config, color: color as BillboardConfig["color"] })}
-                                className={config.color === color ? "billboard-color--selected" : "opacity-60"} style={{ "--edge": ink, "--ink": ink } as CSSProperties}>{color}</PixelButton>
+                                className={config.color === color ? "billboard-color--selected" : ""} style={{ "--edge": ink, "--ink": ink } as CSSProperties}>{color}</PixelButton>
                         ))}</div>
                     </fieldset>
                     {["led", "image-led", "terminal"].includes(config.template) && <label className="promotion-label space-y-1">{config.template === "terminal" ? "Typing speed" : "Scroll speed"}

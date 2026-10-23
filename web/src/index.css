@@ -1283,10 +1283,10 @@ body::after {
 .promotion-steps { margin-bottom: 8px; }
 .promotion-steps ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); list-style: none; padding: 0; margin: 0; }
 .promotion-steps li { position: relative; display: flex; align-items: center; flex-direction: column; color: var(--color-neon-cyan); }
-.promotion-steps li::after { content: ""; position: absolute; height: 2px; top: 47px; left: 50%; width: 100%; background: #16404c; }
+.promotion-steps li::after { content: ""; position: absolute; height: 2px; bottom: 7px; left: 50%; width: 100%; background: #16404c; }
 .promotion-steps li:last-child::after { display: none; }
 .promotion-steps li[data-state="complete"]::after { background: var(--color-neon-cyan); }
-.promotion-steps button, .promotion-steps .promotion-label { display: flex; align-items: center; justify-content: center; min-height: 40px; width: 100%; }
+.promotion-steps button, .promotion-steps .promotion-label { display: flex; align-items: center; justify-content: center; min-height: 44px; min-width: 0; width: 100%; flex: 1; overflow-wrap: anywhere; text-align: center; }
 .promotion-steps li[data-state="current"] { color: var(--color-neon-gold); }
 .promotion-steps li[data-state="future"] { color: #79a4b2; }
 .promotion-steps__point { z-index: 1; display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; border: 2px solid currentColor; border-radius: 50%; background: var(--color-void); font-size: 12px; }
@@ -1300,3 +1300,11 @@ body::after {
 .promotion-amount-modes button { min-height: 44px; color: #9dc3ce; border-bottom: 2px solid transparent; }
 .promotion-amount-modes button[aria-pressed="true"] { color: var(--color-neon-gold); border-color: var(--color-neon-gold); }
 .promotion-complete-total { display: flex; align-items: flex-start; flex-direction: column; gap: 6px; padding: 8px 0; }
+
+/* Short full-screen editors need room for a complete invoice QR. */
+@media (max-height: 600px) {
+    .modal-full-screen { --modal-padding: 0px; }
+}
+
+.billboard-editor .pixel-btn { min-height: 44px; }
+.billboard-editor .pixel-btn__face { display: flex; min-height: 38px; align-items: center; justify-content: center; }

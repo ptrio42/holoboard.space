@@ -6,7 +6,7 @@ import { NoteAuthor } from "../UserProfileInline/NoteAuthor";
 import { NoteLinkPreview } from "../TextRenderer/NoteLinkPreview";
 import { CompactNoteText } from "../TextRenderer/CompactNoteText";
 
-const ACTION = "promotion-action focus-pixel inline-flex min-h-11 items-center text-cyan-200/60";
+const ACTION = "promotion-action focus-pixel inline-flex min-h-11 min-w-11 items-center justify-center text-cyan-200/60";
 
 function PreviewImage({ src, compact, expanded }: { src: string; compact: boolean; expanded: boolean }) {
     const [broken, setBroken] = useState(false);

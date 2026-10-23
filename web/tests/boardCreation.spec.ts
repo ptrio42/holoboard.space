@@ -3,10 +3,12 @@ import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent, type Event
 import { neventEncode, noteEncode } from "nostr-tools/nip19";
 import { matchFilter } from "nostr-tools/filter";
 import { walletInvoice } from "./helpers/walletFixture";
+import { captureGuidedStage, guidedViewports, shortContribution, longContribution } from "./helpers/guidedAcceptance";
 
 test.use({ serviceWorkers: "block", reducedMotion: "reduce" });
 test.skip(process.env.VITE_ENABLE_POST_CREATION !== "true", "Requires the independent creation release gate");
-const original = finalizeEvent({ kind: 1, created_at: 1700000000, tags: [], content: "Original source for a quote." }, generateSecretKey());
+const originalKey = generateSecretKey();
+const original = finalizeEvent({ kind: 1, created_at: 1700000000, tags: [], content: "Original source for a quote." }, originalKey);
 const accountKey = generateSecretKey(), accountPubkey = getPublicKey(accountKey);
 const boardHash = "b".repeat(64);
 const compositionEvidence = new WeakMap<BrowserContext, {
@@ -22,10 +24,10 @@ test.afterEach(async ({ context }, info) => {
     }, null, 2) });
 });
 
-async function installExtension(context: BrowserContext, page: Page, getPubkey = async () => accountPubkey) {
+async function installExtension(context: BrowserContext, page: Page, getPubkey = async () => accountPubkey, sign = (template: EventTemplate) => finalizeEvent(template, accountKey)) {
     await page.exposeFunction("boardFixturePublicKey", getPubkey);
     await page.exposeFunction("boardFixtureSignEvent", (template: EventTemplate) => {
-        const event = finalizeEvent(template, accountKey);
+        const event = sign(template);
         compositionEvidence.get(context)?.signerRequests.push(event.id);
         return event;
     });
@@ -41,7 +43,7 @@ async function installExtension(context: BrowserContext, page: Page, getPubkey =
     });
 }
 
-async function setup(context: BrowserContext, page: Page, options: { authorWallet?: boolean; previewFailures?: number } = {}) {
+async function setup(context: BrowserContext, page: Page, options: { authorWallet?: boolean; previewFailures?: number; longAuthor?: boolean } = {}) {
     const origin = new URL(test.info().project.use.baseURL!).origin;
     const state = { previewCalls: 0, previewFailures: options.previewFailures ?? 0, requests: [] as Record<string, unknown>[], signerRequests: [] as string[], reviewedIds: [] as string[], signed: undefined as Event | undefined, paid: false, frames: [] as string[], errors: [] as string[], links: [] as string[], statusChecks: 0, pauseBoard: false, releaseBoard: undefined as (() => void) | undefined };
     compositionEvidence.set(context, state);
@@ -84,6 +86,10 @@ async function setup(context: BrowserContext, page: Page, options: { authorWalle
             if (frame[0] === "CLOSE") return;
             if (frame[0] !== "REQ") { state.frames.push(frame[0]); return; }
             if (frame.slice(2).some((filter: Parameters<typeof matchFilter>[0]) => matchFilter(filter, original))) socket.send(JSON.stringify(["EVENT", frame[1], original]));
+            if (options.longAuthor) {
+                const metadata = finalizeEvent({ kind: 0, created_at: 1700000001, tags: [], content: JSON.stringify({ name: "Community maker with a deliberately long public author identity for a narrow screen" }) }, originalKey);
+                if (frame.slice(2).some((filter: Parameters<typeof matchFilter>[0]) => matchFilter(filter, metadata))) socket.send(JSON.stringify(["EVENT", frame[1], metadata]));
+            }
             socket.send(JSON.stringify(["EOSE", frame[1]]));
         });
     });
@@ -557,61 +563,53 @@ for (const phase of ["pending attempt commit", "committed attempt before send", 
 });
 
 
-test("guided short-link composition keeps the active task visible at phone and desktop widths", async ({ context, page }, info) => {
+for (const length of ["short", "long"] as const) test(`guided actual acceptance with ${length} ordinary-link content`, async ({ context, page }, info) => {
+    test.setTimeout(180000);
     const state = await setup(context, page);
-    const text = "A community meetup this Saturday. Details: https://example.com/story";
     const dialog = page.getByRole("dialog", { name: "Add to board", exact: true });
-    await page.getByRole("textbox", { name: "Text or link" }).fill(text);
+    const text = length === "short" ? shortContribution : longContribution;
+    await dialog.getByRole("textbox", { name: "Text or link", exact: true }).fill(text);
     await expect(dialog.locator(".note-link-container")).toHaveCount(1);
     await dialog.locator(".note-link-container").scrollIntoViewIfNeeded();
     await expect(dialog.locator(".note-link-preview")).toHaveCount(1);
-    await expect(dialog.getByRole("group", { name: "Choose by amount or target position" })).toHaveCount(0);
-    const measurements: unknown[] = [];
-    const capture = async (stage: string, width: number) => {
-        await page.setViewportSize({ width, height: 844 });
-        const body = dialog.locator("[data-modal-body]");
-        if (stage !== "payment") await body.evaluate(element => { element.scrollTop = 0; });
-        await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-        await expect(dialog).toBeInViewport();
-        if (stage === "payment") {
-            const qr = dialog.getByRole("img", { name: "Holoboard visibility invoice QR code", exact: true });
-            await expect(qr).toHaveCount(1); await expect(qr).toBeVisible();
-            await expect.poll(async () => {
-                const code = (await qr.boundingBox())!, viewport = (await body.boundingBox())!;
-                return Math.max(viewport.y - code.y, code.y + code.height - viewport.y - viewport.height);
-            }).toBeLessThanOrEqual(1);
-        }
-        await page.screenshot({ path: info.outputPath(`${stage}-${width}.png`) });
-        measurements.push(await dialog.evaluate((element, stage) => {
-            const body = element.querySelector<HTMLElement>("[data-modal-body]")!;
-            const field = element.querySelector("textarea");
-            return { stage, viewport: innerWidth, dialog: element.getBoundingClientRect().width, bodyHeight: body.clientHeight,
-                bodyScrollHeight: body.scrollHeight, bodyScrollTop: body.scrollTop, dialogTop: element.getBoundingClientRect().top, dialogBottom: element.getBoundingClientRect().bottom, fieldHeight: field?.getBoundingClientRect().height,
-                textCopies: [...element.querySelectorAll(".inline-note-text")].length,
-                overflow: document.documentElement.scrollWidth > innerWidth };
-        }, stage));
-        if (stage === "payment") {
-            const naturalScroll = await body.evaluate(element => element.scrollTop);
-            await body.evaluate(element => { element.scrollTop = 0; });
-            await page.screenshot({ path: info.outputPath(`payment-summary-${width}.png`) });
-            measurements.push({ stage: "payment-summary", viewport: width, scrollToFullQr: naturalScroll,
-                explanation: "The top summary is a separate scroll position from the naturally revealed invoice." });
-            await body.evaluate((element, scroll) => { element.scrollTop = scroll; }, naturalScroll);
-        }
-    };
-    for (const width of [390, 1280]) await capture("post", width);
-    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
-    for (const width of [390, 1280]) await capture("budget", width);
-    expect(state.requests).toHaveLength(0); expect(state.frames).toEqual([]);
-    await page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
-    await expect(page.getByRole("img", { name: "Holoboard visibility invoice QR code", exact: true })).toHaveCount(1);
-    await expect(page.getByRole("img", { name: "Holoboard visibility invoice QR code", exact: true })).toBeVisible();
-    for (const width of [390, 1280]) await capture("payment", width);
-    await expect(page.getByRole("button", { name: /^Holoboard \d+ sats/ })).toHaveCount(0);
-    await expect(page.getByLabel("Holoboard visibility payment", { exact: true })).toContainText("210 sats");
-    expect(state.requests).toHaveLength(1); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
-    await info.attach("guided-spatial-measurements", { contentType: "application/json", body: JSON.stringify(measurements, null, 2) });
+    await expect(dialog.locator('.note-link-preview')).toHaveAttribute("href", "https://example.com/story");
+    if (process.env.VITE_ENABLE_NOSTR_CONNECT !== "true") {
+        await expect(dialog.getByRole("button", { name: /Nostr account|Account settings|Connect Nostr/ })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(0);
+    }
+    const measurements = [];
+    for (const viewport of guidedViewports) measurements.push(await captureGuidedStage(page, info, "post", viewport));
+    await dialog.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(dialog.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
+    const reviewed = JSON.parse(JSON.stringify(state.signed!)) as Event;
+    expect(verifyEvent({ ...reviewed })).toBe(true);
+    await expect(dialog.getByText("All of this amount goes to visibility.", { exact: true })).toBeVisible();
+    for (const viewport of guidedViewports) measurements.push(await captureGuidedStage(page, info, "budget", viewport));
+    await dialog.getByRole("button", { name: /^Billboard appearance/ }).click();
+    await dialog.getByRole("button", { name: "Billboard / +100 sats", exact: true }).click();
+    for (const viewport of guidedViewports) measurements.push(await captureGuidedStage(page, info, "appearance", viewport));
+    await dialog.getByRole("button", { name: "Standard / free", exact: true }).click();
+    await dialog.getByRole("button", { name: "< Back to budget", exact: true }).click();
+    await dialog.getByRole("button", { name: "Custom", exact: true }).click();
+    const custom = dialog.getByRole("textbox", { name: "Custom total in sats", exact: true });
+    await expect(custom).toBeFocused();
+    expect(await custom.evaluate(input => [(input as HTMLInputElement).selectionStart, (input as HTMLInputElement).selectionEnd])).toEqual([0, 3]);
+    await page.keyboard.press("Backspace");
+    await expect(custom).toHaveValue("");
+    await expect(dialog.getByRole("button", { name: "Enter amount", exact: true })).toBeDisabled();
+    await custom.fill("0");
+    await expect(custom).toHaveAttribute("aria-invalid", "true");
+    await expect(dialog.getByRole("button", { name: "Enter amount", exact: true })).toBeDisabled();
+    await custom.fill("210");
+    await dialog.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
+    const qr = dialog.getByRole("img", { name: "Holoboard visibility invoice QR code", exact: true });
+    await expect(qr).toHaveCount(1);
+    await expect.poll(() => qr.evaluate(element => (element as HTMLImageElement).complete && (element as HTMLImageElement).naturalWidth > 0)).toBe(true);
+    for (const viewport of guidedViewports) measurements.push(await captureGuidedStage(page, info, "payment", viewport));
+    await expect(dialog.getByLabel("Holoboard visibility payment", { exact: true })).toContainText("210 sats");
+    expect(state.requests).toHaveLength(1); expect(state.requests[0]).toMatchObject({ amount_sats: 210, author_share: 0, note: reviewed.id });
+    expect(state.requests[0].event).toEqual(reviewed); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
+    await info.attach("guided-spatial-measurements", { contentType: "application/json", body: JSON.stringify({ length, text, measurements }, null, 2) });
 });
 
 
@@ -655,4 +653,134 @@ test("Review retries an unchanged original after a failed preview without signin
     expect(state.previewCalls).toBe(2); expect(state.signed).toBeUndefined();
     expect(state.requests).toHaveLength(0); expect(state.signerRequests).toEqual([]);
     expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+
+for (const failure of ["rejected", "changed"] as const) test(`a ${failure} account signature keeps the editable post and never prepares invoices`, async ({ context, page }) => {
+    test.skip(process.env.VITE_ENABLE_NOSTR_CONNECT !== "true");
+    let attempts = 0;
+    await installExtension(context, page, async () => accountPubkey, template => {
+        attempts++;
+        if (attempts === 1 && failure === "rejected") throw new Error("Signing rejected by user");
+        return finalizeEvent(attempts === 1 ? { ...template, content: "Signer changed this content" } : template, accountKey);
+    });
+    const state = await setup(context, page);
+    const text = "Keep the exact words I chose before signing";
+    const field = page.getByRole("textbox", { name: "Text or link", exact: true });
+    await field.fill(text);
+    await page.getByRole("button", { name: "Use a Nostr account", exact: true }).click();
+    await page.getByRole("button", { name: "Browser extension", exact: true }).click();
+    await expect(page.getByText("Posting with your Nostr account.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    const alert = page.getByRole("alert");
+    await expect(alert).toHaveCount(1);
+    await expect(alert).toContainText(failure === "changed" ? "The signer changed the requested event or account." : "Signing rejected by user");
+    await expect(field).toHaveValue(text);
+    await expect(field).toBeEnabled();
+    expect(state.requests).toHaveLength(0); expect(state.reviewedIds).toEqual([]);
+    await alert.scrollIntoViewIfNeeded();
+    const bounds = (await alert.boundingBox())!, body = (await page.locator("[data-modal-body]").boundingBox())!;
+    expect(bounds.y).toBeGreaterThanOrEqual(body.y); expect(bounds.y + bounds.height).toBeLessThanOrEqual(body.y + body.height + 1);
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
+    expect(attempts).toBe(2); expect(state.signed?.content).toBe(text); expect(state.signed?.pubkey).toBe(accountPubkey);
+    expect(state.reviewedIds).toEqual([state.signed!.id]); expect(state.requests).toHaveLength(0);
+    expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+test("long public author identity and explicit quote remain usable on a narrow phone", async ({ context, page }, info) => {
+    await page.setViewportSize({ width: 320, height: 844 });
+    const state = await setup(context, page, { longAuthor: true });
+    const field = page.getByRole("textbox", { name: "Text or link", exact: true });
+    await field.fill(original.id);
+    const article = page.getByRole("article", { name: "Original note", exact: true });
+    await expect(article).toHaveCount(1);
+    await expect(article.getByRole("link", { name: "Open note", exact: true })).toHaveAttribute("href", /^https:\/\/njump\.me\//);
+    await expect(article.getByText(/^Community maker with a deliberately long/)).toBeVisible();
+    expect(await article.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.screenshot({ path: info.outputPath("long-public-author-320.png") });
+    await page.getByRole("button", { name: "Add a comment", exact: true }).click();
+    await field.fill(`My own comment and a real link https://example.com/story\n\nnostr:${neventEncode({ id: original.id })}`);
+    await expect(page.getByRole("button", { name: "Use original", exact: true })).toBeVisible();
+    await expect(page.locator(".note-link-preview")).toHaveAttribute("href", "https://example.com/story");
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
+    expect(state.signed!.tags).toContainEqual(["q", original.id, "", original.pubkey]);
+    expect(state.signed!.id).not.toBe(original.id);
+    await page.screenshot({ path: info.outputPath("explicit-quote-budget-320.png") });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+    expect(state.requests).toHaveLength(0); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+test("guest author-key disclosure and contextual help preserve focus near the footer", async ({ context, page }) => {
+    await page.setViewportSize({ width: 390, height: 560 });
+    const state = await setup(context, page);
+    await page.getByRole("textbox", { name: "Text or link" }).fill(shortContribution);
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await page.getByText("Post author", { exact: true }).click();
+    const save = page.getByRole("button", { name: "Save author key", exact: true });
+    await save.click();
+    const copy = page.getByRole("button", { name: "Copy private author key", exact: true });
+    await expect(copy).toBeVisible();
+    await copy.focus(); await expect(copy).toBeFocused();
+    const copyBounds = (await copy.boundingBox())!, body = (await page.locator("[data-modal-body]").boundingBox())!;
+    expect(copyBounds.y + copyBounds.height).toBeLessThanOrEqual(body.y + body.height + 1);
+    await save.click(); await expect(copy).toHaveCount(0); await expect(save).toBeFocused();
+    const help = page.getByRole("dialog").getByRole("button", { name: "Help >", exact: true });
+    await help.click();
+    await page.getByRole("button", { name: "< Back to budget", exact: true }).click();
+    await expect(help).toBeFocused();
+    const prepare = page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true });
+    await prepare.focus(); await expect(prepare).toBeFocused();
+    const bounds = (await prepare.boundingBox())!; expect(bounds.y + bounds.height).toBeLessThanOrEqual(560);
+    expect(state.requests).toHaveLength(0); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+
+test("guided stages reflow with enlarged text while footer controls stay reachable", async ({ context, page }, info) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const state = await setup(context, page);
+    const dialog = page.getByRole("dialog", { name: "Add to board", exact: true });
+    await page.getByRole("textbox", { name: "Text or link" }).fill(shortContribution);
+    const enlarge = async (stage: string) => {
+        await dialog.evaluate(element => {
+            const nodes = [element as HTMLElement, ...element.querySelectorAll<HTMLElement>("*")];
+            const sizes = nodes.filter(node => [...node.childNodes].some(child => child.nodeType === Node.TEXT_NODE && child.textContent?.trim()) || node.matches("textarea, input, select"))
+                .map(node => ({ node, size: parseFloat(getComputedStyle(node).fontSize) }));
+            for (const { node, size } of sizes) node.style.fontSize = `${size * 2}px`;
+        });
+        for (const width of [320, 390]) {
+            await page.setViewportSize({ width, height: 844 });
+            await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+            expect(await dialog.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(false);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+            const steps = dialog.getByRole("navigation", { name: "Add to board progress", exact: true }).locator("li");
+            await expect(steps).toHaveCount(3);
+            const geometry = await steps.evaluateAll(elements => elements.map(element => ({
+                label: element.firstElementChild!.getBoundingClientRect().toJSON(),
+                point: element.lastElementChild!.getBoundingClientRect().toJSON(),
+                overflow: element.firstElementChild!.scrollWidth > element.firstElementChild!.clientWidth,
+            })));
+            for (let index = 0; index < geometry.length; index++) {
+                expect(geometry[index].overflow).toBe(false);
+                expect(geometry[index].point.y).toBeCloseTo(geometry[0].point.y, 0);
+                if (index > 0) expect(geometry[index - 1].label.right).toBeLessThanOrEqual(geometry[index].label.left + 1);
+            }
+            const action = dialog.getByRole("button", { name: stage === "post" ? "Review & continue" : stage === "budget" ? "Continue to payment · 210 sats" : "Copy invoice", exact: true });
+            await action.focus(); await expect(action).toBeFocused();
+            const bounds = (await action.boundingBox())!;
+            expect(bounds.y).toBeGreaterThanOrEqual(0); expect(bounds.y + bounds.height).toBeLessThanOrEqual(844);
+            await page.screenshot({ path: info.outputPath(`${stage}-text-enlarged-${width}.png`) });
+            await info.attach(`${stage}-enlarged-${width}`, { contentType: "application/json", body: JSON.stringify(geometry) });
+        }
+        await dialog.evaluate(element => { for (const node of [element as HTMLElement, ...element.querySelectorAll<HTMLElement>("*")]) node.style.removeProperty("font-size"); });
+    };
+    await enlarge("post");
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
+    await enlarge("budget");
+    await page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Copy invoice", exact: true })).toBeVisible();
+    await enlarge("payment");
+    expect(state.requests).toHaveLength(1); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
 });

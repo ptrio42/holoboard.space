@@ -117,7 +117,7 @@ export function BoardComposer({ onSource, children }: { onSource: (source: Board
     const authorExtras = classified.mode !== "original" && <div className="space-y-2">
         {!!account && <label className="flex min-h-11 items-center gap-2 text-xs"><input type="checkbox" checked={anonymous} disabled={busy} onChange={event => { reviewAbort.current?.abort(); generation.current++; reviewedSource.current = undefined; setAnonymous(event.target.checked); setReviewed(undefined); setShowKey(false); }} />Post anonymously</label>}
         {guestMode && <p className="text-xs text-cyan-100/65">No account required. This post has its own anonymous identity. You can save its private author key after review.</p>}
-        {reviewed && guestMode && guest.current && <><button className="promotion-action focus-pixel min-h-11" onClick={() => setShowKey(!showKey)}>Save author key</button>
+        {reviewed && guestMode && guest.current && <><button className="promotion-action focus-pixel min-h-11" onClick={event => { setShowKey(!showKey); if (showKey) event.currentTarget.focus(); }}>Save author key</button>
             {showKey && <div className="space-y-2"><p className="text-xs text-neon-gold">Keep this key private. It controls this post's identity. Save it before closing or refreshing this editor, or reviewing changed content. An unsaved key cannot be recovered.</p><CopyButton value={guest.current.export()} label="Copy private author key" /></div>}</>}
     </div>;
     const editor = <section aria-label="Add to board editor" className="space-y-3">
