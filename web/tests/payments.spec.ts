@@ -1145,10 +1145,17 @@ test("public author zap is reachable by keyboard without gating invoices", async
     await page.keyboard.press("Enter");
     await connectTestExtension(page);
     await backToForm(page);
+    await expect(disclosure.locator("..")).toHaveJSProperty("open", true);
     await slider.focus(); await page.keyboard.press("Tab");
     await expect(disclosure).toBeFocused();
+    const consent = page.getByRole("checkbox", { name: "Send author support as a public zap", exact: false });
     await page.keyboard.press("Enter");
-    await page.getByRole("checkbox", { name: "Send author support as a public zap", exact: false }).check();
+    await expect(consent).toBeHidden();
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Tab");
+    await expect(consent).toBeFocused();
+    await page.keyboard.press("Space");
+    await expect(consent).toBeChecked();
     await expect(disclosure).toHaveText("Public author zap on");
     await prepareInvoices(page);
     await expectSplitInvoices(page);
