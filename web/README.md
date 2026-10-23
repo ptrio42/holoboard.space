@@ -596,7 +596,10 @@ Read-cache snapshots copy tag arrays. Derive text and attachments from their
 values so incremental relay results do not remeasure unchanged visible notes.
 
 Ordinary board cards place text beside media on wide screens and stack them on
-phones. Keep the rank on a compact line above the content, with text and media
+phones. Column proportions follow the first media frame and the amount of text,
+while reserving a readable text column. Gallery selection does not change those
+proportions. Long ordinary URL labels use a bounded single line, with a shorter
+phone footprint; their complete text, destination and hover title remain intact. Keep the rank on a compact line above the content, with text and media
 starting below it. Short openings use larger type; all text-only notes use the
 full available width, including their expanded text.
 Long board text previews use up to six lines on desktop; expanding shows the
@@ -621,10 +624,11 @@ use a horizontal preview with a 64px thumbnail and one line each for the hostnam
 title and description. Keep unloaded quote status beside its external reading
 action; timeout retains an explicit retry. Hostname labels use 10px pixel type.
 Avoid display utilities that override the line clamp.
-When a note contains both media and a destination link, the link preview fits
-under the text if their combined height fits beside the media. Otherwise it
-stays below the media. Placement responds to column width, loaded content and
-text expansion. An inert thumbnail-free measurement determines the fit without
+When a note contains both media and a destination link, compare the complete
+card height with the preview under the text and under the media. Use the shorter
+composition, including cases where text and its preview extend below a short
+landscape image. Placement responds to column width, loaded content and text
+expansion. Inert thumbnail-free measurements compare both preview shapes without
 duplicating requests or replacing the live card or media. Phones preserve the
 document order: text, media, then the link preview. Failed link-only previews
 release their empty desktop column.

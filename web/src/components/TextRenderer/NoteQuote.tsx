@@ -109,7 +109,7 @@ function QuoteContent({ event, adaptive, initiallyExpanded, parentMedia }: { eve
     const length = body.words.reduce((count, token) => count + (token.kind === "text" || token.kind === "formatted" ? token.value.length : 32), 0);
     const root = useRef<HTMLDivElement>(null);
     useNoteLinkPlacement(root, adaptive && visual && !!body.link, event.id);
-    return <div ref={root} className={`note-quote-layout note-quote-content${adaptive ? " note-composition--adaptive" : ""}${visual ? " note-composition--media" : ""}${visual || body.link ? "" : " note-composition--text"}`}>
+    return <div ref={root} className={`note-quote-layout note-quote-content${adaptive ? " note-composition--adaptive" : ""}${visual ? " note-composition--media" : ""}${visual || body.link ? "" : " note-composition--text"}`} data-long-text={length > 280 || undefined}>
         <InlineNoteText tokens={body.words} className="note-quote__excerpt" complete={length <= 160} quoted
             initiallyExpanded={initiallyExpanded} textKey={`quote:${event.id}`} />
         {visual && <div className="note-quote-media">
