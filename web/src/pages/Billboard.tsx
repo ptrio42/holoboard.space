@@ -9,6 +9,8 @@ import { PixelPanel } from "../components/ui/PixelPanel";
 import { StatusMessage } from "../components/ui/StatusMessage";
 import { fetchCampaigns, type CampaignPage, type CampaignView, type WaitingEntry } from "../lib/campaigns";
 import { useWaitingUpdates } from "../hooks/useWaitingUpdates";
+import { usePageMetadata } from "../hooks/usePageMetadata";
+import { boardMetadata, waitingMetadata } from "../lib/pageMetadata";
 import { ndk } from "../lib/ndk";
 import { expandedNoteTexts } from "../lib/readingPosition";
 import { navigateBoard } from "../lib/discussionNavigation";
@@ -25,6 +27,8 @@ const snapshots = new Map<string, BoardSnapshot>();
 
 export default function Billboard({ pathname = window.location.pathname, search = window.location.search }: { pathname?: string; search?: string }) {
     const waiting = pathname === "/waiting";
+    const metadata = waiting ? waitingMetadata : boardMetadata;
+    usePageMetadata(metadata.title, metadata.description);
     const boardKey = waiting ? "/waiting" : "/";
     const waitingHref = useContext(WaitingRoomLocation);
     const selectedView = new URLSearchParams(search).get("view");

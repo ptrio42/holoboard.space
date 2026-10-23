@@ -1,9 +1,29 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import productionFeatures from './production-features.json'
+
+// Match the Pages proxy rules and nginx document fallbacks in local servers.
+function readerDocument(request: IncomingMessage, _response: ServerResponse, next: () => void) {
+  const url = new URL(request.url ?? '/', 'http://localhost')
+  const match = /^\/(profile|discussion)\/[^/]+\/?$/.exec(url.pathname)
+  const accepts = request.headers.accept
+  if (match && (request.method === 'GET' || request.method === 'HEAD') &&
+      (!accepts || accepts.includes('text/html') || accepts.includes('*/*'))) {
+    request.url = `/${match[1]}.html${url.search}`
+  }
+  next()
+}
+
+const readerDocuments: Plugin = {
+  name: 'holoboard-reader-documents',
+  configureServer(server) { server.middlewares.use(readerDocument) },
+  configurePreviewServer(server) { server.middlewares.use(readerDocument) },
+}
 
 function revision() {
   const supplied = process.env.CF_PAGES_COMMIT_SHA?.trim()
@@ -34,6 +54,7 @@ export default defineConfig({
       },
     },
     react(),
+    readerDocuments,
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
@@ -97,6 +118,14 @@ export default defineConfig({
   ],
   build: {
     rollupOptions: {
+      input: {
+        index: fileURLToPath(new URL('./index.html', import.meta.url)),
+        waiting: fileURLToPath(new URL('./waiting.html', import.meta.url)),
+        help: fileURLToPath(new URL('./help.html', import.meta.url)),
+        expired: fileURLToPath(new URL('./expired.html', import.meta.url)),
+        profile: fileURLToPath(new URL('./profile.html', import.meta.url)),
+        discussion: fileURLToPath(new URL('./discussion.html', import.meta.url)),
+      },
       treeshake: {
         /*
          * None of the nostr packages declare `sideEffects: false`, so rollup

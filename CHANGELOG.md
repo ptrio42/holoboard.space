@@ -56,6 +56,9 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Give board sections, Help and reader pages suitable initial search metadata,
+  keep it current during navigation and exclude JavaScript setup instructions
+  from search snippets.
 - Include the frontend's required peer dependencies in container builds.
 - Load nearby link previews inside scrolling editors on small screens.
 - Preserve compact loading messages and distinct button styles in shared views.

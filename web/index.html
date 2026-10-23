@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#05010d" />
     <meta
       name="description"
-      content="A pay-to-promote bulletin board on Nostr. Rank is sats, and recent sats count for more."
+      content="Browse posts and links on Holoboard. Give your own post or someone else's more visibility with Lightning payments."
     />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
@@ -14,7 +14,7 @@
     <meta property="og:title" content="holoboard.space" />
     <meta
       property="og:description"
-      content="A pay-to-promote bulletin board on Nostr. Rank is sats, and recent sats count for more."
+      content="Browse posts and links on Holoboard. Give your own post or someone else's more visibility with Lightning payments."
     />
     <meta property="og:type" content="website" />
     <!--
@@ -30,14 +30,18 @@
       content="Holoboard, lit with sats."
     />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="holoboard.space" />
+    <meta name="twitter:description" content="Browse posts and links on Holoboard. Give your own post or someone else's more visibility with Lightning payments." />
     <meta name="twitter:image" content="https://holoboard.space/og.png" />
     <title>holoboard.space</title>
   </head>
   <body>
     <div id="root"></div>
     <noscript>
-      holoboard renders a live Nostr relay feed, so it needs JavaScript. The board itself is
-      readable from any Nostr client that can query wss://relay.holoboard.space.
+      <div data-nosnippet>
+        <p>Holoboard is a public board for posts and links. Browse for free and pay to give a post more visibility.</p>
+        <p>Enable JavaScript to browse the live board.</p>
+      </div>
     </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>

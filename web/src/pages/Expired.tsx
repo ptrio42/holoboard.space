@@ -7,10 +7,13 @@ import { PixelButton } from "../components/ui/PixelButton";
 import { PixelPanel } from "../components/ui/PixelPanel";
 import { StatusMessage } from "../components/ui/StatusMessage";
 import { useWaitingUpdates } from "../hooks/useWaitingUpdates";
+import { usePageMetadata } from "../hooks/usePageMetadata";
+import { expiredMetadata } from "../lib/pageMetadata";
 import { ndk } from "../lib/ndk";
 import { fetchExpired, type ExpiredEntry } from "../lib/expired";
 
 export default function Expired() {
+    usePageMetadata(expiredMetadata.title, expiredMetadata.description);
     const updates = useWaitingUpdates();
     const [entries, setEntries] = useState<ExpiredEntry[]>([]);
     const [cursor, setCursor] = useState<string | null>(null);

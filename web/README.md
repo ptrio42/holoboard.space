@@ -39,12 +39,27 @@ invoice after switching the backend; existing mock placeholders remain invalid.
 
 ## Page metadata
 
+The home page, Waiting room, Help and Expired posts have separate HTML entries,
+with page-specific descriptions and social metadata available without
+JavaScript. Cloudflare Pages serves `waiting.html` at `/waiting` using
+its [extensionless route matching](https://developers.cloudflare.com/pages/configuration/serving-pages/#route-matching);
+nginx resolves the same routes before the SPA fallback. Keep the client values
+in `src/lib/pageMetadata.ts` aligned with those entries so navigation and browser
+history also update the title and description. The JavaScript-disabled fallback
+uses Google's [data-nosnippet](https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag#data-nosnippet)
+attribute to keep setup instructions out of search snippets.
+
 Profile titles use the author's display name, falling back to their name or a
 short public key. Discussion titles use an excerpt of the focused note. Both
 pages update descriptions and social metadata as public data loads, and restore
-the board metadata when leaving the reader. These values are set in the browser;
-the static HTML shell retains the default board metadata for crawlers that do
-not execute JavaScript.
+the board metadata when leaving the reader. Profile and discussion document
+requests use generic page-type HTML through Pages' [200 proxy rules](https://developers.cloudflare.com/pages/configuration/redirects/#proxying)
+in `public/_redirects`, mirrored by nginx and Vite's local servers. These
+templates omit `og:url` until the client can set the actual public identity URL.
+Author- and note-specific metadata still needs JavaScript and public relay data;
+it is not server rendered. Search engines choose their own
+snippets; deployment and recrawling are required for metadata changes to reach
+search results.
 
 ## Check changes
 

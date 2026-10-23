@@ -104,7 +104,8 @@ test.describe("read-only profiles", () => {
         await expect(page).toHaveTitle("holoboard.space");
         await expect(page.locator('meta[property="og:title"]')).toHaveAttribute("content", "holoboard.space");
         await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", boardDescription!);
-        await expect(page.locator('meta[name="twitter:title"]')).toHaveCount(0);
+        await expect(page.locator('meta[name="twitter:title"]')).toHaveAttribute("content", "holoboard.space");
+        await expect(page.locator('meta[name="twitter:description"]')).toHaveAttribute("content", boardDescription!);
         await page.goForward();
         await expect(page).toHaveTitle("Updated author | Profile | Holoboard");
         expect(fixture.publications).toEqual([]); expect(fixture.errors).toEqual([]);
