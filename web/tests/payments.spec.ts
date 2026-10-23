@@ -33,7 +33,7 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
         Object.defineProperty(window, "sessionStorage", { get: () => { throw new DOMException("Storage blocked by this test", "SecurityError"); } });
         Object.defineProperty(IDBFactory.prototype, "open", { configurable: true, value: () => { throw new DOMException("Private storage blocked by this test", "SecurityError"); } });
     });
-    const state = { promotedNote, authorUnavailable: options.authorUnavailable, authorEndpointRequests: 0, boardPaid: false, authorPaid: false, boardCharges: 0, authorCharges: 0, authorAttempts: 0, boardProofs: new Map<string, string>([["lnbc-visibility", boardPreimage]]), authorProofs: new Map<string, string>(), expectedSignerPubkey: getPublicKey(userKey), boardRequests: [] as Record<string, unknown>[], authorRequests: [] as Record<string, unknown>[], methods: [] as string[], signerMethods: [] as string[], linkPreviews: [] as string[], errors: [] as string[], completeAuthorPayment: undefined as (() => void) | undefined, approveSigner: undefined as ((secret?: string) => Promise<void>) | undefined };
+    const state = { publicationFrames: [] as string[], promotedNote, authorUnavailable: options.authorUnavailable, authorEndpointRequests: 0, boardPaid: false, authorPaid: false, boardCharges: 0, authorCharges: 0, authorAttempts: 0, boardProofs: new Map<string, string>([["lnbc-visibility", boardPreimage]]), authorProofs: new Map<string, string>(), expectedSignerPubkey: getPublicKey(userKey), boardRequests: [] as Record<string, unknown>[], authorRequests: [] as Record<string, unknown>[], methods: [] as string[], signerMethods: [] as string[], linkPreviews: [] as string[], errors: [] as string[], completeAuthorPayment: undefined as (() => void) | undefined, approveSigner: undefined as ((secret?: string) => Promise<void>) | undefined };
     const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Allow-Methods": "GET,POST,OPTIONS" };
     await context.route("**/*", async (route) => {
         const url = new URL(route.request().url());
@@ -113,6 +113,7 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
             }
             if (msg[0] !== "EVENT") return;
             const event = msg[1] as Event;
+            if (event.kind === 1) state.publicationFrames.push(event.id);
             expect(verifyEvent(event)).toBe(true);
             socket.send(JSON.stringify(["OK", event.id, true, ""]));
             if (event.kind === 23194) {
@@ -2494,4 +2495,49 @@ test("a general existing-post selection keeps Post review even for an active not
     await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
     expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0);
     expect(state.signerMethods).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+
+test("resuming the same unfinished payment preserves its selected method and recipient", async ({ context, page }) => {
+    const state = await setup(context, page, { newCampaign: true });
+    await connectNwc(page); await prepareInvoices(page);
+    await expect(page.getByRole("tab", { name: "Wallet", exact: true })).toHaveAttribute("aria-selected", "true");
+    await invoiceMethod(page);
+    await page.getByRole("button", { name: /^Author 42 sats/ }).click();
+    const before = await savedPayment(page);
+    expect(before.promotionPaid).toBe(false);
+    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", "lightning:lnbc-author");
+    await page.getByRole("button", { name: "Back to budget", exact: true }).click();
+    await page.getByRole("button", { name: "Resume payment", exact: true }).click();
+    await expect(page.getByRole("tab", { name: "Invoice / QR", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("button", { name: /^Author 42 sats/ })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", "lightning:lnbc-author");
+    const resumed = await savedPayment(page);
+    expect(resumed.board).toEqual(before.board); expect(resumed.author).toEqual(before.author);
+    expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
+
+test("creation-disabled Post retries an unchanged original preview before continuing", async ({ context, page }) => {
+    test.skip(process.env.VITE_ENABLE_POST_CREATION === "true", "Uses the existing-post selector.");
+    const state = await setup(context, page, { secondNote: true });
+    let reads = 0;
+    await page.route("**/api/promote/preview", async route => {
+        if (route.request().method() === "OPTIONS") return route.fallback();
+        reads++;
+        const headers = { "Access-Control-Allow-Origin": "*" };
+        if (reads === 1) return route.fulfill({ status: 503, headers, json: { error: "Original preview temporarily unavailable" } });
+        return route.fulfill({ headers, json: { event: otherNote, active: false, sats_paid: 0, weight: 0, rank: 0, author_share: 20, billboard_fee_sats: 100, images: [] } });
+    });
+    await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+    await page.getByRole("button", { name: "Add to board", exact: true }).click();
+    await page.getByRole("textbox", { name: "Post link", exact: true }).fill(otherNote.id);
+    await expect(page.getByRole("alert")).toHaveText("Original preview temporarily unavailable");
+    await expect(page.getByRole("button", { name: "Review & continue", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
+    expect(reads).toBe(2); expect(state.signerMethods).toEqual([]);
+    expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0);
+    expect(state.publicationFrames).toEqual([]); expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
 });

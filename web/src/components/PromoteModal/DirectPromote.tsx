@@ -85,6 +85,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     const [walletFirst, setWalletFirst] = useState(preferredWallet);
     const [method, setMethod] = useState<PaymentMethod>(() => preferredWallet() ? "wallet" : "invoice");
     const [recipient, setRecipient] = useState<PaymentRecipient>(() => recovered.current?.author && (recovered.current.promotionPaid || isMockInvoice(recovered.current.board.invoice)) ? "author" : "board");
+    const paymentChoices = useRef(new Map<string, { method: PaymentMethod; recipient: PaymentRecipient; walletFirst: boolean }>());
     const [restartConfirm, setRestartConfirm] = useState(false);
     const [restartUnavailableHash, setRestartUnavailableHash] = useState<string | null>(null);
     const restartedDraft = useRef<Payment | null>(null);
@@ -219,8 +220,10 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
             changeReference(saved.note); setSelectedEvent(saved.event); setPayment(resumed);
             setRecordsVersion(version => version + 1); setLoadVersion(version => version + 1);
             selectPanel("compose");
-            const first = preferredWallet(); setWalletFirst(first); setMethod(first ? "wallet" : "invoice");
-            setRecipient(saved.promotionPaid && saved.author ? "author" : "board");
+            const choices = paymentChoices.current.get(saved.board.paymentHash);
+            const first = choices?.walletFirst ?? preferredWallet();
+            setWalletFirst(first); setMethod(choices?.method ?? (first ? "wallet" : "invoice"));
+            setRecipient(choices?.recipient ?? (saved.promotionPaid && saved.author ? "author" : "board"));
         } catch (failure) { if (current()) setError(describeFailure(failure)); }
         finally { if (resumeOperation.current === operation) finish(); }
     };
@@ -235,11 +238,12 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         if (payment || busy || resumeOperation.current) { deferredComposition.current = source; return; }
         appliedComposition.current = key;
         deferredComposition.current = undefined;
-        const savedAmount = amountText, savedSelection = amountSelection;
+        const savedAmount = amountText, savedSelection = amountSelection, savedShare = authorShare;
         creationSettings.current = source.post ? { config, billboardEnabled, authorShare: source.event?.pubkey && source.event.pubkey === reviewedAuthor.current ? authorShare : undefined } : undefined;
         if (source.event) reviewedAuthor.current = source.event.pubkey;
+        else if (!source.post) reviewedAuthor.current = undefined;
         changeReference(source.reference);
-        if (source.post) { setAmountText(savedAmount); setAmountSelection(savedSelection); setEntryBoost(false); }
+        if (source.post) { setAmountText(savedAmount); setAmountSelection(savedSelection); setAuthorShare(savedShare); setEntryBoost(false); }
         setEditorStep("post");
         setSelectedEvent(source.event);
         setLoadVersion(version => version + 1);
@@ -256,7 +260,14 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         if (composer) applyComposition(source);
         const id = parseNoteReference(source.reference)?.id;
         if (id && preview?.event.id === id && !loading) setEditorStep("budget");
-        else if (id) continueAfterPreview.current = id;
+        else if (id) {
+            continueAfterPreview.current = id;
+            // An unchanged source may be retrying a failed preview. Applying
+            // it is idempotent, so explicitly schedule that read again.
+            if (parseNoteReference(reference)?.id === id) {
+                setLoading(true); setError(""); setLoadVersion(version => version + 1);
+            }
+        }
     };
 
     useEffect(() => {
@@ -551,6 +562,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     };
     const backToPromotion = async (saved = latestPayment.current) => {
         if (!saved) return;
+        paymentChoices.current.set(saved.board.paymentHash, { method, recipient, walletFirst });
         abort.current?.abort();
         await savePayment({ ...saved, editing: true });
         if (preview) restoreDraft(saved, preview);
@@ -696,7 +708,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         {footer(<div className="space-y-2">
             {error && <p role="alert" className="text-sm text-neon-pink">{error}</p>}
             <p className="text-xs text-cyan-100/65">Pay with Lightning. {composer ? "New posts are published after the board payment is confirmed." : "Payment gives the original post visibility."}{composer?.signing && " Review asks your Nostr signer to sign this post privately."}</p>
-            <PixelButton className="w-full min-h-11" variant="accent" disabled={busy || loading || resuming || (composer ? !composer.canContinue : !preview)} onClick={() => void continueToBudget()}>{composer?.busy ? "Preparing post..." : "Review & continue"}</PixelButton>
+            <PixelButton className="w-full min-h-11" variant="accent" disabled={busy || loading || resuming || (composer ? !composer.canContinue : !parseNoteReference(reference))} onClick={() => void continueToBudget()}>{composer?.busy ? "Preparing post..." : "Review & continue"}</PixelButton>
             <button type="button" className={actionClass} data-panel-trigger="help" onClick={() => openHelp()}>Help &gt;</button>
         </div>)}
     </div></>;

@@ -41,9 +41,9 @@ async function installExtension(context: BrowserContext, page: Page, getPubkey =
     });
 }
 
-async function setup(context: BrowserContext, page: Page) {
+async function setup(context: BrowserContext, page: Page, options: { authorWallet?: boolean; previewFailures?: number } = {}) {
     const origin = new URL(test.info().project.use.baseURL!).origin;
-    const state = { requests: [] as Record<string, unknown>[], signerRequests: [] as string[], reviewedIds: [] as string[], signed: undefined as Event | undefined, paid: false, frames: [] as string[], errors: [] as string[], links: [] as string[], statusChecks: 0, pauseBoard: false, releaseBoard: undefined as (() => void) | undefined };
+    const state = { previewCalls: 0, previewFailures: options.previewFailures ?? 0, requests: [] as Record<string, unknown>[], signerRequests: [] as string[], reviewedIds: [] as string[], signed: undefined as Event | undefined, paid: false, frames: [] as string[], errors: [] as string[], links: [] as string[], statusChecks: 0, pauseBoard: false, releaseBoard: undefined as (() => void) | undefined };
     compositionEvidence.set(context, state);
     page.on("pageerror", error => state.errors.push(error.message));
     await context.route("**/*", async route => {
@@ -57,13 +57,18 @@ async function setup(context: BrowserContext, page: Page) {
         if (url.pathname === "/api/board/campaigns") data = { entries: [{ id: original.id, event: original, rank: 1, sats_paid: 100, weight: 100 }], targets: [], total: 1, active_posts: 1, has_more: false, total_sats: 100 };
         else if (url.pathname === "/api/board/waiting-updates") data = { count: 0, note_ids: [], checked_at: Date.now() };
         else if (url.pathname === "/api/promote/preview") {
+            state.previewCalls++;
+            if (state.previewFailures > 0) {
+                state.previewFailures--;
+                return route.fulfill({ status: 503, headers, json: { error: "Original preview temporarily unavailable" } });
+            }
             const event = body.event ?? (body.note === state.signed?.id ? state.signed : original);
             if (body.event) {
                 expect(verifyEvent(body.event)).toBe(true); state.signed = body.event;
                 if (!state.reviewedIds.includes(body.event.id)) state.reviewedIds.push(body.event.id);
             }
-            data = { event, active: state.paid && event.id === state.signed?.id, sats_paid: state.paid && event.id === state.signed?.id ? 210 : 0, weight: 0, rank: 0, author_share: 0, billboard_fee_sats: 100, images: [] };
-        } else if (url.pathname === "/api/support") data = { available: false, author: body.event?.pubkey ?? original.pubkey, reason_code: "no_address", reason: "No payment address", min_sats: 1, max_sats: 0, allows_nostr: false };
+            data = { event, active: state.paid && event.id === state.signed?.id, sats_paid: state.paid && event.id === state.signed?.id ? 210 : 0, weight: 0, rank: 0, author_share: options.authorWallet ? 20 : 0, billboard_fee_sats: 100, images: [] };
+        } else if (url.pathname === "/api/support") data = { available: !!options.authorWallet, author: body.event?.pubkey ?? original.pubkey, reason_code: options.authorWallet ? undefined : "no_address", reason: options.authorWallet ? undefined : "No payment address", min_sats: 1, max_sats: options.authorWallet ? 10000000 : 0, allows_nostr: false };
         else if (url.pathname === "/api/promote") {
             state.requests.push(body);
             if (state.pauseBoard) await new Promise<void>(resolve => { state.releaseBoard = resolve; });
@@ -581,10 +586,54 @@ test("guided short-link composition keeps the active task visible at phone and d
     for (const width of [390, 1280]) await capture("budget", width);
     expect(state.requests).toHaveLength(0); expect(state.frames).toEqual([]);
     await page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
+    await expect(page.getByRole("img", { name: "Holoboard visibility invoice QR code", exact: true })).toHaveCount(1);
     await expect(page.getByRole("img", { name: "Holoboard visibility invoice QR code", exact: true })).toBeVisible();
     for (const width of [390, 1280]) await capture("payment", width);
     await expect(page.getByRole("button", { name: /^Holoboard \d+ sats/ })).toHaveCount(0);
     await expect(page.getByLabel("Holoboard visibility payment", { exact: true })).toContainText("210 sats");
     expect(state.requests).toHaveLength(1); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
     await info.attach("guided-spatial-measurements", { contentType: "application/json", body: JSON.stringify(measurements, null, 2) });
+});
+
+
+test("editing a reviewed account post preserves its applicable budget and default split", async ({ context, page }) => {
+    test.skip(process.env.VITE_ENABLE_NOSTR_CONNECT !== "true");
+    await installExtension(context, page);
+    const state = await setup(context, page, { authorWallet: true });
+    const field = page.getByRole("textbox", { name: "Text or link" });
+    await field.fill("An account post with a chosen budget");
+    await page.getByRole("button", { name: "Use a Nostr account", exact: true }).click();
+    await page.getByRole("button", { name: "Browser extension", exact: true }).click();
+    await expect(page.getByText("Posting with your Nostr account.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    const split = page.getByRole("slider", { name: "Holoboard share in percent", exact: true });
+    await expect(split).toHaveValue("80");
+    await page.getByRole("button", { name: "Custom", exact: true }).click();
+    await page.getByRole("textbox", { name: "Custom total in sats" }).fill("500");
+    await split.focus(); await split.press("End");
+    for (let i = 0; i < 35; i++) await split.press("ArrowLeft");
+    await expect(split).toHaveValue("65");
+    const first = state.signed!;
+    await page.getByRole("button", { name: "Post", exact: true }).click();
+    await field.fill("The edited account post keeps its chosen budget");
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 500 sats", exact: true })).toBeEnabled();
+    await expect(page.getByRole("textbox", { name: "Custom total in sats" })).toHaveValue("500");
+    await expect(split).toHaveValue("65");
+    expect(state.signed!.id).not.toBe(first.id); expect(state.signed!.pubkey).toBe(first.pubkey);
+    expect(state.signerRequests).toEqual([first.id, state.signed!.id]);
+    expect(state.requests).toHaveLength(0); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+
+test("Review retries an unchanged original after a failed preview without signing or invoicing", async ({ context, page }) => {
+    const state = await setup(context, page, { previewFailures: 1 });
+    await page.getByRole("textbox", { name: "Text or link" }).fill(original.id);
+    await expect(page.getByRole("alert")).toHaveText("Original preview temporarily unavailable");
+    await expect(page.getByRole("button", { name: "Review & continue", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
+    expect(state.previewCalls).toBe(2); expect(state.signed).toBeUndefined();
+    expect(state.requests).toHaveLength(0); expect(state.signerRequests).toEqual([]);
+    expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
 });
