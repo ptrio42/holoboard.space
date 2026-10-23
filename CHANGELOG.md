@@ -26,6 +26,10 @@ record deployment, not announcement publication.
 
 ### Changed
 
+- Share the maintained note editor, renderer and Nostr client primitives with
+  independently configured clients while preserving anonymous payments and
+  existing publication receipts.
+
 - Give profile and discussion pages distinct titles and descriptions based on
   the author's name and the focused note, updating them during navigation.
 - Bring the logo, sections and actions into one desktop header with a neon rail

@@ -170,10 +170,20 @@ test.describe("explicit reply publication", () => {
         for (const width of test.info().project.name === "desktop" ? [1280, 390, 320] : [390, 320]) {
             await page.setViewportSize({ width, height: width > 600 ? 900 : 800 });
             const action = dialog.getByRole("button", { name: "Review reply", exact: true });
-            const box = (await action.boundingBox())!;
-            expect(box.y + box.height).toBeLessThanOrEqual(await page.evaluate(() => innerHeight));
+            // Phone visualViewport resize and the modal fit handler settle asynchronously.
+            await expect.poll(async () => {
+                const box = (await action.boundingBox())!;
+                return box.y + box.height - await page.evaluate(() => innerHeight);
+            }).toBeLessThanOrEqual(0);
             expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
             expect(await field.evaluate(element => getComputedStyle(element).fontSize)).toBe("16px");
+            expect(await dialog.getByRole("tab", { name: "Write", exact: true }).evaluate(element => getComputedStyle(element).fontFamily)).toContain("PressStart2P");
+            expect(await page.evaluate(() => document.fonts.check("10px PressStart2P"))).toBe(true);
+            const fileInput = dialog.getByLabel("Choose attachments");
+            const inputBox = (await fileInput.boundingBox())!;
+            expect(inputBox.width).toBeLessThanOrEqual(1);
+            expect(inputBox.height).toBeLessThanOrEqual(1);
+            expect(await dialog.evaluate(element => getComputedStyle(element.parentElement!).display)).toBe("flex");
             await page.screenshot({ path: `/private/tmp/holoboard-composer-${test.info().project.name}-${width}.png` });
         }
         await dialog.getByRole("button", { name: "Close dialog", exact: true }).click();

@@ -298,7 +298,7 @@ to `ptrio42/holoboard.space` on GitHub. Check these settings in its dashboard:
 | --- | --- |
 | Production branch | `main` |
 | Root directory | `web` |
-| Build command | `npm ci && npm run build` |
+| Build command | `npm ci --legacy-peer-deps && npm run build` |
 | Build output directory | `dist` |
 
 These are the intended production settings; the Cloudflare project

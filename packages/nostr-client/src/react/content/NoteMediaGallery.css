@@ -1,0 +1,96 @@
+/* Scoped specificity keeps the shared lead independent of legacy grid rules. */
+.note-gallery.note-gallery--lead {
+    --gallery-max-height: min(55svh, 420px);
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: auto;
+    min-width: 0;
+    gap: 6px;
+}
+
+.note-gallery.note-gallery--lead.note-gallery--multiple { --gallery-max-height: min(60svh, 460px); }
+.note-gallery.note-gallery--lead.note-gallery--quoted { --gallery-max-height: min(40svh, 280px); }
+
+.note-gallery--lead .note-gallery__lead {
+    position: relative;
+    width: 100%;
+    min-height: 44px;
+    max-height: var(--gallery-max-height);
+    aspect-ratio: var(--gallery-ratio, 1.333333);
+    background: #03050c;
+}
+
+.note-gallery--lead .note-gallery__image,
+.note-gallery--lead .note-gallery__lead > .note-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    border: 0;
+    padding: 0;
+    background: #03050c;
+}
+
+.note-gallery--lead .note-gallery__image { cursor: zoom-in; touch-action: pan-y pinch-zoom; }
+
+.note-gallery.note-gallery--lead .note-gallery__image img,
+.note-gallery--lead .note-gallery__lead .note-content-video {
+    display: block;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    margin: 0;
+    border: 0;
+    object-fit: contain;
+}
+
+.note-gallery--lead .note-gallery__unavailable { position: absolute; inset: 0; display: grid; place-items: center; }
+.note-gallery--lead .note-gallery__unavailable .pixel-status { margin: 0; padding: 4px; }
+.note-gallery--lead .note-gallery__unavailable .pixel-status__symbol { display: none; }
+.note-gallery--lead .note-gallery__recovery { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px 12px; }
+.note-gallery--lead .note-gallery__toolbar { position: absolute; inset: 6px 6px auto; z-index: 2; display: flex; align-items: center; gap: 6px; pointer-events: none; }
+.note-gallery--lead .note-gallery__toolbar > * { pointer-events: auto; }
+.note-gallery--lead .note-gallery__toolbar .pixel-btn__face { background: rgb(3 5 12 / .85); }
+.note-gallery--lead .note-gallery__counter { min-width: 0; margin-inline: auto; padding: 8px; background: rgb(3 5 12 / .85); text-align: center; font-family: var(--font-pixel); font-size: 10px; color: var(--color-neon-cyan); pointer-events: none; }
+.note-gallery--lead .note-gallery__arrow { min-width: 44px; }
+.note-gallery--lead .note-gallery__expand { width: 44px; min-width: 44px; margin-left: auto; }
+.note-gallery--lead .note-gallery__expand .pixel-btn__face { padding-inline: 0; }
+.note-gallery--lead .pixel-btn__face { display: flex; align-items: center; justify-content: center; min-height: 44px; font-size: 10px; }
+
+.note-gallery--lead .note-gallery__thumbnails {
+    position: relative;
+    display: flex;
+    gap: 4px;
+    justify-content: safe center;
+    min-width: 0;
+    padding: 3px 2px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgb(34 211 238 / .5) transparent;
+}
+
+.note-gallery--lead .note-gallery__thumbnail {
+    position: relative;
+    flex: 0 0 44px;
+    height: 44px;
+    padding: 2px;
+    border: 0;
+    background: rgb(34 211 238 / .35);
+    color: #cffafe;
+    cursor: pointer;
+    clip-path: polygon(4px 0, calc(100% - 4px) 0, calc(100% - 4px) 2px, 100% 2px, 100% calc(100% - 4px), calc(100% - 2px) calc(100% - 4px), calc(100% - 2px) 100%, 4px 100%, 4px calc(100% - 2px), 0 calc(100% - 2px), 0 4px, 4px 4px);
+}
+
+.note-gallery--lead .note-gallery__thumbnail::before { content: ""; position: absolute; inset: 2px; background: #101626; }
+.note-gallery--lead .note-gallery__thumbnail[aria-pressed="true"] { background: var(--color-neon-cyan); }
+.note-gallery--lead .note-gallery__thumbnail[aria-pressed="true"]::after { content: ""; position: absolute; inset: 2px; border: 2px solid var(--color-neon-cyan); pointer-events: none; }
+.note-gallery--lead .note-gallery__thumbnail:hover { background: #a5f3fc; }
+.note-gallery--lead .note-gallery__thumbnail:focus-visible { outline-offset: -3px; }
+.note-gallery--lead .note-gallery__thumbnail img { position: absolute; inset: 2px; width: calc(100% - 4px); height: calc(100% - 4px); margin: 0; border: 0; object-fit: cover; }
+.note-gallery--lead .note-gallery__thumbnail-number { position: absolute; right: 2px; bottom: 2px; padding: 3px; background: rgb(3 5 12 / .9); font-family: var(--font-pixel); font-size: 10px; line-height: 1; }
+.note-gallery--lead .note-gallery__play { position: absolute; inset: 0; display: grid; place-items: center; font-size: 14px; color: white; text-shadow: 1px 1px 2px black; }
+.note-gallery-viewer-loading { position: fixed; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); z-index: 60; max-width: calc(100vw - 24px); padding: 12px; transform: translateX(-50%); background: #080c19; border: 1px solid var(--color-neon-cyan); }

@@ -1,4 +1,1 @@
-import { createContext } from "react";
-
-/** Popovers escape clipped frames while remaining owned by the dialog. */
-export const ModalPopoverHost = createContext<HTMLElement | null>(null);
+export { ModalPopoverHost } from "@ptrio42/nostr-client/react";

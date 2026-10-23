@@ -38,6 +38,14 @@
 }
 
 :root {
+    /* Bind the shared client to this application's existing theme. */
+    --nostr-font-label: var(--font-pixel);
+    --nostr-font-body: var(--font-body);
+    --nostr-background: var(--color-void);
+    --nostr-panel: var(--color-panel);
+    --nostr-accent: var(--color-neon-cyan);
+    --nostr-danger: var(--color-neon-pink);
+    --nostr-gold: var(--color-neon-gold);
     scrollbar-gutter: stable;
     color-scheme: dark;
     background-color: var(--color-void);

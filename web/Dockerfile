@@ -1,10 +1,12 @@
 FROM node:24-alpine3.23@sha256:838d276a37a1e42da2a5d01e0ecbb4401ca4147728f62ca2eba6d023a352f88f AS builder
-WORKDIR /app
+WORKDIR /app/web
 
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY web/package.json web/package-lock.json ./
+COPY packages/nostr-client/package.json packages/nostr-client/package-lock.json /app/packages/nostr-client/
+RUN npm ci --legacy-peer-deps
 
-COPY . .
+COPY web .
+COPY packages/nostr-client /app/packages/nostr-client
 
 ARG VITE_RELAY_URL=ws://localhost:8080/relay
 ARG VITE_RELAY_PUBKEY
@@ -18,8 +20,8 @@ ARG VITE_SATS_ENDPOINT
 RUN npm run build
 
 FROM nginx:1.30-alpine@sha256:73c75df4075c918f91017fdda46ad81e55e5af77ba3a64ca3d5014bd9244fe7f AS runtime
-COPY nginx.conf /etc/nginx/nginx.conf
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY web/nginx.conf /etc/nginx/nginx.conf
+COPY --from=builder /app/web/dist /usr/share/nginx/html
 RUN chown -R nginx:nginx /var/cache/nginx
 
 USER nginx

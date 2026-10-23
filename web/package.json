@@ -11,7 +11,11 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:release-containers": "node scripts/release-container-smoke.mjs",
-    "test:reader-release": "node scripts/reader-release-smoke.mjs"
+    "test:reader-release": "node scripts/reader-release-smoke.mjs",
+    "prebuild": "npm run build --prefix ../packages/nostr-client",
+    "predev": "npm run build --prefix ../packages/nostr-client",
+    "pretest": "npm run build --prefix ../packages/nostr-client",
+    "preinstall": "npm ci --prefix ../packages/nostr-client --ignore-scripts --legacy-peer-deps"
   },
   "dependencies": {
     "@getalby/sdk": "^8.0.3",
@@ -27,7 +31,8 @@
     "light-bolt11-decoder": "^3.2.0",
     "jsqr": "^1.4.0",
     "marked": "18.1.0",
-    "yet-another-react-lightbox": "3.32.2"
+    "yet-another-react-lightbox": "3.32.2",
+    "@ptrio42/nostr-client": "file:../packages/nostr-client"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

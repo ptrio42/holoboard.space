@@ -1,6 +1,6 @@
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event, type EventTemplate } from "nostr-tools/pure";
 import { nsecEncode } from "nostr-tools/nip19";
-import { parseNoteReference } from "./nostr";
+import { parseWholeNoteReference as boardReference } from "@ptrio42/nostr-client/core";
 import { eventPointer } from "./nostrPointers";
 import { verifiedNostrEvent } from "./verifyNostrEvent";
 
@@ -10,19 +10,7 @@ export const isAnonymousPost = (event: { tags: string[][] }) =>
     event.tags.some(tag => tag[0] === "L" && tag[1] === ANONYMOUS_NAMESPACE) &&
     event.tags.some(tag => tag[0] === "l" && tag[1] === "anonymous" && tag[2] === ANONYMOUS_NAMESPACE);
 
-/** Whole-input recognition is deliberately narrower than legacy API parsing. */
-export function boardReference(input: string, allowHex = true) {
-    let value = input.trim();
-    if (/^https?:/i.test(value)) {
-        try {
-            const url = new URL(value);
-            if (url.hostname !== "njump.me" || url.username || url.password || url.port || url.search || url.hash || !/^\/[a-z0-9]+\/?$/i.test(url.pathname)) return null;
-            value = url.pathname.replace(/^\/|\/$/g, "");
-        } catch { return null; }
-    }
-    if (!/^(?:nostr:)?(?:note1|nevent1)[a-z0-9]+$/i.test(value) && !(allowHex && /^[a-f0-9]{64}$/i.test(value))) return null;
-    return parseNoteReference(value);
-}
+export { parseWholeNoteReference as boardReference } from "@ptrio42/nostr-client/core";
 
 export function boardReferences(text: string) {
     const matches: { start: number; end: number; reference: NonNullable<ReturnType<typeof boardReference>> }[] = [];

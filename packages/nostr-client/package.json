@@ -1,0 +1,53 @@
+{
+  "name": "@ptrio42/nostr-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "files": [
+    "dist",
+    "README.md",
+    "NOTICE.md",
+    "provenance"
+  ],
+  "exports": {
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js"
+    },
+    "./styles.css": "./dist/styles.css"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --config vitest.config.ts",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "nostr-tools": "2.25.2",
+    "yet-another-react-lightbox": "3.32.2"
+  },
+  "peerDependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@types/node": "24.10.4",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11",
+    "vite": "7.3.6",
+    "tailwindcss": "4.1.18",
+    "@tailwindcss/node": "4.1.18",
+    "@tailwindcss/oxide": "4.1.18",
+    "postcss": "8.5.28",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "@playwright/test": "1.63.0"
+  }
+}

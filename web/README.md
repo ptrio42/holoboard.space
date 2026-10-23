@@ -9,9 +9,17 @@ and billboard rules.
 Run from `web/` with Node.js and npm installed:
 
 ```bash
-npm install
+npm ci --legacy-peer-deps
 npm run dev
 ```
+
+The install hook installs the pinned shared client build tools from
+`../packages/nostr-client`; dev, test and build compile that package first.
+Keep both directories in the checkout. If lifecycle scripts are disabled, run
+`npm ci --prefix ../packages/nostr-client --legacy-peer-deps --ignore-scripts`
+explicitly before building. The shared editor, renderer and protocol helpers are
+maintained in [the package](../packages/nostr-client/README.md); the web adapters
+retain Holoboard's provider settings, navigation and global connection ownership.
 
 Defaults connect to the live Holoboard relay. To use your own relay, copy
 [.env.example](.env.example) to `.env.local` and edit its settings.
@@ -69,6 +77,10 @@ npm run build
 ```
 
 The build checks TypeScript and creates the production website in `dist/`.
+
+Run `node web/scripts/check-container-context.mjs` from the repository root to
+check image COPY paths and install/build inputs without starting Docker. The
+container smoke test runs this check before contacting the engine.
 The development server does not check types. Production builds also generate
 the web app manifest and service worker. Preview the production build to test
 installation and offline startup, because the service worker is disabled in
