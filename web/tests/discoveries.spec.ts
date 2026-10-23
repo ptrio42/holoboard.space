@@ -67,7 +67,7 @@ test("New shows an unranked discovery with a pending reward and ordinary promoti
     await row.getByRole("button", { name: "Promote", exact: true }).click();
     await expect(page.getByRole("dialog")).toBeVisible();
     await expect(page.getByRole("dialog").getByText(original.content, { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: /^Promote \d+ sats$/ }).click();
+    await page.getByRole("dialog").getByRole("button", { name: /^Continue to payment · \d+ sats$/ }).click();
     await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", "lightning:lnbc-discovery-visibility");
     await expect(page.getByRole("button", { name: "Copy invoice", exact: true })).toBeVisible();
     expect(state.promotions).toHaveLength(1);
