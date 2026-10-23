@@ -2027,19 +2027,21 @@ for (const viewport of [{ width: 320, height: 640 }, { width: 1280, height: 720 
     test(`amount picker stays still in ${newCampaign ? "promote" : "boost"} at ${viewport.width}px`, async ({ context, page }) => {
         await page.setViewportSize(viewport);
         const state = await setup(context, page, { newCampaign, rank: 25, targets: [{ rank: 21, weight: 400 }, { rank: 3, weight: 500 }, { rank: 2, weight: 600 }, { rank: 1, weight: 700 }] });
-        const legend = page.getByText("Amount in sats", { exact: true });
+        const picker = page.locator(".promotion-amount-picker");
+        await expect(picker).toHaveCount(1);
         const custom = page.getByRole("button", { name: "Custom", exact: true });
-        const before = await legend.boundingBox();
+        const before = await picker.boundingBox();
         const customBefore = await custom.boundingBox();
         await page.getByRole("button", { name: "Target position", exact: true }).click();
-        expect((await legend.boundingBox())!.y).toBeCloseTo(before!.y, 0);
+        expect((await picker.boundingBox())!.y).toBeCloseTo(before!.y, 0);
+        expect((await picker.boundingBox())!.height).toBeCloseTo(before!.height, 0);
         expect((await custom.boundingBox())!.y).toBeCloseTo(customBefore!.y, 0);
         await expect(page.getByRole("button", { name: "How ranking works >", exact: true })).toHaveCount(0);
         await custom.click();
         await page.getByRole("textbox", { name: "Custom total in sats" }).fill("500");
-        const edited = await legend.boundingBox();
+        const edited = await picker.boundingBox();
         await page.getByRole("button", { name: "Amount", exact: true }).click();
-        expect((await legend.boundingBox())!.y).toBeCloseTo(edited!.y, 0);
+        expect((await picker.boundingBox())!.y).toBeCloseTo(edited!.y, 0);
         await expect(page.getByRole("textbox", { name: "Custom total in sats" })).toHaveValue("500");
         await expect(page.getByRole("slider", { name: "Holoboard share in percent" })).toHaveValue("80");
         expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0); expect(state.errors).toEqual([]);
@@ -2476,7 +2478,7 @@ test("creation-disabled Post retains privately issued invoices without exposing 
     await page.getByLabel("Payment post", { exact: true }).locator("summary").click();
     await expect(page.getByLabel("Payment post", { exact: true })).toContainText(privateRoot.content);
     const restored = await savedPayment(page);
-    expect(restored.event).toEqual(privateRoot); expect(restored.board.paymentHash).toBe(boardHash);
+    expect(restored.event).toEqual(JSON.parse(JSON.stringify(privateRoot))); expect(verifyEvent(restored.event as Event)).toBe(true); expect(restored.board.paymentHash).toBe(boardHash);
     expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0);
     expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
 });
