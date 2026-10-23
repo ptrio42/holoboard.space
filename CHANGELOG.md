@@ -56,6 +56,10 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Handle blocked wallet storage cleanly in Firefox while retaining anonymous
+  invoice access and preventing unsafe wallet sends.
+- Keep local mock-payment previews stable when invoices are prepared or checked
+  concurrently.
 - Give board sections, Help and reader pages suitable initial search metadata,
   keep it current during navigation and exclude JavaScript setup instructions
   from search snippets.

@@ -11,6 +11,35 @@ import (
 	"fiatjaf.com/nostr"
 )
 
+func TestMockLightningConcurrentInvoices(t *testing.T) {
+	backend := NewMockLightningBackend()
+	ctx := context.Background()
+	var workers sync.WaitGroup
+	start := make(chan struct{})
+	for worker := range 8 {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			for index := range 20 {
+				amount := int64(worker*20 + index + 1)
+				invoice, err := backend.GenerateInvoice(ctx, amount, "concurrent preview")
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				paid, actual, err := backend.CheckInvoice(ctx, invoice.PaymentHash)
+				if err != nil || paid || actual != amount {
+					t.Errorf("invoice lookup = (%v, %d, %v), want (false, %d, nil)", paid, actual, err, amount)
+					return
+				}
+			}
+		}()
+	}
+	close(start)
+	workers.Wait()
+}
+
 // stubBackend answers CheckInvoice from a table, so a test can decide exactly
 // which invoices the wallet considers paid.
 type stubBackend struct {

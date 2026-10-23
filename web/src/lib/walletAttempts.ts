@@ -241,12 +241,22 @@ export interface LockedWalletAttempt {
     /** Synchronous guard after the final await, immediately before wire send. */
     isCurrent(attempt: WalletAttempt | undefined): boolean;
 }
+async function requestWalletLock<T>(hash: string, action: (lock: Lock | null) => Promise<T>): Promise<T> {
+    // Firefox reports rejected lock callbacks as unhandled even when the caller
+    // catches request(). Keep the failure as a value until the lock is released.
+    const outcome = await navigator.locks.request(`holoboard-wallet-payment:${hash}`, { mode: "exclusive", ifAvailable: true }, async lock => {
+        try { return { ok: true as const, value: await action(lock) }; }
+        catch (error) { return { ok: false as const, error }; }
+    });
+    if (!outcome.ok) throw outcome.error;
+    return outcome.value;
+}
 /** Shared by send/check and destructive invoice operations. Never queue actions. */
 export async function withWalletAttemptLocks<T>(hashes: string[], action: () => Promise<T>): Promise<T> {
     if (typeof navigator === "undefined" || !navigator.locks?.request) throw blocked();
     const keys = [...new Set(hashes)].sort();
     const acquire = async (index: number): Promise<T> => index === keys.length ? action() :
-        navigator.locks.request(`holoboard-wallet-payment:${keys[index]}`, { mode: "exclusive", ifAvailable: true }, async lock => {
+        requestWalletLock(keys[index], async lock => {
             if (!lock) throw new Error("This payment already has a send or status check in progress in another view or tab.");
             return acquire(index + 1);
         });
@@ -279,7 +289,7 @@ export async function withWalletAttempt<T>(hash: string, previous: WalletAttempt
             refresh: async () => { throw failure; }, isCurrent: () => false });
     };
     if (typeof navigator === "undefined" || !navigator.locks?.request) return readonly(blocked());
-    return navigator.locks.request(`holoboard-wallet-payment:${hash}`, { mode: "exclusive", ifAvailable: true }, async (lock) => {
+    return requestWalletLock(hash, async (lock) => {
         if (!lock) {
             // Reject the action, but finish accepting its protective knowledge.
             // This transaction cannot release a barrier held by the active action.

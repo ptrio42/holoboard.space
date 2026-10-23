@@ -45,6 +45,7 @@ type PaidInvoice struct {
 
 // MockLightningBackend is a mock implementation for testing
 type MockLightningBackend struct {
+	mu       sync.RWMutex
 	invoices map[string]*Invoice
 }
 
@@ -71,7 +72,9 @@ func (m *MockLightningBackend) GenerateInvoice(ctx context.Context, amountSats i
 		ExpiresAt:      time.Now().Add(1 * time.Hour),
 	}
 
+	m.mu.Lock()
 	m.invoices[paymentHash] = invoice
+	m.mu.Unlock()
 	log.Printf("Generated mock invoice: %d sats, hash: %s", amountSats, paymentHash)
 
 	return invoice, nil
@@ -93,7 +96,9 @@ func (m *MockLightningBackend) WatchInvoices(ctx context.Context) (<-chan PaidIn
 
 // CheckInvoice checks if an invoice has been paid
 func (m *MockLightningBackend) CheckInvoice(ctx context.Context, paymentHash string) (bool, int64, error) {
+	m.mu.RLock()
 	invoice, exists := m.invoices[paymentHash]
+	m.mu.RUnlock()
 	if !exists {
 		return false, 0, fmt.Errorf("invoice not found")
 	}
