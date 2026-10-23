@@ -153,7 +153,7 @@ to `build_pwa` and corresponding test inputs:
 | --- | --- | --- | --- |
 | `f7d90b4` | `legacy` | false / false / false / false / false | `HOLOBOARD_LEGACY_DIST` |
 | `4329487` | `foundation-on` | true / true / false / false / false | `HOLOBOARD_ROLLBACK_DIST` for created-post tests |
-| `4329487` | `compat-off` | false / false / false / false / false | `HOLOBOARD_ROLLBACK_DIST` for reader/enabled tests; `HOLOBOARD_COMPAT_ROLLBACK_DIST` for created-post tests |
+| `4329487` | `compat-off` | false / false / false / false / false | `HOLOBOARD_ROLLBACK_DIST` for reader/enabled tests; `HOLOBOARD_COMPAT_ROLLBACK_DIST` overrides it for those tests when sharing a run with created-post recovery |
 | Candidate | `creation-on` | true / true / false / false / false | `HOLOBOARD_CREATION_DIST` |
 | Candidate | `creation-off` | false / true / false / false / false | `HOLOBOARD_CREATION_OFF_DIST`, `HOLOBOARD_CURRENT_DIST` |
 | Candidate | `readers` | false / false / true / true / false | `HOLOBOARD_READER_DIST` |
@@ -177,7 +177,6 @@ VITE_ENABLE_POST_CREATION=false VITE_ENABLE_NOSTR_CONNECT=false \
 VITE_ENABLE_DISCUSSIONS=false VITE_ENABLE_PROFILES=false \
 VITE_ENABLE_REPLY_PUBLICATION=false \
 HOLOBOARD_ROLLBACK_DIST="$PWA_OUTPUT/foundation-on" \
-HOLOBOARD_COMPAT_ROLLBACK_DIST="$PWA_OUTPUT/compat-off" \
 HOLOBOARD_CREATION_DIST="$PWA_OUTPUT/creation-on" \
 HOLOBOARD_CREATION_OFF_DIST="$PWA_OUTPUT/creation-off" \
 npx playwright test tests/pwa.spec.ts --grep 'created-post PWA' \
@@ -217,8 +216,11 @@ For signer/reply compatibility, keep the `compat-off` rollback profile, set
 the anonymous invoice and an unsigned reply draft through update, rollback and
 re-enabling without connecting a signer, publishing or uploading. The verification
 runner adds this case when a rollback baseline and the payments or publication
-profile are selected. Keep created-post recovery separate: it needs the
-creation-enabled foundation and the three explicit creation/compatibility inputs.
+profile are selected. Created-post recovery requires `HOLOBOARD_ROLLBACK_DIST`
+for the creation-enabled foundation, `HOLOBOARD_CREATION_DIST` and
+`HOLOBOARD_CREATION_OFF_DIST`. When running reader/enabled cases alongside it,
+set `HOLOBOARD_COMPAT_ROLLBACK_DIST` to `compat-off` so those cases use the
+all-disabled baseline while created-post recovery keeps `foundation-on`.
 Mock invoices cannot be paid; none of these cases establishes real wallet or
 physical-device interoperability.
 
@@ -690,10 +692,12 @@ Logged-in authors can explicitly choose **Post anonymously**. Guest posts label
 their own author **Anonymous** using signed NIP-32 tags in
 `space.holoboard.attribution`; public keys remain available in details. This
 self-report does not prove key freshness or anonymity from the operator or
-payment providers. Guest-authored posts use 100% visibility, show a visibility-only
-summary in Budget and have no account-bound notifications or public zap consent. A payer
-without an account promoting someone else's signed note can still split author
-support and enter a manual npub for notifications.
+payment providers. Guest-authored posts allocate the full promotion budget to
+visibility and show a visibility-only summary in Budget. Optional Billboard
+appearance adds a separate fee with no ranking weight. These posts have no
+account-bound notifications or public zap consent. A payer without an account
+promoting someone else's signed note can still split author support and enter a
+manual npub for notifications.
 
 **Review & continue** signs a new post exactly as reviewed before opening Budget.
 It does not publish.
