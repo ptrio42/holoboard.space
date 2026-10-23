@@ -88,7 +88,8 @@ try {
     for (const flag of flags) assert.equal(config.services.web.build.args[`VITE_ENABLE_${flag}`], "false");
     check("Compose isolation, fresh volume, mock backend and disabled feature defaults");
 
-    await compose(["build"]);
+    await compose(["build", "relay"]);
+    await compose(["build", "web"]);
     // The final Fly stage must remain independently buildable after vendoring.
     await run(["build", "--target", "fly", "-t", `${project}-fly`, join(root, "relay")]);
     const fly = JSON.parse(await run(["image", "inspect", `${project}-fly`], { capture: true }))[0].Config;
