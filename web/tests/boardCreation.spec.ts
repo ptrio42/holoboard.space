@@ -562,23 +562,42 @@ test("guided short-link composition keeps the active task visible at phone and d
     const text = "A community meetup this Saturday. Details: https://example.com/story";
     const dialog = page.getByRole("dialog", { name: "Add to board", exact: true });
     await page.getByRole("textbox", { name: "Text or link" }).fill(text);
+    await expect(dialog.locator(".note-link-container")).toHaveCount(1);
+    await dialog.locator(".note-link-container").scrollIntoViewIfNeeded();
     await expect(dialog.locator(".note-link-preview")).toHaveCount(1);
     await expect(dialog.getByRole("group", { name: "Choose by amount or target position" })).toHaveCount(0);
     const measurements: unknown[] = [];
     const capture = async (stage: string, width: number) => {
         await page.setViewportSize({ width, height: 844 });
-        await dialog.locator("[data-modal-body]").evaluate(element => { element.scrollTop = 0; });
+        const body = dialog.locator("[data-modal-body]");
+        if (stage !== "payment") await body.evaluate(element => { element.scrollTop = 0; });
         await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
         await expect(dialog).toBeInViewport();
+        if (stage === "payment") {
+            const qr = dialog.getByRole("img", { name: "Holoboard visibility invoice QR code", exact: true });
+            await expect(qr).toHaveCount(1); await expect(qr).toBeVisible();
+            await expect.poll(async () => {
+                const code = (await qr.boundingBox())!, viewport = (await body.boundingBox())!;
+                return Math.max(viewport.y - code.y, code.y + code.height - viewport.y - viewport.height);
+            }).toBeLessThanOrEqual(1);
+        }
         await page.screenshot({ path: info.outputPath(`${stage}-${width}.png`) });
         measurements.push(await dialog.evaluate((element, stage) => {
             const body = element.querySelector<HTMLElement>("[data-modal-body]")!;
             const field = element.querySelector("textarea");
             return { stage, viewport: innerWidth, dialog: element.getBoundingClientRect().width, bodyHeight: body.clientHeight,
-                bodyScrollHeight: body.scrollHeight, dialogTop: element.getBoundingClientRect().top, dialogBottom: element.getBoundingClientRect().bottom, fieldHeight: field?.getBoundingClientRect().height,
+                bodyScrollHeight: body.scrollHeight, bodyScrollTop: body.scrollTop, dialogTop: element.getBoundingClientRect().top, dialogBottom: element.getBoundingClientRect().bottom, fieldHeight: field?.getBoundingClientRect().height,
                 textCopies: [...element.querySelectorAll(".inline-note-text")].length,
                 overflow: document.documentElement.scrollWidth > innerWidth };
         }, stage));
+        if (stage === "payment") {
+            const naturalScroll = await body.evaluate(element => element.scrollTop);
+            await body.evaluate(element => { element.scrollTop = 0; });
+            await page.screenshot({ path: info.outputPath(`payment-summary-${width}.png`) });
+            measurements.push({ stage: "payment-summary", viewport: width, scrollToFullQr: naturalScroll,
+                explanation: "The top summary is a separate scroll position from the naturally revealed invoice." });
+            await body.evaluate((element, scroll) => { element.scrollTop = scroll; }, naturalScroll);
+        }
     };
     for (const width of [390, 1280]) await capture("post", width);
     await page.getByRole("button", { name: "Review & continue", exact: true }).click();

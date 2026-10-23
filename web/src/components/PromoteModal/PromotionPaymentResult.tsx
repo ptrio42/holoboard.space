@@ -47,7 +47,7 @@ export function PromotionPaymentResult({ payment, actualRank, busy, onDone, onAn
             <PixelButton className="w-full min-h-11" variant="accent" onClick={onDone}>Done</PixelButton>
             <div className="flex flex-wrap items-center justify-between gap-x-3">
                 <button type="button" className={actionClass} disabled={busy} onClick={onAnother}>Make another payment</button>
-                <button type="button" className={actionClass} aria-label="Payment help >" onClick={onHelp}>Help &gt;</button>
+                <button type="button" className={actionClass} aria-label="Payment help >" data-panel-trigger="help" onClick={onHelp}>Help &gt;</button>
             </div>
         </div>)}
     </>;

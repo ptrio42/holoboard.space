@@ -52,7 +52,10 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     const returningFocus = useRef<{ element: HTMLElement | null; target: Panel } | undefined>(undefined);
     const openPanel = (next: Panel) => {
         if (next === panel) return;
-        panelFocus.current.push({ element: document.activeElement instanceof HTMLElement ? document.activeElement : null, target: next });
+        const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        // Pointer activation does not focus buttons in every browser. Only
+        // retain a matching trigger; otherwise resolve its key on return.
+        panelFocus.current.push({ element: active?.dataset.panelTrigger === next ? active : null, target: next });
         setPanelHistory(history => [...history, next]);
     };
     const closePanel = () => {
@@ -645,7 +648,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
                 <h4 className="promotion-label text-neon-cyan">Notifications <span className="text-cyan-100/50">/ optional</span></h4>
                 <label className="flex min-h-11 items-center gap-3"><input type="checkbox" checked={notifyEnabled} disabled={busy} onChange={(event) => { setNotifyEnabled(event.target.checked); setError(""); }} />Send me a confirmation DM</label>
                 {notifyEnabled && <><input aria-label="Npub for confirmation" className={FIELD} value={notifyPubkey} onChange={(event) => { setNotifyPubkey(event.target.value); setError(""); }} placeholder="npub1..." /><p>Reply YES to the confirmation DM to receive one expiry notification.</p></>}
-                {ENABLE_NOSTR_CONNECT && notifyEnabled && (browserSigner() ? <button type="button" className={actionClass} disabled={busy} onClick={() => setNotifyPubkey(connections.signerPubkey)}>Use connected Nostr identity</button> :
+                {ENABLE_NOSTR_CONNECT && notifyEnabled && (browserSigner() ? <button type="button" className={actionClass} data-panel-trigger="signer" disabled={busy} onClick={() => setNotifyPubkey(connections.signerPubkey)}>Use connected Nostr identity</button> :
                     <button type="button" className={actionClass} data-panel-trigger="signer" disabled={busy} onClick={() => openPanel("signer")}>Connect Nostr to use your npub &gt;</button>)}
             </section>}
         </div>
