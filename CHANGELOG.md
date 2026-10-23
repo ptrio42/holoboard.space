@@ -13,7 +13,7 @@ record deployment, not announcement publication.
   public sign-in is unchanged.
 
 - Guide Add to board through Post, Budget and Payment, keeping Billboard,
-  notifications and author details optional and Boost compact. Opt-in new posts
+  notifications and author details optional and Boost compact. New posts
   support guest key export or existing Nostr signers and publish after board
   payment. Prepared invoices retain their post, recipients and total for explicit
   same-browser recovery after tab closure; wallet attempts coordinate across tabs

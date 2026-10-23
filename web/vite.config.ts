@@ -21,7 +21,7 @@ export default defineConfig({
   resolve: { dedupe: ['react', 'react-dom'] },
   // Keep ordinary builds opt-in; pin the production Pages branch in Git.
   define: process.env.CF_PAGES === '1' && process.env.CF_PAGES_BRANCH === 'main'
-    ? Object.fromEntries(Object.entries({ VITE_ENABLE_POST_CREATION: "false", ...productionFeatures })
+    ? Object.fromEntries(Object.entries(productionFeatures)
         .map(([name, value]) => [`import.meta.env.${name}`, JSON.stringify(value)]))
     : undefined,
   plugins: [

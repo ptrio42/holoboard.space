@@ -8,9 +8,11 @@ To run both parts together with Docker Compose, follow the
 Compose builds the non-root `standalone` image target. Fly builds the default
 `fly` target, which preserves `/root/data` and access to the existing volume.
 
-The optional Add to board release needs backend `ENABLE_POST_CREATION=true`.
-Guest posts and existing Nostr signers do not require an account service. Deploy
-a compatible backend before enabling frontend `VITE_ENABLE_POST_CREATION=true`.
+The next Add to board release enables guest text/link posts. The checked-in
+Fly configuration sets backend `ENABLE_POST_CREATION=true`, matching the Pages
+production profile. Guest posts and existing Nostr signers do not require an
+account service. Deploy the compatible backend before the frontend. These source
+settings do not establish that deployment has happened.
 A UI rollback may turn off fresh creation, but retain private invoice
 snapshots, `publish_original`, `quote_authors` and durable `original` publication
 records. Already issued invoices must still settle without browser credentials.

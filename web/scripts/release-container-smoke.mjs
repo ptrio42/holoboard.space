@@ -17,7 +17,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 await checkWebContainerContext();
 const directory = await mkdtemp(join(tmpdir(), "holoboard-release-smoke-"));
 const project = `holoboard-smoke-${Date.now()}-${process.pid}`;
-const flags = ["NOSTR_CONNECT", "DISCUSSIONS", "PROFILES", "REPLY_PUBLICATION"];
+const flags = ["NOSTR_CONNECT", "DISCUSSIONS", "PROFILES", "REPLY_PUBLICATION", "POST_CREATION"];
 const withFeatures = process.argv.includes("--with-features");
 const report = { mode: "isolated runtime, mock invoices, no public Nostr writes", checks: [] };
 const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
@@ -62,7 +62,7 @@ try {
     await writeFile(join(directory, ".env"), [
         `RELAY_PRIVKEY=${Buffer.from(secret).toString("hex")}`, `VITE_RELAY_PUBKEY=${pubkey}`,
         `WEB_PORT=${port}`, "WEB_BIND_ADDRESS=127.0.0.1", `VITE_RELAY_URL=${relay}`,
-        "LIGHTNING_BACKEND=mock", "FETCH_RELAYS=ws://127.0.0.1:9", "DM_RELAYS=ws://127.0.0.1:9",
+        "LIGHTNING_BACKEND=mock", "ENABLE_POST_CREATION=false", "FETCH_RELAYS=ws://127.0.0.1:9", "DM_RELAYS=ws://127.0.0.1:9",
         `PUBLIC_BOARD_URL=${origin}`, ...flags.map(flag => `VITE_ENABLE_${flag}=false`), "",
     ].join("\n"), { mode: 0o600 });
     const override = {
@@ -180,6 +180,9 @@ try {
     assert.equal(await page.getByRole("link", { name: "Discussion", exact: true }).count(), 0);
     assert.equal(await page.getByRole("button", { name: /Connect Nostr/i }).count(), 0);
     assert.equal(await page.getByRole("button", { name: "Reply", exact: true }).count(), 0);
+    await page.getByRole("button", { name: "Add to board", exact: true }).click();
+    await expect(page.getByRole("textbox", { name: "Text or link", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Close dialog", exact: true }).click();
     await page.getByRole("button", { name: "Boost", exact: true }).first().click();
     await page.getByRole("link", { name: /^Author:/ }).waitFor();
     const allocation = page.getByRole("slider", { name: "Holoboard share in percent" });
@@ -210,11 +213,37 @@ try {
     for (const flag of flags) assert.equal(enabled.services.web.build.args[`VITE_ENABLE_${flag}`], "true");
     check("Compose forwards explicit opt-in feature build arguments");
     if (withFeatures) {
+        override.services.relay.environment = { ENABLE_POST_CREATION: "true" };
+        await writeFile(join(directory, "override.json"), JSON.stringify(override));
+        await compose(["up", "relay", "--detach", "--force-recreate", "--wait", "--no-build"]);
         await compose(["build", "web"]);
         await compose(["up", "web", "--detach", "--no-deps", "--force-recreate", "--wait", "--no-build"]);
         const enabledChunks = (await compose(["exec", "-T", "web", "find", "/usr/share/nginx/html/assets", "-name", "*ReplyComposer*"], { capture: true })).trim();
         assert.notEqual(enabledChunks, "", "Explicit feature build args must reach Vite");
         check("Explicit feature build args include the reply editor in a separate opt-in image");
+        browser = await chromium.launch({ channel: "chrome", headless: true });
+        const creationContext = await browser.newContext({ serviceWorkers: "block" });
+        await creationContext.route("**/*", route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+        await creationContext.routeWebSocket("**/*", socket => socket.url() === relay ? socket.connectToServer() : socket.close());
+        const creationPage = await creationContext.newPage();
+        const creationErrors = [];
+        creationPage.on("pageerror", error => creationErrors.push(error.message));
+        await creationPage.goto(origin);
+        await creationPage.getByRole("button", { name: "Add to board", exact: true }).click();
+        await creationPage.getByRole("textbox", { name: "Text or link", exact: true }).fill("A guest post from the isolated container release check.");
+        await creationPage.getByRole("button", { name: "Review & continue", exact: true }).click();
+        const prepared = creationPage.waitForResponse(response => response.url() === `${origin}/relay/api/promote` && response.request().method() === "POST");
+        await creationPage.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
+        const response = await prepared;
+        assert.equal(response.status(), 200);
+        const submitted = response.request().postDataJSON();
+        assert.ok(verifyEvent(submitted.event));
+        assert.equal(submitted.author_share, 0);
+        assert.equal(submitted.event.content, "A guest post from the isolated container release check.");
+        assert.match((await response.json()).invoice, /mock_invoice/);
+        await expect(creationPage.getByRole("alert")).toContainText("This preview uses test invoices");
+        assert.deepEqual(creationErrors, []);
+        check("Opt-in container editor prepares an unpaid guest invoice against the compatible backend");
     }
     report.passed = true;
 } finally {

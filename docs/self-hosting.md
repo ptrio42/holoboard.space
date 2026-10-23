@@ -196,6 +196,10 @@ with your website URL in `.env`. Rebuild with the update command. The `VITE_`
 settings are included when the website is built; restarting alone cannot
 change them. [Vite explains this here](https://vite.dev/guide/env-and-mode).
 
+New text/link posts are opt-in. Set both `ENABLE_POST_CREATION=true` and
+`VITE_ENABLE_POST_CREATION=true` in `.env`, then rebuild with Compose. No account
+service is required; disabling new admission preserves previously issued invoices.
+
 Discussion and profile reading are separate opt-in builds. Set
 `VITE_ENABLE_DISCUSSIONS=true` or `VITE_ENABLE_PROFILES=true` in `.env` and rebuild
 to enable them. Both default to `false`. Reply publication additionally requires

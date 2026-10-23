@@ -14,6 +14,8 @@ primary_region = 'fra'
 [env]
   DATA_FILE = '/root/data/relay_data.json'
   DEFAULT_PAYMENT_SATS = '1000'
+  # Admit new signed guest/account posts; existing invoices survive disabling it.
+  ENABLE_POST_CREATION = 'true'
   # Must accept writes from any pubkey, and must match VITE_PUBLIC_RELAYS in
   # web/src/config.ts, or mentions published by the frontend land somewhere
   # this relay is not listening.

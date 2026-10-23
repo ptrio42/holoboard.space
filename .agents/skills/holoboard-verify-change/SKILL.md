@@ -103,8 +103,8 @@ are explicitly overridden. Do not copy real-wallet environment files into test c
 
 For release preparation or changes to `web/vite.config.ts` or the production
 feature profile, add `--pages-production` with a frontend profile. The extra
-`build-pages-production` stage simulates Pages on `main`, supplies all four
-ordinary feature flags as false, and lets `web/production-features.json` override
+`build-pages-production` stage simulates Pages on `main`, supplies all five
+feature flags as false, and lets `web/production-features.json` override
 them. It checks the generated HTML revision and whether the compiled Reply
 chunk matches the profile, recording both in `report.json`. It uses loopback
 mock URLs and makes no deployment. This build does not establish runtime

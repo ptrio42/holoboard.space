@@ -734,19 +734,20 @@ its own status; it can continue after the payment result or browser closure.
 Existing Nostr accounts connect through browser extensions, Amber or remote
 signers when `VITE_ENABLE_NOSTR_CONNECT=true`. Sign-in preserves the live editor
 and payment choices. Guest posts work without a signer or account service.
-Email/password accounts are deferred separately. The current Pages production
-configuration explicitly defines post creation as disabled, regardless of an
-environment-only `VITE_ENABLE_POST_CREATION=true` change. Activation requires a
-reviewed build-configuration change as well as matching backend support. With
-creation off, existing-note promotion and recovery of issued new-post invoices
-remain available. Backend `ENABLE_POST_CREATION=false` blocks new admission while
-preserving settlement, retries and recovery for already issued invoices.
+Email/password accounts are deferred separately. Cloudflare Pages builds on
+`main` use the reviewed flags in `production-features.json`, including
+`VITE_ENABLE_POST_CREATION=true` for the next release. Environment variables do
+not override this profile. The matching Fly configuration sets backend
+`ENABLE_POST_CREATION=true`; deploy that compatible backend before the frontend.
+These source settings do not establish that either deployment has happened.
 
-For Cloudflare Pages builds on `main`, `vite.config.ts` explicitly sets
-`VITE_ENABLE_POST_CREATION=false`. An environment variable alone cannot enable
-creation in this profile; activation needs a reviewed change to the versioned
-build configuration as well as a compatible backend. The Add to board label
-remains independent of creation availability.
+Ordinary native and container builds keep creation opt-in. For Compose, set
+both `ENABLE_POST_CREATION=true` and `VITE_ENABLE_POST_CREATION=true` in `.env`,
+then rebuild. Creation needs no email account service or connected payment wallet.
+With creation off, existing-note promotion and recovery of issued new-post
+invoices remain available. Backend `ENABLE_POST_CREATION=false` blocks new
+admission while preserving settlement, retries and recovery for already issued
+invoices. The Add to board label remains independent of creation availability.
 
 Browser acceptance uses local extension signers, invoices and relays:
 

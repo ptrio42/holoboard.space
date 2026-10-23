@@ -29,7 +29,7 @@ class VerificationTests(unittest.TestCase):
         (self.repo / "relay").mkdir()
         (self.repo / "web/package.json").write_text("{}\n")
         (self.repo / "relay/go.mod").write_text("module fixture\ngo 1.26.0\ntoolchain go1.27.1\n")
-        (self.repo / "web/production-features.json").write_text(json.dumps(verify.ENABLED))
+        (self.repo / "web/production-features.json").write_text(json.dumps(verify.ENABLED | {"VITE_ENABLE_POST_CREATION": "true"}))
         self.source = self.repo / "web/source.ts"
         self.source.write_text("export const value = 1\n")
         for args in (("init", "-q"), ("add", "."),
@@ -156,7 +156,7 @@ class VerificationTests(unittest.TestCase):
             self.assertEqual(stage["env"][key], value)
         self.assertEqual(stage["env"]["CF_PAGES"], "1")
         self.assertEqual(stage["env"]["CF_PAGES_BRANCH"], "main")
-        self.assertEqual(stage["pages_profile"]["flags"], verify.ENABLED)
+        self.assertEqual(stage["pages_profile"]["flags"], verify.ENABLED | {"VITE_ENABLE_POST_CREATION": "true"})
         self.assertEqual(stage["pages_profile"]["revision"], self.guards[self.repo]["<HEAD>"])
         self.assertIn("--manifest", stage["command"])
         self.assertEqual(verify.snapshot(self.repo), before)

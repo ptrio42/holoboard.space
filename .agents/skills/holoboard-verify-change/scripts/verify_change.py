@@ -17,9 +17,9 @@ import time
 PROFILES = ("frontend", "readers", "payments", "publication", "backend")
 FLAGS = ("VITE_ENABLE_DISCUSSIONS", "VITE_ENABLE_PROFILES",
          "VITE_ENABLE_NOSTR_CONNECT", "VITE_ENABLE_REPLY_PUBLICATION")
-OFF = dict.fromkeys(FLAGS, "false")
+OFF = dict.fromkeys((*FLAGS, "VITE_ENABLE_POST_CREATION"), "false")
 READERS = OFF | dict.fromkeys(FLAGS[:2], "true")
-ENABLED = dict.fromkeys(FLAGS, "true")
+ENABLED = OFF | dict.fromkeys(FLAGS, "true")
 MOCK = {"VITE_RELAY_URL": "ws://127.0.0.1:3334",
         "VITE_API_URL": "http://127.0.0.1:3334",
         "VITE_PUBLIC_RELAYS": "ws://127.0.0.1:3334",
@@ -100,9 +100,9 @@ def make_plan(repo, output, profiles, changed, legacy=None, rollback=None, upstr
                 ["--grep", "entry points|dedicated routes|anonymous split invoices|header keeps promotion|release UI hides all signer actions"])
     if pages_production:
         profile = json.loads((repo / "web/production-features.json").read_text())
-        if not isinstance(profile, dict) or set(profile) != set(FLAGS) or any(
+        if not isinstance(profile, dict) or set(profile) != set(OFF) or any(
                 value not in ("true", "false") for value in profile.values()):
-            raise ValueError("The Pages profile must define the four feature flags as true/false strings")
+            raise ValueError("The Pages profile must define all five feature flags as true/false strings")
         revision = git(repo, "rev-parse", "HEAD").decode().strip()
         build("pages-production", OFF | {"CF_PAGES": "1", "CF_PAGES_BRANCH": "main",
                                         "CF_PAGES_COMMIT_SHA": revision})

@@ -7,12 +7,12 @@ browse the board or promote a note.
 See the [changelog](CHANGELOG.md) for user-facing updates.
 Read the [product context](docs/product.md) for its purpose and intended audience.
 
-The opt-in **Add to board** editor also creates text posts, links with descriptions
+The **Add to board** editor also creates text posts, links with descriptions
 and quotes. It can publish without an account, with an optional saved author key,
 or through an existing Nostr signer. New posts become public after the board
 payment is confirmed, including when the browser has closed. See the
-[editor guide](web/README.md#add-to-board). Post creation is off in the current
-production release.
+[editor guide](web/README.md#add-to-board). The versioned production profile
+enables creation for the next release; deployment is still required.
 
 ## How the board works
 
@@ -73,8 +73,8 @@ Add to board). In **Post**, paste a note link, `note1`, `nevent1` or event ID
 and review the original, then choose an amount in **Budget**. A known inactive
 note can open directly in Budget. The full editor follows **Post**, **Budget**
 and **Payment**, preserving choices when moving back.
-Ordinary links and new text are accepted only when opt-in post creation is
-enabled; the current production build keeps creation disabled. See the
+Ordinary links and new text require post creation in both the frontend and
+backend. The versioned production profile enables it for the next release. See the
 [Add to board developer guide](web/README.md#add-to-board) for availability.
 **Boost** on a note opens a compact two-line note preview and amount picker
 with its saved split. Custom stays in the fifth preset slot in both modes. Switch
