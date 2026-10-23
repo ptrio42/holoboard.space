@@ -79,6 +79,40 @@ test("discussion entry points stay disabled in the default release", async ({ co
 
 test.describe("read-only discussion", () => {
     test.skip(!enabled);
+    test("updates page metadata for the focused note through discussion navigation", async ({ context, page }) => {
+        await setup(context, page);
+        await page.goto(`/discussion/${focus.id}`);
+        const title = `${focus.content} | Discussion | Holoboard`;
+        await expect(page).toHaveTitle(title);
+        await expect(page.locator('meta[property="og:title"]')).toHaveAttribute("content", title);
+        await expect(page.locator('meta[name="twitter:title"]')).toHaveAttribute("content", title);
+        await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", focus.content);
+        await row(page, child).getByRole("link", { name: "Open thread", exact: true }).click();
+        await expect(page).toHaveTitle(`${child.content} | Discussion | Holoboard`);
+        await expect(page.locator('meta[property="og:description"]')).toHaveAttribute("content", child.content);
+        await page.goBack();
+        await expect(page).toHaveTitle(title);
+        await page.getByRole("link", { name: "Back to board", exact: true }).click();
+        await expect(page).toHaveTitle("holoboard.space");
+        await expect(page.locator('meta[property="og:url"]')).toHaveAttribute("content", "https://holoboard.space/");
+    });
+    test("keeps multiline note metadata bounded and markup inert", async ({ context, page }) => {
+        const selected = make('A note\n\n<script>window.metadataXss=1</script> ' + "😀".repeat(180));
+        await setup(context, page, { focus: selected });
+        await page.goto(`/discussion/${selected.id}`);
+        const text = selected.content.replace(/\s+/gu, " ").trim();
+        await expect(page).toHaveTitle(`${Array.from(text).slice(0, 77).join("")}... | Discussion | Holoboard`);
+        await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", `${Array.from(text).slice(0, 157).join("")}...`);
+        expect(await page.evaluate(() => "metadataXss" in window)).toBe(false);
+        await expect(page.locator("head script").filter({ hasText: "window.metadataXss=1" })).toHaveCount(0);
+    });
+    test("uses a note identifier in page metadata when the focused note is missing", async ({ context, page }) => {
+        await setup(context, page);
+        const id = "d".repeat(64);
+        await page.goto(`/discussion/${id}`);
+        await expect(page).toHaveTitle(`Note ${id.slice(0, 8)} | Discussion | Holoboard`);
+        await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", `Nostr discussion for note ${id.slice(0, 8)} on Holoboard.`);
+    });
     test("keeps direct discussion focus consistent with the board card", async ({ context, page }, testInfo) => {
         const selected = make("A short note with a portrait and a destination. https://images.example.com/portrait.png https://preview.example/page");
         const fixture = await setup(context, page, { focus: selected, board: [selected], preview: true });

@@ -84,6 +84,38 @@ test("profiles remain external and dedicated routes disabled by default", async 
 });
 test.describe("read-only profiles", () => {
     test.skip(!enabled);
+    test("updates page metadata from profile data and restores it through history", async ({ context, page }) => {
+        const options: Options = {};
+        const fixture = await setup(context, page, options);
+        await page.goto("/");
+        const boardDescription = await page.locator('meta[name="description"]').getAttribute("content");
+        const boardAuthor = page.locator("article").first().getByRole("link", { name: "Profile author", exact: true });
+        await boardAuthor.click();
+        await expect(page).toHaveTitle("Profile author | Profile | Holoboard");
+        await expect(page.locator('meta[property="og:title"]')).toHaveAttribute("content", await page.title());
+        await expect(page.locator('meta[name="twitter:title"]')).toHaveAttribute("content", await page.title());
+        await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", "Public author bio");
+        await expect(page.locator('meta[property="og:url"]')).toHaveAttribute("content", new URL(page.url()).origin + new URL(page.url()).pathname);
+        options.metadata = fresh;
+        await refreshProfile(page);
+        await expect(page).toHaveTitle("Updated author | Profile | Holoboard");
+        await expect(page.locator('meta[property="og:description"]')).toHaveAttribute("content", "New outbox metadata");
+        await page.goBack();
+        await expect(page).toHaveTitle("holoboard.space");
+        await expect(page.locator('meta[property="og:title"]')).toHaveAttribute("content", "holoboard.space");
+        await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", boardDescription!);
+        await expect(page.locator('meta[name="twitter:title"]')).toHaveCount(0);
+        await page.goForward();
+        await expect(page).toHaveTitle("Updated author | Profile | Holoboard");
+        expect(fixture.publications).toEqual([]); expect(fixture.errors).toEqual([]);
+    });
+    test("uses a public-key title when profile metadata is unavailable", async ({ context, page }) => {
+        await setup(context, page, { empty: true });
+        await page.goto(url); await settled(page);
+        const name = await page.locator(".profile-name").innerText();
+        await expect(page).toHaveTitle(`${name} | Profile | Holoboard`);
+        await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", `Nostr profile and active promoted notes by ${name} on Holoboard.`);
+    });
     test("shows adaptive profile cards with quotes and accurate promotion controls", async ({ context, page }, testInfo) => {
         const quoted = make("Quoted original context");
         const selected = make("Short profile note with a quote", [["q", quoted.id]]);

@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
 import { RELAY_URL } from "../config";
 import { useProfileRead } from "../hooks/useProfileRead";
+import { usePageMetadata } from "../hooks/usePageMetadata";
 import { useProfilePromotions } from "../hooks/useProfilePromotions";
 import { nostrCache } from "../lib/nostrCache";
 import { navigateReading } from "../lib/discussionNavigation";
 import { readingBackLabel } from "../lib/readingRoutes";
-import { formatSats, njumpUrl } from "../lib/nostr";
+import { formatSats, njumpUrl, shortNpub } from "../lib/nostr";
+import { metadataExcerpt } from "../lib/metadataExcerpt";
 import { BoardLayout } from "../components/BoardLayout/BoardLayout";
 import { PromoteModal } from "../components/PromoteModal/PromoteModal";
 import { ProfileIdentity } from "../components/Profile/ProfileIdentity";
@@ -19,6 +21,8 @@ import "./Profile.css";
 
 export default function Profile({ pubkey, hints, from }: { pubkey: string; hints: string[]; from: string }) {
     const { snapshot, error, refresh } = useProfileRead(pubkey, hints);
+    const name = metadataExcerpt(snapshot?.profile?.displayName || snapshot?.profile?.name, 80) || shortNpub(pubkey);
+    usePageMetadata(`${name} | Profile | Holoboard`, metadataExcerpt(snapshot?.profile?.about, 160) || `Nostr profile and active promoted notes by ${name} on Holoboard.`);
     const promotions = useProfilePromotions(pubkey);
     const [promote, setPromote] = useState(false);
     const [promotion, setPromotion] = useState<{ id: string; weight: number }>();

@@ -8,6 +8,8 @@ import { NoteCard } from "../components/BoardRow/NoteCard";
 import { DiscussionContext } from "../components/Discussion/DiscussionContext";
 import { BoardRow } from "../components/BoardRow/BoardRow";
 import { useDiscussion } from "../hooks/useDiscussion";
+import { usePageMetadata } from "../hooks/usePageMetadata";
+import { metadataExcerpt } from "../lib/metadataExcerpt";
 import { useSatsMap } from "../hooks/useSatsMap";
 import { nostrCache } from "../lib/nostrCache";
 import { DISCUSSION_PAGE_SIZE, defaultExpansion, discussionCoverage, discussionProjection, expandedReplies } from "../lib/discussionView";
@@ -69,6 +71,9 @@ export default function Discussion({ focusId, author, hints, from }: { focusId: 
     // One cache scan per graph update, rather than cloning the cache for each row.
     const bodies = useMemo(() => new Map(snapshot ? nostrCache.query({ ids: [...snapshot.graph.events.keys()] }).map(event => [event.id, event]) : []), [snapshot]);
     const focusBody = bodies.get(focusId);
+    const metadataBody = focusBody ?? handoff?.seed;
+    const subject = metadataExcerpt(metadataBody?.content, 80) || `Note ${focusId.slice(0, 8)}`;
+    usePageMetadata(`${subject} | Discussion | Holoboard`, metadataExcerpt(metadataBody?.content, 160) || `Nostr discussion for note ${focusId.slice(0, 8)} on Holoboard.`);
     const focusNote = useMemo(() => focusBody && new NDKEvent(ndk, focusBody), [focusBody]);
     const focusNode = snapshot?.graph.nodes.get(`event:${focusId}`);
     const focusParent = focusNode?.parentState === "resolved" && focusNode.parent ? snapshot?.graph.nodes.get(focusNode.parent) : undefined;

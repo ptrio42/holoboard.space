@@ -26,6 +26,8 @@ record deployment, not announcement publication.
 
 ### Changed
 
+- Give profile and discussion pages distinct titles and descriptions based on
+  the author's name and the focused note, updating them during navigation.
 - Bring the logo, sections and actions into one desktop header with a neon rail
   and gold section marker. Name the main action Add to board independently of
   the creation flag. Keep phone controls compact, shorten Add to board to

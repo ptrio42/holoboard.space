@@ -28,6 +28,15 @@ wallet using the [self-hosting guide](../docs/self-hosting.md#connect-a-wallet-f
 The browser's NWC connection is a separate payer connection. Prepare a new
 invoice after switching the backend; existing mock placeholders remain invalid.
 
+## Page metadata
+
+Profile titles use the author's display name, falling back to their name or a
+short public key. Discussion titles use an excerpt of the focused note. Both
+pages update descriptions and social metadata as public data loads, and restore
+the board metadata when leaving the reader. These values are set in the browser;
+the static HTML shell retains the default board metadata for crawlers that do
+not execute JavaScript.
+
 ## Check changes
 
 For agent-assisted verification, use the repository skill
