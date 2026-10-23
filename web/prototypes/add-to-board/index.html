@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Add to board · Concept A</title>
+    <link rel="stylesheet" href="./mock.css" />
+  </head>
+  <body>
+    <aside class="demo-tools" aria-label="Prototype controls">
+      <div><strong>Concept A</strong><span>Interactive mock · No real payments</span></div>
+      <label>Example
+        <select id="scenario">
+          <option value="guest">Guest post</option>
+          <option value="existing">Someone else's post</option>
+          <option value="boost">Compact Boost</option>
+          <option value="blank">Blank editor</option>
+        </select>
+      </label>
+    </aside>
+    <main id="editor" class="editor" aria-labelledby="editor-title">
+      <header class="editor-header">
+        <h1 id="editor-title">Add to board</h1>
+        <button class="icon" data-action="close" aria-label="Close editor">X</button>
+      </header>
+      <nav id="progress" aria-label="Contribution progress"></nav>
+      <div id="body" class="editor-body"></div>
+      <footer id="footer" class="editor-footer"></footer>
+    </main>
+    <div id="closed" hidden>
+      <p>Your demo stays here while this page is open.</p>
+      <button class="primary" data-action="reopen">Reopen editor</button>
+    </div>
+    <p id="announcement" class="sr-only" role="status" aria-live="polite"></p>
+    <script type="module" src="./mock.js"></script>
+  </body>
+</html>

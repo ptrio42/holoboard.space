@@ -5,6 +5,7 @@ including someone else's. Visit [holoboard.space](https://holoboard.space) to
 browse the board or promote a note.
 
 See the [changelog](CHANGELOG.md) for user-facing updates.
+Read the [product context](docs/product.md) for its purpose and intended audience.
 
 The opt-in **Add to board** editor also creates text posts, links with descriptions
 and quotes. It can publish without an account, with an optional saved author key,

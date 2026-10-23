@@ -12,7 +12,11 @@ publications.
 Frame Holoboard as a board for notes people want others to notice, their own or
 someone else's. Give readers concrete reasons to look and return. Start from
 ptrio42's framing: smaller communities can have places of their own while
-remaining open to the rest of Nostr. Sats express "I'd like you to see this."
+remaining open to the wider internet. Nostr is the underlying technology;
+Holoboard's purpose is discovering and bringing attention to content people care
+about. General introductions should make sense without knowing Nostr. The
+initial distribution channel and audience hypothesis do not define the product
+as Nostr-only. Sats express "I'd like you to see this."
 They prove neither quality nor a human author.
 
 Holoboard currently supplies one paid board. Project highlights are one possible
@@ -195,16 +199,85 @@ include a recommendation, a tutorial and a photograph's caption. The application
 has not been changed or deployed for this prototype.
 
 A [device imagery variant](../output/promotion/landing-v1/device-study/README.md)
-uses generated laptop and phone illustrations based on actual production
-browser captures. It supplies a separate portrait phone image at narrow widths.
+uses generated laptop and phone illustrations based on actual browser captures.
+The current graphics show the updated navigation from local application build
+`46dcd314ba64556e79539e491a034a17dd7045cc`, with the production feature profile
+and public read endpoints; that navigation was not yet deployed when captured.
+It supplies a separate portrait phone image at narrow widths.
 Exact source screenshots remain available to distinguish the illustrations
 from the captured interface and from physical-device verification.
 
-The [complete illustrated pass](../output/promotion/landing-v1/section-study/README.md)
-adds distinct visuals for promotion, ranking, the builder's motivation and the
-closing action. Functional graphics reference actual editor and ranking
-captures. The open-places scene illustrates the builder's aspiration rather
-than an implemented multi-board feature.
+The [current illustrated page](../output/promotion/landing-v1/section-study/README.md)
+keeps the accepted device hero and living-neighborhood promotion scene. Its
+introduction now follows the broader positioning above, with Nostr identified
+in a quiet footer link. "A small place, open to the wider world" carries the
+builder's motivation. The [mechanism section](../output/promotion/landing-v1/section-study/README.md#how-it-works)
+uses actual local frontend captures in one persistent Holoboard window. Native
+scrolling reveals the board, Add to board editor, invoice and ranked result.
+Keep the product's real card layout and navigation recognizable. A simple
+abstract visualization is a separate direction; avoid mixing it with lookalike
+UI. Upward scrolling reverses the sequence; a skip link and static fallback keep
+the explanation available. Fictional examples cover music, an event and writing. Distinguish the top 21 from other active paid posts;
+the demo makes no direct text/link creation availability claim.
+The broader positioning is accepted; this section's visual treatment is a
+local review candidate. Supporting artwork needs an agreed content brief before
+further generation. Use readable
+metaphors that work with the adjacent copy, with the app's illustrated cyberpunk
+world, deep violet, cyan and pink neon as the visual treatment. Vary the subject,
+silhouette and composition across sections. Earlier city scenes were not
+accepted: repeating neon noticeboards supplied atmosphere without adding enough
+meaning. Flat UI fragments, phone-like enclosures and the warm architectural
+diorama are also outside the intended direction. Literal payment diagrams and
+number sequences belong in explanations rather than defining the artwork.
+The [working illustration brief](../output/promotion/landing-v1/section-study/README.md#working-content-brief)
+separates each message from its proposed visual metaphor. Keep the accepted
+projector composition as a comparison beside the promotion copy. Its printed
+publication belongs to that metaphor; it does not define the content treatment
+for a digital billboard. The remaining metaphors still need review.
+These images must not imply
+guaranteed readership, content quality or an implemented multi-board feature.
+
+A [billboard alternative](../output/promotion/landing-v1/section-study/README.md#billboard-alternative)
+explores the product name's billboard inspiration and cyberpunk digital signage.
+It changes only the promotion image. "Small place" can describe one board in the
+wider Nostr network; the visual scale of a city display does not establish mass
+reach. Compare this public-display metaphor with the projector's more personal
+gesture of recommendation before choosing the artwork.
+
+The art direction remains exploratory. The user's Blade Runner association adds
+layered architecture, material wear and advertising integrated into the city to
+the brief, without making the imagery oppressively dark. Cyan and pink neon
+remain part of Holoboard's identity. Explore lighting, atmosphere and urban
+character separately before generating another candidate. A billboard's Small
+Signals content should read as a digital note, with an author and text rendered
+by the display, rather than as a scanned illustrated paper cover.
+
+The [two city studies](../output/promotion/landing-v1/section-study/README.md#two-cyberpunk-directions)
+compare a living neon neighborhood with a cinematic city after rain. They keep
+the same fictional digital note and closely matched composition, with identical
+landing copy. They separate the feeling of an approachable local place from the
+atmospheric depth of mist and luminous reflections.
+
+The [neighborhood motion prototype](../output/promotion/landing-v1/section-study/README.md#living-neon-neighborhood-in-motion)
+uses the selected living neon neighborhood for a short scroll-controlled scene:
+the digital note appears, then its light reaches the surrounding city and wet
+pavement. The phone sequence is shorter. Normal scrolling, readable copy and a
+complete static fallback remain available. This local visual study does not
+change the application or establish campaign results.
+
+The [living-neighborhood extension](../output/promotion/landing-v1/section-study/README.md#a-living-neighborhood)
+adds depth between the billboard building and the wider city, with subtle vapor,
+transit light and distant neon movement. The digital note remains the focal
+point. Ambient movement pauses offscreen and can be stopped explicitly. The
+living-neighborhood scene is accepted. Keep the earlier motion prototype
+available for comparison.
+
+The [Paid visibility study](../output/promotion/landing-v1/section-study/README.md#paid-visibility-energy-module)
+uses the selected energy-module motif: a close view of a worn coupler and a
+gold pulse weakening along a translucent cable. The copy explains ranking
+weight and its decay; the image supplies a temporary-energy metaphor. Review
+this rendering beside its copy. The stable local `/about-current/` page combines
+it with the accepted neighborhood, while preserving the other sections.
 
 Posts about Holoboard's purpose could link to this introduction after review
 and integration. Posts about a particular note should keep their direct

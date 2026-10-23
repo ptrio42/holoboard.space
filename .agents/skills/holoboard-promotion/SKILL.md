@@ -1,6 +1,6 @@
 ---
 name: holoboard-promotion
-description: Prepare and review Holoboard Nostr posts, release announcements, post series and short promotional videos. Use for ptrio42's personal posts or Holoboard-account copy, with product facts and visuals grounded in this repository.
+description: Explain Holoboard in everyday introductions and prepare or review Nostr posts, release announcements, post series and short promotional videos. Use for ptrio42's personal posts or Holoboard-account copy, with product purpose, audience assumptions, facts and visuals grounded in this repository.
 ---
 
 # Holoboard promotion
@@ -12,9 +12,9 @@ service, or spending sats.
 
 ## Use supporting skills
 
-For drafting, revising or editorial review of post copy, read the available
-`copywriting` skill. This skill supplies Holoboard's context; the supporting
-skill supplies reusable writing guidance.
+For drafting, revising or editorial review of post copy or product introductions,
+read the available `copywriting` skill. This skill supplies Holoboard's context;
+the supporting skill supplies reusable writing guidance.
 
 For other parts of the brief, select the relevant supporting skills:
 
@@ -45,6 +45,12 @@ establish Nostr behavior or compatibility.
 
 ## Ground the message
 
+Read the [product context](../../../docs/product.md) for Holoboard's purpose,
+reader and promoter needs, the smaller-open-places motivation and short
+introduction guidance. Keep current capabilities, longer-term aspirations and
+audience hypotheses distinct. The initial Nostr/Bitcoin campaign audience does
+not restrict the product's topics or intended audience.
+
 For the current audience, campaign direction and weekly time budget, read the
 [promotion plan](../../../docs/promotion-plan.md). Its editorial windows and
 working targets are planning choices, not measured results or publication
@@ -64,6 +70,23 @@ Choose the audience benefit before selecting features to show. For discovery,
 explain how a worthwhile note can receive paid visibility without its author
 having a large following. Sats signal demand for visibility; they do not prove
 content quality or guarantee readers, reposts or a particular rank.
+
+## Explain Holoboard in conversation
+
+Start with what the board offers this person and use one relevant example.
+For readers, give a concrete reason to open a post. For potential promoters,
+explain that paid visibility can support a recommendation of someone else's
+work as well as their own promotion. Keep free reading and paid visibility clear.
+
+Match Nostr detail to the audience. Existing Nostr users may care about using
+their notes and following their conversations across clients. Other people may
+first need a simple explanation of the board. Use the product context's short
+introduction as a starting point and adapt it to the conversation.
+
+Introduce a feature only when it helps the person take the suggested next step,
+and check that it is available in the relevant release. Keep the builder's
+personal motivation in their voice and Holoboard-account statements in the
+product's voice.
 
 ## Write a Nostr post
 

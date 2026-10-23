@@ -595,6 +595,12 @@ configuration keeps post creation off. Backend `ENABLE_POST_CREATION=false` bloc
 new admission while preserving settlement, retries and recovery for already issued
 invoices.
 
+For Cloudflare Pages builds on `main`, `vite.config.ts` explicitly sets
+`VITE_ENABLE_POST_CREATION=false`. An environment variable alone cannot enable
+creation in this profile; activation needs a reviewed change to the versioned
+build configuration as well as a compatible backend. The Add to board label
+remains independent of creation availability.
+
 Browser acceptance uses local extension signers, invoices and relays:
 
 ```bash
