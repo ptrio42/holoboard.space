@@ -34,7 +34,7 @@ async function stopServer(server: ReturnType<typeof createServer>) {
 
 for (const mode of ["legacy", "readers", "enabled"] as const) test(mode !== "legacy"
     ? `${mode === "enabled" ? "enabled" : "read-only"} PWA update and code rollback preserve the original invoice`
-    : "previous frontend works with current API and PWA updates preserve prepared invoices", async ({ context, page, browserName }) => {
+    : "previous frontend works with current API and PWA updates preserve prepared invoices", async ({ context, page, browserName }, info) => {
     const readerRelease = mode !== "legacy", signerRelease = mode === "enabled";
     const previous = readerRelease ? compatibilityRollbackDist : legacyDist;
     const candidate = signerRelease ? enabledDist : readerRelease ? readerDist : currentDist;
@@ -71,7 +71,7 @@ for (const mode of ["legacy", "readers", "enabled"] as const) test(mode !== "leg
     const entry = { event: note, id: note.id, rank: 1, sats_paid: 210, weight: 200, first_paid_at: 1700000000, last_paid_at: 1700000000, hot_sats: 21, author_share: 0 };
     const requests: Record<string, unknown>[] = [];
     const copiedInvoices: string[] = [];
-    const statusRequests: { hash: string | null; note: string | null; method: string | undefined; accept: string | undefined }[] = [];
+    const statusRequests: { hash: string | null; note: string | null; method: string | undefined; accept: string | undefined; document: string | string[] | undefined }[] = [];
     const errors: Error[] = [];
     const writeFrames: string[] = [];
     context.on("page", opened => opened.on("pageerror", error => errors.push(error)));
@@ -79,7 +79,7 @@ for (const mode of ["legacy", "readers", "enabled"] as const) test(mode !== "leg
     const apiServer = createServer(async (req, res) => {
         const url = new URL(req.url ?? "/", "http://localhost");
         res.setHeader("Access-Control-Allow-Origin", "*");
-        res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+        res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Holoboard-Test-Document");
         res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
         res.setHeader("Cache-Control", "no-store");
         if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
@@ -90,7 +90,7 @@ for (const mode of ["legacy", "readers", "enabled"] as const) test(mode !== "leg
         else if (url.pathname === "/api/promote/preview") data = { event: note, active: true, sats_paid: 210, weight: 200, rank: 1, author_share: 0, billboard_fee_sats: 100, images: [] };
         else if (url.pathname === "/api/support") data = { available: false, author: note.pubkey, reason_code: "no_address", min_sats: 0, max_sats: 0, allows_nostr: false };
         else if (url.pathname === "/api/promote/status") {
-            statusRequests.push({ hash: url.searchParams.get("payment_hash"), note: url.searchParams.get("note"), method: req.method, accept: req.headers.accept });
+            statusRequests.push({ hash: url.searchParams.get("payment_hash"), note: url.searchParams.get("note"), method: req.method, accept: req.headers.accept, document: req.headers["x-holoboard-test-document"] });
             data = { settled: false, pending: true, sats_paid: 210 };
         }
         else if (url.pathname === "/api/promote") {
@@ -124,16 +124,22 @@ for (const mode of ["legacy", "readers", "enabled"] as const) test(mode !== "leg
     });
     // Use real cross-origin HTTP for CORS and service-worker checks. Redirect
     // only the configured test API to a private per-test mock server.
-    await context.addInitScript((target) => {
+    await context.addInitScript(({ target, markDocument }) => {
         const nativeFetch = window.fetch.bind(window);
         window.fetch = (input, init) => {
             const original = input instanceof Request ? input.url : String(input);
             const url = new URL(original, window.location.href);
             if (url.origin !== "http://127.0.0.1:3334") return nativeFetch(input, init);
             const destination = `${target}${url.pathname}${url.search}${url.hash}`;
-            return nativeFetch(input instanceof Request ? new Request(destination, input) : destination, init);
+            const redirected = input instanceof Request ? new Request(destination, input) : destination;
+            if (!markDocument) return nativeFetch(redirected, init);
+            // The document's build meta survives claims by a newer worker. Old
+            // polling must retain its old label even after the server switches.
+            const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+            headers.set("X-Holoboard-Test-Document", document.querySelector('meta[name="holoboard-revision"]')?.getAttribute("content") ?? "unknown");
+            return nativeFetch(redirected, { ...init, headers });
         };
-    }, apiOrigin);
+    }, { target: apiOrigin, markDocument: !readerRelease });
     await context.route("**/*", (route) => {
         const url = new URL(route.request().url());
         return url.origin === origin || url.origin === apiOrigin ? route.continue() : route.abort();
@@ -178,8 +184,18 @@ for (const mode of ["legacy", "readers", "enabled"] as const) test(mode !== "leg
                 });
             });
         }
+        const baselineDocument = !readerRelease ? await page.locator('meta[name="holoboard-revision"]').getAttribute("content") : undefined;
+        if (!readerRelease) expect(baselineDocument).toMatch(/^[a-f0-9]{40}$/);
         version = "current";
         await updateWorker();
+        const candidateDocument = !readerRelease ? await page.locator('meta[name="holoboard-revision"]').getAttribute("content") : undefined;
+        if (!readerRelease) {
+            expect(candidateDocument).toMatch(/^[a-f0-9]{40}$/);
+            expect(candidateDocument).not.toBe(baselineDocument);
+            // Include every candidate request since startup, not just requests
+            // made after opening the read-only Older invoices panel.
+            expect(statusRequests.filter(request => request.document === candidateDocument && request.hash === "1".repeat(64))).toEqual([]);
+        }
         await expect(page.getByRole("link", { name: "Waiting room", exact: true })).toBeVisible({ timeout: 30000 });
         if (readerRelease) {
             // Activation claims other open tabs without reloading their code.
@@ -219,7 +235,6 @@ for (const mode of ["legacy", "readers", "enabled"] as const) test(mode !== "leg
             await page.goto(origin);
             expect(await invoiceSnapshots(page)).toEqual(baselineRecords);
         }
-        const legacyChecks = statusRequests.filter(request => request.hash === "1".repeat(64)).length;
         await page.getByRole("button", { name: "Boost", exact: true }).first().click();
         if (!readerRelease) {
             await page.getByText("Older invoices", { exact: true }).click();
@@ -232,7 +247,7 @@ for (const mode of ["legacy", "readers", "enabled"] as const) test(mode !== "leg
             const oldQr = PNG.sync.read(await old.getByRole("img", { name: "Older Holoboard invoice QR code", exact: true }).screenshot());
             expect(jsQR(new Uint8ClampedArray(oldQr.data), oldQr.width, oldQr.height)?.data.toLowerCase()).toBe("lnbc-compatibility-1");
             expect(await privatePayments(page)).toEqual([]);
-            expect(statusRequests.filter(request => request.hash === "1".repeat(64))).toHaveLength(legacyChecks);
+            expect(statusRequests.filter(request => request.document === candidateDocument && request.hash === "1".repeat(64))).toEqual([]);
             await page.getByRole("button", { name: "Boost 210 sats", exact: true }).click();
         }
         const invoiceNumber = readerRelease ? 1 : 2;
@@ -288,6 +303,13 @@ for (const mode of ["legacy", "readers", "enabled"] as const) test(mode !== "leg
         const api = await page.goto(`${origin}/api/promote/status?payment_hash=example`);
         expect(api?.status()).toBe(418);
         expect(await api?.json()).toEqual({ error: "API navigation reached the server" });
+        if (!readerRelease) {
+            expect(statusRequests.every(request => request.document === baselineDocument || request.document === candidateDocument)).toBe(true);
+            expect(statusRequests.some(request => request.document === baselineDocument && request.hash === "1".repeat(64))).toBe(true);
+            expect(statusRequests.some(request => request.document === candidateDocument && request.hash === "2".repeat(64))).toBe(true);
+            expect(statusRequests.filter(request => request.document === candidateDocument && request.hash === "1".repeat(64))).toEqual([]);
+            await info.attach("legacy-document-requests", { contentType: "application/json", body: JSON.stringify({ baselineDocument, candidateDocument, statusRequests }, null, 2) });
+        }
         expect(writeFrames).toEqual([]);
         // WebKit can report a caught native fetch failure as pageerror. Accept
         // only the exact ledger transport error paired with a failed request
