@@ -1,0 +1,29 @@
+{
+  "name": "holoboard-accounts-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.22.1",
+    "npm": "11.19.1"
+  },
+  "packageManager": "npm@11.19.1",
+  "workspaces": [
+    "packages/server",
+    "packages/client",
+    "apps/service"
+  ],
+  "scripts": {
+    "check": "npm run check --workspaces",
+    "test": "npm run test --workspaces",
+    "build": "npm run build --workspace=@holoboard/accounts-client && npm run build --workspace=@holoboard/accounts-server && npm run build --workspace=@holoboard/accounts-service",
+    "build:web": "node examples/web/build.mjs",
+    "test:web": "node --test examples/web/browser.test.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "esbuild": "0.28.2",
+    "playwright": "1.63.0",
+    "typescript": "5.9.3"
+  }
+}

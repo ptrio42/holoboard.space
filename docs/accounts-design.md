@@ -1,13 +1,17 @@
 # Native email accounts
 
-Status: proposed first-version contract, ready for implementation review. No
-account implementation, dependency pinning, runtime integration or activation is
-included. Recommendations below are distinct from accepted release behavior.
+Status: first-version contract and private local developer preview in `accounts/`.
+Verified accounts, encrypted stable identities, kind-1 signing, explicit export,
+transactional recovery, encrypted mail delivery, the client SDK, loopback TLS
+service, browser forms and offline restoration are implemented and tested locally.
+The [first-flow plan](superpowers/plans/2026-10-21-native-accounts-first-flow.md)
+records the scope, including outstanding native-device acceptance.
+Holoboard integration and production activation remain separate work.
 See [the account direction](nostr.md#paid-root-posts).
 
 For custody, transport distinctions and pinned existing implementations, see
 the [key custody and signing research](accounts-custody.md). Better Auth is the
-proposed account component; it is not the author-key vault or a NIP-46
+selected account component; it is not the author-key vault or a NIP-46
 implementation. The operation-level source comparison supports this library
 boundary, not a claim of superior security or lower maintenance cost. Divine
 Keycast can provide headless accounts behind an application-owned UI if adopting
@@ -20,7 +24,7 @@ with an application-owned interface and server-held author keys. Support web
 and native mobile integration without requiring a relay, browser extension or
 specific frontend framework. Holoboard is the first integration.
 
-Recommend a TypeScript server library for a supported Node.js LTS runtime, a
+Use a TypeScript server library for a supported Node.js LTS runtime, a
 small standalone HTTP service using that library, and a separate TypeScript
 client SDK. A Node application can embed the library. Holoboard's Go backend
 can coexist with the service without importing Node code. This recommendation
@@ -161,6 +165,70 @@ is safe diagnostic metadata. Use `400 INVALID_INPUT`, `401 UNAUTHENTICATED`,
 recovery and registration do not disclose account existence. SDK error codes
 must not expose raw framework messages, credentials, ciphertext or stack traces.
 
+### Implemented account and signing slice
+
+The initial server mounts reviewed Better Auth 1.7.12 routes directly under the
+configurable `/v1/auth` prefix. The logical table above still describes the wider
+target contract; it is not an additional set of implemented auth endpoints.
+
+| Wire path | Method and body/query | Current result |
+| --- | --- | --- |
+| `/v1/auth/sign-up/email` | POST `email`, `password`, required private `name`, optional `callbackURL` | `202 { accepted: true }` for new and duplicate accounts; no session |
+| `/v1/auth/send-verification-email` | POST `email`, optional `callbackURL` | Generic `202 { accepted: true }` |
+| `/v1/auth/verify-email` | GET `token`, optional `callbackURL` | Native status/result or redirect to the exact allowed page; no automatic login |
+| `/v1/auth/sign-in/email` | POST `email`, `password`, optional `callbackURL` | Native user/redirect fields with top-level token removed; cookie establishes session |
+| `/v1/auth/get-session` | GET with cookie | Native `{ user, session }` or `null`, with `session.token` removed |
+| `/v1/auth/request-password-reset` | POST `email`, optional `redirectTo` | Generic `202 { accepted: true }` |
+| `/v1/auth/reset-password` | POST `token`, `newPassword` | Native `{ status: true }`; database token consumption, password update and all-session revocation |
+| `/v1/auth/sign-out` | POST `{}` with cookie | Native success; preserve all cookie deletion headers |
+
+`callbackURL` and `redirectTo` match complete configured return URLs, without
+arbitrary paths or query strings. Missing values use the first configured page.
+Reset mail points directly at that page with the token; the native GET reset
+callback and password verifier are not exposed. The application must remove
+consumed tokens from navigation. `rememberMe: false` is rejected to retain one
+fixed seven-day session policy. Email verification uses expiring signed JWTs;
+password reset records and sessions live in SQLite without secondary storage.
+
+Error responses use the envelope above. Native unverified login maps to
+`403 EMAIL_UNVERIFIED`, generic credential failures to `401 UNAUTHENTICATED`,
+invalid native input to `400 INVALID_INPUT`, and internal errors to
+`503 TEMPORARILY_UNAVAILABLE`. Ingress also uses `404 NOT_FOUND`,
+`408 REQUEST_TIMEOUT`, `415 UNSUPPORTED_MEDIA_TYPE`, `431 REQUEST_HEADERS_TOO_LARGE`
+and the documented 413/429 codes. Missing sessions return native `200 null` on
+`get-session`; private extension routes return 401. The SDK normalizes these
+native success fields into its application contract.
+
+Custody installations use a bounded encrypted SQLite mail outbox. Authentication
+callbacks await local enqueue; an explicit private worker performs external
+delivery separately. Provider failures and queue saturation preserve generic
+responses. A local enqueue failure increments a private operator counter, so
+acceptance is not proof of queue commit or delivery. Malformed input remains an
+error. Payloads use the custody keyring with a separate `account-mail` JWE purpose,
+expire with their links and have persisted leases and bounded retry attempts.
+The earlier auth-only compatibility mode retains best-effort delivery; it is
+not the full account service configuration.
+
+`initializeAccountDatabase` explicitly creates a new private database and refuses
+existing files. Opening the server never migrates existing data. The factory's
+private-route extension shares the bounded HTTP ingress and supplies our minimal
+`AccountSession`, read from the live session, independently of caller account IDs.
+The identity routes use the same ingress and live verified session. Their fixed
+paths are `GET /v1/identity`, `POST /v1/identity/sign` and
+`POST /v1/identity/export`, independently of the configurable auth prefix.
+Identity reads return the session-derived account ID, public key and supported
+capabilities. Only kind 1 is implemented; export is disabled unless explicitly
+enabled and requires the current password on every request. The server and SDK
+verify the exact returned event and signature without relying on a cached
+verification marker. No operation publishes an event or accesses a wallet.
+
+Real HTTPS recovery tests cover separate device cookie jars, session revocation,
+one concurrent reset winner and a SQLite failure that rolls back token
+consumption, password update and all-session revocation together. Restart checks
+include a separate Node process. Full password change and device-management
+routes remain outside this first slice. See the
+[workspace reference](../accounts/README.md) for exact limits and commands.
+
 ## Client SDK contract
 
 The SDK accepts a service base URL and a transport. The web transport uses
@@ -176,6 +244,16 @@ the basic browser signer methods in [NIP-07](https://github.com/nostr-protocol/n
 that resemblance does not make the SDK a browser extension or inject it into
 other websites.
 
+Native auth HTTP requests share a bounded scope across instances using the same
+cookie jar: even session reads can issue cookies. Login, logout and password
+reset also advance the local auth state. Successful logout follows earlier
+cookie writes;
+an unresolved transport keeps its fence after a caller timeout and blocks
+automatic restoration until an explicit successful transition. Inject the same
+scope when separate adapters share a jar. This is local request coordination;
+hosts own cross-tab and native-process lifecycle behavior. See the
+[client transport contract](../accounts/docs/client.md).
+
 The SDK snapshots the requested event and expected account, validates the
 returned signature, public key, event ID and exact template, and rejects a late
 response after logout or account switching. A timeout permits explicit retry of
@@ -187,8 +265,8 @@ it cannot retract a signature or publication that has already happened.
 
 Recommend one opaque server-side session model for both web and native clients,
 with cookie transport in version one. Use fixed seven-day expiry without silent
-sliding renewal initially. This is a proposed product limit, not a library
-requirement. A later renewal design must retain server-side revocation and a
+sliding renewal initially. The local implementation uses this fixed limit.
+A later renewal design must retain server-side revocation and a
 bounded absolute lifetime.
 
 Web uses a host-only `HttpOnly`, `Secure`, `SameSite=Lax` cookie. No session
@@ -303,8 +381,14 @@ and a restore runbook. Backups have a recovery point: keys created after the
 last recoverable backup cannot be promised recoverable. Define the recovery
 point objective before activation and explain unsupported recovery explicitly.
 Restore into isolation, revoke restored sessions/tokens and reconcile assigned
-identities before reopening provisioning. An older backup must not silently
-remint a key for an email whose identity is missing. Preserve an independent
+identities before reopening provisioning. Email verification uses stateless
+signed JWTs, so deleting database token records is insufficient: require a fresh
+authentication secret and enforce the restored installation's secret binding.
+Invalidate restored password credentials and require native email recovery
+before another login, preventing a backup from reviving an obsolete password.
+Keep the Nostr encryption keyring independent of this account recovery.
+An older backup must not silently remint a key for an email whose identity is
+missing. Preserve an independent
 assignment inventory for that reconciliation; it contains no author secrets.
 Keep registration and provisioning quarantined while inventoried assignments
 are missing from recovered account/key records, including accounts absent from
@@ -312,12 +396,20 @@ the backup. Inventory persistence and restore reconciliation belong in the
 implementation, not just test fixtures. A local inventory directory requires
 separately durable storage/backup before production recovery can rely on it.
 
+The library supplies consistent backup, isolated restore, reconciliation and
+atomic rewrapping of current identity and outbox ciphertext. The
+[offline recovery runbook](../accounts/docs/recovery.md) documents their public
+APIs and runnable maintenance commands. Schema 4 initializes fresh installations
+only; earlier preview schemas need separately reviewed migration tooling.
+
 ## Dependency fit review
 
-These are implementation recommendations from source/documentation review,
-not pinned, compiled or vulnerability-cleared selections. Better Auth is the
-first candidate, conditional on the integration checks below. None requires a
-hosted login provider or an external branded login window.
+These components are pinned and exercised together in the private workspace.
+The [workspace reference](../accounts/README.md#pinned-dependencies-and-platforms)
+records versions, advisory dates, licenses and the validated development platform.
+Local compatibility and source review do not constitute a security audit or
+production deployment acceptance. None requires a hosted login provider or an
+external branded login window.
 
 | Responsibility | Candidate and observed fit | Configuration or code owned by us |
 | --- | --- | --- |
@@ -362,11 +454,11 @@ The following integration findings determine whether Better Auth is acceptable:
   unreviewed framework routes must not bypass our facade. Refer to
   [the security model](https://better-auth.com/docs/reference/security).
 
-Source review found extension points for the proposed requirements. It does
-not prove that the complete combination works. If transactional revocation,
-export verification or native transport cannot be integrated cleanly, replace
-that adapter or component while preserving the contract. Do not start by
-rewriting password reset/session machinery solely for uniformity.
+Runtime tests establish transactional reset, explicit export verification and
+stable identity behavior for the pinned local adapter. Native device storage
+and production operation still need their own acceptance. If an adapter fails
+those requirements, replace it while preserving the contract. Do not rewrite
+password reset/session machinery solely for uniformity.
 
 ## Operations and acceptance
 
@@ -414,10 +506,12 @@ Acceptance before activation:
 10. Verify packaging, mail/outbox retries, resource bounds, reviewed migrations
     and secret/log handling in the intended deployment configuration.
 
-This pass reviewed the local signer, root composer, media authorization,
-author-support and deployment boundaries, plus upstream documentation and
-selected source. It did not install dependencies, run account code, send mail,
-create keys, mutate data, start Docker or deploy. The first implementation step
-is the server/SDK boundary and focused integration checks for dependency
-extension points, sessions and transactional reset. A separate design pass is
-needed only if that evidence exposes a contract mismatch.
+Local acceptance uses generated test identities, isolated databases and captured
+mail. It covers built standalone and embedded service flows, actual maintenance
+commands and Chrome forms on same-site and hostile origins with two independent
+browser sessions. Source databases remain unchanged by isolated restoration.
+It does not enable Holoboard account entry points or change the Go payment backend.
+Actual native device storage, Linux packaging, production
+mail, resource sizing, deployment configuration and the remaining Holoboard
+signing policies require acceptance before activation. Source comparisons and
+code reviews support those decisions but do not establish a security audit.

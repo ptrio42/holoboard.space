@@ -576,27 +576,13 @@ unavailable-profile states. Existing Nostr signers retain exact-event signature
 validation. Creating posts and recovering issued invoices do not require an
 account service.
 
-Email/password accounts are deferred to a separate change. The intended direction
-is Holoboard-owned sign-in and recovery forms with established authentication
-components. Keep these flows within Holoboard's interface. A reusable account API
-and signer interface should support web and native mobile integration independently
-of Khatru. The proposed first-version contract recommends a TypeScript server
-library with a standalone service wrapper and a separate client SDK. This adds
-a Node service beside Holoboard's Go backend; the embedded Go alternative would
-avoid that process. Components remain recommendations pending implementation
-review and integration checks. Dependencies must preserve the required UI,
-identity recovery and session behavior. Authentication and author-key custody
-need separate designs; resetting a password must retain the same author key.
-Database and encryption-key backups
-must support restoring that identity after a server failure. This release does
-not implement custodial accounts. Account work must not block guest posts,
-existing Nostr signers or anonymous invoice payments.
-
-The [native account contract](accounts-design.md) describes the proposed API,
-web/native sessions, signing scope, dependency fit, deployment and recovery
-acceptance. Its direct API initially serves operator-owned clients. Hosting
-NIP-46 for third-party clients is separate scope. These choices remain proposed
-until accepted and verified.
+Email/password account activation is separate from post creation. The private
+[accounts workspace](../accounts/README.md) supplies a reusable TypeScript
+library, client SDK and Node service, using Better Auth for account mechanics
+and separate custody/signing modules. Holoboard-owned forms can call that service
+alongside the existing Go backend. Follow the
+[account contract](accounts-design.md) for identity, recovery and activation
+requirements. The public board's account entry points remain unchanged.
 
 ## Publication
 

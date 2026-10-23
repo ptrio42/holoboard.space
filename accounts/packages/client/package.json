@@ -1,0 +1,26 @@
+{
+  "name": "@holoboard/accounts-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.22.1"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "check": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "test": "node ../../scripts/test.mjs",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "nostr-tools": "2.25.2"
+  }
+}

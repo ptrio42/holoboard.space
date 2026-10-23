@@ -8,6 +8,10 @@ record deployment, not announcement publication.
 
 ### Added
 
+- Add a local developer preview of reusable email/password accounts with stable
+  Nostr identities, scoped signing and password-confirmed key export. Holoboard's
+  public sign-in is unchanged.
+
 - Guide Add to board through Post, Budget and Payment, keeping Billboard,
   notifications and author details optional and Boost compact. Opt-in new posts
   support guest key export or existing Nostr signers and publish after board

@@ -1,8 +1,10 @@
 # Account key custody and signing
 
 Status: source-backed design research for [native accounts](accounts-design.md).
-This is not a security audit or runtime verification. Better Auth remains the
-account component candidate for the reusable TypeScript library. Divine Keycast
+This comparison is not a security audit or runtime verification. Better Auth is
+the selected account component for the reusable TypeScript library. Runtime
+evidence and activation gaps are recorded in the
+[workspace reference](../accounts/README.md). Divine Keycast
 is a headless-service alternative if that packaging requirement changes;
 key custody and Nostr transport are separate responsibilities.
 
@@ -177,17 +179,17 @@ Both direct HTTP and a future NIP-46 adapter should call the same policy and
 signing core. Transport adapters must never bypass authorization or decrypt raw
 keys merely to forward them to a client.
 
-For the first implementation, retain the small TypeScript custody proposal in
+The first local implementation follows the small TypeScript custody boundary in
 [the account contract](accounts-design.md#stable-identity-custody-and-recovery):
 established JWE encryption through `jose`, independent server encryption keys,
-and Nostr signing through `nostr-tools`. This is a proposed implementation using
+and Nostr signing through `nostr-tools`. This implementation uses
 existing cryptographic libraries, not a new cipher or a promise of an audited
 vault. A key-encryption adapter can later use KMS without changing the public
-account/signer interface. The next implementation evidence is one real local
-register/verify/login/sign/reset/sign flow with two sessions, the same public key
-after reset and rejection of the old sessions. Use the public handlers, an
-isolated database and captured mail. Do not activate Holoboard accounts or claim
-production readiness from this first flow.
+account/signer interface. Real local HTTPS tests exercise registration,
+verification, login, signing and password recovery with separate cookie jars,
+the same public key after reset and rejection of old sessions. They use isolated
+databases and captured mail. This evidence does not activate Holoboard accounts
+or establish production readiness.
 
 For one sign request:
 

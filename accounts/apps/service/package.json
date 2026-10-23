@@ -1,0 +1,20 @@
+{
+  "name": "@holoboard/accounts-service",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.22.1"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "check": "tsc --noEmit -p tsconfig.json",
+    "test": "node ../../scripts/test.mjs",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@holoboard/accounts-server": "0.0.0"
+  }
+}
