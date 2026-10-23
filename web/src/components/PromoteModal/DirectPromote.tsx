@@ -165,8 +165,16 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         const returning = returningFocus.current;
         returningFocus.current = undefined;
         if (returning) {
-            const target = returning.element?.isConnected ? returning.element : body.closest('[role="dialog"]')?.querySelector<HTMLElement>(`[data-panel-trigger="${returning.target}"]`);
-            if (target) { target.focus(); return; }
+            const dialog = body.closest<HTMLElement>('[role="dialog"]');
+            const target = returning.element?.isConnected ? returning.element : dialog?.querySelector<HTMLElement>(`[data-panel-trigger="${returning.target}"]`);
+            if (target) {
+                // A contextual panel remounts its invoking disclosure. Reveal
+                // that same trigger before restoring keyboard focus.
+                for (let ancestor = target.parentElement; ancestor && ancestor !== dialog; ancestor = ancestor.parentElement) {
+                    if (ancestor instanceof HTMLDetailsElement) ancestor.open = true;
+                }
+                target.focus(); return;
+            }
         }
         if (body.closest('[role="dialog"]')?.querySelector('[role="tablist"]')?.contains(document.activeElement)) return;
         if (panel !== "compose" || finished) body.querySelector<HTMLElement>("h3")?.focus({ preventScroll: true });

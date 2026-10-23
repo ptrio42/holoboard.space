@@ -2543,3 +2543,22 @@ test("creation-disabled Post retries an unchanged original preview before contin
     expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0);
     expect(state.publicationFrames).toEqual([]); expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
 });
+
+
+test("returning from a contextual signer reveals and focuses its public-zap trigger", async ({ context, page }) => {
+    test.skip(process.env.VITE_ENABLE_NOSTR_CONNECT !== "true");
+    const state = await setup(context, page, { newCampaign: true });
+    await openSupport(page);
+    const disclosure = page.getByRole("region", { name: "Payment split", exact: true }).locator("details");
+    await expect(disclosure).toHaveCount(1);
+    const trigger = disclosure.getByRole("button", { name: "Connect Nostr for a public zap >", exact: true });
+    await trigger.click();
+    await expect(page.getByRole("heading", { name: "Connect Nostr", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "< Back to budget", exact: true }).click();
+    expect(await disclosure.evaluate(element => (element as HTMLDetailsElement).open)).toBe(true);
+    await expect(trigger).toBeVisible(); await expect(trigger).toBeFocused();
+    await expect(disclosure.locator("summary")).toHaveText("Public author zap");
+    await expect(page.getByRole("slider", { name: "Holoboard share in percent", exact: true })).toHaveValue("80");
+    expect(state.signerMethods).toEqual([]); expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.publicationFrames).toEqual([]); expect(state.errors).toEqual([]);
+});
