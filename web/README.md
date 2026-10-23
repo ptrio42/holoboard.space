@@ -715,10 +715,7 @@ environment-only `VITE_ENABLE_POST_CREATION=true` change. Activation requires a
 reviewed build-configuration change as well as matching backend support. With
 creation off, existing-note promotion and recovery of issued new-post invoices
 remain available. Backend `ENABLE_POST_CREATION=false` blocks new admission while
-preserving settlement, retries and recovery for already issued invoices. Account
-setup and recovery contracts remain in [accounts-design.md](../docs/accounts-design.md)
-and [accounts-custody.md](../docs/accounts-custody.md); Better Auth account mechanics
-are selected, with activation still deferred.
+preserving settlement, retries and recovery for already issued invoices.
 
 Browser acceptance uses local extension signers, invoices and relays:
 
