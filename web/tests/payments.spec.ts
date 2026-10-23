@@ -23,7 +23,7 @@ const boardHash = hash(boardPreimage);
 const walletUri = `nostr+walletconnect://${walletPubkey}?relay=ws%3A%2F%2F127.0.0.1%3A3334&secret=${bytesToHex(clientKey)}`;
 const otherNote = finalizeEvent({ kind: 1, created_at: 1700000001, tags: [], content: "A different note for isolated payment tests." }, userKey);
 const otherBoardHash = hash("d".repeat(64));
-type Options = { legacyBreakdown?: boolean; secondNote?: boolean; deferAuthorResponse?: boolean; badAuthorProof?: boolean; validAuthorInvoice?: boolean; mockInvoice?: boolean; noteContent?: string; rank?: number; targets?: { rank: number; weight: number }[]; authorMinSats?: number; authorShare?: number; newCampaign?: boolean; expiredCampaign?: boolean; authorUnavailable?: "no_address" | "unavailable"; blockStorage?: boolean; encryption?: "nip44_v2" | "nip04"; failAuthor?: boolean; loseAuthorResponse?: boolean; failAuthorInvoice?: boolean; extension?: boolean; deferSigner?: boolean; authorExpiresIn?: number; boardExpiresIn?: number; webln?: boolean; lookupState?: "pending" | "unknown" };
+type Options = { legacyBreakdown?: boolean; secondNote?: boolean; deferAuthorResponse?: boolean; badAuthorProof?: boolean; validAuthorInvoice?: boolean; mockInvoice?: boolean; noteContent?: string; rank?: number; targets?: { rank: number; weight: number }[]; authorMinSats?: number; authorShare?: number; newCampaign?: boolean; expiredCampaign?: boolean; authorUnavailable?: "no_address" | "unavailable"; blockStorage?: boolean; blockPrivateStorage?: boolean; encryption?: "nip44_v2" | "nip04"; failAuthor?: boolean; loseAuthorResponse?: boolean; failAuthorInvoice?: boolean; extension?: boolean; deferSigner?: boolean; authorExpiresIn?: number; boardExpiresIn?: number; webln?: boolean; lookupState?: "pending" | "unknown" };
 
 async function setup(context: BrowserContext, page: Page, options: Options = {}) {
     const appOrigin = new URL(test.info().project.use.baseURL!).origin;
@@ -31,6 +31,8 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
     const promotedNote = options.noteContent ? finalizeEvent({ kind: 1, created_at: 1700000000, tags: [], content: options.noteContent }, userKey) : note;
     if (options.blockStorage) await context.addInitScript(() => {
         Object.defineProperty(window, "sessionStorage", { get: () => { throw new DOMException("Storage blocked by this test", "SecurityError"); } });
+    });
+    if (options.blockStorage || options.blockPrivateStorage) await context.addInitScript(() => {
         Object.defineProperty(IDBFactory.prototype, "open", { configurable: true, value: () => { throw new DOMException("Private storage blocked by this test", "SecurityError"); } });
     });
     const state = { publicationFrames: [] as string[], promotedNote, authorUnavailable: options.authorUnavailable, authorEndpointRequests: 0, boardPaid: false, feeConverted: false, authorPaid: false, boardCharges: 0, authorCharges: 0, authorAttempts: 0, boardProofs: new Map<string, string>([["lnbc-visibility", boardPreimage]]), authorProofs: new Map<string, string>(), expectedSignerPubkey: getPublicKey(userKey), boardRequests: [] as Record<string, unknown>[], authorRequests: [] as Record<string, unknown>[], methods: [] as string[], signerMethods: [] as string[], linkPreviews: [] as string[], errors: [] as string[], completeAuthorPayment: undefined as (() => void) | undefined, approveSigner: undefined as ((secret?: string) => Promise<void>) | undefined };
@@ -392,8 +394,30 @@ test("blocked browser storage preserves anonymous invoices when the form reopens
     expect(state.boardRequests).toHaveLength(1); expect(state.errors).toEqual([]);
 });
 
-test("blocked storage keeps confirmed and uncertain wallet parts across form reopening", async ({ context, page }) => {
-    const state = await setup(context, page, { blockStorage: true, failAuthor: true });
+for (const storage of ["browser storage", "private payment storage"] as const) test(`blocked ${storage} prevents wallet sends while invoices remain available`, async ({ context, page }) => {
+    const state = await setup(context, page, storage === "browser storage" ? { blockStorage: true } : { blockPrivateStorage: true });
+    await connectNwc(page);
+    await prepareInvoices(page);
+    const refuseSend = async () => {
+        await walletMethod(page);
+        await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
+        await expect(page.getByRole("alert")).toContainText(/cannot be read safely|Private storage blocked by this test|Private wallet storage or cross-tab coordination is unavailable/);
+        await expectSplitInvoices(page);
+        await invoiceMethod(page);
+        await expect(page.getByRole("img", { name: "Holoboard visibility invoice QR code", exact: true })).toBeVisible();
+    };
+    await refuseSend();
+    await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+    await page.getByRole("button", { name: "Boost", exact: true }).first().click();
+    await refuseSend();
+    expect(state.methods).not.toContain("pay_invoice");
+    expect(state.methods).not.toContain("lookup_invoice");
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.authorAttempts).toBe(0);
+    expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1); expect(state.errors).toEqual([]);
+});
+
+test("confirmed and uncertain wallet parts survive form reopening", async ({ context, page }) => {
+    const state = await setup(context, page, { failAuthor: true });
     await connectNwc(page);
     await prepareInvoices(page);
     await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
