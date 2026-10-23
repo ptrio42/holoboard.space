@@ -14,11 +14,13 @@ function PreviewCard({ url, compact }: { url: string; compact: boolean }) {
     const [brokenImage, setBrokenImage] = useState(false);
     useEffect(() => {
         let active = true;
+        // A modal's scrolling body clips its descendants before the window's
+        // root margin applies. Observe that scrollport so nearby cards can load.
         const observer = new IntersectionObserver(([entry]) => {
             if (!entry.isIntersecting || container.current?.closest("[inert]")) return;
             observer.disconnect();
             void fetchLinkPreview(url).then((result) => { if (active) { setPreview(result); setSettled(true); } });
-        }, { rootMargin: "200px" });
+        }, { root: container.current?.closest("[data-modal-body]") ?? null, rootMargin: "200px" });
         if (container.current) observer.observe(container.current);
         return () => { active = false; observer.disconnect(); };
     }, [url]);

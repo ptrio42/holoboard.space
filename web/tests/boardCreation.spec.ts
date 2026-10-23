@@ -101,6 +101,7 @@ async function setup(context: BrowserContext, page: Page, options: { authorWalle
 }
 
 test("guest text and links become one private signed post with recoverable invoices", async ({ context, page }, info) => {
+    await page.setViewportSize({ width: 390, height: 664 });
     const state = await setup(context, page);
     const dialog = page.getByRole("dialog", { name: "Add to board", exact: true });
     const text = "A new post about https://example.com/story and https://example.com/other";
