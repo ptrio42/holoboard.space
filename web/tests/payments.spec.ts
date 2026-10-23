@@ -712,7 +712,8 @@ test("failed author invoice requires reviewing visibility-only allocation", asyn
     expect(state.boardRequests).toHaveLength(0);
     await expect(page.getByRole("region", { name: "Payment split" }).locator('[aria-label="Holoboard visibility"]').getByText("210 sats", { exact: true })).toBeVisible();
     await prepareInvoices(page);
-    await expect(page.getByRole("button", { name: /^Holoboard 210 sats/ })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Holoboard visibility", exact: true })).toBeVisible();
+    await expect(page.getByLabel("Complete total", { exact: true }).getByText("210 sats", { exact: true })).toBeVisible();
     expect(state.boardRequests[0].amount_sats).toBe(210);
     expect(state.errors).toEqual([]);
 });
