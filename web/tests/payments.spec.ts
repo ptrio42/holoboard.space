@@ -739,8 +739,12 @@ test("signer QR preserves the connection token and can be cancelled", async ({ c
 test("disconnecting NWC leaves anonymous invoice payment available", async ({ context, page }) => {
     const state = await setup(context, page);
     await connectNwc(page);
+    await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+    await page.getByRole("navigation", { name: "Connections", exact: true }).getByRole("button", { name: "Wallet", exact: true }).click();
     await page.getByRole("button", { name: "Disconnect wallet", exact: true }).click();
     expect(await page.evaluate(() => sessionStorage.getItem("holoboard-nwc"))).toBeNull();
+    await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+    await page.getByRole("button", { name: "Boost", exact: true }).first().click();
     await openSupport(page);
     await setAuthorShare(page, 0);
     await prepareInvoices(page);
