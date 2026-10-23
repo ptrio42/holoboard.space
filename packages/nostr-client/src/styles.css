@@ -29,6 +29,12 @@
 .pixel-frame {
     clip-path: var(--pixel-notch);
 }
+
+/*
+ * Buttons and button-shaped links. The notch is cut out of two stacked layers:
+ * the outer one is the border colour, the inner one the panel fill. Drawing the
+ * border with `border` instead leaves gaps where the clip crosses it.
+ */
 .pixel-btn {
     --edge: var(--color-neon-cyan);
     --ink: var(--color-neon-cyan);
@@ -51,12 +57,52 @@
     transform: translateY(0);
 }
 
+.pixel-btn--accent {
+    --edge: var(--color-neon-pink);
+    --ink: var(--color-neon-pink);
+}
+
+.pixel-btn--accent:hover:not(:disabled) {
+    --edge: var(--color-neon-gold);
+    --ink: var(--color-neon-gold);
+}
+
+.pixel-btn--ghost {
+    --edge: rgba(34, 211, 238, 0.55);
+    --ink: rgba(165, 243, 252, 0.85);
+    box-shadow: none;
+}
+
+.pixel-btn--ghost:hover:not(:disabled) {
+    --edge: rgba(34, 211, 238, 0.9);
+    --ink: var(--color-neon-cyan);
+}
+
+.pixel-btn--ghost .pixel-btn__face {
+    background-color: color-mix(in srgb, var(--color-neon-cyan) 4%, var(--color-void));
+}
+
 .pixel-btn:disabled {
     opacity: 0.35;
     cursor: not-allowed;
     box-shadow: none;
 }
 .pixel-btn:disabled[aria-busy="true"] { opacity: 1; }
+
+.pixel-btn__face {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5em;
+    background-color: var(--color-void);
+    color: var(--ink);
+    clip-path: var(--pixel-notch);
+    font-family: var(--font-pixel);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    line-height: 1;
+    transition: color 0.15s ease;
+}
 
 .pixel-btn:focus-visible {
     outline: none;
@@ -65,6 +111,7 @@
 .pixel-btn:focus-visible .pixel-btn__face {
     box-shadow: inset 0 0 0 3px var(--color-neon-gold);
 }
+
 .focus-pixel:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 3px var(--color-neon-gold), 0 0 18px rgba(251, 191, 36, 0.55);
@@ -235,6 +282,43 @@
     color: rgb(207 250 254 / 0.8);
     text-align: center;
 }
+.pixel-status__symbol {
+    display: inline-flex;
+    flex-shrink: 0;
+    color: var(--color-neon-cyan);
+}
+.pixel-status__copy {
+    min-width: 0;
+    font-size: 14px;
+    line-height: 1.65;
+}
+.pixel-status__copy > * + * { margin-top: 8px; }
+.pixel-status--loading .pixel-status__copy {
+    font-family: var(--font-pixel);
+    font-size: 12px;
+    line-height: 1.8;
+}
+.pixel-status--compact {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 4px 0;
+    text-align: left;
+}
+.pixel-status--compact .pixel-status__symbol svg { width: 20px; height: 20px; }
+.pixel-status--compact .pixel-status__copy { font-size: 12px; }
+.pixel-status--loading.pixel-status--compact .pixel-status__copy,
+.pixel-loading-label {
+    font-family: var(--font-pixel);
+    font-size: 10px;
+    line-height: 1.8;
+}
+.pixel-status--icon-only {
+    justify-content: center;
+    min-height: 24px;
+    padding: 4px 0;
+}
+
 .note-link-preview {
     display: flex;
     align-items: center;
@@ -264,4 +348,13 @@
 
 @media (max-height: 600px) {
     .modal-full-screen { --modal-padding: 0px; }
+}
+
+.composer-external-search { min-height: 44px; display: flex; align-items: center; font-family: var(--font-pixel); font-size: 10px; color: var(--color-neon-cyan); }
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
 }

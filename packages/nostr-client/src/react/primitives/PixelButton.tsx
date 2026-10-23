@@ -10,7 +10,7 @@ const VARIANTS: Record<Variant, string> = {
 };
 
 const SIZES: Record<Size, string> = {
-    sm: "px-3 py-2 text-[9px]",
+    sm: "px-3 py-2 text-[10px]",
     md: "px-5 py-3 text-[10px] sm:text-[11px]",
     lg: "px-7 py-4 text-xs sm:text-sm",
 };

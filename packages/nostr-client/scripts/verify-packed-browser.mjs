@@ -38,6 +38,20 @@ try {
       return route.continue();
     });
     await page.goto(`${origin}/?${theme}`);
+    const status = page.locator('[data-shared-status] > .pixel-status').first();
+    await expect(status).toHaveCSS('flex-direction', 'row');
+    assert((await status.boundingBox()).height <= 44, 'Compact status must retain a single short row');
+    await expect(status.locator('.pixel-status__copy')).toHaveCSS('font-size', '10px');
+    const motion = await status.locator('.animate-pixel-pulse').first().evaluate(node => getComputedStyle(node).animationDuration);
+    assert(parseFloat(motion) <= .001, 'Status animation must honor reduced motion without host CSS');
+    const controls = page.locator('[data-shared-buttons] > button');
+    await expect(controls).toHaveCount(3);
+    const colors = await controls.evaluateAll(nodes => nodes.map(node => ({ edge: getComputedStyle(node).backgroundColor, face: getComputedStyle(node.querySelector('.pixel-btn__face')).backgroundColor, shadow: getComputedStyle(node).boxShadow, font: parseFloat(getComputedStyle(node.querySelector('.pixel-btn__face')).fontSize) })));
+    assert.notEqual(colors[0].edge, colors[1].edge, 'Accent remains distinct from the primary action');
+    assert.notEqual(colors[1].edge, colors[1].face, 'Notched buttons retain their inner face');
+    assert.equal(colors[2].shadow, 'none', 'Ghost actions retain their quiet frame');
+    assert(colors.every(value => value.font >= 10), 'Meaningful pixel labels remain legible');
+
     await expect(page.locator('[data-direct-video] video,[data-direct-video] img')).toHaveCount(0);
     assert.deepEqual(directRequests, []);
     const field = page.getByRole('textbox', { name: 'Note text', exact: true });

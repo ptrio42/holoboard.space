@@ -38,7 +38,7 @@ await fs.writeFile(path.join(fixture, 'index.html'), '<!doctype html><meta name=
 await fs.writeFile(path.join(fixture, 'main.tsx'), `
 import React, { useState, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ClientProvider, NoteEditor, NoteContent, NoteVideo, NoteMediaViewer, createMediaPresentation, type ClientServices } from '@ptrio42/nostr-client/react';
+import { ClientProvider, NoteEditor, NoteContent, NoteVideo, NoteMediaViewer, StatusMessage, PixelButton, createMediaPresentation, type ClientServices } from '@ptrio42/nostr-client/react';
 import type { ComposerAttachment } from '@ptrio42/nostr-client/core';
 import '@ptrio42/nostr-client/styles.css';
 import './theme.css';
@@ -65,6 +65,8 @@ function App() {
  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
  return <main className={location.search.includes('alternate') ? 'alternate' : 'default'}><h1>Independent host</h1><ClientProvider services={services}>
   <div className="p-4 text-sm" data-utility>Scoped defaults</div>
+  <section data-shared-status><StatusMessage compact inline loading>Loading preview...</StatusMessage><StatusMessage compact iconOnly loading>Checking</StatusMessage></section>
+  <section data-shared-buttons><PixelButton size="sm">Primary</PixelButton><PixelButton size="sm" variant="accent">Accent</PixelButton><PixelButton size="sm" variant="ghost">Ghost</PixelButton></section>
   <section data-media-case="image-only"><NoteContent text="https://media.example/image-only.png" previewLinks={false} /></section>
   <section data-media-case="mixed"><NoteContent text={ownedImage + ' https://media.example/denied.mp4'} previewLinks={false} /></section>
   <section data-media-case="tag-only"><NoteContent text="Tagged attachment" tags={[["imeta", "url https://media.example/tag-only-image", "m image/png"]]} previewLinks={false} /></section>

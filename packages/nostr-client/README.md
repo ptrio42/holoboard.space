@@ -13,7 +13,7 @@ This private source package has three exports:
 - `@ptrio42/nostr-client/react`: `ClientProvider`, `NoteEditor`, `NoteContent`,
   their inferred/exported props and shared presentation primitives.
 - `@ptrio42/nostr-client/styles.css`: compiled, scoped component styles, including
-  the hidden file input and lightbox styles. No consumer Tailwind scan is needed.
+  button and status variants, reduced motion, the hidden file input and lightbox styles. No consumer Tailwind scan is needed.
 
 ## Build and verify
 

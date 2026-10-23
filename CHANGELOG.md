@@ -56,6 +56,7 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Preserve compact loading messages and distinct button styles in shared views.
 - Load media viewers on demand when using the shared note renderer.
 - Report mismatched post previews and allow retrying the original reference
   without preparing an invoice or silently remaining in Post.
