@@ -66,7 +66,9 @@ requires explicit connection, media and navigation adapters, an instance-owned
 and link previews. An unavailable capability has
 `{ available: false, reason: '...' }`; it renders that state and never uses a
 fallback provider. Available capabilities bind the host's existing components
-and read hooks. Keep those capability bindings stable during a mounted scope.
+and read hooks. Keep those capability bindings stable during a mounted scope. Nested providers with the same services preserve the existing DOM scope,
+so host adapters retain direct-child layouts. A different services object starts
+a separate scope.
 Media upload, GIF search and all provider endpoints are supplied by the host;
 `createMediaUploader()` provides the original explicit one-upload implementation
 without selecting a server. An upload never authorizes publishing or payment.

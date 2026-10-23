@@ -188,9 +188,6 @@
 .note-text-toggle:hover { color: #a5f3fc; }
 .note-text-toggle:focus-visible { outline: 2px solid var(--color-neon-cyan); outline-offset: 2px; }
 .note-text-measure { position: fixed; left: -10000px; top: 0; visibility: hidden; pointer-events: none; white-space: inherit; overflow-wrap: inherit; font: inherit; }
-.board-note--adaptive { container: content-card / inline-size; }
-.board-note--adaptive .board-note-content { display: flex; flex-direction: column; gap: 8px; }
-.board-note--adaptive .board-rank { align-self: flex-end; float: none; margin: 0; }
 .note-composition-presentation { min-width: 0; }
 .note-composition--adaptive[data-text-emphasis="brief"] > .note-text { font-size: 20px; line-height: 1.5; }
 .note-composition--adaptive[data-text-emphasis="short"] > .note-text { font-size: 18px; line-height: 1.6; }
@@ -218,7 +215,6 @@
     .note-composition--adaptive:not(:has(> .note-text, > .note-composition-presentation)) { display: flex; align-items: stretch; }
     .note-composition--adaptive:not(.note-composition--media):not(:has(> .note-link-container)) { display: flex; align-items: stretch; }
     .note-composition--adaptive:not(.note-composition--media):has(> .note-link-container[data-preview-state="unavailable"]) { display: flex; align-items: stretch; }
-    .board-note--adaptive .note-composition:not(.note-quote-content) > .note-text { --note-lines: 6; }
     .note-composition--adaptive[data-text-emphasis="brief"] > .note-text { font-size: 22px; }
     .note-composition--adaptive[data-text-emphasis="short"] > .note-text { font-size: 20px; }
     .note-composition--adaptive .note-quote__excerpt { --note-lines: 4; }
@@ -265,3 +261,7 @@
 .note-media-sources { font-family: var(--font-body); font-size: 14px; overflow-wrap: anywhere; }
 .note-media-sources p { font-size: 12px; }
 .note-media-sources a { color: var(--color-neon-cyan); text-decoration: underline; }
+
+@media (max-height: 600px) {
+    .modal-full-screen { --modal-padding: 0px; }
+}

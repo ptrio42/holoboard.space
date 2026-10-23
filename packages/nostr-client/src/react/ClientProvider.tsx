@@ -30,6 +30,9 @@ export interface ClientServices {
 const ClientContext = createContext<ClientServices | null>(null);
 /** Services are instance-owned and stable for the mounted scope; changing identity remounts this provider. */
 export function ClientProvider({ services, children }: { services: ClientServices; children: ReactNode }) {
+  const parent = useContext(ClientContext);
+  // Host adapters can nest inside shared views without inserting layout wrappers.
+  if (parent === services) return <>{children}</>;
   return <ClientContext value={services}><div className="nostr-client nostr-client-scope">{children}</div></ClientContext>;
 }
 export function useClient(): ClientServices {

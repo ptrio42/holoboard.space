@@ -18,9 +18,9 @@ cd accounts
 nvm install
 nvm use
 npm ci
+npm run build
 npm run check
 npm test
-npm run build
 ```
 
 Tests use temporary private SQLite files and captured mail, with serial Node test

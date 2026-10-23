@@ -1,4 +1,7 @@
 import { expect, test, vi } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { ClientProvider, useClient, type ClientServices } from '../src/react/ClientProvider';
 import { createContentTransport, createPublicCache, createPublicOutbox, createNostrTransport, IndexedPublicationStore } from '../src/core/index';
 import { createMediaPresentation } from '../src/react/index';
 import type { ContentPolicy } from '../src/core/ports';
@@ -42,4 +45,22 @@ test('anonymous reading owns a public cache and transport without an author or s
     expect(forbidden).not.toHaveBeenCalled();
     transport.dispose(); cache.dispose();
   } finally { vi.unstubAllGlobals(); }
+});
+
+test('nested host adapters preserve direct layout children and distinct client scopes', () => {
+  const unavailable = { available: false as const, reason: 'No fixture capability.' };
+  const services: ClientServices = {
+    policy, media: unavailable, profile: unavailable, quote: unavailable, linkPreview: unavailable,
+    connections: { getConnectedSigner: () => null, getConnections: () => ({ signerCanUpload: false }), subscribeConnections: () => () => {} },
+    presentation: createMediaPresentation(), navigation: { useMediaViewerHistory: close => close },
+  };
+  const other = { ...services, policy: { ...policy, generation: 1 } };
+  function Text() { return createElement('p', { className: 'note-text' }, useClient().policy.generation); }
+  const quote = createElement('div', { className: 'note-quote-layout' }, createElement(ClientProvider, { services, children: createElement(Text) }));
+  const html = renderToStaticMarkup(createElement(ClientProvider, { services, children: quote }));
+  expect(html).toContain('<div class="note-quote-layout"><p class="note-text">0</p></div>');
+  expect(html.match(/nostr-client-scope/g)).toHaveLength(1);
+  const isolated = renderToStaticMarkup(createElement(ClientProvider, { services, children: createElement(ClientProvider, { services: other, children: createElement(Text) }) }));
+  expect(isolated.match(/nostr-client-scope/g)).toHaveLength(2);
+  expect(isolated).toContain('<p class="note-text">1</p>');
 });
