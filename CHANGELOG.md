@@ -36,7 +36,8 @@ record deployment, not announcement publication.
 
 - Keep contribution actions and complete invoice QR codes reachable after resizing
   or using a short viewport. Enlarge Billboard controls and improve contrast for
-  available colors.
+  available colors. Keep enlarged previews and payment actions readable, and
+  clarify appearance fees and same-browser invoice recovery.
 - Bring the logo, sections and actions into one desktop header with a neon rail
   and gold section marker. Name the main action Add to board independently of
   the creation flag. Keep phone controls compact, shorten Add to board to

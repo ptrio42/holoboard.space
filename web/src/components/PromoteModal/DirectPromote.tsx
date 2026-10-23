@@ -739,7 +739,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
             <strong className="text-sm text-neon-cyan">{validAmount ? `${amount + fee} sats` : "Enter amount"}</strong>
             {fee > 0 && <span className="text-xs text-cyan-100/60">Includes {fee} sats for Billboard appearance.</span>}
         </div>}
-        {anonymous ? <p className="text-sm text-cyan-100/80">All of this amount goes to visibility.</p> : <PromotionSplit author={preview?.event.pubkey} authorShare={authorShare} promotionSats={split.promotion} authorSats={split.author} disabled={busy || anonymous} onChange={changeAuthorShare}>
+        {anonymous ? <p className="text-sm text-cyan-100/80">{fee > 0 ? `Visibility receives ${validAmount ? `${amount} sats` : "the chosen amount"}. The ${fee}-sat appearance fee does not add ranking weight.` : "All of this amount goes to visibility."}</p> : <PromotionSplit author={preview?.event.pubkey} authorShare={authorShare} promotionSats={split.promotion} authorSats={split.author} disabled={busy || anonymous} onChange={changeAuthorShare}>
             <div className="flex flex-wrap items-center justify-between gap-x-3 text-cyan-100/75">
                 {authorShare !== campaignShare && <button type="button" className={actionClass} disabled={busy} onClick={() => changeAuthorShare(campaignShare)} aria-label={existingCampaign ? "Use campaign split" : "Use default split"}>
                     <span className="sm:hidden">Reset</span><span className="hidden sm:inline">{existingCampaign ? "Use campaign split" : "Use default split"}</span>

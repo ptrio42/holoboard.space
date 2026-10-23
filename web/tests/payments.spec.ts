@@ -23,7 +23,7 @@ const boardHash = hash(boardPreimage);
 const walletUri = `nostr+walletconnect://${walletPubkey}?relay=ws%3A%2F%2F127.0.0.1%3A3334&secret=${bytesToHex(clientKey)}`;
 const otherNote = finalizeEvent({ kind: 1, created_at: 1700000001, tags: [], content: "A different note for isolated payment tests." }, userKey);
 const otherBoardHash = hash("d".repeat(64));
-type Options = { secondNote?: boolean; deferAuthorResponse?: boolean; badAuthorProof?: boolean; validAuthorInvoice?: boolean; mockInvoice?: boolean; noteContent?: string; rank?: number; targets?: { rank: number; weight: number }[]; authorMinSats?: number; authorShare?: number; newCampaign?: boolean; expiredCampaign?: boolean; authorUnavailable?: "no_address" | "unavailable"; blockStorage?: boolean; encryption?: "nip44_v2" | "nip04"; failAuthor?: boolean; loseAuthorResponse?: boolean; failAuthorInvoice?: boolean; extension?: boolean; deferSigner?: boolean; authorExpiresIn?: number; boardExpiresIn?: number; webln?: boolean; lookupState?: "pending" | "unknown" };
+type Options = { legacyBreakdown?: boolean; secondNote?: boolean; deferAuthorResponse?: boolean; badAuthorProof?: boolean; validAuthorInvoice?: boolean; mockInvoice?: boolean; noteContent?: string; rank?: number; targets?: { rank: number; weight: number }[]; authorMinSats?: number; authorShare?: number; newCampaign?: boolean; expiredCampaign?: boolean; authorUnavailable?: "no_address" | "unavailable"; blockStorage?: boolean; encryption?: "nip44_v2" | "nip04"; failAuthor?: boolean; loseAuthorResponse?: boolean; failAuthorInvoice?: boolean; extension?: boolean; deferSigner?: boolean; authorExpiresIn?: number; boardExpiresIn?: number; webln?: boolean; lookupState?: "pending" | "unknown" };
 
 async function setup(context: BrowserContext, page: Page, options: Options = {}) {
     const appOrigin = new URL(test.info().project.use.baseURL!).origin;
@@ -33,7 +33,7 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
         Object.defineProperty(window, "sessionStorage", { get: () => { throw new DOMException("Storage blocked by this test", "SecurityError"); } });
         Object.defineProperty(IDBFactory.prototype, "open", { configurable: true, value: () => { throw new DOMException("Private storage blocked by this test", "SecurityError"); } });
     });
-    const state = { publicationFrames: [] as string[], promotedNote, authorUnavailable: options.authorUnavailable, authorEndpointRequests: 0, boardPaid: false, authorPaid: false, boardCharges: 0, authorCharges: 0, authorAttempts: 0, boardProofs: new Map<string, string>([["lnbc-visibility", boardPreimage]]), authorProofs: new Map<string, string>(), expectedSignerPubkey: getPublicKey(userKey), boardRequests: [] as Record<string, unknown>[], authorRequests: [] as Record<string, unknown>[], methods: [] as string[], signerMethods: [] as string[], linkPreviews: [] as string[], errors: [] as string[], completeAuthorPayment: undefined as (() => void) | undefined, approveSigner: undefined as ((secret?: string) => Promise<void>) | undefined };
+    const state = { publicationFrames: [] as string[], promotedNote, authorUnavailable: options.authorUnavailable, authorEndpointRequests: 0, boardPaid: false, feeConverted: false, authorPaid: false, boardCharges: 0, authorCharges: 0, authorAttempts: 0, boardProofs: new Map<string, string>([["lnbc-visibility", boardPreimage]]), authorProofs: new Map<string, string>(), expectedSignerPubkey: getPublicKey(userKey), boardRequests: [] as Record<string, unknown>[], authorRequests: [] as Record<string, unknown>[], methods: [] as string[], signerMethods: [] as string[], linkPreviews: [] as string[], errors: [] as string[], completeAuthorPayment: undefined as (() => void) | undefined, approveSigner: undefined as ((secret?: string) => Promise<void>) | undefined };
     const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Allow-Methods": "GET,POST,OPTIONS" };
     await context.route("**/*", async (route) => {
         const url = new URL(route.request().url());
@@ -74,8 +74,12 @@ async function setup(context: BrowserContext, page: Page, options: Options = {})
             state.boardRequests.push(body);
             if (options.secondNote && body.note === otherNote.id) data = { invoice: "lnbc-other-note", payment_hash: otherBoardHash, amount_sats: body.amount_sats + (body.billboard ? 100 : 0), promotion_sats: body.amount_sats, note_id: otherNote.id, expires_at: Math.floor(Date.now()/1000)+3600, billboard_fee_sats: body.billboard ? 100 : 0 };
             else data = { invoice: options.mockInvoice ? `lnbc${body.amount_sats}...mock_invoice` : "lnbc-visibility", payment_hash: boardHash, amount_sats: body.amount_sats + (body.billboard ? 100 : 0), promotion_sats: body.amount_sats, note_id: promotedNote.id, expires_at: Math.floor(Date.now()/1000)+(options.boardExpiresIn ?? 3600), billboard_fee_sats: body.billboard ? 100 : 0 };
+            if (options.legacyBreakdown) {
+                delete (data as Record<string, unknown>).promotion_sats;
+                delete (data as Record<string, unknown>).billboard_fee_sats;
+            }
         } else if (url.pathname === "/api/promote/status" && options.secondNote && url.searchParams.get("payment_hash") === otherBoardHash) data = { pending: true, settled: false, sats_paid: 0 };
-        else if (url.pathname === "/api/promote/status") data = { pending: !state.boardPaid, settled: state.boardPaid, sats_paid: 210, ...(state.boardPaid ? { receipt: { promotion_sats: state.boardRequests.at(-1)?.amount_sats, fee_converted: false, billboard_applied: false } } : {}) };
+        else if (url.pathname === "/api/promote/status") data = { pending: !state.boardPaid, settled: state.boardPaid, sats_paid: 210, ...(state.boardPaid ? { receipt: { promotion_sats: Number(state.boardRequests.at(-1)?.amount_sats ?? 0) + (state.feeConverted ? 100 : 0), fee_converted: state.feeConverted, billboard_applied: false } } : {}) };
         else if (url.pathname === "/api/support/verify") { expect([...state.authorProofs.values()]).toContain(body.preimage); data = { verified: true }; }
         else throw new Error(`Unexpected payment test request: ${url.pathname}`);
         await route.fulfill({ status, headers, contentType: "application/json", body: JSON.stringify(data) });
@@ -2564,4 +2568,39 @@ test("returning from a contextual signer reveals and focuses its public-zap trig
     await expect(page.getByRole("slider", { name: "Holoboard share in percent", exact: true })).toHaveValue("80");
     expect(state.signerMethods).toEqual([]); expect(state.boardRequests).toHaveLength(0); expect(state.authorRequests).toHaveLength(0);
     expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.publicationFrames).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+
+test("converted appearance fees describe the frozen visibility credit", async ({ context, page }) => {
+    const state = await setup(context, page, { newCampaign: true });
+    await openAppearance(page);
+    await page.getByRole("button", { name: "Billboard / +100 sats", exact: true }).click();
+    await backToForm(page);
+    await page.getByRole("button", { name: "Continue to payment · 310 sats", exact: true }).click();
+    await expect(page.getByText("Visibility receives 168 sats. Appearance costs 100 sats and does not add ranking weight.", { exact: true })).toBeVisible();
+    const invoice = await page.getByRole("link", { name: "Open in wallet", exact: true }).getAttribute("href");
+    expect(state.boardRequests[0]).toMatchObject({ amount_sats: 168, author_share: 20 });
+    state.feeConverted = true; state.boardPaid = true;
+    await expect(page.getByText("Visibility receives 268 sats. The 100-sat appearance fee was converted to visibility.", { exact: true })).toBeVisible();
+    await expect(page.getByText("Appearance costs 100 sats and does not add ranking weight.", { exact: false })).toHaveCount(0);
+    const stored = await page.evaluate(async note => (await import("/src/components/PromoteModal/paymentRecords.ts")).restorePayment(note), note.id);
+    expect(stored!.board).toMatchObject({ invoice: invoice!.slice("lightning:".length), amountSats: 268, promotionSats: 168, billboardFeeSats: 100, paymentHash: boardHash });
+    expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
+test("older invoices without a fee breakdown never use the current appearance price", async ({ context, page }) => {
+    const state = await setup(context, page, { newCampaign: true, legacyBreakdown: true, authorUnavailable: "no_address" });
+    await openAppearance(page);
+    await page.getByRole("button", { name: "Billboard / +100 sats", exact: true }).click();
+    await backToForm(page);
+    await page.getByRole("button", { name: "Continue to payment · 310 sats", exact: true }).click();
+    await expect(page.getByLabel("Holoboard payment", { exact: true })).toContainText("310 sats");
+    await expect(page.getByText(/Appearance costs 100 sats|100-sat appearance fee/)).toHaveCount(0);
+    const stored = await page.evaluate(async note => (await import("/src/components/PromoteModal/paymentRecords.ts")).restorePayment(note), note.id);
+    expect(stored!.board).toMatchObject({ amountSats: 310, promotionSats: 210, billboardFeeSats: 0, paymentHash: boardHash });
+    await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", "lightning:lnbc-visibility");
+    await expect(page.getByRole("button", { name: "Copy invoice", exact: true })).toBeEnabled();
+    expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(0);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
 });

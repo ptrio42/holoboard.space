@@ -35,12 +35,12 @@ export function PromotionNotePreview({ preview, compact, expanded, onToggle, chi
         </svg></> : "Open note"}
     </a>;
     return <article className={compact ? "space-y-1" : "space-y-3"} aria-label="Original note">
-        <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0"><NoteAuthor event={preview.event} size={compact ? "sm" : "md"} /></div>
-            {compact && <div className="flex shrink-0 items-center gap-2">{reading}{opening}</div>}
+        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0" data-preview-header>
+            <div className="min-w-0 grow basis-28" data-preview-author><NoteAuthor event={preview.event} size={compact ? "sm" : "md"} /></div>
+            {compact && <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2" data-preview-actions>{reading}{opening}</div>}
         </div>
         <div className="flex items-start gap-3">
-            <div className={`${expanded ? "" : compact ? "line-clamp-2" : "line-clamp-3"} min-w-0 flex-1 text-sm leading-relaxed text-cyan-100`}>
+            <div data-promotion-text className={`${expanded ? "" : compact ? "line-clamp-2" : "line-clamp-3"} min-w-0 flex-1 text-sm leading-relaxed text-cyan-100`}>
                 <CompactNoteText text={expanded ? preview.event.content : images.length && excerpt === "No text preview" ? "[Image]" : excerpt} />
             </div>
             {!expanded && images[0] && <PreviewImage key={images[0]} src={images[0]} compact={compact} expanded={false} />}

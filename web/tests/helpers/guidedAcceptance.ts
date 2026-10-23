@@ -37,6 +37,8 @@ export async function captureGuidedStage(page: Page, info: TestInfo, stage: stri
         const rect = (target: Element | null) => target?.getBoundingClientRect().toJSON() ?? null;
         const field = element.querySelector<HTMLTextAreaElement>("textarea");
         const fieldStyle = field && getComputedStyle(field);
+        const reading = field ?? element.querySelector<HTMLElement>("[data-promotion-text]");
+        const readingStyle = reading && getComputedStyle(reading);
         const footer = body.nextElementSibling!;
         const visibleBottom = body.getBoundingClientRect().bottom;
         const choices = [...body.querySelectorAll<HTMLElement>("button, summary, input, select, a[href]")].filter(target => target.getClientRects().length && !target.closest("[hidden]"));
@@ -70,19 +72,21 @@ export async function captureGuidedStage(page: Page, info: TestInfo, stage: stri
         });
         return { stage, viewport: { width: innerWidth, height: innerHeight }, dialog: rect(element), header: rect(body.previousElementSibling?.previousElementSibling ?? null), navigation: rect(body.previousElementSibling), body: rect(body), footer: rect(footer),
             bodyScrollHeight: body.scrollHeight, bodyScrollTop: body.scrollTop, scrollingRequired: Math.max(0, body.scrollHeight - body.clientHeight),
-            editableFontSize: fieldStyle?.fontSize, usableTextWidth: field && fieldStyle ? field.clientWidth - parseFloat(fieldStyle.paddingLeft) - parseFloat(fieldStyle.paddingRight) : null,
+            editableFontSize: fieldStyle?.fontSize, readingContainer: rect(reading), readingFontSize: readingStyle?.fontSize,
+            usableTextWidth: reading && readingStyle ? reading.clientWidth - parseFloat(readingStyle.paddingLeft) - parseFloat(readingStyle.paddingRight) : null,
             choices: choices.map(target => ({ label: target.getAttribute("aria-label") || target.textContent?.trim().slice(0, 90), rect: rect(target), scrollToFullyReveal: Math.max(0, target.getBoundingClientRect().bottom - visibleBottom) })),
             hits: [...element.querySelectorAll<HTMLElement>("button, summary, input, select, a[href]")].filter(target => target.getClientRects().length && !target.closest("[hidden]")).map(target => ({ label: target.getAttribute("aria-label") || target.textContent?.trim().slice(0, 90), rect: rect(target), disabled: target.matches(":disabled") })),
             contrast, horizontalOverflow: element.scrollWidth > element.clientWidth || document.documentElement.scrollWidth > innerWidth };
     }, stage);
     await info.attach(`${stage}-${viewport.width}x${viewport.height}-geometry`, { contentType: "application/json", body: JSON.stringify(measured) });
     expect(measured.horizontalOverflow).toBe(false);
+    expect(measured.usableTextWidth).toBeGreaterThan(0);
     expect(measured.dialog!.top).toBeGreaterThanOrEqual(-1);
     expect(measured.footer!.bottom).toBeLessThanOrEqual(viewport.height + 1);
     const closeBox = await close.boundingBox();
     expect(closeBox!.width).toBeGreaterThanOrEqual(44); expect(closeBox!.height).toBeGreaterThanOrEqual(44);
-    const footerActions = dialog.locator("[data-modal-body] + div").getByRole("button");
-    await expect(footerActions).toHaveCount(stage === "post" ? 2 : 3);
+    const footerActions = dialog.locator("[data-modal-body] + div").locator("button, a[href]");
+    await expect(footerActions).toHaveCount(stage === "post" ? 2 : stage === "payment" ? 4 : 3);
     for (const action of await footerActions.all()) {
         const box = (await action.boundingBox())!;
         expect(box.y).toBeGreaterThanOrEqual(0); expect(box.y + box.height).toBeLessThanOrEqual(viewport.height + 1);

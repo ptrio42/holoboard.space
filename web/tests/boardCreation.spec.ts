@@ -74,7 +74,8 @@ async function setup(context: BrowserContext, page: Page, options: { authorWalle
         else if (url.pathname === "/api/promote") {
             state.requests.push(body);
             if (state.pauseBoard) await new Promise<void>(resolve => { state.releaseBoard = resolve; });
-            data = { invoice: walletInvoice({ hash: boardHash, amountMsats: body.amount_sats * 1000 }), payment_hash: boardHash, amount_sats: body.amount_sats, promotion_sats: body.amount_sats, note_id: body.event?.id ?? original.id, expires_at: Math.floor(Date.now() / 1000) + 3600, billboard_fee_sats: 0 };
+            const fee = body.billboard ? 100 : 0;
+            data = { invoice: walletInvoice({ hash: boardHash, amountMsats: (body.amount_sats + fee) * 1000 }), payment_hash: boardHash, amount_sats: body.amount_sats + fee, promotion_sats: body.amount_sats, note_id: body.event?.id ?? original.id, expires_at: Math.floor(Date.now() / 1000) + 3600, billboard_fee_sats: fee };
         } else if (url.pathname === "/api/promote/status") { state.statusChecks++; data = { pending: !state.paid, settled: state.paid, publication: state.paid ? "pending" : undefined, receipt: state.paid ? { promotion_sats: 210 } : undefined }; }
         else if (url.pathname === "/api/link-preview") { state.links.push(url.searchParams.get("url")!); data = { url: url.searchParams.get("url"), title: "An ordinary page", description: "Link preview" }; }
         return route.fulfill({ headers, json: data });
@@ -699,6 +700,14 @@ test("long public author identity and explicit quote remain usable on a narrow p
     await expect(article.getByText(/^Community maker with a deliberately long/)).toBeVisible();
     expect(await article.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
     await page.screenshot({ path: info.outputPath("long-public-author-320.png") });
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true })).toBeEnabled();
+    for (const width of [320, 390]) {
+        await page.setViewportSize({ width, height: 844 });
+        await page.screenshot({ path: info.outputPath(`long-public-author-budget-${width}.png`) });
+        expect(await article.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    }
+    await page.getByRole("button", { name: "Post", exact: true }).click();
     await page.getByRole("button", { name: "Add a comment", exact: true }).click();
     await field.fill(`My own comment and a real link https://example.com/story\n\nnostr:${neventEncode({ id: original.id })}`);
     await expect(page.getByRole("button", { name: "Use original", exact: true })).toBeVisible();
@@ -743,6 +752,7 @@ test("guided stages reflow with enlarged text while footer controls stay reachab
     const dialog = page.getByRole("dialog", { name: "Add to board", exact: true });
     await page.getByRole("textbox", { name: "Text or link" }).fill(shortContribution);
     const enlarge = async (stage: string) => {
+        await page.evaluate(() => document.fonts.ready);
         await dialog.evaluate(element => {
             const nodes = [element as HTMLElement, ...element.querySelectorAll<HTMLElement>("*")];
             const sizes = nodes.filter(node => [...node.childNodes].some(child => child.nodeType === Node.TEXT_NODE && child.textContent?.trim()) || node.matches("textarea, input, select"))
@@ -751,6 +761,8 @@ test("guided stages reflow with enlarged text while footer controls stay reachab
         });
         for (const width of [320, 390]) {
             await page.setViewportSize({ width, height: 844 });
+            await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+            await page.screenshot({ path: info.outputPath(`${stage}-text-enlarged-${width}.png`) });
             await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
             expect(await dialog.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(false);
             expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
@@ -768,9 +780,34 @@ test("guided stages reflow with enlarged text while footer controls stay reachab
             }
             const action = dialog.getByRole("button", { name: stage === "post" ? "Review & continue" : stage === "budget" ? "Continue to payment · 210 sats" : "Copy invoice", exact: true });
             await action.focus(); await expect(action).toBeFocused();
+            const footer = dialog.locator("[data-modal-body] + div");
+            const footerActions = footer.locator("button, a[href]");
+            await expect(footerActions).toHaveCount(stage === "post" ? 2 : stage === "payment" ? 4 : 3);
+            const footerGeometry = await footerActions.evaluateAll(elements => elements.map(element => {
+                const text = document.createRange(); text.selectNodeContents(element);
+                return { label: element.textContent, rect: element.getBoundingClientRect().toJSON(), text: text.getBoundingClientRect().toJSON() };
+            }));
+            await info.attach(`${stage}-footer-${width}`, { contentType: "application/json", body: JSON.stringify({ panel: await dialog.boundingBox(), body: await dialog.locator("[data-modal-body]").boundingBox(), footer: await footer.boundingBox(), actions: footerGeometry }) });
+            for (const item of footerGeometry) {
+                expect(item.rect.y, item.label ?? "Footer action").toBeGreaterThanOrEqual(0);
+                expect(item.rect.bottom, item.label ?? "Footer action").toBeLessThanOrEqual(844);
+                expect(item.text.top, item.label ?? "Footer text").toBeGreaterThanOrEqual(0);
+                expect(item.text.bottom, item.label ?? "Footer text").toBeLessThanOrEqual(844);
+            }
             const bounds = (await action.boundingBox())!;
             expect(bounds.y).toBeGreaterThanOrEqual(0); expect(bounds.y + bounds.height).toBeLessThanOrEqual(844);
-            await page.screenshot({ path: info.outputPath(`${stage}-text-enlarged-${width}.png`) });
+            if (stage === "budget") {
+                const name = dialog.getByText("Anonymous", { exact: true });
+                const actions = dialog.locator("[data-preview-actions]");
+                await expect(name).toHaveCount(1); await expect(actions).toHaveCount(1);
+                const author = (await name.boundingBox())!, reading = (await actions.boundingBox())!;
+                const overlap = Math.min(author.x + author.width, reading.x + reading.width) > Math.max(author.x, reading.x)
+                    && Math.min(author.y + author.height, reading.y + reading.height) > Math.max(author.y, reading.y);
+                expect(overlap).toBe(false);
+                const header = (await dialog.locator("[data-preview-header]").boundingBox())!;
+                expect(author.x).toBeGreaterThanOrEqual(header.x - 1); expect(author.x + author.width).toBeLessThanOrEqual(header.x + header.width + 1);
+                await info.attach(`budget-identity-${width}`, { contentType: "application/json", body: JSON.stringify({ author, reading, header }) });
+            }
             await info.attach(`${stage}-enlarged-${width}`, { contentType: "application/json", body: JSON.stringify(geometry) });
         }
         await dialog.evaluate(element => { for (const node of [element as HTMLElement, ...element.querySelectorAll<HTMLElement>("*")]) node.style.removeProperty("font-size"); });
@@ -781,6 +818,57 @@ test("guided stages reflow with enlarged text while footer controls stay reachab
     await enlarge("budget");
     await page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
     await expect(page.getByRole("button", { name: "Copy invoice", exact: true })).toBeVisible();
+    const code = dialog.getByRole("img", { name: "Holoboard visibility invoice QR code", exact: true });
+    await expect(code).toHaveCount(1);
+    await expect.poll(() => code.evaluate(element => (element as HTMLImageElement).complete && (element as HTMLImageElement).naturalWidth > 0)).toBe(true);
     await enlarge("payment");
+    expect(state.requests).toHaveLength(1); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+
+test("guest appearance fee and recovery help keep the chosen budget explicit", async ({ context, page }, info) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const state = await setup(context, page);
+    const dialog = page.getByRole("dialog", { name: "Add to board", exact: true });
+    await dialog.getByRole("textbox", { name: "Text or link" }).fill(shortContribution);
+    await dialog.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await expect(dialog.getByText("All of this amount goes to visibility.", { exact: true })).toBeVisible();
+    await dialog.getByRole("button", { name: "Custom", exact: true }).click();
+    await dialog.getByRole("textbox", { name: "Custom total in sats", exact: true }).fill("321");
+    await dialog.getByRole("button", { name: /^Billboard appearance/ }).click();
+    await dialog.getByRole("button", { name: "Billboard / +100 sats", exact: true }).click();
+    await dialog.getByRole("button", { name: "< Back to budget", exact: true }).click();
+    await expect(dialog.getByText("Visibility receives 321 sats. The 100-sat appearance fee does not add ranking weight.", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("slider")).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "Continue to payment · 421 sats", exact: true })).toBeEnabled();
+    await dialog.getByRole("button", { name: "Help >", exact: true }).click();
+    await expect(dialog.getByText(/Saved unfinished invoices remain available after closing the tab/)).toContainText("same browser profile on this device");
+    await expect(dialog.getByText(/Saved unfinished invoices remain available after closing the tab/)).toContainText("select a payment under Unfinished payments to resume");
+    await expect(dialog.getByText(/Saved unfinished invoices remain available after closing the tab/)).toContainText("does not transfer to another browser or device");
+    await expect(dialog.getByText(/Keep unfinished invoices in this browser tab/)).toHaveCount(0);
+    await dialog.getByRole("button", { name: "< Back to budget", exact: true }).click();
+    await expect(dialog.getByRole("textbox", { name: "Custom total in sats", exact: true })).toHaveValue("321");
+    await expect(dialog.getByRole("button", { name: "Continue to payment · 421 sats", exact: true })).toBeEnabled();
+    await page.screenshot({ path: info.outputPath("guest-fee-help-choices-preserved.png") });
+    await dialog.getByRole("button", { name: "Continue to payment · 421 sats", exact: true }).click();
+    const allocation = "Visibility receives 321 sats. Appearance costs 100 sats and does not add ranking weight.";
+    await expect(dialog.getByText(allocation, { exact: true })).toBeVisible();
+    await expect(dialog.getByLabel("Holoboard visibility and appearance payment", { exact: true })).toContainText("421 sats");
+    const invoice = await dialog.getByRole("link", { name: "Open in wallet", exact: true }).getAttribute("href");
+    const before = await page.evaluate(async () => {
+        const records = await import("/src/components/PromoteModal/paymentRecords.ts");
+        return records.unfinishedPayments()[0];
+    });
+    expect(before.board).toMatchObject({ amountSats: 421, promotionSats: 321, billboardFeeSats: 100, paymentHash: boardHash });
+    await dialog.getByRole("button", { name: "Back to budget", exact: true }).click();
+    await dialog.getByRole("textbox", { name: "Custom total in sats", exact: true }).fill("999");
+    await expect(dialog.getByRole("button", { name: "Continue to payment · 1099 sats", exact: true })).toBeEnabled();
+    await dialog.getByRole("button", { name: "Resume payment", exact: true }).click();
+    await expect(dialog.getByText(allocation, { exact: true })).toBeVisible();
+    await expect(dialog.getByLabel("Holoboard visibility and appearance payment", { exact: true })).toContainText("421 sats");
+    await expect(dialog.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", invoice!);
+    const after = await page.evaluate(async () => (await import("/src/components/PromoteModal/paymentRecords.ts")).unfinishedPayments()[0]);
+    expect(after.board).toEqual(before.board);
+    await page.screenshot({ path: info.outputPath("guest-fee-frozen-payment-resumed.png") });
     expect(state.requests).toHaveLength(1); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
 });
