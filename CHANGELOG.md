@@ -34,10 +34,11 @@ record deployment, not announcement publication.
 
 ### Changed
 
+- Fit note columns to their media and text, place destination previews where they
+  keep the complete card shorter, and bound long link labels on phones.
 - Share the maintained note editor, renderer and Nostr client primitives with
   independently configured clients while preserving anonymous payments and
   existing publication receipts.
-
 - Give profile and discussion pages distinct titles and descriptions based on
   the author's name and the focused note, updating them during navigation.
 - Bring the logo, sections and actions into one desktop header with a neon rail
@@ -74,8 +75,6 @@ record deployment, not announcement publication.
 
 ### Changed
 
-- Fit note columns to their media and text, place destination previews where they
-  keep the complete card shorter, and bound long link labels on phones.
 - Share adaptive note layouts across the board, discussions and profiles, with
   full-width text, readable mixed-media quotes and compact destination previews.
 - Make phone discussions and profiles more compact, with clearer branch guides,
