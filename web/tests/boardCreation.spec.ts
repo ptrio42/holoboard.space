@@ -645,9 +645,10 @@ test("editing a reviewed account post preserves its applicable budget and defaul
 });
 
 
-test("a mismatched nevent preview reports an error and can retry the original", async ({ context, page }) => {
+for (const format of ["nevent", "njump"] as const) test(`a mismatched ${format} preview reports an error and can retry the original`, async ({ context, page }) => {
     const state = await setup(context, page, { mismatchedPreviews: 1 });
-    const reference = neventEncode({ id: original.id, author: original.pubkey, relays: ["wss://nos.lol"] });
+    const encoded = neventEncode({ id: original.id, author: original.pubkey, relays: ["wss://nos.lol"] });
+    const reference = format === "njump" ? `https://njump.me/${encoded}` : encoded;
     const field = page.getByRole("textbox", { name: "Text or link", exact: true });
     await field.fill(reference);
     await expect(page.getByRole("alert")).toHaveText("The relay returned a different post. Retry or choose another post.");
