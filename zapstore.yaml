@@ -3,25 +3,36 @@ release_source: ./android/app-release-signed.apk
 pubkey: npub178umpxtdflcm7a08nexvs4mu384kx0ngg9w8ltm5eut6q7lcp0vq05qrg4
 
 name: Holoboard
-summary: A live market for attention on Nostr, ranked by sats.
+summary: Discover posts and give yours more visibility with Lightning.
 description: |
-  See what people are willing to put sats behind.
+  A public board for things people want others to notice.
 
-  Anyone can pay to add a Nostr note to Holoboard or boost one already on the
-  board. You can promote your own post or someone else's. Sats determine the
-  ranking, with recent payments counting for more.
+  Browse posts, follow links and explore conversations for free. Share your
+  own text or link, bring an existing Nostr post, or recommend someone else's
+  work. Pay with Lightning to give a post more visibility. You can post as a
+  guest and pay an invoice without a Nostr account or wallet connection.
 
-  Browse for free, preview a note before paying, and optionally choose a
-  billboard appearance. Pay a Lightning invoice without signing in. Promotion
-  commands and zaps also work from Nostr clients.
+  Add to board guides you through Post, Budget and Payment. Review the total
+  before preparing invoices, choose an optional Billboard appearance, and
+  resume unfinished invoices on the same device and browser profile.
+
+  Visibility payments influence ranking and lose weight over time. Optional
+  support for an original author goes directly to their Lightning address and
+  adds no ranking weight. Payment does not guarantee readers or a position.
+
+  Nostr accounts, discussions and Nostr Wallet Connect are optional ways to
+  explore and use the board. The Android app opens holoboard.space, so board
+  features follow the website's current release.
 website: https://holoboard.space
 tags:
   - nostr
   - social
   - bitcoin
 icon: ./android/store_icon.png
-release_notes: ./android/store/release-notes-1.0.0.md
+release_notes: ./android/store/release-notes-1.1.0.md
 images:
   - ./android/store/screenshots/01-live-ranked-board.png
-  - ./android/store/screenshots/02-promote-a-note.png
-  - ./android/store/screenshots/03-billboard-appearance-preview.png
+  - ./android/store/screenshots/02-add-to-board-post.png
+  - ./android/store/screenshots/03-budget-and-options.png
+  - ./android/store/screenshots/04-billboard-appearance.png
+  - ./android/store/screenshots/05-invoice-payment.png

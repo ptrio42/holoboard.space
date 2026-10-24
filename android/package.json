@@ -2,7 +2,13 @@
   "name": "holoboard-android",
   "private": true,
   "scripts": {
-    "build": "bubblewrap build"
+    "build": "bubblewrap build",
+    "build:unsigned": "node scripts/release.mjs build",
+    "sign": "node scripts/release.mjs sign",
+    "check": "node scripts/release.mjs check",
+    "check:unsigned": "node scripts/release.mjs check-unsigned",
+    "zapstore:check": "node scripts/release.mjs zapstore-check",
+    "zapstore:publish": "node scripts/release.mjs zapstore-publish"
   },
   "devDependencies": {
     "@bubblewrap/cli": "1.25.0"
