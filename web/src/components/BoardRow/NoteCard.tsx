@@ -95,7 +95,8 @@ export function NoteCard({ privatePreview = false, context, onReply, hints, show
     const noteLabel = expired ? "Expired note" : unrankedDiscovery ? "Discovered note" : `Note at rank ${rank ?? "unavailable"}`;
     const promotionLabel = expired ? "Promote again" : unrankedDiscovery ? "Promote" : "Boost";
     const hasWeightActions = typeof sats === "number" || expired || !!onPromote;
-    const position = !expired && !unrankedDiscovery && (!!rank || showUnknownRank) && <span className={`board-rank ${tier.text}`} aria-label={`Rank ${rank ?? "unavailable"}`}>
+    const position = !expired && !unrankedDiscovery && (!!rank || showUnknownRank) && <span className={`board-rank ${tier.text}`}>
+        <span className="sr-only">Rank {rank ?? "unavailable"}</span>
         <span className="board-rank__number" aria-hidden="true">{rank ?? "?"}</span>
         {rankLabel && <span className="board-rank__label" aria-hidden="true">{rankLabel}</span>}
     </span>;
@@ -131,7 +132,7 @@ export function NoteCard({ privatePreview = false, context, onReply, hints, show
                             </div>
                             {hasWeightActions && <div className="board-weight-actions">
                                 {typeof sats === "number" && <button type="button" className="board-weight focus-pixel"
-                                    aria-label={weightLabel(sats, weight, expired)} aria-haspopup="dialog" aria-controls={`${popupId}-weight`}
+                                    aria-label={weightLabel(sats, weight, expired)} aria-haspopup="dialog" aria-controls={popup?.kind === "weight" ? `${popupId}-weight` : undefined}
                                     aria-expanded={popup?.kind === "weight"} onClick={event => openPopup("weight", event)}>
                                     <span aria-hidden="true">{satsLabel(displayedSats ?? sats)}</span>
                                     {!expired && fraction !== null && <span className="board-weight__track" aria-hidden="true">
@@ -152,7 +153,7 @@ export function NoteCard({ privatePreview = false, context, onReply, hints, show
                                 {!privatePreview && <span className="board-hint-wrap" data-hint-dismissed={optionsHintDismissed || popup?.kind === "options" || undefined}
                                     onPointerLeave={event => { if (!event.currentTarget.querySelector(":focus-visible")) setOptionsHintDismissed(false); }}
                                     onBlur={() => setOptionsHintDismissed(false)}><button type="button" className="note-icon-control board-options"
-                                    aria-label="Note options" aria-haspopup="menu" aria-controls={`${popupId}-options`} aria-expanded={popup?.kind === "options"}
+                                    aria-label="Note options" aria-haspopup="menu" aria-controls={popup?.kind === "options" ? `${popupId}-options` : undefined} aria-expanded={popup?.kind === "options"}
                                     onClick={event => openPopup("options", event)}>
                                     <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" shapeRendering="crispEdges">
                                         <path d="M9 2h3v3H9zM9 9h3v3H9zM9 16h3v3H9z" />

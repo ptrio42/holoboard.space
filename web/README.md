@@ -687,22 +687,25 @@ their protection against replacement and another charge.
 
 Use a preview or deployment with the matching relay API. Choose an existing
 note whose author has a working Lightning address and an amount accepted by
-that wallet. Real payments cost sats, so use a small explicit test budget.
+that wallet. Automated browser checks cover amount modes, split calculations,
+invoice actions and recovery transitions. Reserve device checks for OS handoff,
+real wallet behavior and installed-app updates. Authorize a small explicit test
+budget before any real payment; preparing an invoice alone does not spend funds.
 
-1. Without connecting anything, set the author share to 0% and prepare an invoice.
-   Open it in a wallet, then return to Holoboard and check the visibility credit.
-2. Set a custom author share and restore the campaign split. Switch between
-   Amount and Position; check that toggling does not change the total and that
-   target estimates account for the split.
-3. Connect a limited NWC wallet. Confirm that connection alone pays nothing,
-   then pay a split and check both recipients and the credited visibility amount.
-4. Connect Amber using the link or QR, return to Holoboard, and enable a public
-   author zap. Approve signing in Amber and check the author invoice appears.
-5. Refresh with an unfinished payment. Check that the same invoices and
-   connection return. If payment status is uncertain, check the wallet history;
-   leave pending payments alone and retry only a confirmed failed attempt.
-6. Disconnect wallet and signer. Check that ordinary invoice links, copying
-   and QR codes still work. Repeat the app-switching checks in the Android TWA.
+1. Without connecting an account or wallet, prepare a visibility-only invoice.
+   Open it in the wallet, return without paying, and check that the same invoice
+   remains available. Check copying and QR scanning on the device. For an
+   authorized settlement check, pay once and verify the result and board credit.
+2. Connect a limited NWC wallet. Confirm that connection alone pays nothing.
+   With an authorized budget, explicitly pay a split and check both recipients
+   in wallet history and the credited visibility amount on Holoboard.
+3. Connect Amber using the link or QR, return to Holoboard, and enable a public
+   author zap. Approve signing in Amber and check that the author invoice appears.
+4. Keep an unfinished payment in the installed PWA and Android TWA. Close and
+   reopen the app, explicitly select the saved payment, and check that the same
+   invoices remain. Repeat after updating the installed app. If payment status
+   is uncertain, check the original wallet history; leave pending payments alone
+   and retry only a confirmed failed attempt.
 
 ## Add to board
 

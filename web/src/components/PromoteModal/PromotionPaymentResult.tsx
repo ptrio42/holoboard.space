@@ -20,22 +20,26 @@ export function PromotionPaymentResult({ payment, actualRank, busy, onDone, onAn
                 {actualRank !== null && <p className="text-xs text-cyan-100/60">{actualRank > 0 ? `Current position: #${actualRank}, ${actualRank <= 21 ? "main board" : "waiting room"}.` : "This note is currently inactive."}</p>}
             </div>
             {payment.event && <p role="status" className="text-xs text-cyan-100/75">{payment.publication === "delivered" ? "Your post is on the board and accepted by its target relays." : payment.publication === "stopped" ? "External publication was stopped by the operator." : "Your post is on the board. Delivery to other apps is pending and continues after you close this page."}</p>}
-            <dl className="space-y-3" aria-label="Payment summary">
-                <div className="flex flex-wrap justify-between gap-2" aria-label="Holoboard payment">
-                    <dt className="promotion-label text-cyan-100">Holoboard</dt>
-                    <dd>{payment.board.amountSats} sats</dd>
-                    <dd className="w-full text-xs text-neon-cyan">Payment verified</dd>
+            <div role="group" className="space-y-3" aria-label="Payment summary">
+                <div role="group" aria-label="Holoboard payment">
+                    <dl className="flex flex-wrap justify-between gap-2">
+                        <dt className="promotion-label text-cyan-100">Holoboard</dt>
+                        <dd>{payment.board.amountSats} sats</dd>
+                        <dd className="w-full text-xs text-neon-cyan">Payment verified</dd>
+                    </dl>
                 </div>
-                {payment.author && <div className="flex flex-wrap justify-between gap-2" aria-label="Author payment">
-                    <dt className="promotion-label text-cyan-100">Author</dt>
-                    <dd>{payment.author.amount_sats} sats</dd>
-                    <dd className={`w-full text-xs ${reported ? "text-cyan-100/70" : "text-neon-cyan"}`}>{reported ? "Marked paid by you, unverified" : "Payment verified"}</dd>
+                {payment.author && <div role="group" aria-label="Author payment">
+                    <dl className="flex flex-wrap justify-between gap-2">
+                        <dt className="promotion-label text-cyan-100">Author</dt>
+                        <dd>{payment.author.amount_sats} sats</dd>
+                        <dd className={`w-full text-xs ${reported ? "text-cyan-100/70" : "text-neon-cyan"}`}>{reported ? "Marked paid by you, unverified" : "Payment verified"}</dd>
+                    </dl>
                 </div>}
-                <div className="flex flex-wrap justify-between gap-2 border-t border-cyan-400/20 pt-3">
+                <dl className="flex flex-wrap justify-between gap-2 border-t border-cyan-400/20 pt-3">
                     <dt className="promotion-label text-cyan-100/60">{reported ? "Invoice total" : "Total paid"}</dt>
                     <dd className="text-neon-cyan">{payment.board.amountSats + (payment.author?.amount_sats ?? 0)} sats</dd>
-                </div>
-            </dl>
+                </dl>
+            </div>
             {reported && <p className="text-xs text-cyan-100/70">Author support marked paid by you, not independently verified.</p>}
             {(payment.billboardApplied || payment.feeConverted || payment.notificationRequested) && <div className="space-y-2 text-xs text-cyan-100/70">
                 {payment.billboardApplied && <p>Your billboard appearance is active.</p>}

@@ -1940,6 +1940,8 @@ test("NWC progress stays calm and a complete payment ends with Done", async ({ c
     await expect(heading).toBeVisible({ timeout: 10000 });
     await expect(heading).toBeFocused();
     await expect(page.getByLabel("Payment summary")).toContainText(/Total paid\s*210 sats/);
+    await expect(page.getByRole("group", { name: "Holoboard payment", exact: true })).toContainText("Payment verified");
+    await expect(page.getByRole("group", { name: "Author payment", exact: true })).toContainText("Payment verified");
     await expect(page.getByRole("tab", { name: "Wallet", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Restart payment", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Done", exact: true })).toBeVisible();

@@ -126,7 +126,7 @@ test.describe("read-only profiles", () => {
         await expect(card).toContainText(quoted.content);
         for (const width of [320, 390, 1280]) {
             await page.setViewportSize({ width, height: 900 });
-            await expect(card.locator(".board-rank")).toHaveAttribute("aria-label", "Rank 1");
+            await expect(card.locator(".board-rank")).toMatchAriaSnapshot("- text: Rank 1");
             await expect(card.getByRole("button", { name: "Boost", exact: true })).toBeVisible();
             await expect(card.getByRole("button", { name: "Note options", exact: true })).toBeVisible();
             await card.getByRole("button", { name: /counting,.*paid in total/ }).click();

@@ -129,7 +129,7 @@ test.describe("read-only discussion", () => {
             const card = page.getByRole("article", { name: "Discussion focus", exact: true });
             await expect(card.locator(".note-link-preview")).toContainText("Cached page preview");
             await expect(card.getByRole("button", { name: "Boost", exact: true })).toBeVisible();
-            await expect(card.locator(".board-rank")).toHaveAttribute("aria-label", "Rank 1");
+            await expect(card.locator(".board-rank")).toMatchAriaSnapshot("- text: Rank 1");
             await expect(card.getByRole("link", { name: "Discussion", exact: true })).toHaveCount(0);
             expect(Math.abs((await card.boundingBox())!.width - sourceBounds!.width)).toBeLessThan(12);
             await expect(card.locator(".note-text")).toHaveCSS("font-size", sourceType);
@@ -335,9 +335,10 @@ test.describe("read-only discussion", () => {
         // A polling refresh can change the retained board while it is hidden.
         fixture.replaceBoard([make("New entry inserted above the promoted note"), ...board]);
         await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-        await expect(page.locator(`[data-board-note="${selected.id}"] .board-rank`)).toHaveAttribute("aria-label", "Rank 7");
+        await expect(page.locator(`[data-board-note="${selected.id}"] .board-rank .sr-only`)).toHaveText("Rank 7");
         await page.getByRole("link", { name: "Back to board" }).click();
         await expect(page).toHaveURL(/\/waiting\?view=hot$/);
+        await expect(source.locator(".board-rank")).toMatchAriaSnapshot("- text: Rank 7");
         await expect.poll(async () => Math.abs((await source.locator("article").boundingBox())!.y - original.y)).toBeLessThan(2);
         expect(await page.evaluate(() => scrollY)).toBeGreaterThan(boardScroll);
         expect(fixture.publications).toEqual([]);

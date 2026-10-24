@@ -76,13 +76,13 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                 {payment.sourceEvent || payment.event ? <div className="mt-2 text-sm leading-relaxed text-cyan-100"><CompactNoteText text={(payment.sourceEvent ?? payment.event)!.content} /></div> :
                     <a className={actionClass} href={njumpUrl(payment.board.noteId, "note")} target="_blank" rel="noopener noreferrer">Open original post</a>}
             </details>
-            <div className="promotion-complete-total" aria-label="Complete total">
+            <div role="group" className="promotion-complete-total" aria-label="Complete total">
                 <span className="promotion-label text-cyan-100/65">Total</span>
                 <strong className="text-sm text-neon-cyan">{parts.reduce((sum, part) => sum + part.amount, 0)} sats</strong>
             </div>
-            <div className="space-y-2" aria-label="Payment recipients">
+            <div role="group" className="space-y-2" aria-label="Payment recipients">
                 {parts.length > 1 && <p className="text-xs text-cyan-100/65">This payment has two invoices: {boardLabel} and support for the original author. Pay each separately, or use Wallet for both.</p>}
-                {parts.map((part) => parts.length === 1 ? <div key={part.id} className="space-y-1 border-t border-cyan-400/20 pt-3" aria-label={`${boardLabel} payment`}>
+                {parts.map((part) => parts.length === 1 ? <div role="group" key={part.id} className="space-y-1 border-t border-cyan-400/20 pt-3" aria-label={`${boardLabel} payment`}>
                     <p className="flex flex-wrap items-center justify-between gap-2"><span className="promotion-label">{includesAppearance || !knownAllocation ? "Holoboard" : "Visibility"}</span><span>{part.amount} sats</span></p>
                     <p className="text-xs text-cyan-100/65">{part.paid ? "Payment verified" : part.attempt?.state === "submitted" ? "Verifying payment" : part.attempt?.state === "uncertain" ? "Wallet confirmation missing" : now >= part.expires * 1000 ? "Invoice expired" : "Awaiting payment"}</p>
                 </div> : <button key={part.id} type="button" aria-pressed={recipient === part.id}

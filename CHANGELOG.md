@@ -56,6 +56,8 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Expose note ranking positions, payment totals and recipient groups correctly
+  to screen readers, with popup controls linked only while their panels exist.
 - Handle blocked wallet storage cleanly in Firefox while retaining anonymous
   invoice access and preventing unsafe wallet sends.
 - Keep local mock-payment previews stable when invoices are prepared or checked

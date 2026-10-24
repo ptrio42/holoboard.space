@@ -110,6 +110,7 @@ test("guest text and links become one private signed post with recoverable invoi
     await dialog.getByRole("button", { name: "Review & continue", exact: true }).click();
     await expect(dialog.getByRole("textbox", { name: "Text or link" })).toHaveCount(0);
     await expect(dialog.getByRole("navigation", { name: "Add to board progress" }).locator('[aria-current="step"]')).toContainText("Budget");
+    await expect(dialog.getByRole("group", { name: "Complete total", exact: true })).toContainText("210 sats");
     expect(state.requests).toHaveLength(0); expect(state.frames).toEqual([]);
     const reviewedId = state.signed!.id;
     await dialog.getByRole("button", { name: "Post", exact: true }).click();
@@ -135,6 +136,8 @@ test("guest text and links become one private signed post with recoverable invoi
     }
     await dialog.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
     await expect(page.getByRole("tablist", { name: "Payment method", exact: true })).toBeVisible();
+    await expect(dialog.getByRole("group", { name: "Payment recipients", exact: true })
+        .getByRole("group", { name: "Holoboard visibility payment", exact: true })).toContainText("210 sats");
     expect(state.requests).toHaveLength(1);
     const submitted = state.requests[0].event as Event;
     expect(verifyEvent(submitted)).toBe(true); expect(submitted.content).toBe(text);
@@ -162,6 +165,7 @@ test("guest text and links become one private signed post with recoverable invoi
     expect(state.requests).toHaveLength(1);
     state.paid = true;
     await expect(page.getByLabel("Promotion result")).toContainText("Delivery to other apps is pending");
+    await expect(dialog.getByRole("group", { name: "Holoboard payment", exact: true })).toContainText("Payment verified");
     expect(state.signed?.id).toBe(submitted.id); expect(state.errors).toEqual([]);
     expect(state.signerRequests).toEqual([]); expect(state.reviewedIds).toEqual([submitted.id]);
 });

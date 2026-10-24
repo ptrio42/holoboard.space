@@ -399,6 +399,7 @@ for (const rank of [1, 2, 3, 21]) {
     test(`rank ${rank} stays compact above full-width note text`, async ({ context, page }) => {
         const row = await setup(context, page, { billboard: false, content: "A readable opening sentence.\nA second line.", ledger: { rank } });
         await expect(row.locator(".board-rank__number")).toHaveText(String(rank));
+        await expect(row.locator(".board-rank")).toMatchAriaSnapshot(`- text: Rank ${rank}`);
         await expect(row.locator(".board-rank__label")).toHaveCount(rank === 1 ? 1 : 0);
         for (const width of [320, 390, 1440]) {
             await page.setViewportSize({ width, height: 900 });

@@ -736,7 +736,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         <PromotionAmountPicker amount={amountText} validAmount={validAmount} currentWeight={knownWeight} max={10000000} appearanceFee={fee} targets={targets} disabled={busy} quietModes={!boost}
             selection={amountSelection} onSelectionChange={setAmountSelection}
             totalForPromotion={(needed) => totalForPromotion(needed, authorShare)} onChange={setAmountText} />
-        {!boost && <div className="promotion-complete-total" aria-label="Complete total">
+        {!boost && <div role="group" className="promotion-complete-total" aria-label="Complete total">
             <span className="promotion-label text-cyan-100/65">Total</span>
             <strong className="text-sm text-neon-cyan">{validAmount ? `${amount + fee} sats` : "Enter amount"}</strong>
             {fee > 0 && <span className="text-xs text-cyan-100/60">Includes {fee} sats for Billboard appearance.</span>}
