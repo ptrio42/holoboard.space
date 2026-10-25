@@ -59,6 +59,26 @@ reviewing board content; ordinary-note comparisons do not exercise that path.
 Include a narrow phone, a normal phone and desktop. Exercise long identifiers,
 missing media, empty results, loading and partial data where they affect the
 surface. Inspect both individual items and a whole list for accumulated height.
+For forms, editors and connection panels, also inspect the focused field with
+the mobile keyboard open. Include text and link entry, custom amounts, NWC and
+bunker links, reply text and composer searches when those callers share a changed
+shell. Check the visible viewport, including its offset, rather than assuming
+that `innerHeight`, a phone preset or `100dvh` represents the area above the
+keyboard. Label simulated keyboard coverage explicitly; it does not establish
+physical-device keyboard behavior.
+
+Check the initial frame before locator clicks or automatic scrolling can hide
+density problems. A visible DOM element is not enough: measure the field,
+scroll body, footer and primary content against their clipping boundaries.
+Text fields need a recognizable boundary and enough visible room to edit.
+On normal phone viewports, budget amounts and an applicable split slider must
+be visible together, and payment must show a complete scannable QR alongside
+the selected recipient. Keep QR size, readable text and touch targets intact;
+remove repeated summaries and secondary chrome before shrinking primary content.
+With the keyboard open, keep the focused field, nearby errors and the next
+action reachable. Secondary information must not consume the editing area.
+For shared modal changes, inspect the other affected account, wallet and reply
+callers, including focus return, keyboard dismissal and preserved input.
 Include multiple quotes with destination previews inside them. Measure loading
 and settled cards separately; nested previews can dominate height even when
 each text block is short. Compare the height savings separately on phones and

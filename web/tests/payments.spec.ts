@@ -2500,6 +2500,31 @@ test("a full split Payment keeps its presentation after visibility settles", asy
     expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
 });
 
+test("phone split Payment keeps both recipients, total and complete QR in view", async ({ context, page }, info) => {
+    await page.setViewportSize({ width: 390, height: 664 });
+    const state = await setup(context, page, { newCampaign: true, noteContent: "The selected original post. ".repeat(35) });
+    await prepareInvoices(page);
+    const dialog = page.getByRole("dialog", { name: "Add to board", exact: true });
+    for (const width of [390, 320]) {
+        await page.setViewportSize({ width, height: 664 });
+        await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        const qr = dialog.getByRole("img", { name: "Holoboard visibility invoice QR code", exact: true });
+        await expect(qr).toHaveCount(1);
+        await page.screenshot({ path: info.outputPath(`split-payment-${width}.png`) });
+        const body = (await dialog.locator("[data-modal-body]").boundingBox())!;
+        const recipients = dialog.getByRole("group", { name: "Payment recipients", exact: true }).getByRole("button");
+        await expect(recipients).toHaveCount(2);
+        for (const control of [dialog.getByRole("group", { name: "Complete total", exact: true }), ...await recipients.all(), qr]) {
+            const bounds = (await control.boundingBox())!;
+            expect(bounds.y).toBeGreaterThanOrEqual(body.y);
+            expect(bounds.y + bounds.height).toBeLessThanOrEqual(body.y + body.height);
+        }
+        expect((await qr.boundingBox())!.height).toBe(220);
+    }
+    expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
 
 test("creation-disabled Post retains privately issued invoices without exposing writing controls", async ({ context, page }) => {
     test.skip(process.env.VITE_ENABLE_POST_CREATION === "true", "Verifies the creation-disabled editor.");

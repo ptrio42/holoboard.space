@@ -69,10 +69,11 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
     }, [method, invoiceAvailable, selected.hash]);
     const actionClass = "promotion-action focus-pixel inline-flex min-h-11 items-center text-cyan-200/75 hover:text-neon-cyan disabled:opacity-40";
     return <>
-        <div className="space-y-4 text-sm" role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${method}`} tabIndex={0}>
+        <div className="promotion-payment space-y-2 text-sm" role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${method}`} tabIndex={0}>
             <h3 data-stage-heading tabIndex={-1} className="sr-only">Payment</h3>
+            <div className="promotion-payment-heading">
             <details className="disclosure" aria-label="Payment post">
-                <summary className="focus-pixel flex min-h-11 cursor-pointer items-start gap-2 text-xs leading-relaxed text-cyan-100/70"><span data-promotion-text className="min-w-0 flex-1 break-words">For: {payment.noteSummary || payment.draft?.config.text || `post ${payment.board.noteId.slice(0, 8)}...${payment.board.noteId.slice(-6)}`}</span></summary>
+                <summary className="focus-pixel flex min-h-11 cursor-pointer items-center gap-2 text-xs leading-relaxed text-cyan-100/70"><span data-promotion-text className="line-clamp-1 min-w-0 flex-1 break-all">For: {payment.noteSummary || payment.draft?.config.text || `post ${payment.board.noteId.slice(0, 8)}...${payment.board.noteId.slice(-6)}`}</span></summary>
                 {payment.sourceEvent || payment.event ? <div className="mt-2 text-sm leading-relaxed text-cyan-100"><CompactNoteText text={(payment.sourceEvent ?? payment.event)!.content} /></div> :
                     <a className={actionClass} href={njumpUrl(payment.board.noteId, "note")} target="_blank" rel="noopener noreferrer">Open original post</a>}
             </details>
@@ -80,13 +81,14 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                 <span className="promotion-label text-cyan-100/65">Total</span>
                 <strong className="text-sm text-neon-cyan">{parts.reduce((sum, part) => sum + part.amount, 0)} sats</strong>
             </div>
-            <div role="group" className="space-y-2" aria-label="Payment recipients">
-                {parts.length > 1 && <p className="text-xs text-cyan-100/65">This payment has two invoices: {boardLabel} and support for the original author. Pay each separately, or use Wallet for both.</p>}
-                {parts.map((part) => parts.length === 1 ? <div role="group" key={part.id} className="space-y-1 border-t border-cyan-400/20 pt-3" aria-label={`${boardLabel} payment`}>
+            </div>
+            <div role="group" className="promotion-payment-recipients" aria-label="Payment recipients">
+                {parts.length > 1 && <p className="sr-only">This payment has two invoices: {boardLabel} and support for the original author. Pay each separately, or use Wallet for both.</p>}
+                {parts.map((part) => parts.length === 1 ? <div role="group" key={part.id} className="promotion-payment-recipient col-span-full space-y-1 border-t border-cyan-400/20 pt-1" aria-label={`${boardLabel} payment`}>
                     <p className="flex flex-wrap items-center justify-between gap-2"><span className="promotion-label">{includesAppearance || !knownAllocation ? "Holoboard" : "Visibility"}</span><span>{part.amount} sats</span></p>
                     <p className="text-xs text-cyan-100/65">{part.paid ? "Payment verified" : part.attempt?.state === "submitted" ? "Verifying payment" : part.attempt?.state === "uncertain" ? "Wallet confirmation missing" : now >= part.expires * 1000 ? "Invoice expired" : "Awaiting payment"}</p>
                 </div> : <button key={part.id} type="button" aria-pressed={recipient === part.id}
-                    className={`focus-pixel flex min-h-14 w-full flex-wrap items-center justify-between gap-x-3 gap-y-1 border-2 px-3 py-2 text-left ${recipient === part.id ? "border-neon-cyan/70 bg-cyan-400/5" : "border-cyan-400/20"}`}
+                    className={`promotion-payment-recipient focus-pixel flex min-h-14 w-full flex-wrap items-center justify-between gap-x-2 gap-y-1 border-2 px-2 py-1 text-left ${recipient === part.id ? "border-neon-cyan/70 bg-cyan-400/5" : "border-cyan-400/20"}`}
                     onClick={() => onRecipient(part.id)}>
                     <span className="promotion-label text-cyan-100">{part.id === "board" ? "Holoboard" : "Author"}</span>
                     <span>{part.amount} sats</span>
@@ -109,12 +111,12 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                 {payment.notificationRequested && <p>Check your Nostr DMs. Reply YES to the confirmation for one expiry notification.</p>}
                 {actualRank !== null && <p>{actualRank > 0 ? `Current position: #${actualRank}, ${actualRank <= 21 ? "main board" : "waiting room"}.` : "This note is currently inactive."}</p>}
             </div>}
-            {method === "invoice" ? <section className="space-y-3" aria-label={selected.label}>
+            {method === "invoice" ? <section className="promotion-invoice space-y-2" aria-label={selected.label}>
                 {invoiceAvailable && <>
                     {parts.length > 1 && <p className="promotion-label text-center text-cyan-100/70">Invoice {selected.id === "board" ? 1 : 2} of {parts.length}: {selected.id === "board" ? "Holoboard" : "Author"}</p>}
+                    <div ref={invoiceQr} className="flex justify-center"><QrCode key={selected.hash} value={selected.invoice} label={`${selected.label} invoice QR code`} /></div>
                     <p className="text-xs text-center text-cyan-100/60">Scan with any Lightning wallet. No account required.</p>
                     {selected.id === "author" && <p className="text-xs text-cyan-100/60">{payment.publicZap ? "Waiting for the author's wallet to publish a zap receipt. Confirmation may be delayed." : "This author invoice has no automatic confirmation here. Check the payment in your wallet, then mark it paid below. Your report remains unverified."}</p>}
-                    <div ref={invoiceQr} className="flex justify-center"><QrCode key={selected.hash} value={selected.invoice} label={`${selected.label} invoice QR code`} /></div>
                     <details className="disclosure"><summary className={`${actionClass} cursor-pointer`}>Invoice text</summary>
                         <p className="break-all select-all text-xs text-cyan-100/70">{selected.invoice}</p>
                     </details>

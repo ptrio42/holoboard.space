@@ -626,9 +626,9 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         {error && <p role="alert" className="text-sm text-neon-pink">{error}</p>}
         <PixelButton className="w-full min-h-11" variant="accent" aria-label={submissionLabel} aria-busy={busy} disabled={cannotPrepare} onClick={() => void start()}>
             <span className="payment-action-progress">{busy && <StatusMessage loading compact iconOnly inline>Preparing payments</StatusMessage>}
-                {submissionLabel}</span>
+                {boost || busy || resuming || !validAmount ? submissionLabel : `Continue · ${amount + fee} sats`}</span>
         </PixelButton>
-        {!boost && <p className="text-center text-xs text-cyan-100/60">Creates invoices. No payment is sent yet.</p>}
+        {!boost && <p className="promotion-footer-hint text-center text-xs text-cyan-100/60">Creates invoices. No payment is sent yet.</p>}
         <div className="flex flex-wrap items-center justify-between gap-x-3">
             {panel !== "compose" ? <button type="button" className={actionClass} onClick={closePanel}>&lt; Back to {panelHistory[panelHistory.length - 2] !== "compose" ? "settings" : boost ? "boost" : "budget"}</button> : boost ? paymentOptions : <button type="button" className={actionClass} onClick={() => setEditorStep("post")}>&lt; Back to post</button>}
             <button type="button" className={actionClass} data-panel-trigger="help" onClick={() => openHelp()}>Help &gt;</button>
@@ -706,8 +706,8 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     const appearanceEntry = <button type="button" className={`${actionClass} w-full justify-between gap-3 border-t border-cyan-400/20 pt-2 text-left`} data-panel-trigger="appearance" disabled={busy} onClick={() => openPanel("appearance")}>
         <span>Billboard appearance &gt;</span><span className="font-body text-xs">{preview ? preview.active ? "Current appearance" : `+${preview.billboardFeeSats} sats${billboardEnabled ? ", selected" : ""}` : "Optional"}</span>
     </button>;
-    if (!boost && editorStep === "post") return <>{navigation}<div className="space-y-4" aria-busy={busy || loading || composer?.busy}>
-        <h3 data-stage-heading tabIndex={-1} className="promotion-section-title text-cyan-100">What would you like to share?</h3>
+    if (!boost && editorStep === "post") return <>{navigation}<div className="promotion-post space-y-4" aria-busy={busy || loading || composer?.busy}>
+        <h3 data-stage-heading tabIndex={-1} className="promotion-post-heading promotion-section-title text-cyan-100">Share a post</h3>
         {recoveryList}
         {composer ? <fieldset disabled={resuming || busy} className="min-w-0 space-y-4">{composer.editor}{composer.authorExtras && <details className="disclosure"><summary className={`${actionClass} cursor-pointer`}>Author details</summary>{composer.authorExtras}</details>}</fieldset> : <>
             <p className="text-sm text-cyan-100/75">Choose an existing Nostr post. {!ENABLE_POST_CREATION && "Writing new posts is not available in this build."}</p>
@@ -720,19 +720,22 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         {appearanceEntry}
         {footer(<div className="space-y-2">
             {error && <p role="alert" className="text-sm text-neon-pink">{error}</p>}
-            <p className="text-xs text-cyan-100/65">Pay with Lightning. {composer ? "New posts are published after the board payment is confirmed." : "Payment gives the original post visibility."}{composer?.signing && " Review asks your Nostr signer to sign this post privately."}</p>
+            <p className="promotion-footer-hint text-xs text-cyan-100/65">Pay with Lightning. {composer ? "New posts are published after the board payment is confirmed." : "Payment gives the original post visibility."}{composer?.signing && " Review asks your Nostr signer to sign this post privately."}</p>
+            <div className="promotion-post-actions">
             <PixelButton className="w-full min-h-11" variant="accent" disabled={busy || loading || resuming || (composer ? !composer.canContinue : !parseNoteReference(reference))} onClick={() => void continueToBudget()}>{composer?.busy ? "Preparing post..." : "Review & continue"}</PixelButton>
             <button type="button" className={actionClass} data-panel-trigger="help" onClick={() => openHelp()}>Help &gt;</button>
+            </div>
         </div>)}
     </div></>;
-    return <>{navigation}<div className={boost ? "space-y-2" : "space-y-4"} aria-busy={loading || busy}>
+    return <>{navigation}<div className={boost ? "space-y-2" : "promotion-budget space-y-3"} aria-busy={loading || busy}>
         {!boost && <h3 data-stage-heading tabIndex={-1} className="sr-only">Choose your budget</h3>}
         {recoveryList}
         {loading && <StatusMessage compact loading>{preview ? "Checking author payment details..." : "Loading post and author payment details..."}</StatusMessage>}
-        {preview && <PromotionNotePreview preview={preview} compact expanded={noteExpanded} onToggle={() => setNoteExpanded(!noteExpanded)}>
-            {!boost && <button type="button" className={actionClass} disabled={busy} onClick={() => setEditorStep("post")}>Edit post</button>}
-        </PromotionNotePreview>}
-        {!boost && <h3 className="promotion-section-title text-cyan-100">How much would you like to spend?</h3>}
+        {preview && <PromotionNotePreview preview={preview} compact summaryOnly={!boost} expanded={noteExpanded} onToggle={() => setNoteExpanded(!noteExpanded)} />}
+        {!boost && <div className="flex items-center justify-between gap-3">
+            <h3 className="promotion-section-title text-cyan-100">Choose your budget</h3>
+            <button type="button" className={actionClass} disabled={busy} onClick={() => setEditorStep("post")}>Edit post</button>
+        </div>}
         <PromotionAmountPicker amount={amountText} validAmount={validAmount} currentWeight={knownWeight} max={10000000} appearanceFee={fee} targets={targets} disabled={busy} quietModes={!boost}
             selection={amountSelection} onSelectionChange={setAmountSelection}
             totalForPromotion={(needed) => totalForPromotion(needed, authorShare)} onChange={setAmountText} />

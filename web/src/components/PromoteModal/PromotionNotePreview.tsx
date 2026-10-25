@@ -19,8 +19,8 @@ function PreviewImage({ src, compact, expanded }: { src: string; compact: boolea
     </a>;
 }
 
-export function PromotionNotePreview({ preview, compact, expanded, onToggle, children }: {
-    preview: NotePreview; compact: boolean; expanded: boolean; onToggle: () => void; children?: ReactNode;
+export function PromotionNotePreview({ preview, compact, expanded, onToggle, children, summaryOnly = false }: {
+    preview: NotePreview; compact: boolean; expanded: boolean; onToggle: () => void; children?: ReactNode; summaryOnly?: boolean;
 }) {
     const images = useMemo(() => [...new Set([...preview.images, ...quoteImages(preview.event.content)])].filter((src) => /^https?:\/\//i.test(src)), [preview.images, preview.event.content]);
     const excerpt = useMemo(() => quotePreviewContent(preview.event.content), [preview.event.content]);
@@ -39,12 +39,12 @@ export function PromotionNotePreview({ preview, compact, expanded, onToggle, chi
             <div className="min-w-0 grow basis-28" data-preview-author><NoteAuthor event={preview.event} size={compact ? "sm" : "md"} /></div>
             {compact && <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2" data-preview-actions>{reading}{opening}</div>}
         </div>
-        <div className="flex items-start gap-3">
+        {(!summaryOnly || expanded) && <div className="flex items-start gap-3">
             <div data-promotion-text className={`${expanded ? "" : compact ? "line-clamp-2" : "line-clamp-3"} min-w-0 flex-1 text-sm leading-relaxed text-cyan-100`}>
                 <CompactNoteText text={expanded ? preview.event.content : images.length && excerpt === "No text preview" ? "[Image]" : excerpt} />
             </div>
             {!expanded && images[0] && <PreviewImage key={images[0]} src={images[0]} compact={compact} expanded={false} />}
-        </div>
+        </div>}
         {expanded && <NoteLinkPreview text={preview.event.content} />}
         {expanded && images.length > 0 && <div className="grid grid-cols-2 gap-2" aria-label="Original note images">
             {images.map((src) => <PreviewImage key={src} src={src} compact={compact} expanded />)}

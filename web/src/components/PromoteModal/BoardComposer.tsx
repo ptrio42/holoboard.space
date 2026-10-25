@@ -126,12 +126,13 @@ export function BoardComposer({ onSource, children }: { onSource: (source: Board
                 placeholder="Write something, share a link, or paste a post" onChange={event => edit(event.target.value)} />
         </label>
         {classified.mode !== "original" && <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-cyan-100/75">
+            <span className="promotion-label text-neon-cyan">Your post</span>
             <span>{guestMode ? "Posting as a guest. No account required." : "Posting with your Nostr account."}</span>
             {ENABLE_NOSTR_CONNECT && <button type="button" className="promotion-action focus-pixel min-h-11 text-neon-cyan" disabled={busy} onClick={() => setShowAccount(!showAccount)}>{account ? "Account settings" : "Use a Nostr account"}</button>}
         </div>}
         {showAccount && <ConnectionSettings section="signer" purpose="account" embedded disabled={busy} />}
         {classified.mode === "original" ? <div className="flex flex-wrap items-center gap-3"><span className="promotion-label text-neon-cyan">Original post</span><button className="promotion-action focus-pixel min-h-11" onClick={quote}>Add a comment</button></div> : <>
-            <div className="flex flex-wrap items-center gap-3"><span className="promotion-label text-neon-cyan">Your post</span>
+            <div className="flex flex-wrap items-center gap-3">
                 {interpretation === "quote" && original.current && <button className="promotion-action focus-pixel min-h-11" disabled={busy} onClick={() => { const ref = original.current!; setInterpretation("auto"); edit(eventPointer(ref.id, ref.author, ref.relays)); }}>Use original</button>}
             </div>
             {text.trim() && <div className="composer-attachments @container/row" aria-label="Post attachments"><NoteContent text={text} tags={[]} quoteLimit={1} strictReferences attachmentsOnly /></div>}

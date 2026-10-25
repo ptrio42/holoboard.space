@@ -358,3 +358,15 @@
         transition-duration: 0.01ms !important;
     }
 }
+
+/* Keep editing usable when the keyboard reduces only the visual viewport. */
+[data-keyboard-open="true"] [data-modal-header] { align-items: center; padding: 4px 12px; }
+[data-keyboard-open="true"] [data-modal-header] > button { margin-block: 0; }
+[data-keyboard-open="true"] [data-modal-body] { padding: 12px; scroll-padding-block: 12px; overflow-anchor: none; }
+[data-keyboard-open="true"] [data-modal-footer] { padding: 8px 12px max(8px, env(safe-area-inset-bottom)); }
+[data-keyboard-open="true"] .composer-textarea {
+    height: clamp(100px, calc(var(--modal-viewport-height) - 250px), 180px);
+    min-height: 100px;
+    max-height: 180px;
+    padding: 10px 12px;
+}

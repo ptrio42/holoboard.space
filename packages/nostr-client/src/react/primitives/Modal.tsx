@@ -113,10 +113,26 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
             const overlay = overlayRef.current;
             const panel = panelRef.current;
             if (!overlay || !panel) return;
+            const active = document.activeElement;
+            const editing = active instanceof HTMLElement && panel.contains(active) && active.matches('textarea, input:not([type="checkbox"]):not([type="range"]):not([type="file"]), [contenteditable="true"]');
+            const keyboard = viewport.scale <= 1.01 && (window.innerHeight - viewport.height > 120 || editing && viewport.height < 500);
+            panel.dataset.keyboardOpen = String(keyboard);
+            panel.style.setProperty("--modal-viewport-height", `${viewport.height}px`);
+            if (keyboard) overlay.style.setProperty("--modal-padding", "0px");
+            else overlay.style.removeProperty("--modal-padding");
             overlay.style.top = `${viewport.offsetTop}px`;
             overlay.style.bottom = "auto";
             overlay.style.height = `${viewport.height}px`;
             panel.style.maxHeight = `calc(${viewport.height}px - 2 * var(--modal-padding))`;
+            // Resize the shell first, then reveal the focused field inside its own
+            // scroll body. Scrolling the document can pan it behind the keyboard.
+            const body = panel.querySelector<HTMLElement>("[data-modal-body]");
+            if (keyboard && editing && body?.contains(active)) {
+                const bounds = body.getBoundingClientRect();
+                const field = active.getBoundingClientRect();
+                if (field.top < bounds.top + 12) body.scrollTop -= bounds.top + 12 - field.top;
+                else if (field.bottom > bounds.bottom - 12) body.scrollTop += field.bottom - bounds.bottom + 12;
+            }
         };
         // Coalesce viewport updates; CSS resolves responsive padding in the same layout.
         let frame = 0;
@@ -124,15 +140,23 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
             cancelAnimationFrame(frame);
             frame = requestAnimationFrame(fit);
         };
+        const body = panelRef.current?.querySelector<HTMLElement>("[data-modal-body]");
+        const observer = new ResizeObserver(scheduleFit);
+        if (body) observer.observe(body);
         fit();
         viewport.addEventListener("resize", scheduleFit);
         viewport.addEventListener("scroll", scheduleFit);
         window.addEventListener("resize", scheduleFit);
+        document.addEventListener("focusin", scheduleFit);
+        document.addEventListener("focusout", scheduleFit);
         return () => {
             cancelAnimationFrame(frame);
+            observer.disconnect();
             viewport.removeEventListener("resize", scheduleFit);
             viewport.removeEventListener("scroll", scheduleFit);
             window.removeEventListener("resize", scheduleFit);
+            document.removeEventListener("focusin", scheduleFit);
+            document.removeEventListener("focusout", scheduleFit);
         };
     }, [isOpen, scrollBody, mobileFullScreen, compact]);
 
@@ -164,7 +188,7 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
                     ${mobileFullScreen ? "h-dvh max-h-dvh sm:h-auto" : ""} ${panelClassName}`}
             >
                 <div className={`pixel-frame bg-panel ${scrollBody ? "flex min-h-0 flex-1 flex-col" : ""}`}>
-                    <div className="flex shrink-0 items-start justify-between gap-4 border-b-2 border-cyan-400/25 p-4 sm:p-5">
+                    <div data-modal-header className="flex shrink-0 items-start justify-between gap-4 border-b-2 border-cyan-400/25 p-4 sm:p-5">
                         <h2
                             id={titleId}
                             className="font-pixel text-sm leading-relaxed tracking-wider text-neon-pink sm:text-base"
@@ -181,9 +205,9 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
                             X
                         </button>
                     </div>
-                    {navigationRef && <div ref={navigationRef} className="shrink-0 border-b border-cyan-400/25 px-4 sm:px-5 empty:hidden" />}
+                    {navigationRef && <div data-modal-navigation ref={navigationRef} className="shrink-0 border-b border-cyan-400/25 px-4 sm:px-5 empty:hidden" />}
                     <div data-modal-body className={scrollBody ? "min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5" : "p-5 sm:p-6"}>{children}</div>
-                    {footerRef && <div ref={footerRef} className="shrink-0 border-t border-cyan-400/25 bg-panel px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-5 empty:hidden" />}
+                    {footerRef && <div data-modal-footer ref={footerRef} className="shrink-0 border-t border-cyan-400/25 bg-panel px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-5 empty:hidden" />}
                 </div>
             </div>
             <div id={popoverId} ref={setPopoverHost} className="pointer-events-none fixed inset-0 z-[70]" />

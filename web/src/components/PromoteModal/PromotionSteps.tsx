@@ -14,6 +14,5 @@ export function PromotionSteps({ active, onEarlier }: { active: PromotionStep; o
                 <span className="promotion-steps__point" aria-hidden="true">{index < current ? "✓" : ""}</span>
             </li>)}
         </ol>
-        {active !== "payment" && <p className="promotion-steps__hint">{active === "post" ? "Review your post to choose a budget." : "Continue to prepare your payment invoices."}</p>}
     </nav>;
 }

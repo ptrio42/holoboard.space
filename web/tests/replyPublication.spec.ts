@@ -4,6 +4,7 @@ import { matchFilter } from "nostr-tools/filter";
 import { decode } from "nostr-tools/nip19";
 import * as nip44 from "nostr-tools/nip44";
 import { createHash } from "node:crypto";
+import { keyboardViewport } from "./helpers/keyboardViewport";
 
 test.use({ serviceWorkers: "block", reducedMotion: "reduce" });
 const enabled = ["VITE_ENABLE_DISCUSSIONS", "VITE_ENABLE_NOSTR_CONNECT", "VITE_ENABLE_REPLY_PUBLICATION"].every(key => process.env[key] === "true");
@@ -148,6 +149,33 @@ test("reply entry points require all three release flags", async ({ context, pag
 });
 test.describe("explicit reply publication", () => {
     test.skip(!enabled);
+    test("phone reply keeps editable text and GIF search above an overlaid keyboard", async ({ context, page }, info) => {
+        await page.setViewportSize({ width: 320, height: 844 });
+        const { state } = await setup(context, page);
+        const dialog = await open(page);
+        const field = dialog.getByRole("textbox", { name: "Reply text", exact: true });
+        await field.fill("A preserved reply draft."); await field.focus();
+        await keyboardViewport(page, 380, 18);
+        await page.screenshot({ path: info.outputPath("reply-keyboard.png") });
+        const visible = await field.evaluate(element => {
+            const field = element.getBoundingClientRect(), body = element.closest("[data-modal-body]")!.getBoundingClientRect();
+            return Math.max(0, Math.min(field.bottom, body.bottom) - Math.max(field.top, body.top));
+        });
+        expect(visible).toBeGreaterThanOrEqual(100);
+        const fieldBounds = (await field.boundingBox())!, editorBody = (await dialog.locator("[data-modal-body]").boundingBox())!;
+        expect(fieldBounds.y).toBeGreaterThanOrEqual(editorBody.y);
+        expect(fieldBounds.y + fieldBounds.height).toBeLessThanOrEqual(editorBody.y + editorBody.height);
+        const action = (await dialog.getByRole("button", { name: "Review reply", exact: true }).boundingBox())!;
+        expect(action.y + action.height).toBeLessThanOrEqual(398);
+        await dialog.getByRole("button", { name: "GIF", exact: true }).click();
+        const search = dialog.getByRole("searchbox", { name: "Search GIFs", exact: true });
+        await search.focus(); await search.fill("community");
+        const bounds = (await search.boundingBox())!, body = (await dialog.locator("[data-modal-body]").boundingBox())!;
+        expect(bounds.y).toBeGreaterThanOrEqual(body.y);
+        expect(bounds.y + bounds.height).toBeLessThanOrEqual(body.y + body.height);
+        await expect(field).toHaveValue("A preserved reply draft.");
+        expect(state.signatures).toEqual([]); expect(state.writes).toEqual([]); expect(state.errors).toEqual([]);
+    });
     test("composer tools insert at the caret, preview and preserve drafts on desktop and narrow phones", async ({ context, page }) => {
         const { state } = await setup(context, page);
         let dialog = await open(page);

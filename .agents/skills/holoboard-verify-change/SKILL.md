@@ -49,6 +49,11 @@ iterates through phone and desktop widths does not automatically need every
 device project. Include WebKit for touch, focus or Safari-specific behavior;
 use multiple engines when the change can behave differently between them.
 Do not rerun backend checks for a frontend-only delta.
+For forms and shared modal changes, select the affected mobile keyboard and
+clipping scenarios described in the repository's `holoboard-ui` skill. Include
+the other affected wallet, account and reply callers without defaulting to a
+full unrelated browser matrix. Keep simulated-keyboard and physical-device
+evidence separate.
 
 For a sizable browser selection, inspect `playwright test --list` or prior report
 counts before execution. Explain the reason for a long run before starting it.

@@ -5,12 +5,36 @@ import { bytesToHex } from "nostr-tools/utils";
 import jsQR from "jsqr";
 import { PNG } from "pngjs";
 import { addressMetadata, addressMetadataHash, incomingHash, paymentHash, preimage, walletInvoice } from "./helpers/walletFixture";
+import { keyboardViewport } from "./helpers/keyboardViewport";
 
 test.use({ serviceWorkers: "block", reducedMotion: "reduce" });
 const walletKey = generateSecretKey(), clientKey = generateSecretKey();
 const walletPubkey = getPublicKey(walletKey);
 const uri = `nostr+walletconnect://${walletPubkey}?relay=ws%3A%2F%2F127.0.0.1%3A3334&secret=${bytesToHex(clientKey)}`;
 const methods = ["get_info", "get_balance", "get_budget", "pay_invoice", "make_invoice", "lookup_invoice", "list_transactions"];
+
+test("phone wallet Send and Receive fields remain reachable above an overlaid keyboard", async ({ context, page }, info) => {
+    await page.setViewportSize({ width: 320, height: 844 });
+    const { state, dialog } = await setup(context, page);
+    for (const view of ["Send", "Receive"] as const) {
+        await page.getByRole("navigation", { name: "Wallet views" }).getByRole("button", { name: view, exact: true }).click();
+        const field = dialog.getByRole("textbox", { name: view === "Send" ? "Invoice or Lightning Address" : "Receive amount (sats)", exact: true });
+        await field.fill(view === "Send" ? "review-only@example.com" : "21"); await field.focus();
+        await keyboardViewport(page, 380, 18);
+        await page.screenshot({ path: info.outputPath(`wallet-${view.toLowerCase()}-keyboard.png`) });
+        const bounds = (await field.boundingBox())!, body = (await dialog.locator("[data-modal-body]").boundingBox())!;
+        expect(bounds.y).toBeGreaterThanOrEqual(body.y);
+        expect(bounds.y + bounds.height).toBeLessThanOrEqual(body.y + body.height);
+        const action = dialog.getByRole("button", { name: view === "Send" ? "Review payment" : "Create invoice", exact: true });
+        await action.focus();
+        const button = (await action.boundingBox())!;
+        expect(button.y).toBeGreaterThanOrEqual(body.y);
+        expect(button.y + button.height).toBeLessThanOrEqual(398);
+        await expect(field).not.toHaveValue("");
+        await keyboardViewport(page, 844);
+    }
+    expect(state.charges).toBe(0); expect(state.attempts).toBe(0); expect(state.errors).toEqual([]);
+});
 
 async function setup(context: BrowserContext, page: Page, options: { restoredProof?: string | null; methods?: string[]; loseResponse?: boolean; historySize?: number; balanceFailure?: boolean; notifications?: boolean; submitWithEnter?: boolean; beforeConnect?: () => Promise<void> } = {}) {
     const origin = new URL(test.info().project.use.baseURL!).origin;

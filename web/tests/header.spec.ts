@@ -4,6 +4,7 @@ import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import { matchFilter } from "nostr-tools/filter";
 import { decode } from "nostr-tools/nip19";
+import { keyboardViewport } from "./helpers/keyboardViewport";
 
 test.use({ serviceWorkers: "block", reducedMotion: "reduce" });
 const signerEnabled = process.env.VITE_ENABLE_NOSTR_CONNECT === "true";
@@ -12,6 +13,30 @@ const accountEnabled = signerEnabled || process.env.VITE_ENABLE_EMAIL_ACCOUNTS =
 const authorKey = generateSecretKey(), accountKey = generateSecretKey();
 const accountPubkey = getPublicKey(accountKey);
 const note = finalizeEvent({ kind: 1, created_at: 1700000000, tags: [], content: "An open board for ideas worth discovering. Support a note to give it more visibility." }, authorKey);
+
+for (const section of ["wallet", "signer"] as const) test(`phone ${section} connection keeps its field and action above the keyboard`, async ({ context, page }, info) => {
+    test.skip(section === "signer" && !signerEnabled);
+    await page.setViewportSize({ width: 320, height: 844 });
+    const state = await setup(context, page);
+    await page.getByRole("button", { name: section === "wallet" ? "Wallet" : "Sign in", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: section === "wallet" ? "Connect wallet" : "Sign in", exact: true });
+    if (section === "signer") await dialog.getByText("Use a bunker link", { exact: true }).click();
+    const field = dialog.getByLabel(section === "wallet" ? "NWC connection link" : "Bunker connection link", { exact: true });
+    await field.fill(section === "wallet" ? "nostr+walletconnect://local-test-only" : "bunker://local-test-only");
+    await field.focus();
+    await keyboardViewport(page, 380, 18);
+    await page.screenshot({ path: info.outputPath(`${section}-keyboard.png`) });
+    const bounds = (await field.boundingBox())!, body = (await dialog.locator("[data-modal-body]").boundingBox())!;
+    expect(bounds.y).toBeGreaterThanOrEqual(body.y);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(body.y + body.height);
+    const action = dialog.getByRole("button", { name: section === "wallet" ? "Connect wallet" : "Connect this signer", exact: true });
+    await action.focus();
+    const button = (await action.boundingBox())!;
+    expect(button.y).toBeGreaterThanOrEqual(body.y);
+    expect(button.y + button.height).toBeLessThanOrEqual(398);
+    await expect(field).not.toHaveValue("");
+    expect(state.publicFrames).toEqual([]); expect(state.writes).toEqual([]); expect(state.errors).toEqual([]);
+});
 
 async function setup(context: BrowserContext, page: Page, name = "starlight", brokenPicture = false) {
     const origin = new URL(test.info().project.use.baseURL!).origin;

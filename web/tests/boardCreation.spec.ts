@@ -4,6 +4,7 @@ import { neventEncode, noteEncode } from "nostr-tools/nip19";
 import { matchFilter } from "nostr-tools/filter";
 import { walletInvoice } from "./helpers/walletFixture";
 import { captureGuidedStage, guidedViewports, shortContribution, longContribution } from "./helpers/guidedAcceptance";
+import { keyboardViewport } from "./helpers/keyboardViewport";
 
 test.use({ serviceWorkers: "block", reducedMotion: "reduce" });
 test.skip(process.env.VITE_ENABLE_POST_CREATION !== "true", "Requires the independent creation release gate");
@@ -15,6 +16,83 @@ const boardHash = "b".repeat(64);
 const compositionEvidence = new WeakMap<BrowserContext, {
     signerRequests: string[]; reviewedIds: string[]; requests: Record<string, unknown>[]; frames: string[];
 }>();
+
+test("phone Post clearly marks its field and keeps editing room above an overlaid keyboard", async ({ context, page }, info) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const state = await setup(context, page);
+    const dialog = page.getByRole("dialog", { name: "Add to board", exact: true });
+    const field = dialog.getByRole("textbox", { name: "Text or link" });
+    await page.screenshot({ path: info.outputPath("post-idle.png") });
+    expect.soft(await field.evaluate(element => parseFloat(getComputedStyle(element).borderTopWidth))).toBeGreaterThanOrEqual(1);
+    await field.fill("My draft stays here while I type."); await field.focus();
+    await keyboardViewport(page, 380, 18);
+    await page.screenshot({ path: info.outputPath("post-keyboard.png") });
+    const geometry = await dialog.evaluate(element => {
+        const body = element.querySelector("[data-modal-body]")!.getBoundingClientRect();
+        const field = element.querySelector("textarea")!.getBoundingClientRect();
+        return { body: body.toJSON(), field: field.toJSON(), visibleField: Math.max(0, Math.min(body.bottom, field.bottom) - Math.max(body.top, field.top)) };
+    });
+    await info.attach("keyboard-geometry", { contentType: "application/json", body: JSON.stringify(geometry) });
+    expect(geometry.visibleField).toBeGreaterThanOrEqual(100);
+    const action = (await dialog.getByRole("button", { name: "Review & continue", exact: true }).boundingBox())!;
+    expect(action.y + action.height).toBeLessThanOrEqual(398);
+    await expect(field).toHaveValue("My draft stays here while I type.");
+    await dialog.getByRole("button", { name: "Close dialog", exact: true }).focus();
+    await keyboardViewport(page, 844);
+    await expect(dialog).toHaveAttribute("data-keyboard-open", "false");
+    await expect(dialog.getByRole("heading", { name: "Share a post", exact: true })).toBeVisible();
+    await expect(field).toHaveValue("My draft stays here while I type.");
+    expect(state.requests).toHaveLength(0); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+test("phone Budget initially shows the amount and applicable split together", async ({ context, page }, info) => {
+    await page.setViewportSize({ width: 390, height: 664 });
+    const state = await setup(context, page, { authorWallet: true });
+    await page.getByRole("textbox", { name: "Text or link" }).fill(noteEncode(original.id));
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    const slider = page.getByRole("slider", { name: "Holoboard share in percent" });
+    await expect(slider).toHaveCount(1);
+    for (const width of [390, 320]) {
+        await page.setViewportSize({ width, height: 664 });
+        await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        await page.screenshot({ path: info.outputPath(`budget-initial-${width}.png`) });
+        const bounds = (await slider.boundingBox())!, body = (await page.locator("[data-modal-body]").boundingBox())!;
+        expect(bounds.y).toBeGreaterThanOrEqual(body.y);
+        expect(bounds.y + bounds.height).toBeLessThanOrEqual(body.y + body.height);
+    }
+    await expect(page.getByRole("group", { name: "Complete total", exact: true })).toContainText("210 sats");
+    await page.getByRole("button", { name: "Custom", exact: true }).click();
+    const custom = page.getByRole("textbox", { name: "Custom total in sats", exact: true });
+    await custom.fill("");
+    await keyboardViewport(page, 380, 18);
+    await expect(page.getByRole("button", { name: "Enter amount", exact: true })).toBeDisabled();
+    const input = (await custom.boundingBox())!, body = (await page.locator("[data-modal-body]").boundingBox())!;
+    expect(input.y).toBeGreaterThanOrEqual(body.y);
+    expect(input.y + input.height).toBeLessThanOrEqual(body.y + body.height);
+    await custom.fill("50"); await keyboardViewport(page, 664);
+    await expect(page.getByRole("button", { name: "Continue to payment · 50 sats", exact: true })).toBeEnabled();
+    expect(state.requests).toHaveLength(0); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+test("phone Payment shows its total and full QR together for a long post", async ({ context, page }, info) => {
+    await page.setViewportSize({ width: 390, height: 664 });
+    const state = await setup(context, page);
+    await page.getByRole("textbox", { name: "Text or link" }).fill("An update for our community. ".repeat(45));
+    await page.getByRole("button", { name: "Review & continue", exact: true }).click();
+    await page.getByRole("button", { name: "Continue to payment · 210 sats", exact: true }).click();
+    const qr = page.getByRole("img", { name: "Holoboard visibility invoice QR code", exact: true });
+    await expect(qr).toHaveCount(1);
+    await expect.poll(() => qr.evaluate(element => (element as HTMLImageElement).complete)).toBe(true);
+    await page.screenshot({ path: info.outputPath("payment-initial.png") });
+    const body = (await page.locator("[data-modal-body]").boundingBox())!;
+    for (const locator of [page.getByRole("group", { name: "Complete total", exact: true }), qr]) {
+        const bounds = (await locator.boundingBox())!;
+        expect(bounds.y).toBeGreaterThanOrEqual(body.y);
+        expect(bounds.y + bounds.height).toBeLessThanOrEqual(body.y + body.height);
+    }
+    expect((await qr.boundingBox())!.height).toBe(220);
+    expect(state.requests).toHaveLength(1); expect(state.frames).toEqual([]); expect(state.errors).toEqual([]);
+});
 
 test.afterEach(async ({ context }, info) => {
     const state = compositionEvidence.get(context);

@@ -804,6 +804,16 @@ Use the pixel font for headings, controls and ranks; note bodies use a system
 monospace font. Promotion amounts use a compact picker, while original-note text
 and editor panel explanations use a readable body size. The modal scrolls its
 body independently of the action footer, including on small phone screens.
+Editable dialogs fit the visual viewport above an on-screen keyboard and reveal
+the focused field within their own scroll body. Keep secondary header and footer
+copy compact while typing, preserve a reachable close action, and restore the
+normal layout after keyboard dismissal. Budget keeps its amount and applicable
+split together; invoice payment reserves room for the complete 220px QR.
+The [keyboard viewport helper](tests/helpers/keyboardViewport.ts) models keyboard
+height and panning separately from the layout viewport. Its geometry assertions
+complement phone and desktop checks; they do not establish physical keyboard
+behavior. Check NWC and bunker links, reply and search fields and wallet forms
+when changing their shared modal.
 Promotion actions and short labels share a 10px pixel style; panel headings use
 12px. Board notes and focused notes use a 16px monospace base size; compact
 discussion comments use the same 16px body size. Promotion
