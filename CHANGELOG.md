@@ -6,12 +6,6 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
-### Changed
-
-- Prepare Android 1.1.0 for Zapstore with the pink H launcher and splash assets,
-  refreshed store screenshots and release checks that reject stale APKs.
-  Device acceptance and store publication remain pending.
-
 ## 2026-10-25
 
 ### Added
@@ -43,6 +37,8 @@ record deployment, not announcement publication.
 
 ### Changed
 
+- Update Android to 1.1.0 on Zapstore with the pink H launcher and splash assets
+  and refreshed store screenshots.
 - Fit note columns to their media and text, place destination previews where they
   keep the complete card shorter, and bound long link labels on phones.
 - Share the maintained note editor, renderer and Nostr client primitives with
