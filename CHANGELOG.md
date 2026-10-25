@@ -6,15 +6,6 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
-### Fixed
-
-- Make the Add to board text field distinct and keep mobile editing usable
-  above the keyboard, including wallet connections and replies. Keep budget
-  totals and applicable author splits together, and give invoice QR codes
-  more room. Restore a short post excerpt beside the budget, simplify secondary
-  choices, prioritize opening a wallet and make unfinished-payment recovery
-  warnings visible before further actions.
-
 ## 2026-10-25
 
 ### Added
@@ -70,6 +61,12 @@ record deployment, not announcement publication.
 
 ### Fixed
 
+- Make the Add to board text field distinct and keep mobile editing usable
+  above the keyboard, including wallet connections and replies. Keep budget
+  totals and applicable author splits together, and give invoice QR codes
+  more room. Restore a short post excerpt beside the budget, simplify secondary
+  choices, prioritize opening a wallet and make unfinished-payment recovery
+  warnings visible before further actions.
 - Expose note ranking positions, payment totals and recipient groups correctly
   to screen readers, with popup controls linked only while their panels exist.
 - Handle blocked wallet storage cleanly in Firefox while retaining anonymous
