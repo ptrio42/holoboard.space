@@ -125,10 +125,12 @@ export function BoardComposer({ onSource, children }: { onSource: (source: Board
             <textarea ref={field} className="composer-textarea board-composer-textarea focus-pixel w-full" rows={4} maxLength={16384} value={text} disabled={busy}
                 placeholder="Write something, share a link, or paste a post" onChange={event => edit(event.target.value)} />
         </label>
-        {classified.mode !== "original" && <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-cyan-100/75">
-            <span className="promotion-label text-neon-cyan">Your post</span>
-            <span>{guestMode ? "Posting as a guest. No account required." : "Posting with your Nostr account."}</span>
-            {ENABLE_NOSTR_CONNECT && <button type="button" className="promotion-action focus-pixel min-h-11 text-neon-cyan" disabled={busy} onClick={() => setShowAccount(!showAccount)}>{account ? "Account settings" : "Use a Nostr account"}</button>}
+        {classified.mode !== "original" && <div className="board-composer-identity text-xs text-cyan-100/75">
+            <div className="flex min-h-11 items-center justify-between gap-3">
+                <span className="promotion-label text-neon-cyan">Your post</span>
+                {ENABLE_NOSTR_CONNECT && <button type="button" className="promotion-action focus-pixel min-h-11 text-cyan-100/65" aria-label={account ? "Account settings" : "Use a Nostr account"} disabled={busy} onClick={() => setShowAccount(!showAccount)}>{account ? "Account" : "Sign in"}</button>}
+            </div>
+            <p>{guestMode ? "Guest, no account required." : "Posting with your Nostr account."}</p>
         </div>}
         {showAccount && <ConnectionSettings section="signer" purpose="account" embedded disabled={busy} />}
         {classified.mode === "original" ? <div className="flex flex-wrap items-center gap-3"><span className="promotion-label text-neon-cyan">Original post</span><button className="promotion-action focus-pixel min-h-11" onClick={quote}>Add a comment</button></div> : <>

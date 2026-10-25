@@ -1,6 +1,7 @@
 import { expect, type Page, type TestInfo } from "@playwright/test";
 import jsQR from "jsqr";
 import { PNG } from "pngjs";
+import { expectModalChrome } from "./modalGeometry";
 
 export const shortContribution = "A community meetup this Saturday. Details: https://example.com/story";
 export const longContribution = `${shortContribution}\n\n${"Bring a project, meet other makers and share what you learned. Everyone can join the conversation and ask questions. ".repeat(18)}`;
@@ -25,6 +26,7 @@ export async function captureGuidedStage(page: Page, info: TestInfo, stage: stri
     await expect(close).toHaveCount(1);
     if (stage !== "payment") await body.evaluate(element => { element.scrollTop = 0; });
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))));
+    await expectModalChrome(dialog);
     const shell = await dialog.evaluate(element => ({ bottom: element.getBoundingClientRect().bottom, height: innerHeight, viewportHeight: visualViewport?.height,
         maxHeight: (element as HTMLElement).style.maxHeight, computedMax: getComputedStyle(element).maxHeight, overlayPadding: getComputedStyle(element.parentElement!).padding,
         overlayStyle: (element.parentElement as HTMLElement).style.cssText, classes: element.className }));

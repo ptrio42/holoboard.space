@@ -11,7 +11,9 @@ record deployment, not announcement publication.
 - Make the Add to board text field distinct and keep mobile editing usable
   above the keyboard, including wallet connections and replies. Keep budget
   totals and applicable author splits together, and give invoice QR codes
-  more room.
+  more room. Restore a short post excerpt beside the budget, simplify secondary
+  choices, prioritize opening a wallet and make unfinished-payment recovery
+  warnings visible before further actions.
 
 ## 2026-10-25
 

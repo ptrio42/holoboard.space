@@ -8,6 +8,7 @@ import { bytesToHex } from "nostr-tools/utils";
 import jsQR from "jsqr";
 import { PNG } from "pngjs";
 import { walletInvoice } from "./helpers/walletFixture";
+import { expectModalChrome } from "./helpers/modalGeometry";
 
 // Route-based API mocks cannot intercept requests owned by a service worker.
 // The PWA suite exercises worker updates with a real local mock API instead.
@@ -416,13 +417,20 @@ for (const storage of ["browser storage", "private payment storage"] as const) t
     expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1); expect(state.errors).toEqual([]);
 });
 
-test("confirmed and uncertain wallet parts survive form reopening", async ({ context, page }) => {
+test("confirmed and uncertain wallet parts survive form reopening", async ({ context, page }, info) => {
+    await page.setViewportSize({ width: 320, height: 664 });
     const state = await setup(context, page, { failAuthor: true });
     await connectNwc(page);
     await prepareInvoices(page);
     await page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ }).click();
     await expect(page.getByText("Added 168 sats to visibility.", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "I checked my wallet: author support was not paid", exact: true })).toBeVisible();
+    await page.screenshot({ path: info.outputPath("uncertain-author-payment.png") });
+    await expectModalChrome(page.getByRole("dialog"));
+    const warning = page.getByRole("status").filter({ hasText: "Author payment not confirmed" });
+    const notice = (await warning.boundingBox())!, body = (await page.locator("[data-modal-body]").boundingBox())!;
+    expect(notice.y).toBeGreaterThanOrEqual(body.y);
+    expect(notice.y + notice.height).toBeLessThanOrEqual(body.y + body.height);
     await page.getByRole("button", { name: "Close dialog", exact: true }).click();
     await page.getByRole("button", { name: "Boost", exact: true }).first().click();
     await expect(page.getByRole("button", { name: /^(Pay \d+ sats|Check & pay up to \d+ sats|Check payment status)$/ })).toBeEnabled();
@@ -1240,7 +1248,12 @@ test("long original notes scroll while the promotion action stays visible", asyn
     const state = await setup(context, page, { noteContent: "A long original paragraph.\n\n".repeat(120) });
     await page.getByRole("button", { name: "Show full text", exact: true }).click();
     const body = page.getByRole("dialog").locator("[data-modal-body]");
+    await body.evaluate(element => { element.scrollTop = 0; });
+    await expect(body).toHaveAttribute("data-scroll-more", "true");
+    await expect(body).not.toHaveCSS("box-shadow", "none");
     await body.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await expect(body).toHaveAttribute("data-scroll-more", "false");
+    await expect(body).toHaveCSS("box-shadow", "none");
     const bounds = await page.getByRole("button", { name: "Boost 210 sats", exact: true }).boundingBox();
     expect(bounds!.y).toBeGreaterThanOrEqual(0);
     expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(844);
@@ -2213,7 +2226,7 @@ test("changing notes resets allocation, appearance and notification draft", asyn
     await page.getByRole("checkbox", { name: "Send me a confirmation DM", exact: true }).check();
     await page.getByRole("textbox", { name: "Npub for confirmation", exact: true }).fill(note.pubkey);
     await backToForm(page);
-    await page.getByRole("button", { name: "Edit post", exact: true }).click();
+    await page.getByRole("button", { name: "< Back to post", exact: true }).click();
     await page.getByRole("textbox", { name: "Post link", exact: true }).fill(otherNote.id);
     await expect(page.getByRole("button", { name: "Review & continue", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "Review & continue", exact: true }).click();
@@ -2510,7 +2523,19 @@ test("phone split Payment keeps both recipients, total and complete QR in view",
         await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
         const qr = dialog.getByRole("img", { name: "Holoboard visibility invoice QR code", exact: true });
         await expect(qr).toHaveCount(1);
+        await expectModalChrome(dialog);
         await page.screenshot({ path: info.outputPath(`split-payment-${width}.png`) });
+        await expectModalChrome(dialog);
+        const actions = dialog.locator(".promotion-invoice-actions").locator("button, a");
+        await expect(actions).toHaveCount(2);
+        for (const action of await actions.all()) {
+            const text = await action.locator(".pixel-btn__face").evaluate(element => {
+                const range = document.createRange(); range.selectNodeContents(element);
+                return { height: range.getBoundingClientRect().height, line: parseFloat(getComputedStyle(element).lineHeight) };
+            });
+            expect(text.height).toBeLessThanOrEqual(text.line + 1);
+            expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        }
         const body = (await dialog.locator("[data-modal-body]").boundingBox())!;
         const recipients = dialog.getByRole("group", { name: "Payment recipients", exact: true }).getByRole("button");
         await expect(recipients).toHaveCount(2);
@@ -2522,6 +2547,41 @@ test("phone split Payment keeps both recipients, total and complete QR in view",
         expect((await qr.boundingBox())!.height).toBe(220);
     }
     expect(state.boardRequests).toHaveLength(1); expect(state.authorRequests).toHaveLength(1);
+    expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
+});
+
+for (const scenario of ["unavailable", "expired", "partial"] as const) test(`phone recovery presentation: ${scenario}`, async ({ context, page }, info) => {
+    await page.setViewportSize({ width: 320, height: 664 });
+    const state = await setup(context, page, { newCampaign: true, authorUnavailable: scenario === "unavailable" ? "unavailable" : undefined });
+    const dialog = page.getByRole("dialog", { name: "Add to board", exact: true });
+    if (scenario === "unavailable") {
+        await expect(page.getByRole("alert")).toContainText("Author support is unavailable.");
+        await expect(page.getByRole("button", { name: "Retry author wallet", exact: true })).toBeEnabled();
+        await expect(page.getByRole("button", { name: "Choose visibility only", exact: true })).toBeEnabled();
+    } else {
+        if (scenario === "expired") await page.clock.install();
+        await prepareInvoices(page);
+        if (scenario === "expired") {
+            await page.clock.fastForward(3601000);
+            await expect(page.getByText("Invoice expired", { exact: true })).toHaveCount(2);
+            await expect(page.getByRole("button", { name: "Restart payment", exact: true })).toBeVisible();
+            await expect(page.getByRole("img", { name: /invoice QR code$/ })).toHaveCount(0);
+        } else {
+            state.boardPaid = true;
+            await expect(page.getByRole("button", { name: "Next invoice: Author", exact: true })).toBeVisible();
+            await page.getByRole("button", { name: /^Author 42 sats/ }).click();
+            await expect(page.getByRole("img", { name: "Support the original author invoice QR code", exact: true })).toBeVisible();
+            await expect(page.getByRole("button", { name: /^Holoboard 168 sats Payment verified/ })).toBeVisible();
+            await expect(page.getByRole("button", { name: /^Author 42 sats Awaiting payment/ })).toBeVisible();
+        }
+    }
+    await expectModalChrome(dialog);
+    const recoveryActions = dialog.locator(".promotion-recovery-action");
+    await expect(recoveryActions).toHaveCount(scenario === "unavailable" ? 2 : scenario === "expired" ? 1 : 0);
+    for (const action of await recoveryActions.all()) expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await page.screenshot({ path: info.outputPath(`recovery-${scenario}.png`) });
+    expect(state.boardRequests).toHaveLength(scenario === "unavailable" ? 0 : 1);
+    expect(state.authorRequests).toHaveLength(scenario === "unavailable" ? 0 : 1);
     expect(state.boardCharges).toBe(0); expect(state.authorCharges).toBe(0); expect(state.errors).toEqual([]);
 });
 
@@ -2544,7 +2604,7 @@ test("creation-disabled Post retains privately issued invoices without exposing 
     await expect(page.getByRole("textbox", { name: "Post link", exact: true })).toHaveValue("");
     await expect(page.getByRole("textbox", { name: "Text or link", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Add a comment", exact: true })).toHaveCount(0);
-    await expect(page.getByText("Posting as a guest. No account required.", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Guest, no account required.", { exact: true })).toHaveCount(0);
     await page.getByText("Unfinished payments", { exact: true }).click();
     await page.getByRole("button", { name: "Resume payment", exact: true }).click();
     await expect(page.getByRole("link", { name: "Open in wallet", exact: true })).toHaveAttribute("href", `lightning:${invoice}`);

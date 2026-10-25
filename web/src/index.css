@@ -1325,9 +1325,20 @@ body::after {
 .board-composer-textarea.composer-textarea::placeholder { color: rgb(207 250 254 / .65); }
 .board-composer-textarea.composer-textarea:focus { border-color: var(--color-neon-cyan); }
 .promotion-post-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+.board-composer-identity { border-top: 1px solid rgb(34 211 238 / .15); padding-top: 4px; }
+.promotion-author-details > summary { flex-wrap: wrap; justify-content: flex-start; }
+.promotion-author-details > summary > span:last-child { margin-left: auto; }
+.promotion-recovery-action { min-height: 44px; }
+.promotion-recovery-action .pixel-btn__face { min-height: 38px; }
+.promotion-invoice-actions { display: flex; align-items: stretch; gap: 12px; }
+.promotion-invoice-actions .pixel-btn__face { height: 100%; min-height: 38px; overflow-wrap: anywhere; }
+.promotion-invoice-actions .pixel-btn--accent .pixel-btn__face { background: var(--color-neon-pink); color: var(--color-void); }
+.promotion-invoice-actions .pixel-btn--ghost { min-width: 44px; padding: 0; background: transparent; clip-path: none; }
+.promotion-invoice-actions .pixel-btn--ghost .pixel-btn__face { min-height: 44px; background: transparent; }
 .promotion-complete-total > strong { white-space: nowrap; }
 .promotion-complete-total > span:last-child:not(:first-child) { flex-basis: 100%; }
 .promotion-payment-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px; }
+.promotion-payment { overflow-anchor: none; }
 .promotion-payment-heading > .promotion-complete-total { flex-direction: column; gap: 0; }
 .promotion-payment-heading:has(details[open]) { grid-template-columns: minmax(0, 1fr); }
 .promotion-payment-recipients { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }

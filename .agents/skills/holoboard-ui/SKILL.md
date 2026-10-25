@@ -68,8 +68,10 @@ keyboard. Label simulated keyboard coverage explicitly; it does not establish
 physical-device keyboard behavior.
 
 Check the initial frame before locator clicks or automatic scrolling can hide
-density problems. A visible DOM element is not enough: measure the field,
-scroll body, footer and primary content against their clipping boundaries.
+density problems. A visible DOM element is not enough: measure the whole dialog,
+title, close action, field, scroll body, footer and primary content against their
+clipping boundaries. Verify suspected clipping against the original image and
+live browser bounds before attributing a cropped attachment preview to the app.
 Text fields need a recognizable boundary and enough visible room to edit.
 On normal phone viewports, budget amounts and an applicable split slider must
 be visible together, and payment must show a complete scannable QR alongside
@@ -77,6 +79,9 @@ the selected recipient. Keep QR size, readable text and touch targets intact;
 remove repeated summaries and secondary chrome before shrinking primary content.
 With the keyboard open, keep the focused field, nearby errors and the next
 action reachable. Secondary information must not consume the editing area.
+Inspect partial, expired and uncertain payment states separately. Recovery
+warnings must be visible after a request ends, with a clear next action, and
+must preserve the distinction between verified payments and unverified reports.
 For shared modal changes, inspect the other affected account, wallet and reply
 callers, including focus return, keyboard dismissal and preserved input.
 Include multiple quotes with destination previews inside them. Measure loading

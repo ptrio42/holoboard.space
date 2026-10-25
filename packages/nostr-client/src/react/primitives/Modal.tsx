@@ -109,6 +109,10 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
     useEffect(() => {
         const viewport = window.visualViewport;
         if (!isOpen || !scrollBody || !viewport) return;
+        const body = panelRef.current?.querySelector<HTMLElement>("[data-modal-body]");
+        const updateScrollHint = () => {
+            if (body) body.dataset.scrollMore = String(body.scrollHeight - body.clientHeight - body.scrollTop > 1);
+        };
         const fit = () => {
             const overlay = overlayRef.current;
             const panel = panelRef.current;
@@ -133,6 +137,7 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
                 if (field.top < bounds.top + 12) body.scrollTop -= bounds.top + 12 - field.top;
                 else if (field.bottom > bounds.bottom - 12) body.scrollTop += field.bottom - bounds.bottom + 12;
             }
+            updateScrollHint();
         };
         // Coalesce viewport updates; CSS resolves responsive padding in the same layout.
         let frame = 0;
@@ -140,9 +145,11 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
             cancelAnimationFrame(frame);
             frame = requestAnimationFrame(fit);
         };
-        const body = panelRef.current?.querySelector<HTMLElement>("[data-modal-body]");
         const observer = new ResizeObserver(scheduleFit);
         if (body) observer.observe(body);
+        const content = body?.querySelector<HTMLElement>("[data-modal-content]");
+        if (content) observer.observe(content);
+        body?.addEventListener("scroll", updateScrollHint, { passive: true });
         fit();
         viewport.addEventListener("resize", scheduleFit);
         viewport.addEventListener("scroll", scheduleFit);
@@ -152,6 +159,7 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
         return () => {
             cancelAnimationFrame(frame);
             observer.disconnect();
+            body?.removeEventListener("scroll", updateScrollHint);
             viewport.removeEventListener("resize", scheduleFit);
             viewport.removeEventListener("scroll", scheduleFit);
             window.removeEventListener("resize", scheduleFit);
@@ -206,7 +214,9 @@ export function Modal({ isOpen, onClose, title, children, panelClassName = "", s
                         </button>
                     </div>
                     {navigationRef && <div data-modal-navigation ref={navigationRef} className="shrink-0 border-b border-cyan-400/25 px-4 sm:px-5 empty:hidden" />}
-                    <div data-modal-body className={scrollBody ? "min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5" : "p-5 sm:p-6"}>{children}</div>
+                    <div data-modal-body className={scrollBody ? "min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5" : "p-5 sm:p-6"}>
+                        <div data-modal-content>{children}</div>
+                    </div>
                     {footerRef && <div data-modal-footer ref={footerRef} className="shrink-0 border-t border-cyan-400/25 bg-panel px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-5 empty:hidden" />}
                 </div>
             </div>

@@ -4,10 +4,11 @@ import { PixelButton } from "./PixelButton";
 interface CopyButtonProps {
     value: string;
     label?: string;
+    accessibleLabel?: string;
     size?: "sm" | "md";
 }
 
-export function CopyButton({ value, label = "Copy", size = "sm" }: CopyButtonProps) {
+export function CopyButton({ value, label = "Copy", accessibleLabel, size = "sm" }: CopyButtonProps) {
     const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
 
     useEffect(() => {
@@ -26,7 +27,7 @@ export function CopyButton({ value, label = "Copy", size = "sm" }: CopyButtonPro
     };
 
     return (
-        <PixelButton variant="ghost" size={size} onClick={copy}>
+        <PixelButton variant="ghost" size={size} aria-label={state === "idle" ? accessibleLabel : undefined} onClick={copy}>
             <span aria-live="polite">
                 {state === "copied" ? "Copied" : state === "failed" ? "Copy failed" : label}
             </span>

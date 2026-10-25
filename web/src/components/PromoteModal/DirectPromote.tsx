@@ -617,8 +617,8 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         <p role="alert">{authorInvoiceError ? `Could not prepare author support: ${authorInvoiceError}` : !endpoint?.available ? endpoint?.reason : `The author's wallet accepts ${endpoint.min_sats} to ${endpoint.max_sats} sats. Increase the amount or change the allocation.`}</p>
         <p>Visibility only: {amount} sats to Holoboard, 0 to the author{fee > 0 ? `, plus ${fee} sats for appearance` : ""}.</p>
         <div className="flex flex-wrap gap-2">
-            {!endpoint?.available && endpoint?.reason_code !== "no_address" && <button type="button" className={`${actionClass} min-w-11`} aria-label="Retry author wallet" disabled={busy || loading} onClick={() => void retryAuthorEndpoint()}>Retry</button>}
-            <button type="button" className={actionClass} aria-label="Choose visibility only" disabled={busy || loading} onClick={() => { changeAuthorShare(0); setError(""); }}>Visibility only</button>
+            {!endpoint?.available && endpoint?.reason_code !== "no_address" && <PixelButton size="sm" variant="ghost" className="promotion-recovery-action" aria-label="Retry author wallet" disabled={busy || loading} onClick={() => void retryAuthorEndpoint()}>Retry</PixelButton>}
+            <PixelButton size="sm" variant="accent" className="promotion-recovery-action" aria-label="Choose visibility only" disabled={busy || loading} onClick={() => { changeAuthorShare(0); setError(""); }}>Visibility only</PixelButton>
         </div>
     </div>;
     const submission = <div className="space-y-2">
@@ -709,7 +709,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
     if (!boost && editorStep === "post") return <>{navigation}<div className="promotion-post space-y-4" aria-busy={busy || loading || composer?.busy}>
         <h3 data-stage-heading tabIndex={-1} className="promotion-post-heading promotion-section-title text-cyan-100">Share a post</h3>
         {recoveryList}
-        {composer ? <fieldset disabled={resuming || busy} className="min-w-0 space-y-4">{composer.editor}{composer.authorExtras && <details className="disclosure"><summary className={`${actionClass} cursor-pointer`}>Author details</summary>{composer.authorExtras}</details>}</fieldset> : <>
+        {composer ? <fieldset disabled={resuming || busy} className="min-w-0 space-y-4">{composer.editor}{composer.authorExtras && <details className="disclosure promotion-author-details"><summary className={`${actionClass} w-full cursor-pointer justify-between`}><span>Author details</span><span className="font-body text-xs text-cyan-100/55">Optional</span></summary>{composer.authorExtras}</details>}</fieldset> : <>
             <p className="text-sm text-cyan-100/75">Choose an existing Nostr post. {!ENABLE_POST_CREATION && "Writing new posts is not available in this build."}</p>
             <label className="block space-y-2"><span className="promotion-label">Post link</span>
                 <input aria-label="Post link" className={FIELD} value={reference} disabled={busy || resuming} placeholder="note1, nevent1, or a post link" spellCheck={false} onChange={event => changeReference(event.target.value)} />
@@ -732,10 +732,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
         {recoveryList}
         {loading && <StatusMessage compact loading>{preview ? "Checking author payment details..." : "Loading post and author payment details..."}</StatusMessage>}
         {preview && <PromotionNotePreview preview={preview} compact summaryOnly={!boost} expanded={noteExpanded} onToggle={() => setNoteExpanded(!noteExpanded)} />}
-        {!boost && <div className="flex items-center justify-between gap-3">
-            <h3 className="promotion-section-title text-cyan-100">Choose your budget</h3>
-            <button type="button" className={actionClass} disabled={busy} onClick={() => setEditorStep("post")}>Edit post</button>
-        </div>}
+        {!boost && <h3 className="promotion-section-title text-cyan-100">Your budget</h3>}
         <PromotionAmountPicker amount={amountText} validAmount={validAmount} currentWeight={knownWeight} max={10000000} appearanceFee={fee} targets={targets} disabled={busy} quietModes={!boost}
             selection={amountSelection} onSelectionChange={setAmountSelection}
             totalForPromotion={(needed) => totalForPromotion(needed, authorShare)} onChange={setAmountText} />
@@ -763,7 +760,7 @@ export function DirectPromote({ initialReference = "", currentWeight, rankingTar
             {appearanceEntry}
             {paymentOptions}
             {!anonymous && <p className="text-xs text-cyan-100/60">Optional Notifications: {notifyEnabled ? "confirmation DM enabled" : "get a confirmation DM and expiry reminder"}.</p>}
-            {composer?.authorDetails && <details className="disclosure"><summary className={`${actionClass} cursor-pointer`}>Post author</summary><fieldset disabled={resuming || busy}>{composer.authorDetails}</fieldset></details>}
+            {composer?.authorDetails && <details className="disclosure promotion-author-details"><summary className={`${actionClass} w-full cursor-pointer justify-between`}><span>Post author</span><span className="font-body text-xs text-cyan-100/55">Optional</span></summary><fieldset disabled={resuming || busy}>{composer.authorDetails}</fieldset></details>}
         </div>}
         {footer(submission)}
     </div></>;

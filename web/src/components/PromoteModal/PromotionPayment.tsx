@@ -46,9 +46,16 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
         : verifying.length ? `Verifying ${verifying.map((part) => part.id === "board" ? "visibility" : "author support").join(" and ")}` : "";
     const blocked = restartBlocked(payment);
     const invoiceAvailable = !selected.paid && now < selected.expires * 1000 && !isMockInvoice(selected.invoice);
+    const uncertainty = busy ? "" : parts.filter(part => !part.paid && !isMockInvoice(part.invoice) && part.attempt?.state === "uncertain").map(part => part.hash).join(":");
+    const recoveryNotice = useRef<HTMLDivElement>(null);
+    useLayoutEffect(() => {
+        if (!uncertainty) return;
+        const body = recoveryNotice.current?.closest<HTMLElement>("[data-modal-body]");
+        if (body) body.scrollTop = 0;
+    }, [uncertainty, method]);
     const invoiceQr = useRef<HTMLDivElement>(null);
     useLayoutEffect(() => {
-        if (method !== "invoice" || !invoiceAvailable) return;
+        if (method !== "invoice" || !invoiceAvailable || uncertainty) return;
         const qr = invoiceQr.current;
         const body = qr?.closest<HTMLElement>("[data-modal-body]");
         if (!qr || !body) return;
@@ -66,11 +73,22 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
         const observer = new ResizeObserver(reveal);
         observer.observe(body);
         return () => observer.disconnect();
-    }, [method, invoiceAvailable, selected.hash]);
+    }, [method, invoiceAvailable, selected.hash, uncertainty]);
     const actionClass = "promotion-action focus-pixel inline-flex min-h-11 items-center text-cyan-200/75 hover:text-neon-cyan disabled:opacity-40";
     return <>
         <div className="promotion-payment space-y-2 text-sm" role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${method}`} tabIndex={0}>
             <h3 data-stage-heading tabIndex={-1} className="sr-only">Payment</h3>
+            {uncertainty && <div ref={recoveryNotice} className="space-y-3">
+                {parts.map(part => !part.paid && !isMockInvoice(part.invoice) && part.attempt?.state === "uncertain" && <section key={part.id} className="space-y-2 text-xs text-cyan-100/70">
+                    <div role="status" className="space-y-2 border-l-2 border-neon-gold/50 bg-white/[0.03] p-3">
+                        <p className="promotion-label text-neon-gold">{part.id === "board" ? "Holoboard" : "Author"} payment not confirmed</p>
+                        <p>The {part.amount} sats {part.id === "board" ? "for Holoboard visibility" : "to the author"} may already have been paid. Check your wallet history before paying again.</p>
+                        {part.id === "author" && payment.promotionPaid && <p>Your Holoboard visibility payment is already confirmed.</p>}
+                        <p>{wallet?.id === part.attempt.walletId && wallet.lookupPayment ? "Wallet checks the original connection first and retries only after a confirmed failure." : "Reconnect the original wallet to check here, or review its history."}</p>
+                    </div>
+                    <PixelButton size="sm" variant="ghost" disabled={busy} onClick={() => onAcknowledge(part.id)}>I checked my wallet: {part.id === "board" ? "visibility" : "author support"} was not paid</PixelButton>
+                </section>)}
+            </div>}
             <div className="promotion-payment-heading">
             <details className="disclosure" aria-label="Payment post">
                 <summary className="focus-pixel flex min-h-11 cursor-pointer items-center gap-2 text-xs leading-relaxed text-cyan-100/70"><span data-promotion-text className="line-clamp-1 min-w-0 flex-1 break-all">For: {payment.noteSummary || payment.draft?.config.text || `post ${payment.board.noteId.slice(0, 8)}...${payment.board.noteId.slice(-6)}`}</span></summary>
@@ -133,17 +151,8 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
                 <p>Check your wallet first. Issued invoices are not cancelled and could still be paid. Restart returns to your promotion choices.</p>
                 <PixelButton className="w-full" size="sm" variant="ghost" disabled={busy} onClick={onRestart}>I haven't paid, restart</PixelButton>
             </div>}
-            {!blocked && !busy && !restartUnavailable && (restartConfirm ? <button type="button" className={actionClass} onClick={() => onRestartConfirm(false)}>Keep payment</button> : <button type="button" className={actionClass} onClick={() => onRestartConfirm(true)}>Restart payment</button>)}
+            {!blocked && !busy && !restartUnavailable && (restartConfirm ? <button type="button" className={actionClass} onClick={() => onRestartConfirm(false)}>Keep payment</button> : !invoiceAvailable && method === "invoice" ? <PixelButton size="sm" variant="accent" className="promotion-recovery-action" onClick={() => onRestartConfirm(true)}>Restart payment</PixelButton> : <button type="button" className={actionClass} onClick={() => onRestartConfirm(true)}>Restart payment</button>)}
             {parts.map((part) => !part.paid && !isMockInvoice(part.invoice) && <div key={part.id} className="space-y-2 text-xs text-cyan-100/70">
-                {part.attempt?.state === "uncertain" && !busy && <>
-                    <div role="status" className="space-y-2 border-l-2 border-neon-gold/50 bg-white/[0.03] p-3">
-                        <p className="promotion-label text-neon-gold">{part.id === "board" ? "Holoboard" : "Author"} payment not confirmed</p>
-                        <p>Your wallet did not confirm the {part.amount} sats {part.id === "board" ? "for Holoboard visibility" : "for the note's author"}. The payment may have succeeded. Look for this amount in your wallet's payment history before paying again.</p>
-                        {part.id === "author" && payment.promotionPaid && <p>Your Holoboard visibility payment is already confirmed.</p>}
-                        <p>{wallet?.id === part.attempt.walletId && wallet.lookupPayment ? "The Wallet action checks the original wallet before retrying. It only sends again if that wallet confirms a failure." : "Reconnect the wallet used for this payment to check it here, or check its history yourself."}</p>
-                    </div>
-                    <PixelButton size="sm" variant="ghost" disabled={busy} onClick={() => onAcknowledge(part.id)}>I checked my wallet: {part.id === "board" ? "visibility" : "author support"} was not paid</PixelButton>
-                </>}
                 {!busy && now >= part.expires * 1000 && (part.id === "board" ? <>
                     <p>The visibility invoice expired. We still check for a delayed confirmation. Check your wallet before starting another payment.</p>
                     {blocked && <PixelButton size="sm" variant="ghost" disabled={busy || (!!part.attempt && part.attempt.state !== "unpaid")} onClick={onReplaceBoard}>Replace visibility invoice after checking wallet</PixelButton>}
@@ -164,9 +173,9 @@ export function PromotionPayment({ id, payment, method, recipient, onRecipient, 
             {progress && (method !== "wallet" || !wallet) && <StatusMessage loading compact iconOnly>{progress}</StatusMessage>}
             {method === "wallet" ? wallet && <PixelButton className="w-full min-h-11" variant="accent" aria-label={walletLabel} aria-busy={!!progress} disabled={busy || connecting || !actionable.length} onClick={onPay}>
                 <span className="payment-action-progress">{progress && <StatusMessage loading compact iconOnly inline>{progress}</StatusMessage>}{walletLabel}</span>
-            </PixelButton> : invoiceAvailable && <div className="flex flex-wrap items-stretch gap-2">
-                <PixelLink className="min-h-11 flex-1" size="sm" variant="accent" href={`lightning:${selected.invoice}`}>Open in wallet</PixelLink>
-                <CopyButton key={selected.hash} value={selected.invoice} label="Copy invoice" />
+            </PixelButton> : invoiceAvailable && <div className="promotion-invoice-actions">
+                <PixelLink className="min-h-11 min-w-0 flex-1" size="sm" variant="accent" aria-label="Open in wallet" href={`lightning:${selected.invoice}`}>Open wallet</PixelLink>
+                <CopyButton key={selected.hash} value={selected.invoice} label="Copy" accessibleLabel="Copy invoice" />
             </div>}
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2">
                 <button type="button" className={`${actionClass} min-w-0 text-left`} onClick={onBack}>{boost ? "Back to boost" : "Back to budget"}</button>

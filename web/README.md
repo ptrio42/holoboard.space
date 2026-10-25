@@ -808,7 +808,11 @@ Editable dialogs fit the visual viewport above an on-screen keyboard and reveal
 the focused field within their own scroll body. Keep secondary header and footer
 copy compact while typing, preserve a reachable close action, and restore the
 normal layout after keyboard dismissal. Budget keeps its amount and applicable
-split together; invoice payment reserves room for the complete 220px QR.
+split together with a one-line post excerpt. Editing remains available through
+Post and Back to post. Invoice payment reserves room for the complete 220px QR,
+with Open wallet as its main action and Copy secondary. A bottom shadow signals
+further scrollable content and disappears at the end. Uncertain-payment warnings
+take precedence after a request ends; invoices stay available below them.
 The [keyboard viewport helper](tests/helpers/keyboardViewport.ts) models keyboard
 height and panning separately from the layout viewport. Its geometry assertions
 complement phone and desktop checks; they do not establish physical keyboard

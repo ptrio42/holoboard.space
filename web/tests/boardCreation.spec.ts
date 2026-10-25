@@ -508,7 +508,7 @@ test("Nostr sign-in preserves text and payment choices and can post anonymously"
     await page.getByRole("button", { name: "Post", exact: true }).click();
     await page.getByText("Author details", { exact: true }).click();
     await page.getByRole("checkbox", { name: "Post anonymously", exact: true }).check();
-    await expect(page.getByText("Posting as a guest. No account required.", { exact: true })).toBeVisible();
+    await expect(page.getByText("Guest, no account required.", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Review & continue", exact: true }).click();
     await expect(page.getByRole("button", { name: "Continue to payment · 333 sats", exact: true })).toBeEnabled();
     expect(state.signed?.pubkey).not.toBe(accountPubkey);

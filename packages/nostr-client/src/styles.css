@@ -360,6 +360,7 @@
 }
 
 /* Keep editing usable when the keyboard reduces only the visual viewport. */
+[data-modal-body][data-scroll-more="true"] { box-shadow: inset 0 -14px 12px -14px color-mix(in srgb, var(--color-neon-cyan) 65%, transparent); }
 [data-keyboard-open="true"] [data-modal-header] { align-items: center; padding: 4px 12px; }
 [data-keyboard-open="true"] [data-modal-header] > button { margin-block: 0; }
 [data-keyboard-open="true"] [data-modal-body] { padding: 12px; scroll-padding-block: 12px; overflow-anchor: none; }
