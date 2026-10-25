@@ -10,7 +10,7 @@ record deployment, not announcement publication.
 
 - Prepare Android 1.1.0 for Zapstore with the pink H launcher and splash assets,
   refreshed store screenshots and release checks that reject stale APKs.
-  APK signing, device acceptance and store publication remain pending.
+  Device acceptance and store publication remain pending.
 
 ## 2026-10-25
 
