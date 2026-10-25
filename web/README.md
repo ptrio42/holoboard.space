@@ -318,13 +318,14 @@ is separate from this implementation. Direct GIF links work without search.
 | `VITE_ENABLE_DISCUSSIONS` | Enable discussion reading; defaults to `false`. |
 | `VITE_ENABLE_PROFILES` | Enable author profile screens; defaults to `false`. |
 | `VITE_ENABLE_REPLY_PUBLICATION` | Enable replies when discussions and signer support are also enabled; defaults to `false`. |
+| `VITE_ENABLE_POST_CREATION` | Enable new guest or signer-authored posts when the backend also accepts creation; defaults to `false`. |
 | `VITE_SATS_ENDPOINT` | Optional board API base URL, with a `/campaigns` subresource. Defaults to the HTTP API origin followed by `/api/board`. |
 
 These settings are included at build time. Rebuild to change a deployed website.
 
-Cloudflare Pages builds on `main` take the four discussion, profile, signer and
-reply flags from [production-features.json](production-features.json). This
-versioned release profile overrides those four build-environment values; local
+Cloudflare Pages builds on `main` take the five discussion, profile, signer,
+reply and post-creation flags from [production-features.json](production-features.json).
+This versioned release profile overrides those five build-environment values; local
 builds and other branches retain their explicit environment flags and disabled
 defaults. Review the release gates before changing the production profile.
 Pages provides the build and branch markers described in its
@@ -332,6 +333,11 @@ Pages provides the build and branch markers described in its
 Production HTML includes a `holoboard-revision` meta tag with the Pages commit
 SHA, or the local Git HEAD for ordinary builds. Verify this tag after a push
 before recording a release as deployed. It identifies source, not a passed gate.
+
+Deploy the compatible backend and verify its API before pushing the reviewed
+`main` branch. The existing Cloudflare Pages Git integration builds and publishes
+the frontend automatically. This workflow requires neither Wrangler login nor
+a direct Pages upload. Check the Pages GitHub result and served revision.
 
 For production updates, follow the [Fly and Cloudflare deployment
 instructions](../relay/DEPLOYMENT.md#updating-the-existing-deployment).
@@ -755,10 +761,11 @@ signers when `VITE_ENABLE_NOSTR_CONNECT=true`. Sign-in preserves the live editor
 and payment choices. Guest posts work without a signer or account service.
 Email/password accounts are deferred separately. Cloudflare Pages builds on
 `main` use the reviewed flags in `production-features.json`, including
-`VITE_ENABLE_POST_CREATION=true` for the next release. Environment variables do
-not override this profile. The matching Fly configuration sets backend
+`VITE_ENABLE_POST_CREATION=true`. Environment variables do not override this
+profile. The matching Fly configuration sets backend
 `ENABLE_POST_CREATION=true`; deploy that compatible backend before the frontend.
-These source settings do not establish that either deployment has happened.
+Verify the backend and served frontend revision after deployment; source settings
+alone do not establish what is running.
 
 Ordinary native and container builds keep creation opt-in. For Compose, set
 both `ENABLE_POST_CREATION=true` and `VITE_ENABLE_POST_CREATION=true` in `.env`,

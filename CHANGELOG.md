@@ -6,6 +6,14 @@ record deployment, not announcement publication.
 
 ## Unreleased
 
+### Changed
+
+- Prepare Android 1.1.0 for Zapstore with the pink H launcher and splash assets,
+  refreshed store screenshots and release checks that reject stale APKs.
+  APK signing, device acceptance and store publication remain pending.
+
+## 2026-10-25
+
 ### Added
 
 - Add a local developer preview of reusable email/password accounts with stable
@@ -25,7 +33,8 @@ record deployment, not announcement publication.
   from a separately budgeted Lightning wallet. Discoveries remain unranked until
   promoted; author rewards do not change paid ranking. Public-relay collection
   also works without text-search support; review batches prioritize distinct
-  authors instead of favoring low event IDs or prolific accounts.
+  authors instead of favoring low event IDs or prolific accounts. The fund
+  remains disabled pending dry-run evidence and explicit admin activation.
 - Show discovery reasons and separate reward statuses, keeping first appearance
   unchanged when readers later promote a discovered post.
 - Review discoveries and proposed rewards in a private operator panel before
@@ -34,8 +43,6 @@ record deployment, not announcement publication.
 
 ### Changed
 
-- Prepare Android 1.1.0 for Zapstore with the pink H launcher and splash assets,
-  refreshed store screenshots and release checks that reject stale APKs.
 - Fit note columns to their media and text, place destination previews where they
   keep the complete card shorter, and bound long link labels on phones.
 - Share the maintained note editor, renderer and Nostr client primitives with

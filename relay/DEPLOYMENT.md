@@ -8,11 +8,13 @@ To run both parts together with Docker Compose, follow the
 Compose builds the non-root `standalone` image target. Fly builds the default
 `fly` target, which preserves `/root/data` and access to the existing volume.
 
-The next Add to board release enables guest text/link posts. The checked-in
+Add to board supports guest text/link posts. The checked-in
 Fly configuration sets backend `ENABLE_POST_CREATION=true`, matching the Pages
 production profile. Guest posts and existing Nostr signers do not require an
-account service. Deploy the compatible backend before the frontend. These source
-settings do not establish that deployment has happened.
+account service. Deploy and verify the compatible backend before pushing the
+reviewed `main` branch to publish the frontend through Cloudflare Pages Git
+integration. Verify the served revision; source settings alone do not establish
+what is running.
 A UI rollback may turn off fresh creation, but retain private invoice
 snapshots, `publish_original`, `quote_authors` and durable `original` publication
 records. Already issued invoices must still settle without browser credentials.
@@ -198,8 +200,12 @@ that profile. Ordinary builds keep their disabled defaults. Use production
 HTTP and WebSocket origins in Pages and keep unresolved device or payment checks
 explicit; preparing a profile does not close those release gates.
 
-After pushing the production branch, confirm that the successful Pages deployment
-belongs to the intended release SHA. Check that the production site serves its
+The existing Pages Git integration automatically builds and publishes a push to
+`main`. Do not use a direct Pages upload or require Wrangler login for this
+workflow. Push only the reviewed branch, without backup refs or unrelated tags.
+After pushing, confirm that the Cloudflare Pages GitHub check succeeds and that
+the successful Pages deployment belongs to the intended release SHA.
+Check that the production site serves its
 new JavaScript asset, then verify TOP 21, Waiting room, a link preview and a quoted
 note. Quote retrieval is lazy: bring the quote into view before checking it.
 Record any timeout separately; a successful retry does not prove relay reliability.
